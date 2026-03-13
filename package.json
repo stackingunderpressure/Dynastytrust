@@ -1,0 +1,21 @@
+{
+  "name": "dynastytrust",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@netlify/functions": "^2.8.1",
+    "@supabase/supabase-js": "^2.49.1",
+    "jose": "^5.9.6",
+    "pdf-lib": "^1.17.1",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "dotenv": "^16.4.5"
+  },
+  "scripts": {
+    "build": "node scripts/inject-config.js",
+    "dev:inject": "node -e \"import('dotenv/config').then(() => import('./scripts/inject-config.js'))\"",
+    "dev": "npm run dev:inject && netlify dev",
+    "test": "cargo test --workspace"
+  }
+}

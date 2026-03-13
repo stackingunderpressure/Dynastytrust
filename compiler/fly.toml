@@ -1,0 +1,34 @@
+# DynastyTrust — Compiler Service
+# Deploy: fly deploy --config compiler/fly.toml
+# First time: fly launch --config compiler/fly.toml (from repo root)
+
+app            = "dynastytrust-compiler"
+primary_region = "mia"
+
+# Build from repo root so Docker COPY paths work correctly
+[build]
+  dockerfile = "compiler/Dockerfile"
+
+[env]
+  PORT = "8080"
+
+# COMPILER_SECRET must be set as a Fly secret:
+#   fly secrets set COMPILER_SECRET=<your-random-secret> --config compiler/fly.toml
+# Generate one with: openssl rand -hex 32
+
+[http_service]
+  internal_port    = 8080
+  force_https      = true
+  auto_stop_machines  = "stop"   # Scale to zero when idle (saves $)
+  auto_start_machines = true     # Wake on first request (~2s cold start)
+  min_machines_running = 1       # Keep 1 always warm — avoids cold start timeout
+
+  [http_service.concurrency]
+    type       = "requests"
+    hard_limit = 50
+    soft_limit = 25
+
+[[vm]]
+  cpu_kind  = "shared"
+  cpus      = 1
+  memory_mb = 512

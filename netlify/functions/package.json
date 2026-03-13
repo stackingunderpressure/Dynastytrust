@@ -1,0 +1,5 @@
+{
+  "name": "dynastytrust-netlify-functions",
+  "private": true,
+  "type": "module"
+}
