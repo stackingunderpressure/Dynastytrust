@@ -1,0 +1,159 @@
+/**
+ * /api/proposals
+ *
+ * GET  ?vault_id=<uuid>   — list proposals for a vault
+ * POST                    — create a new proposal (runs governance audit)
+ * PATCH ?id=<uuid>        — update status, add signed PSBT, mark broadcast
+ */
+
+import { requireUser, json } from './_auth.js';
+import { getSupabaseAdmin } from './_supabase.js';
+
+const COMPILER_URL    = process.env.COMPILER_URL;
+const COMPILER_SECRET = process.env.COMPILER_SECRET;
+
+async function runGovernanceAudit(vault, proposal) {
+  const body = {
+    founder_quorum:    vault.founder_quorum,
+    founder_key_count: (vault.founder_keys || []).length,
+    heir_quorum:       vault.heir_quorum,
+    heir_key_count:    (vault.heir_keys || []).length,
+    recovery_after:    vault.recovery_after,
+    inheritance_after: vault.inheritance_after,
+    path:              proposal.path,
+    amount_sats:       proposal.amount_sats,
+    destination:       proposal.destination,
+    utxo_age_blocks:   proposal.utxo_age_blocks || 0,
+    total_vault_sats:  proposal.total_vault_sats || 0,
+    signers:           [],  // no signatures yet on creation
+  };
+
+  if (!COMPILER_URL) return null;
+
+  try {
+    const res = await fetch(`${COMPILER_URL.replace(/\/$/, '')}/governance/audit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(COMPILER_SECRET ? { Authorization: `Bearer ${COMPILER_SECRET}` } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) return null;
+    return res.json();
+  } catch { return null; }
+}
+
+export async function handler(event) {
+  const u = await requireUser(event);
+  if (u.error) return json(401, { error: u.error });
+
+  const supabase = getSupabaseAdmin();
+
+  // ── GET: list proposals ──────────────────────────────────────────────────
+  if (event.httpMethod === 'GET') {
+    const vault_id = event.queryStringParameters?.vault_id;
+    if (!vault_id) return json(400, { error: 'Missing: vault_id' });
+
+    const { data, error } = await supabase
+      .from('proposals')
+      .select(`
+        *,
+        signer_sessions (id, signer_index, signer_role, label, signed, signed_at)
+      `)
+      .eq('vault_id', vault_id)
+      .eq('user_id', u.userId)
+      .order('created_at', { ascending: false });
+
+    if (error) return json(500, { error: error.message });
+    return json(200, { ok: true, proposals: data });
+  }
+
+  // ── POST: create proposal ────────────────────────────────────────────────
+  if (event.httpMethod === 'POST') {
+    let body;
+    try { body = JSON.parse(event.body || '{}'); } catch { return json(400, { error: 'Invalid JSON' }); }
+
+    const { vault_id, path = 'founders_now', destination, amount_sats, fee_sats = 0,
+            fee_rate, utxo_age_blocks = 0, total_vault_sats = 0, memo, psbt_hex, psbt_b64 } = body;
+
+    if (!vault_id)    return json(400, { error: 'Missing: vault_id' });
+    if (!destination) return json(400, { error: 'Missing: destination' });
+    if (!amount_sats || amount_sats < 546) return json(400, { error: 'amount_sats must be >= 546' });
+
+    // Load vault for governance audit
+    const { data: vault } = await supabase
+      .from('vaults')
+      .select('*')
+      .eq('id', vault_id)
+      .eq('user_id', u.userId)
+      .single();
+
+    if (!vault) return json(404, { error: 'Vault not found' });
+
+    // Run governance audit
+    const audit = await runGovernanceAudit(vault, { path, destination, amount_sats, utxo_age_blocks, total_vault_sats });
+
+    const { data: proposal, error: propErr } = await supabase
+      .from('proposals')
+      .insert({
+        vault_id, user_id: u.userId,
+        path, destination, amount_sats, fee_sats,
+        fee_rate, utxo_age_blocks, total_vault_sats, memo,
+        psbt_hex:  psbt_hex  || null,
+        psbt_b64:  psbt_b64  || null,
+        status:    psbt_hex ? 'pending' : 'draft',
+        governance_audit: audit,
+      })
+      .select()
+      .single();
+
+    if (propErr) return json(500, { error: propErr.message });
+
+    // Log event
+    await supabase.from('vault_events').insert({
+      vault_id, user_id: u.userId,
+      event_type: 'psbt_generated',
+      metadata: { proposal_id: proposal.id, path, amount_sats, destination },
+    });
+
+    return json(201, { ok: true, proposal, governance_audit: audit });
+  }
+
+  // ── PATCH: update proposal ───────────────────────────────────────────────
+  if (event.httpMethod === 'PATCH') {
+    const id = event.queryStringParameters?.id;
+    if (!id) return json(400, { error: 'Missing: ?id=<proposal-uuid>' });
+
+    let body;
+    try { body = JSON.parse(event.body || '{}'); } catch { return json(400, { error: 'Invalid JSON' }); }
+
+    const allowed = ['status', 'psbt_hex', 'psbt_b64', 'psbt_signed_hex', 'txid', 'memo'];
+    const updates = Object.fromEntries(Object.entries(body).filter(([k]) => allowed.includes(k)));
+
+    if (!Object.keys(updates).length) return json(400, { error: 'No valid fields to update' });
+
+    const { data: updated, error: upErr } = await supabase
+      .from('proposals')
+      .update(updates)
+      .eq('id', id)
+      .eq('user_id', u.userId)
+      .select()
+      .single();
+
+    if (upErr) return json(500, { error: upErr.message });
+
+    // Log status transitions
+    if (updates.status) {
+      await supabase.from('vault_events').insert({
+        vault_id: updated.vault_id, user_id: u.userId,
+        event_type: updates.status === 'broadcast' ? 'signed' : updates.status,
+        metadata: { proposal_id: id, txid: updates.txid || null },
+      });
+    }
+
+    return json(200, { ok: true, proposal: updated });
+  }
+
+  return json(405, { error: 'Method not allowed' });
+}

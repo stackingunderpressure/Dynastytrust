@@ -1,0 +1,2148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DynastyTrust — Bitcoin Vault Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&family=DM+Mono:wght@300;400;500&family=Cinzel:wght@400;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <style>
+    :root {
+      --gold: #C9A84C;
+      --gold-light: #E8C97A;
+      --gold-dim: #8B6914;
+      --obsidian: #0A0A0F;
+      --deep: #111118;
+      --surface: #161622;
+      --surface2: #1E1E2E;
+      --surface3: #252538;
+      --border: rgba(201,168,76,0.15);
+      --border-bright: rgba(201,168,76,0.4);
+      --text: #E8E4D8;
+      --text-dim: #9994A8;
+      --text-muted: #5A5570;
+      --red: #E05252;
+      --green: #52C47A;
+      --radius: 4px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      background: var(--obsidian);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Grid texture ── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(201,168,76,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(201,168,76,0.03) 1px, transparent 1px);
+      background-size: 48px 48px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Auth Screen ── */
+    #auth-screen {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      background: var(--obsidian);
+    }
+
+    .auth-card {
+      width: 420px;
+      max-width: calc(100vw - 32px);
+      border: 1px solid var(--border-bright);
+      background: var(--surface);
+      padding: 48px;
+      position: relative;
+    }
+
+    .auth-card::before {
+      content: '';
+      position: absolute;
+      top: -1px; left: 12px; right: 12px;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--gold), transparent);
+    }
+
+    .brand {
+      font-family: 'Cinzel', serif;
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: 0.15em;
+      color: var(--gold);
+      text-align: center;
+      margin-bottom: 6px;
+    }
+
+    .brand-sub {
+      font-size: 13px;
+      color: var(--text-dim);
+      text-align: center;
+      letter-spacing: 0.08em;
+      margin-bottom: 40px;
+    }
+
+    .auth-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 32px;
+    }
+
+    .auth-tab {
+      flex: 1;
+      padding: 10px;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 15px;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+    }
+
+    .auth-tab.active {
+      color: var(--gold);
+      border-bottom-color: var(--gold);
+    }
+
+    /* ── Form Controls ── */
+    .field { margin-bottom: 20px; }
+
+    label {
+      display: block;
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      color: var(--text-dim);
+      margin-bottom: 8px;
+      text-transform: uppercase;
+    }
+
+    input, select, textarea {
+      width: 100%;
+      background: var(--deep);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 12px 14px;
+      font-family: 'DM Mono', monospace;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s;
+      border-radius: var(--radius);
+    }
+
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--gold-dim);
+    }
+
+    input::placeholder { color: var(--text-muted); }
+
+    select option { background: var(--deep); }
+
+    textarea { resize: vertical; min-height: 80px; }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 13px 24px;
+      font-family: 'Cinzel', serif;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+      border-radius: var(--radius);
+    }
+
+    .btn-primary {
+      background: var(--gold);
+      color: var(--obsidian);
+      width: 100%;
+    }
+    .btn-primary:hover { background: var(--gold-light); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-ghost {
+      background: transparent;
+      border: 1px solid var(--border-bright);
+      color: var(--gold);
+    }
+    .btn-ghost:hover { background: rgba(201,168,76,0.08); }
+
+    .btn-danger {
+      background: transparent;
+      border: 1px solid rgba(224,82,82,0.3);
+      color: var(--red);
+    }
+    .btn-danger:hover { background: rgba(224,82,82,0.08); }
+
+    .btn-sm { padding: 8px 16px; font-size: 10px; }
+
+    /* ── App Shell ── */
+    #app {
+      display: none;
+      min-height: 100vh;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      position: fixed;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 240px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      z-index: 50;
+    }
+
+    .sidebar-brand {
+      padding: 28px 24px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .sidebar-brand .brand { text-align: left; font-size: 17px; margin-bottom: 2px; }
+    .sidebar-brand .brand-sub { text-align: left; margin-bottom: 0; font-size: 11px; }
+
+    .nav {
+      flex: 1;
+      padding: 16px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: var(--radius);
+      cursor: pointer;
+      color: var(--text-dim);
+      font-size: 14px;
+      letter-spacing: 0.04em;
+      transition: all 0.15s;
+      background: none;
+      border: none;
+      text-align: left;
+      width: 100%;
+    }
+
+    .nav-item:hover { background: rgba(201,168,76,0.06); color: var(--text); }
+    .nav-item.active { background: rgba(201,168,76,0.1); color: var(--gold); }
+
+    .nav-icon { font-size: 16px; width: 20px; text-align: center; }
+
+    .sidebar-footer {
+      padding: 16px 12px;
+      border-top: 1px solid var(--border);
+    }
+
+    .user-badge {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: var(--surface2);
+      border-radius: var(--radius);
+      margin-bottom: 10px;
+    }
+
+    .user-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--gold-dim);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      color: var(--obsidian);
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .user-email {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--text-dim);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* ── Main Content ── */
+    .main {
+      margin-left: 240px;
+      min-height: 100vh;
+      padding: 40px 48px;
+    }
+
+    .page { display: none; animation: fadeIn 0.3s ease; }
+    .page.active { display: block; }
+
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+    .page-header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      margin-bottom: 40px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .page-title {
+      font-family: 'Cinzel', serif;
+      font-size: 26px;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: 0.06em;
+    }
+
+    .page-subtitle {
+      font-size: 15px;
+      color: var(--text-dim);
+      margin-top: 4px;
+    }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 32px;
+      position: relative;
+    }
+
+    .card-title {
+      font-family: 'Cinzel', serif;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      color: var(--gold);
+      margin-bottom: 20px;
+      text-transform: uppercase;
+    }
+
+    /* ── Vault Grid ── */
+    .vault-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 20px;
+    }
+
+    .vault-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .vault-card::after {
+      content: '';
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--gold), transparent);
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .vault-card:hover { border-color: var(--border-bright); transform: translateY(-2px); }
+    .vault-card:hover::after { opacity: 1; }
+
+    .vault-name {
+      font-family: 'Cinzel', serif;
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+
+    .vault-network {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      padding: 3px 8px;
+      border-radius: 2px;
+      margin-bottom: 16px;
+    }
+
+    .vault-network.testnet { background: rgba(82,196,122,0.1); color: var(--green); border: 1px solid rgba(82,196,122,0.2); }
+    .vault-network.mainnet { background: rgba(201,168,76,0.1); color: var(--gold); border: 1px solid var(--border); }
+
+    .vault-address {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--text-muted);
+      word-break: break-all;
+      line-height: 1.5;
+      margin-bottom: 16px;
+    }
+
+    .vault-meta {
+      display: flex;
+      gap: 20px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .vault-meta-item { display: flex; flex-direction: column; gap: 2px; }
+    .vault-meta-label { font-size: 10px; letter-spacing: 0.08em; color: var(--text-muted); text-transform: uppercase; }
+    .vault-meta-value { color: var(--text-dim); font-family: 'DM Mono', monospace; font-size: 12px; }
+
+    /* ── Vault Detail ── */
+    .vault-detail-header {
+      margin-bottom: 32px;
+    }
+
+    .back-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--gold-dim);
+      font-size: 13px;
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 0;
+      margin-bottom: 20px;
+      letter-spacing: 0.04em;
+      transition: color 0.15s;
+    }
+    .back-btn:hover { color: var(--gold); }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 24px;
+    }
+
+    @media (max-width: 900px) { .detail-grid { grid-template-columns: 1fr; } }
+
+    .detail-field {
+      background: var(--deep);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+    }
+
+    .detail-field .label {
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      display: block;
+      margin-bottom: 8px;
+    }
+
+    .detail-field .value {
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      color: var(--text);
+      word-break: break-all;
+      line-height: 1.6;
+    }
+
+    .copy-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      color: var(--gold-dim);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 4px 0 0;
+      letter-spacing: 0.06em;
+      transition: color 0.15s;
+    }
+    .copy-btn:hover { color: var(--gold); }
+
+    /* ── Create Vault Wizard ── */
+    .wizard-steps {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      margin-bottom: 40px;
+    }
+
+    .wizard-step {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      letter-spacing: 0.04em;
+    }
+
+    .step-num {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      color: var(--text-muted);
+      flex-shrink: 0;
+      transition: all 0.2s;
+    }
+
+    .wizard-step.active .step-num {
+      border-color: var(--gold);
+      color: var(--gold);
+      background: rgba(201,168,76,0.1);
+    }
+
+    .wizard-step.done .step-num {
+      background: var(--gold);
+      color: var(--obsidian);
+      border-color: var(--gold);
+    }
+
+    .step-label { color: var(--text-dim); }
+    .wizard-step.active .step-label { color: var(--text); }
+    .wizard-step.done .step-label { color: var(--text-dim); }
+
+    .wizard-line {
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+      margin: 0 12px;
+      min-width: 20px;
+    }
+
+    .wizard-panel { display: none; }
+    .wizard-panel.active { display: block; }
+
+    /* ── Keys Input ── */
+    .keys-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+
+    .key-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .key-row input { flex: 1; font-size: 11px; }
+
+    .remove-key-btn {
+      width: 32px;
+      height: 40px;
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: var(--radius);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: all 0.15s;
+    }
+    .remove-key-btn:hover { border-color: var(--red); color: var(--red); }
+
+    /* ── Key action buttons (Generate / QR) ── */
+    .key-actions {
+      display: flex;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .key-action-btn {
+      width: 36px;
+      height: 40px;
+      background: rgba(201,168,76,0.06);
+      border: 1px solid rgba(201,168,76,0.3);
+      color: var(--gold-dim);
+      cursor: pointer;
+      border-radius: var(--radius);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: all 0.15s;
+      font-size: 15px;
+      position: relative;
+    }
+    .key-action-btn:hover { background: rgba(201,168,76,0.12); border-color: var(--gold); color: var(--gold); }
+    .key-action-btn.qr-btn { font-size: 16px; }
+    .key-action-btn[title]:hover::after {
+      content: attr(title);
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--surface3);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      font-size: 10px;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+      padding: 4px 8px;
+      border-radius: 3px;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    /* ── Keygen Modal ── */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(10,10,15,0.85);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      padding: 16px;
+      backdrop-filter: blur(2px);
+    }
+
+    .modal-box {
+      width: 100%;
+      max-width: 520px;
+      background: var(--surface);
+      border: 1px solid var(--border-bright);
+      border-radius: var(--radius);
+      padding: 36px;
+      position: relative;
+    }
+
+    .modal-box::before {
+      content: '';
+      position: absolute;
+      top: -1px; left: 12px; right: 12px;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--gold), transparent);
+    }
+
+    .modal-title {
+      font-family: 'Cinzel', serif;
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      color: var(--gold);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+    }
+
+    .modal-sub {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 24px;
+      line-height: 1.6;
+    }
+
+    .privkey-warning {
+      background: rgba(224,82,82,0.08);
+      border: 1px solid rgba(224,82,82,0.3);
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      font-size: 12px;
+      color: #E08080;
+      margin-bottom: 20px;
+      line-height: 1.6;
+      display: flex;
+      gap: 8px;
+    }
+
+    .key-display {
+      background: var(--deep);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      margin-bottom: 12px;
+    }
+
+    .key-display-label {
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      display: block;
+      margin-bottom: 8px;
+    }
+
+    .key-display-value {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--text);
+      word-break: break-all;
+      line-height: 1.7;
+    }
+
+    .key-display-value.pubkey { color: var(--green); }
+    .key-display-value.privkey { color: #E08080; }
+
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 24px;
+    }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed;
+      bottom: 32px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: var(--surface3);
+      border: 1px solid var(--border-bright);
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      letter-spacing: 0.05em;
+      padding: 10px 20px;
+      border-radius: 4px;
+      z-index: 999;
+      opacity: 0;
+      transition: all 0.25s;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* ── Quorum Selector ── */
+    .quorum-row {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .quorum-label { font-size: 13px; color: var(--text-dim); flex-shrink: 0; }
+
+    .quorum-buttons {
+      display: flex;
+      gap: 6px;
+    }
+
+    .quorum-btn {
+      width: 36px;
+      height: 36px;
+      border: 1px solid var(--border);
+      background: var(--deep);
+      color: var(--text-dim);
+      font-family: 'DM Mono', monospace;
+      font-size: 14px;
+      cursor: pointer;
+      border-radius: var(--radius);
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .quorum-btn.selected {
+      border-color: var(--gold);
+      color: var(--gold);
+      background: rgba(201,168,76,0.1);
+    }
+
+    /* ── Timelock Slider ── */
+    .timelock-display {
+      font-family: 'DM Mono', monospace;
+      font-size: 13px;
+      color: var(--gold);
+      margin-bottom: 8px;
+    }
+
+    input[type="range"] {
+      -webkit-appearance: none;
+      height: 4px;
+      background: var(--border);
+      border: none;
+      padding: 0;
+      border-radius: 2px;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      background: var(--gold);
+      border-radius: 50%;
+      cursor: pointer;
+    }
+
+    /* ── Result Box ── */
+    .result-box {
+      background: var(--deep);
+      border: 1px solid var(--border-bright);
+      border-radius: var(--radius);
+      padding: 24px;
+      position: relative;
+    }
+
+    .result-box::before {
+      content: 'COMPILED';
+      position: absolute;
+      top: -1px; left: 20px;
+      font-family: 'DM Mono', monospace;
+      font-size: 9px;
+      letter-spacing: 0.15em;
+      color: var(--gold);
+      background: var(--gold);
+      color: var(--obsidian);
+      padding: 2px 8px;
+    }
+
+    .result-address {
+      font-family: 'DM Mono', monospace;
+      font-size: 14px;
+      color: var(--text);
+      word-break: break-all;
+      line-height: 1.6;
+      margin-bottom: 20px;
+      margin-top: 8px;
+    }
+
+    /* ── Stats ── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 40px;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+    }
+
+    .stat-number {
+      font-family: 'Cinzel', serif;
+      font-size: 36px;
+      font-weight: 700;
+      color: var(--gold);
+      line-height: 1;
+      margin-bottom: 6px;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+
+    /* ── Alerts ── */
+    .alert {
+      padding: 14px 18px;
+      border-radius: var(--radius);
+      font-size: 14px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .alert-error { background: rgba(224,82,82,0.08); border: 1px solid rgba(224,82,82,0.25); color: #E08080; }
+    .alert-success { background: rgba(82,196,122,0.08); border: 1px solid rgba(82,196,122,0.25); color: var(--green); }
+    .alert-info { background: rgba(201,168,76,0.08); border: 1px solid var(--border); color: var(--text-dim); }
+
+    /* ── Empty State ── */
+    .empty {
+      text-align: center;
+      padding: 80px 40px;
+      color: var(--text-muted);
+    }
+
+    .empty-icon { font-size: 48px; margin-bottom: 16px; opacity: 0.4; }
+    .empty-title { font-family: 'Cinzel', serif; font-size: 18px; color: var(--text-dim); margin-bottom: 8px; }
+    .empty-sub { font-size: 14px; line-height: 1.6; margin-bottom: 28px; }
+
+    /* ── Loading ── */
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 60px;
+      color: var(--text-muted);
+      font-size: 14px;
+      gap: 10px;
+    }
+
+    .spinner {
+      width: 18px;
+      height: 18px;
+      border: 2px solid var(--border);
+      border-top-color: var(--gold);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Docs Page ── */
+    .docs-content { max-width: 760px; }
+    .docs-section { margin-bottom: 48px; }
+    .docs-h2 { font-family: 'Cinzel', serif; font-size: 18px; font-weight: 600; color: var(--gold); margin-bottom: 16px; letter-spacing: 0.08em; }
+    .docs-p { font-size: 16px; line-height: 1.8; color: var(--text-dim); margin-bottom: 16px; }
+    .docs-code { font-family: 'DM Mono', monospace; font-size: 12px; background: var(--deep); border: 1px solid var(--border); padding: 16px 20px; border-radius: var(--radius); color: var(--text); line-height: 1.7; margin-bottom: 16px; overflow-x: auto; white-space: pre; }
+    .docs-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+    .docs-table th, .docs-table td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); font-size: 14px; }
+    .docs-table th { font-size: 11px; letter-spacing: 0.08em; color: var(--text-muted); text-transform: uppercase; }
+    .docs-table td { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--text-dim); }
+
+    /* ── Mobile ── */
+    @media (max-width: 768px) {
+      .sidebar { transform: translateX(-100%); transition: transform 0.3s; }
+      .sidebar.open { transform: none; }
+      .main { margin-left: 0; padding: 20px; }
+      .stats-grid { grid-template-columns: 1fr; }
+      .vault-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ── Separator ── */
+    .sep { height: 1px; background: var(--border); margin: 24px 0; }
+
+    /* ── Tag ── */
+    .tag {
+      display: inline-block;
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      padding: 2px 8px;
+      border-radius: 2px;
+      background: rgba(201,168,76,0.08);
+      border: 1px solid var(--border);
+      color: var(--gold-dim);
+    }
+
+    .wizard-nav {
+      display: flex;
+      gap: 12px;
+      margin-top: 32px;
+      justify-content: flex-end;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ══ AUTH SCREEN ══════════════════════════════════════════════════════════ -->
+<div id="auth-screen">
+  <div class="auth-card">
+    <div class="brand">DYNASTYTRUST</div>
+    <div class="brand-sub">Bitcoin Vault Platform</div>
+
+    <div class="auth-tabs">
+      <button class="auth-tab active" onclick="setAuthMode('login')">Sign In</button>
+      <button class="auth-tab" onclick="setAuthMode('signup')">Create Account</button>
+    </div>
+
+    <div id="auth-error" class="alert alert-error" style="display:none"></div>
+
+    <div class="field">
+      <label>Email Address</label>
+      <input type="email" id="auth-email" placeholder="you@example.com" autocomplete="email" />
+    </div>
+
+    <div class="field">
+      <label>Password</label>
+      <input type="password" id="auth-password" placeholder="••••••••••••" autocomplete="current-password" />
+    </div>
+
+    <button class="btn btn-primary" id="auth-btn" onclick="handleAuth()">
+      <span id="auth-btn-text">Sign In</span>
+    </button>
+  </div>
+</div>
+
+<!-- ══ APP ═════════════════════════════════════════════════════════════════ -->
+<div id="app">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand">DYNASTYTRUST</div>
+      <div class="brand-sub">Bitcoin Vault Platform</div>
+    </div>
+
+    <nav class="nav">
+      <button class="nav-item active" onclick="showPage('dashboard')">
+        <span class="nav-icon">◈</span> Dashboard
+      </button>
+      <button class="nav-item" onclick="showPage('vaults')">
+        <span class="nav-icon">⬡</span> My Vaults
+      </button>
+      <button class="nav-item" onclick="showPage('create')">
+        <span class="nav-icon">✦</span> Create Vault
+      </button>
+      <button class="nav-item" onclick="showPage('docs')">
+        <span class="nav-icon">◎</span> Policy Guide
+      </button>
+      <button class="nav-item" onclick="showPage('keys')">
+        <span class="nav-icon">⚿</span> Key Manager
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="user-badge">
+        <div class="user-avatar" id="user-avatar">—</div>
+        <div class="user-email" id="user-email">loading…</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="signOut()" style="width:100%">Sign Out</button>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+
+    <!-- ── Dashboard ── -->
+    <div id="page-dashboard" class="page active">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Dashboard</div>
+          <div class="page-subtitle">Your dynasty vault overview</div>
+        </div>
+        <button class="btn btn-ghost" onclick="showPage('create')">✦ New Vault</button>
+      </div>
+
+      <div class="stats-grid" id="stats-grid">
+        <div class="stat-card">
+          <div class="stat-number" id="stat-total">—</div>
+          <div class="stat-label">Total Vaults</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number" id="stat-mainnet">—</div>
+          <div class="stat-label">Mainnet Vaults</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number" id="stat-testnet">—</div>
+          <div class="stat-label">Testnet Vaults</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Recent Vaults</div>
+        <div id="recent-vaults">
+          <div class="loading"><div class="spinner"></div> Loading…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Vaults List ── -->
+    <div id="page-vaults" class="page">
+      <div class="page-header">
+        <div>
+          <div class="page-title">My Vaults</div>
+          <div class="page-subtitle">All compiled dynasty vaults</div>
+        </div>
+        <button class="btn btn-ghost" onclick="showPage('create')">✦ New Vault</button>
+      </div>
+
+      <div id="vaults-list">
+        <div class="loading"><div class="spinner"></div> Loading…</div>
+      </div>
+    </div>
+
+    <!-- ── Vault Detail ── -->
+    <div id="page-vault-detail" class="page">
+      <button class="back-btn" onclick="showPage('vaults')">← Back to Vaults</button>
+      <div id="vault-detail-content">
+        <div class="loading"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- ── Create Vault ── -->
+    <div id="page-create" class="page">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Create Vault</div>
+          <div class="page-subtitle">Configure your dynasty trust policy</div>
+        </div>
+      </div>
+
+      <div class="wizard-steps" id="wizard-steps">
+        <div class="wizard-step active" id="wstep-1">
+          <div class="step-num">1</div>
+          <div class="step-label">Founders</div>
+        </div>
+        <div class="wizard-line"></div>
+        <div class="wizard-step" id="wstep-2">
+          <div class="step-num">2</div>
+          <div class="step-label">Heirs</div>
+        </div>
+        <div class="wizard-line"></div>
+        <div class="wizard-step" id="wstep-3">
+          <div class="step-num">3</div>
+          <div class="step-label">Timelocks</div>
+        </div>
+        <div class="wizard-line"></div>
+        <div class="wizard-step" id="wstep-4">
+          <div class="step-num">4</div>
+          <div class="step-label">Review</div>
+        </div>
+      </div>
+
+      <!-- Step 1: Founders -->
+      <div class="wizard-panel active card" id="wpanel-1">
+        <div class="card-title">Founder Keys & Quorum</div>
+        <div class="alert alert-info">
+          Enter the compressed public keys (hex) for each vault founder. These keys can spend the vault at any time with the required quorum.
+        </div>
+
+        <div class="field">
+          <label>Vault Name</label>
+          <input type="text" id="vault-name" placeholder="Family Trust 2025" />
+        </div>
+
+        <div class="field">
+          <label>Network</label>
+          <select id="vault-network">
+            <option value="testnet">Testnet (Testing)</option>
+            <option value="bitcoin">Bitcoin (Mainnet)</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Address Type</label>
+          <select id="vault-addrtype">
+            <option value="tr">Taproot (TR) — Recommended</option>
+            <option value="tr_multileaf">Taproot Multi-leaf — Privacy Enhanced</option>
+            <option value="wsh">SegWit v0 (WSH) — Legacy</option>
+          </select>
+        </div>
+
+        <div class="sep"></div>
+
+        <div class="field">
+          <label>Founder Public Keys</label>
+          <div class="keys-list" id="founder-keys-list"></div>
+          <button class="btn btn-ghost btn-sm" onclick="addKey('founder')">+ Add Founder Key</button>
+        </div>
+
+        <div class="field">
+          <label>Required Founder Signatures (Quorum)</label>
+          <div class="quorum-row">
+            <span class="quorum-label" id="founder-quorum-label">2 of 2</span>
+            <div class="quorum-buttons" id="founder-quorum-btns"></div>
+          </div>
+        </div>
+
+        <div class="wizard-nav">
+          <button class="btn btn-primary" onclick="wizardNext(1)">Next: Heir Keys →</button>
+        </div>
+      </div>
+
+      <!-- Step 2: Heirs -->
+      <div class="wizard-panel card" id="wpanel-2">
+        <div class="card-title">Heir Keys & Quorum</div>
+        <div class="alert alert-info">
+          Enter public keys for the vault beneficiaries. Heirs can only spend after the inheritance timelock expires.
+        </div>
+
+        <div class="field">
+          <label>Heir Public Keys</label>
+          <div class="keys-list" id="heir-keys-list"></div>
+          <button class="btn btn-ghost btn-sm" onclick="addKey('heir')">+ Add Heir Key</button>
+        </div>
+
+        <div class="field">
+          <label>Required Heir Signatures (Quorum)</label>
+          <div class="quorum-row">
+            <span class="quorum-label" id="heir-quorum-label">2 of 2</span>
+            <div class="quorum-buttons" id="heir-quorum-btns"></div>
+          </div>
+        </div>
+
+        <div class="wizard-nav">
+          <button class="btn btn-ghost" onclick="wizardBack(2)">← Back</button>
+          <button class="btn btn-primary" onclick="wizardNext(2)">Next: Timelocks →</button>
+        </div>
+      </div>
+
+      <!-- Step 3: Timelocks -->
+      <div class="wizard-panel card" id="wpanel-3">
+        <div class="card-title">Timelock Configuration</div>
+        <div class="alert alert-info">
+          Timelocks are measured in Bitcoin blocks (~10 min each). Recovery must be at least 6 months (26,000 blocks). Inheritance must be later than recovery.
+        </div>
+
+        <div class="field">
+          <label>Recovery Timelock</label>
+          <div class="timelock-display" id="recovery-display">26,000 blocks (~6 months)</div>
+          <input type="range" id="recovery-slider" min="26000" max="262800" step="1000" value="52560"
+            oninput="updateTimelockDisplay()" />
+          <div style="font-size:12px; color:var(--text-muted); margin-top:6px;">
+            Emergency recovery by founders only. Minimum 26,000 blocks (~6 months).
+          </div>
+        </div>
+
+        <div class="sep"></div>
+
+        <div class="field">
+          <label>Inheritance Timelock</label>
+          <div class="timelock-display" id="inheritance-display">262,800 blocks (~5 years)</div>
+          <input type="range" id="inheritance-slider" min="52560" max="525600" step="2628" value="262800"
+            oninput="updateTimelockDisplay()" />
+          <div style="font-size:12px; color:var(--text-muted); margin-top:6px;">
+            After this, heirs can spend. Must be longer than recovery.
+          </div>
+        </div>
+
+        <div class="wizard-nav">
+          <button class="btn btn-ghost" onclick="wizardBack(3)">← Back</button>
+          <button class="btn btn-primary" onclick="wizardNext(3)">Review & Compile →</button>
+        </div>
+      </div>
+
+      <!-- Step 4: Review -->
+      <div class="wizard-panel card" id="wpanel-4">
+        <div class="card-title">Review & Compile</div>
+
+        <div id="create-error" class="alert alert-error" style="display:none"></div>
+        <div id="create-result" style="display:none">
+          <div class="alert alert-success">✓ Vault compiled and saved successfully</div>
+
+          <div class="result-box">
+            <div class="result-address" id="result-address">—</div>
+            <div style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">Bitcoin Address</div>
+
+            <div class="field" style="margin-bottom:12px;">
+              <label>Output Descriptor</label>
+              <textarea id="result-descriptor" readonly rows="3" style="font-size:11px;"></textarea>
+            </div>
+
+            <div class="field">
+              <label>Miniscript Policy</label>
+              <textarea id="result-policy" readonly rows="3" style="font-size:11px;"></textarea>
+            </div>
+          </div>
+
+          <div class="wizard-nav">
+            <button class="btn btn-ghost" onclick="showPage('vaults')">View All Vaults</button>
+            <button class="btn btn-primary" onclick="resetWizard()">✦ Create Another</button>
+          </div>
+        </div>
+
+        <div id="review-summary" class="review-summary">
+          <table class="docs-table">
+            <tbody id="review-table"></tbody>
+          </table>
+
+          <div class="wizard-nav">
+            <button class="btn btn-ghost" onclick="wizardBack(4)">← Back</button>
+            <button class="btn btn-primary" id="compile-btn" onclick="compileVault()">
+              <span id="compile-btn-text">Compile Vault</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Policy Guide ── -->
+    <div id="page-docs" class="page">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Policy Guide</div>
+          <div class="page-subtitle">Understanding DynastyTrust vault policy</div>
+        </div>
+      </div>
+
+      <div class="docs-content">
+        <div class="docs-section">
+          <div class="docs-h2">What is a Dynasty Vault?</div>
+          <div class="docs-p">A DynastyTrust vault is a Bitcoin address governed by a Miniscript policy compiled to either Taproot (recommended) or SegWit v0. The policy encodes three spending paths with different conditions:</div>
+          <div class="docs-code">or(
+  thresh(FOUNDER_QUORUM, pk(founder1), pk(founder2), ...),        -- Founders now
+  or(
+    and(after(RECOVERY_BLOCKS), thresh(FOUNDER_QUORUM, ...)),     -- Founder recovery
+    and(after(INHERITANCE_BLOCKS), thresh(HEIR_QUORUM, ...))      -- Heir inheritance
+  )
+)</div>
+          <div class="docs-p">This gives founders immediate control, a timelocked recovery path (in case of hardware failure), and an inheritance path that activates after a long delay.</div>
+        </div>
+
+        <div class="docs-section">
+          <div class="docs-h2">Address Types</div>
+          <table class="docs-table">
+            <thead><tr><th>Type</th><th>Format</th><th>Notes</th></tr></thead>
+            <tbody>
+              <tr><td>Taproot (TR)</td><td>bc1p… / tb1p…</td><td>Recommended. Lower fees. NUMS internal key — script-path only.</td></tr>
+              <tr><td>TR Multi-leaf</td><td>bc1p… / tb1p…</td><td>Best privacy. Each spending path is a separate taptree leaf.</td></tr>
+              <tr><td>SegWit v0 (WSH)</td><td>bc1q… / tb1q…</td><td>Legacy. Broader wallet support. Larger on-chain footprint.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="docs-section">
+          <div class="docs-h2">Timelock Reference</div>
+          <table class="docs-table">
+            <thead><tr><th>Blocks</th><th>Approx. Time</th><th>Use Case</th></tr></thead>
+            <tbody>
+              <tr><td>26,000</td><td>~6 months</td><td>Minimum recovery window</td></tr>
+              <tr><td>52,560</td><td>~1 year</td><td>Short recovery</td></tr>
+              <tr><td>131,400</td><td>~2.5 years</td><td>Medium inheritance</td></tr>
+              <tr><td>262,800</td><td>~5 years</td><td>Standard dynasty trust</td></tr>
+              <tr><td>525,600</td><td>~10 years</td><td>Long-term dynasty trust</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="docs-section">
+          <div class="docs-h2">NUMS Internal Key</div>
+          <div class="docs-p">All Taproot vaults use a provably unspendable internal key (NUMS — Nothing Up My Sleeve point). This means the keypath spend is impossible, and all spending must go through the Miniscript script path. This is the recommended practice for multisig Taproot vaults and makes the policy auditable.</div>
+          <div class="docs-code">NUMS = 50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0</div>
+        </div>
+
+        <div class="docs-section">
+          <div class="docs-h2">Importing into Sparrow / Nunchuk</div>
+          <div class="docs-p">The output descriptor from a compiled vault can be imported into Sparrow Wallet or Nunchuk as a watch-only wallet. This allows you to monitor the vault balance and prepare PSBTs for signing with hardware devices (Coldcard, Trezor, Ledger).</div>
+          <ol style="font-size:15px; color:var(--text-dim); padding-left:24px; line-height:2;">
+            <li>Copy the descriptor from your vault detail page.</li>
+            <li>In Sparrow: File → Import Wallet → Descriptor.</li>
+            <li>In Nunchuk: Create Wallet → Import from Descriptor.</li>
+            <li>Connect your hardware signer to generate the PSBT.</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Key Manager ── -->
+    <div id="page-keys" class="page">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Key Manager</div>
+          <div class="page-subtitle">Generate, save and reuse test keypairs</div>
+        </div>
+        <button class="btn btn-ghost" onclick="kmGenerate()">⚡ Generate Key</button>
+      </div>
+
+      <div class="alert alert-info" style="margin-bottom:24px">
+        ⚠ Test keys only — never use browser-generated keys for real funds. Use hardware wallets for mainnet.
+      </div>
+
+      <div id="km-list">
+        <div class="empty">
+          <div class="empty-icon">⚿</div>
+          <div class="empty-title">No saved keys</div>
+          <div class="empty-sub">Generate a keypair to get started. Saved keys can be inserted directly into vault creation.</div>
+          <button class="btn btn-primary" onclick="kmGenerate()" style="margin:auto">⚡ Generate First Key</button>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ── Keygen Modal Mount ── -->
+<div id="keygen-modal"></div>
+<!-- ── Toast ── -->
+<div id="toast"></div>
+
+<script>
+// Replace with your Supabase project values.
+const SUPABASE_URL = window.__SUPABASE_URL__ || 'https://YOUR_PROJECT.supabase.co';
+const SUPABASE_ANON_KEY = window.__SUPABASE_ANON_KEY__ || 'YOUR_ANON_KEY';
+const API_BASE = window.__API_BASE__ || '/api';
+
+// ══ STATE ════════════════════════════════════════════════════════════════════
+let sb, session, vaults = [], currentPage = 'dashboard';
+let founderKeys = ['', ''], heirKeys = ['', ''];
+let founderQuorum = 2, heirQuorum = 2;
+let wizardStep = 1;
+
+// ══ INIT ════════════════════════════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', async () => {
+  // Always init wizard UI regardless of auth state
+  initWizard();
+  updateTimelockDisplay();
+
+  try {
+    sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const { data: { session: s } } = await sb.auth.getSession();
+    if (s) {
+      session = s;
+      bootApp();
+    }
+
+    sb.auth.onAuthStateChange((_e, s) => {
+      if (s && !session) { session = s; bootApp(); }
+      if (!s) { session = null; showAuth(); }
+    });
+  } catch(e) {
+    console.error('Auth init error:', e);
+  }
+});
+
+// ══ AUTH ═════════════════════════════════════════════════════════════════════
+let authMode = 'login';
+
+function setAuthMode(m) {
+  authMode = m;
+  document.querySelectorAll('.auth-tab').forEach((t, i) => t.classList.toggle('active', i === (m === 'login' ? 0 : 1)));
+  document.getElementById('auth-btn-text').textContent = m === 'login' ? 'Sign In' : 'Create Account';
+  document.getElementById('auth-error').style.display = 'none';
+}
+
+async function handleAuth() {
+  const email = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+  const errEl = document.getElementById('auth-error');
+  const btn = document.getElementById('auth-btn');
+
+  if (!email || !password) { showAlert(errEl, 'Please enter email and password.'); return; }
+
+  btn.disabled = true;
+  btn.querySelector('#auth-btn-text').textContent = '…';
+  errEl.style.display = 'none';
+
+  const fn = authMode === 'login'
+    ? sb.auth.signInWithPassword({ email, password })
+    : sb.auth.signUp({ email, password });
+
+  const { error } = await fn;
+  btn.disabled = false;
+  btn.querySelector('#auth-btn-text').textContent = authMode === 'login' ? 'Sign In' : 'Create Account';
+
+  if (error) { showAlert(errEl, error.message); }
+}
+
+async function signOut() {
+  await sb.auth.signOut();
+  showAuth();
+}
+
+function showAuth() {
+  document.getElementById('auth-screen').style.display = 'flex';
+  document.getElementById('app').style.display = 'none';
+}
+
+function bootApp() {
+  document.getElementById('auth-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  const email = session.user.email;
+  document.getElementById('user-email').textContent = email;
+  document.getElementById('user-avatar').textContent = email[0].toUpperCase();
+  loadVaults();
+}
+
+// ══ NAVIGATION ═══════════════════════════════════════════════════════════════
+function showPage(p) {
+  currentPage = p;
+  document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+
+  const pageEl = document.getElementById('page-' + (p === 'vault-detail' ? 'vault-detail' : p));
+  if (pageEl) pageEl.classList.add('active');
+
+  const navMap = { dashboard: 0, vaults: 1, create: 2, docs: 3, keys: 4 };
+  const idx = navMap[p];
+  if (idx !== undefined) {
+    document.querySelectorAll('.nav-item')[idx]?.classList.add('active');
+  }
+
+  if (p === 'dashboard') renderDashboard();
+  if (p === 'vaults') renderVaultList();
+  if (p === 'create') resetWizard();
+  if (p === 'keys') kmRender();
+}
+
+// ══ VAULTS ════════════════════════════════════════════════════════════════════
+async function loadVaults() {
+  const resp = await apiFetch('/vaults');
+  if (resp?.vaults) vaults = resp.vaults;
+  renderDashboard();
+  renderVaultList();
+}
+
+function renderDashboard() {
+  document.getElementById('stat-total').textContent = vaults.length;
+  document.getElementById('stat-mainnet').textContent = vaults.filter(v => v.network === 'bitcoin').length;
+  document.getElementById('stat-testnet').textContent = vaults.filter(v => v.network === 'testnet').length;
+
+  const el = document.getElementById('recent-vaults');
+  const recent = vaults.slice(0, 3);
+  if (recent.length === 0) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">⬡</div><div class="empty-title">No vaults yet</div><div class="empty-sub">Create your first dynasty vault to get started.</div><button class="btn btn-primary" onclick="showPage(\'create\')" style="margin:auto">✦ Create Vault</button></div>';
+    return;
+  }
+  el.innerHTML = '<div class="vault-grid">' + recent.map(vaultCard).join('') + '</div>';
+}
+
+function renderVaultList() {
+  const el = document.getElementById('vaults-list');
+  if (vaults.length === 0) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">⬡</div><div class="empty-title">No vaults yet</div><div class="empty-sub">Create your first dynasty vault using the wizard.</div><button class="btn btn-primary" onclick="showPage(\'create\')" style="margin:auto">✦ Create First Vault</button></div>';
+    return;
+  }
+  el.innerHTML = '<div class="vault-grid">' + vaults.map(vaultCard).join('') + '</div>';
+}
+
+function vaultCard(v) {
+  const net = v.network === 'bitcoin' ? 'mainnet' : 'testnet';
+  const short = v.address ? v.address.slice(0, 20) + '…' + v.address.slice(-8) : '—';
+  const recovery = blocksToLabel(v.recovery_after);
+  const inheritance = blocksToLabel(v.inheritance_after);
+  return `
+    <div class="vault-card" onclick="showVaultDetail('${v.id}')">
+      <div class="vault-name">${esc(v.name)}</div>
+      <span class="vault-network ${net}">${net.toUpperCase()} · ${(v.address_type || 'tr').toUpperCase()}</span>
+      <div class="vault-address">${esc(v.address || '—')}</div>
+      <div class="vault-meta">
+        <div class="vault-meta-item">
+          <span class="vault-meta-label">Recovery</span>
+          <span class="vault-meta-value">${recovery}</span>
+        </div>
+        <div class="vault-meta-item">
+          <span class="vault-meta-label">Inheritance</span>
+          <span class="vault-meta-value">${inheritance}</span>
+        </div>
+        <div class="vault-meta-item">
+          <span class="vault-meta-label">Founders</span>
+          <span class="vault-meta-value">${v.founder_quorum}-of-${(v.founder_keys||[]).length}</span>
+        </div>
+      </div>
+    </div>`;
+}
+
+function showVaultDetail(id) {
+  const v = vaults.find(x => x.id === id);
+  if (!v) return;
+  showPage('vault-detail');
+
+  const net = v.network === 'bitcoin' ? 'mainnet' : 'testnet';
+
+  document.getElementById('vault-detail-content').innerHTML = `
+    <div class="vault-detail-header">
+      <div class="page-title" style="font-family:'Cinzel',serif">${esc(v.name)}</div>
+      <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+        <span class="vault-network ${net}">${net.toUpperCase()}</span>
+        <span class="tag">${(v.address_type || 'tr').toUpperCase()}</span>
+        <span style="font-size:12px;color:var(--text-muted)">Created ${new Date(v.created_at).toLocaleDateString()}</span>
+      </div>
+    </div>
+
+    <div class="detail-grid">
+      <div class="detail-field" style="grid-column:1/-1">
+        <span class="label">Bitcoin Address</span>
+        <div class="value" style="font-size:14px">${esc(v.address)}</div>
+        <button class="copy-btn" onclick="copy('${esc(v.address)}', this)">⎘ Copy</button>
+      </div>
+      <div class="detail-field" style="grid-column:1/-1">
+        <span class="label">Output Descriptor</span>
+        <div class="value" style="font-size:11px">${esc(v.descriptor)}</div>
+        <button class="copy-btn" onclick="copy(${JSON.stringify(v.descriptor)}, this)">⎘ Copy Descriptor</button>
+      </div>
+      <div class="detail-field" style="grid-column:1/-1">
+        <span class="label">Miniscript Policy</span>
+        <div class="value" style="font-size:11px">${esc(v.miniscript_policy)}</div>
+      </div>
+    </div>
+
+    <div class="detail-grid">
+      <div class="detail-field">
+        <span class="label">Founder Quorum</span>
+        <div class="value">${v.founder_quorum} of ${(v.founder_keys||[]).length} signers</div>
+      </div>
+      <div class="detail-field">
+        <span class="label">Heir Quorum</span>
+        <div class="value">${v.heir_quorum} of ${(v.heir_keys||[]).length} signers</div>
+      </div>
+      <div class="detail-field">
+        <span class="label">Recovery Timelock</span>
+        <div class="value">${(v.recovery_after||0).toLocaleString()} blocks (${blocksToLabel(v.recovery_after)})</div>
+      </div>
+      <div class="detail-field">
+        <span class="label">Inheritance Timelock</span>
+        <div class="value">${(v.inheritance_after||0).toLocaleString()} blocks (${blocksToLabel(v.inheritance_after)})</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:24px">
+      <div class="card-title">Founder Keys</div>
+      ${(v.founder_keys||[]).map((k,i) => `<div class="detail-field" style="margin-bottom:10px"><span class="label">Founder ${i+1}</span><div class="value" style="font-size:11px">${esc(k)}</div></div>`).join('')}
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">Heir Keys</div>
+      ${(v.heir_keys||[]).map((k,i) => `<div class="detail-field" style="margin-bottom:10px"><span class="label">Heir ${i+1}</span><div class="value" style="font-size:11px">${esc(k)}</div></div>`).join('')}
+    </div>
+
+    <div style="display:flex; gap:12px; margin-top:24px">
+      <button class="btn btn-danger btn-sm" onclick="archiveVault('${v.id}')">Archive Vault</button>
+    </div>`;
+}
+
+async function archiveVault(id) {
+  if (!confirm('Archive this vault? It will be hidden from your list.')) return;
+  await apiFetch(`/vaults?id=${id}`, 'PATCH', { archived: true });
+  vaults = vaults.filter(v => v.id !== id);
+  showPage('vaults');
+}
+
+// ══ WIZARD ════════════════════════════════════════════════════════════════════
+function initWizard() {
+  renderKeys('founder');
+  renderKeys('heir');
+  renderQuorumBtns('founder');
+  renderQuorumBtns('heir');
+}
+
+function resetWizard() {
+  founderKeys = ['', ''];
+  heirKeys = ['', ''];
+  founderQuorum = 2;
+  heirQuorum = 2;
+  wizardStep = 1;
+  document.getElementById('vault-name').value = '';
+  document.getElementById('vault-network').value = 'testnet';
+  document.getElementById('recovery-slider').value = 52560;
+  document.getElementById('inheritance-slider').value = 262800;
+  document.getElementById('create-result').style.display = 'none';
+  document.getElementById('review-summary').style.display = 'block';
+  document.getElementById('create-error').style.display = 'none';
+  renderKeys('founder');
+  renderKeys('heir');
+  renderQuorumBtns('founder');
+  renderQuorumBtns('heir');
+  updateTimelockDisplay();
+  goToStep(1);
+}
+
+function addKey(type) {
+  if (type === 'founder') founderKeys.push('');
+  else heirKeys.push('');
+  renderKeys(type);
+  renderQuorumBtns(type);
+}
+
+function removeKey(type, idx) {
+  const arr = type === 'founder' ? founderKeys : heirKeys;
+  if (arr.length <= 1) return;
+  arr.splice(idx, 1);
+  if (type === 'founder' && founderQuorum > arr.length) founderQuorum = arr.length;
+  if (type === 'heir' && heirQuorum > arr.length) heirQuorum = arr.length;
+  renderKeys(type);
+  renderQuorumBtns(type);
+}
+
+function renderKeys(type) {
+  const arr = type === 'founder' ? founderKeys : heirKeys;
+  const el = document.getElementById(type + '-keys-list');
+  el.innerHTML = '';
+
+  arr.forEach(function(k, i) {
+    const row = document.createElement('div');
+    row.className = 'key-row';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = '02… or 03… (66 hex chars)';
+    input.value = k;
+    input.style.fontSize = '11px';
+    input.addEventListener('input', function() {
+      if (type === 'founder') founderKeys[i] = this.value;
+      else heirKeys[i] = this.value;
+    });
+
+    const actions = document.createElement('div');
+    actions.className = 'key-actions';
+
+    const genBtn = document.createElement('button');
+    genBtn.className = 'key-action-btn';
+    genBtn.title = 'Generate test key';
+    genBtn.textContent = '⚡';
+    genBtn.setAttribute('style', 'width:36px;height:40px;background:rgba(201,168,76,0.12);border:1px solid rgba(201,168,76,0.4);color:#C9A84C;cursor:pointer;border-radius:4px;font-size:16px;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;');
+    genBtn.addEventListener('click', function() { generateKey(type, i); });
+
+    const qrBtn = document.createElement('button');
+    qrBtn.className = 'key-action-btn qr-btn';
+    qrBtn.title = 'Scan xpub QR (coming soon)';
+    qrBtn.textContent = '▣';
+    qrBtn.setAttribute('style', 'width:36px;height:40px;background:rgba(201,168,76,0.06);border:1px solid rgba(201,168,76,0.2);color:#8B6914;cursor:pointer;border-radius:4px;font-size:16px;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;');
+    qrBtn.addEventListener('click', function() { scanQR(type, i); });
+
+    actions.appendChild(genBtn);
+    actions.appendChild(qrBtn);
+
+    if (arr.length > 1) {
+      const rmBtn = document.createElement('button');
+      rmBtn.className = 'key-action-btn';
+      rmBtn.title = 'Remove key';
+      rmBtn.textContent = '✕';
+      rmBtn.style.fontSize = '12px';
+      rmBtn.addEventListener('click', function() { removeKey(type, i); });
+      actions.appendChild(rmBtn);
+    }
+
+    row.appendChild(input);
+    row.appendChild(actions);
+    el.appendChild(row);
+  });
+}
+
+function renderQuorumBtns(type) {
+  const arr = type === 'founder' ? founderKeys : heirKeys;
+  const q = type === 'founder' ? founderQuorum : heirQuorum;
+  const el = document.getElementById(type + '-quorum-btns');
+  el.innerHTML = arr.map((_, i) => {
+    const n = i + 1;
+    return `<button class="quorum-btn ${n === q ? 'selected' : ''}"
+      onclick="setQuorum('${type}', ${n})">${n}</button>`;
+  }).join('');
+  document.getElementById(type + '-quorum-label').textContent = `${q} of ${arr.length}`;
+}
+
+function setQuorum(type, n) {
+  if (type === 'founder') founderQuorum = n;
+  else heirQuorum = n;
+  renderQuorumBtns(type);
+}
+
+function updateTimelockDisplay() {
+  const r = parseInt(document.getElementById('recovery-slider').value);
+  const ih = parseInt(document.getElementById('inheritance-slider').value);
+  document.getElementById('recovery-display').textContent = `${r.toLocaleString()} blocks (${blocksToLabel(r)})`;
+  document.getElementById('inheritance-display').textContent = `${ih.toLocaleString()} blocks (${blocksToLabel(ih)})`;
+
+  // Ensure inheritance > recovery
+  const iSlider = document.getElementById('inheritance-slider');
+  if (ih <= r) {
+    const next = Math.min(r + 26000, 525600);
+    iSlider.value = next;
+    document.getElementById('inheritance-display').textContent = `${next.toLocaleString()} blocks (${blocksToLabel(next)})`;
+  }
+}
+
+function wizardNext(step) {
+  // Validate current step
+  if (step === 1) {
+    const name = document.getElementById('vault-name').value.trim();
+    if (!name) { alert('Please enter a vault name.'); return; }
+    // sync keys from DOM
+    founderKeys = Array.from(document.getElementById('founder-keys-list').querySelectorAll('input')).map(i => i.value.trim());
+    if (founderKeys.some(k => !k)) { alert('Please fill in all founder public keys.'); return; }
+  }
+  if (step === 2) {
+    heirKeys = Array.from(document.getElementById('heir-keys-list').querySelectorAll('input')).map(i => i.value.trim());
+    if (heirKeys.some(k => !k)) { alert('Please fill in all heir public keys.'); return; }
+  }
+  if (step === 3) {
+    const r = parseInt(document.getElementById('recovery-slider').value);
+    const ih = parseInt(document.getElementById('inheritance-slider').value);
+    if (r >= ih) { alert('Inheritance timelock must be greater than recovery timelock.'); return; }
+  }
+  if (step === 4) return;
+  if (step === 3) buildReviewTable();
+  goToStep(step + 1);
+}
+
+function wizardBack(step) { goToStep(step - 1); }
+
+function goToStep(n) {
+  wizardStep = n;
+  for (let i = 1; i <= 4; i++) {
+    const p = document.getElementById('wpanel-' + i);
+    const s = document.getElementById('wstep-' + i);
+    p.classList.toggle('active', i === n);
+    s.classList.remove('active', 'done');
+    if (i < n) s.classList.add('done');
+    if (i === n) s.classList.add('active');
+  }
+}
+
+function buildReviewTable() {
+  const r = parseInt(document.getElementById('recovery-slider').value);
+  const ih = parseInt(document.getElementById('inheritance-slider').value);
+  const rows = [
+    ['Vault Name', document.getElementById('vault-name').value],
+    ['Network', document.getElementById('vault-network').value],
+    ['Address Type', document.getElementById('vault-addrtype').value],
+    ['Founder Keys', founderKeys.length + ' keys'],
+    ['Founder Quorum', founderQuorum + ' of ' + founderKeys.length],
+    ['Heir Keys', heirKeys.length + ' keys'],
+    ['Heir Quorum', heirQuorum + ' of ' + heirKeys.length],
+    ['Recovery Timelock', r.toLocaleString() + ' blocks (' + blocksToLabel(r) + ')'],
+    ['Inheritance Timelock', ih.toLocaleString() + ' blocks (' + blocksToLabel(ih) + ')'],
+  ];
+  document.getElementById('review-table').innerHTML = rows.map(([k, v]) =>
+    `<tr><td style="color:var(--text-muted);font-size:12px">${k}</td><td>${esc(String(v))}</td></tr>`
+  ).join('');
+}
+
+async function compileVault() {
+  const btn = document.getElementById('compile-btn');
+  const errEl = document.getElementById('create-error');
+  errEl.style.display = 'none';
+  btn.disabled = true;
+  document.getElementById('compile-btn-text').textContent = 'Compiling…';
+
+  // Sync keys from DOM one more time
+  founderKeys = Array.from(document.getElementById('founder-keys-list').querySelectorAll('input')).map(i => i.value.trim());
+  heirKeys = Array.from(document.getElementById('heir-keys-list').querySelectorAll('input')).map(i => i.value.trim());
+
+  const recovery = parseInt(document.getElementById('recovery-slider').value);
+  const inheritance = parseInt(document.getElementById('inheritance-slider').value);
+  const addrType = document.getElementById('vault-addrtype').value;
+
+  // Call the Netlify compile + save function
+  const payload = {
+    name: document.getElementById('vault-name').value.trim(),
+    network: document.getElementById('vault-network').value,
+    address_type: addrType,
+    founder_keys: founderKeys,
+    founder_quorum: founderQuorum,
+    heir_keys: heirKeys,
+    heir_quorum: heirQuorum,
+    recovery_after: recovery,
+    inheritance_after: inheritance,
+  };
+
+  try {
+    // POST to /compile — proxies to the Rust compiler service on Fly.io,
+    // compiles the Miniscript policy, derives the Bitcoin address, and saves to DB.
+    const resp = await apiFetch('/compile', 'POST', payload);
+
+    if (resp?.vault) {
+      // Saved successfully — compiler service is running
+      vaults.unshift(resp.vault);
+      document.getElementById('result-address').textContent = resp.vault.address;
+      document.getElementById('result-descriptor').value = resp.vault.descriptor;
+      document.getElementById('result-policy').value = resp.vault.miniscript_policy;
+      document.getElementById('review-summary').style.display = 'none';
+      document.getElementById('create-result').style.display = 'block';
+    } else if (resp?.compiled) {
+      // Compiled but not saved (save_error)
+      vaults.unshift(resp.compiled);
+      document.getElementById('result-address').textContent = resp.compiled.address;
+      document.getElementById('result-descriptor').value = resp.compiled.descriptor;
+      document.getElementById('result-policy').value = resp.compiled.miniscript_policy;
+      document.getElementById('review-summary').style.display = 'none';
+      document.getElementById('create-result').style.display = 'block';
+    } else {
+      throw new Error(resp?.error || 'Compilation failed — is the compiler service running? Set COMPILER_URL in Netlify environment variables.');
+    }
+  } catch (e) {
+    showAlert(errEl, e.message || 'Compilation failed. Check your public keys and try again.');
+  }
+
+  btn.disabled = false;
+  document.getElementById('compile-btn-text').textContent = 'Compile Vault';
+}
+
+function buildPolicyPreview({ founder_keys, founder_quorum, heir_keys, heir_quorum, recovery_after, inheritance_after }) {
+  const fk = founder_keys.map(k => `pk(${k})`).join(',');
+  const hk = heir_keys.map(k => `pk(${k})`).join(',');
+  return `or(thresh(${founder_quorum},${fk}),or(and(after(${recovery_after}),thresh(${founder_quorum},${fk})),and(after(${inheritance_after}),thresh(${heir_quorum},${hk}))))`;
+}
+
+// ══ KEY MANAGER ══════════════════════════════════════════════════════════════
+
+const KM_STORE = 'dt_keys_v1';
+
+function kmLoad() {
+  try { return JSON.parse(localStorage.getItem(KM_STORE) || '[]'); } catch { return []; }
+}
+
+function kmSave(keys) {
+  localStorage.setItem(KM_STORE, JSON.stringify(keys));
+}
+
+async function kmGenerate() {
+  const secp = await loadSecp();
+  if (!secp) return;
+
+  const label = prompt('Label for this key (e.g. "Founder 1", "Heir Alice"):');
+  if (label === null) return;
+
+  const { getPublicKey, utils } = secp;
+  const privBytes = utils.randomPrivateKey();
+  const pubBytes  = getPublicKey(privBytes, true);
+  const privHex   = bytesToHex(privBytes);
+  const pubHex    = bytesToHex(pubBytes);
+
+  const keys = kmLoad();
+  keys.unshift({
+    id: Date.now().toString(),
+    label: label || 'Unnamed Key',
+    pubkey: pubHex,
+    privkey: privHex,
+    created: new Date().toISOString(),
+  });
+  kmSave(keys);
+  kmRender();
+  showToast('✓ Key saved — ' + (label || 'Unnamed Key'));
+}
+
+function kmDelete(id) {
+  if (!confirm('Delete this key? This cannot be undone.')) return;
+  const keys = kmLoad().filter(k => k.id !== id);
+  kmSave(keys);
+  kmRender();
+  showToast('Key deleted');
+}
+
+function kmRename(id) {
+  const keys = kmLoad();
+  const key = keys.find(k => k.id === id);
+  if (!key) return;
+  const label = prompt('New label:', key.label);
+  if (!label) return;
+  key.label = label;
+  kmSave(keys);
+  kmRender();
+}
+
+function kmUseKey(pubkey, type) {
+  // Navigate to create vault and pre-fill next empty key slot
+  showPage('create');
+  const arr = type === 'founder' ? founderKeys : heirKeys;
+  const emptyIdx = arr.findIndex(k => !k);
+  if (emptyIdx >= 0) {
+    arr[emptyIdx] = pubkey;
+  } else {
+    arr.push(pubkey);
+  }
+  renderKeys(type);
+  renderQuorumBtns(type);
+  // Go to step 1 (founders) or step 2 (heirs)
+  goToStep(type === 'founder' ? 1 : 2);
+  showToast('✓ Key inserted into ' + type + ' slot');
+}
+
+function kmRender() {
+  const keys = kmLoad();
+  const el = document.getElementById('km-list');
+  if (!el) return;
+
+  if (keys.length === 0) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">⚿</div><div class="empty-title">No saved keys</div><div class="empty-sub">Generate a keypair to get started.</div><button class="btn btn-primary" onclick="kmGenerate()" style="margin:auto">⚡ Generate First Key</button></div>';
+    return;
+  }
+
+  el.innerHTML = '';
+  keys.forEach(function(k) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.style.marginBottom = '16px';
+
+    const created = new Date(k.created).toLocaleDateString();
+
+    card.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div>
+          <div style="font-family:'Cinzel',serif;font-size:14px;font-weight:600;color:var(--text)">${esc(k.label)}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Created ${created}</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm" onclick="kmRename('${k.id}')">✎ Rename</button>
+          <button class="btn btn-danger btn-sm" onclick="kmDelete('${k.id}')">✕</button>
+        </div>
+      </div>
+
+      <div class="detail-field" style="margin-bottom:10px">
+        <span class="label">Public Key</span>
+        <div class="value" style="font-size:11px;color:var(--green)">${esc(k.pubkey)}</div>
+        <button class="copy-btn" onclick="copy('${k.pubkey}',this)" style="margin-top:6px">⎘ Copy</button>
+      </div>
+
+      <div class="detail-field" style="margin-bottom:16px">
+        <span class="label">Private Key</span>
+        <div class="value" style="font-size:11px;color:#E08080;filter:blur(4px);cursor:pointer;user-select:none"
+          onclick="this.style.filter='none';this.style.cursor='text';this.style.userSelect='text'">${esc(k.privkey)}</div>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:4px">Click to reveal</div>
+        <button class="copy-btn" onclick="copy('${k.privkey}',this)" style="margin-top:4px">⎘ Copy</button>
+      </div>
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-ghost btn-sm" onclick="kmUseKey('${k.pubkey}','founder')">→ Use as Founder Key</button>
+        <button class="btn btn-ghost btn-sm" onclick="kmUseKey('${k.pubkey}','heir')">→ Use as Heir Key</button>
+      </div>`;
+
+    el.appendChild(card);
+  });
+}
+
+
+function bytesToHex(bytes) {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function loadSecp() {
+  if (window._secp) return window._secp;
+  try {
+    const mod = await import('https://cdn.jsdelivr.net/npm/@noble/secp256k1@2/+esm');
+    window._secp = mod;
+    return mod;
+  } catch(e) {
+    showToast('⚠ Could not load key library. Check your connection.');
+    return null;
+  }
+}
+
+async function generateKey(type, idx) {
+  // Sync current DOM values first
+  const listEl = document.getElementById(type + '-keys-list');
+  const inputs = listEl.querySelectorAll('input');
+  inputs.forEach((inp, i) => {
+    if (type === 'founder') founderKeys[i] = inp.value.trim();
+    else heirKeys[i] = inp.value.trim();
+  });
+
+  const secp = await loadSecp();
+  if (!secp) return;
+
+  const { getPublicKey, utils } = secp;
+  const privBytes = utils.randomPrivateKey();
+  const pubBytes  = getPublicKey(privBytes, true);
+  const privHex   = bytesToHex(privBytes);
+  const pubHex    = bytesToHex(pubBytes);
+
+  if (type === 'founder') founderKeys[idx] = pubHex;
+  else heirKeys[idx] = pubHex;
+  renderKeys(type);
+  renderQuorumBtns(type);
+
+  showKeygenModal(privHex, pubHex, type, idx);
+}
+
+function showKeygenModal(privHex, pubHex, type, idx) {
+  const label = type === 'founder' ? `Founder ${idx + 1}` : `Heir ${idx + 1}`;
+  document.getElementById('keygen-modal').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeKeygenModal()">
+      <div class="modal-box">
+        <div class="modal-title">Generated Test Key — ${label}</div>
+        <div class="modal-sub">
+          A random secp256k1 keypair has been generated for testing.<br>
+          The public key has been inserted into the form.
+        </div>
+
+        <div class="privkey-warning">
+          <span>⚠</span>
+          <span><strong>Back up the private key below.</strong> It will not be shown again. Never use a browser-generated key for real funds — use a hardware wallet or airgapped device.</span>
+        </div>
+
+        <div class="key-display">
+          <span class="key-display-label">Public Key (inserted into form)</span>
+          <div class="key-display-value pubkey">${pubHex}</div>
+          <button class="copy-btn" style="margin-top:8px" onclick="copy('${pubHex}',this)">⎘ Copy</button>
+        </div>
+
+        <div class="key-display">
+          <span class="key-display-label">Private Key (WIF hex — save this securely)</span>
+          <div class="key-display-value privkey" id="privkey-val" style="filter:blur(4px);cursor:pointer;user-select:none"
+            onclick="this.style.filter='none';this.style.cursor='text';this.style.userSelect='text'">
+            ${privHex}
+          </div>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:6px;">Click to reveal</div>
+          <button class="copy-btn" style="margin-top:4px" onclick="document.getElementById('privkey-val').style.filter='none';copy('${privHex}',this)">⎘ Copy</button>
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn btn-ghost btn-sm" onclick="generateKey('${type}',${idx})">↺ Regenerate</button>
+          <button class="btn btn-primary btn-sm" onclick="closeKeygenModal()" style="flex:1">Done — Key Saved in Form</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function closeKeygenModal() {
+  document.getElementById('keygen-modal').innerHTML = '';
+}
+
+// ── QR Scan stub — wire up jsQR / @zxing here when ready ──────────────────────
+function scanQR(type, idx) {
+  showToast('📷 xpub QR scanning coming soon');
+  // TODO: open camera stream, decode QR, extract xpub/pubkey, call:
+  //   if (type === 'founder') founderKeys[idx] = derivedPubkey;
+  //   else heirKeys[idx] = derivedPubkey;
+  //   renderKeys(type); renderQuorumBtns(type);
+}
+
+// ── Toast helper ──────────────────────────────────────────────────────────────
+let _toastTimer;
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
+}
+
+async function apiFetch(path, method = 'GET', body = null) {
+  const headers = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${session?.access_token}`,
+  };
+  const opts = { method, headers };
+  if (body) opts.body = JSON.stringify(body);
+  try {
+    const r = await fetch(API_BASE + path, opts);
+    return await r.json();
+  } catch (e) {
+    console.error('API error:', e);
+    return null;
+  }
+}
+
+// ══ UTILS ════════════════════════════════════════════════════════════════════
+function blocksToLabel(blocks) {
+  if (!blocks) return '—';
+  const days = Math.round(blocks * 10 / 60 / 24);
+  if (days < 30) return `~${days}d`;
+  if (days < 365) return `~${Math.round(days/30)}mo`;
+  const years = (days / 365).toFixed(1);
+  return `~${years}yr`;
+}
+
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function showAlert(el, msg) {
+  el.textContent = msg;
+  el.style.display = 'flex';
+}
+
+async function copy(text, btn) {
+  await navigator.clipboard.writeText(text).catch(() => {});
+  const orig = btn.textContent;
+  btn.textContent = '✓ Copied';
+  setTimeout(() => btn.textContent = orig, 2000);
+}
+</script>
+</body>
+</html>

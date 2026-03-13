@@ -1,10 +1,9 @@
 [build]
-  command = "npm run build --workspace @dynastytrust/web"
+  command = "npm install --workspace @dynastytrust/web && npm run build --workspace @dynastytrust/web"
   publish = "apps/web/dist"
 
 [build.environment]
   NODE_VERSION = "20"
-  NPM_FLAGS = "--legacy-peer-deps"
 
 [functions]
   directory = "netlify/functions"

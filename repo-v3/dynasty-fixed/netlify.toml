@@ -1,21 +1,22 @@
 [build]
-  command = "npm run build --workspace @dynastytrust/web"
+  command = "npm install && npm run build --workspace @dynastytrust/web"
   publish = "apps/web/dist"
 
 [build.environment]
   NODE_VERSION = "20"
-  NPM_FLAGS = "--legacy-peer-deps"
 
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"
 
+# Route all /api/* calls to Netlify Functions
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"
   status = 200
   force = true
 
+# SPA fallback — must be last
 [[redirects]]
   from = "/*"
   to = "/index.html"
