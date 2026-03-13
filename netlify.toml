@@ -1,16 +1,10 @@
 [build]
   base = "."
-  command = "npm install && npm run build --workspace @dynastytrust/web"
+  command = "npm run build --workspace @dynastytrust/web"
   publish = "apps/web/dist"
 
 [build.environment]
   NODE_VERSION = "20"
-
-[[redirects]]
-  from = "/api/*"
-  to = "https://YOUR-API-HOST/:splat"
-  status = 200
-  force = true
 
 [[redirects]]
   from = "/*"
