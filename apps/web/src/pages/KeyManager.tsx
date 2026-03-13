@@ -16,20 +16,20 @@ const C = {
 const inp: React.CSSProperties = {
   width: '100%', padding: '11px 13px', background: '#161622',
   border: `1px solid ${C.border}`, borderRadius: 8, color: C.text,
-  fontSize: 14, fontFamily: '"DM Sans", sans-serif', boxSizing: 'border-box',
+  fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: 'border-box',
 };
-const monoInp: React.CSSProperties = { ...inp, fontFamily: '"IBM Plex Mono", monospace', fontSize: 12 };
+const monoInp: React.CSSProperties = { ...inp, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 };
 const lbl: React.CSSProperties = {
   fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', color: C.muted,
   textTransform: 'uppercase', marginBottom: 5, display: 'block',
 };
 const goldBtn: React.CSSProperties = {
   padding: '10px 20px', background: C.gold, border: 'none', borderRadius: 8,
-  color: C.bg, fontWeight: 700, fontSize: 14, fontFamily: '"DM Sans", sans-serif', cursor: 'pointer',
+  color: C.bg, fontWeight: 700, fontSize: 14, fontFamily: "'DM Sans', sans-serif", cursor: 'pointer',
 };
 const ghostBtn: React.CSSProperties = {
   padding: '9px 16px', background: 'none', border: `1px solid ${C.border}`,
-  borderRadius: 8, color: C.sub, fontSize: 13, fontFamily: '"DM Sans", sans-serif', cursor: 'pointer',
+  borderRadius: 8, color: C.sub, fontSize: 13, fontFamily: "'DM Sans', sans-serif", cursor: 'pointer',
 };
 
 // ── Word grid ─────────────────────────────────────────────────────────────────
@@ -52,7 +52,7 @@ function WordGrid({ words }: { words: string[] }) {
           }}>
             <span style={{ fontSize: 10, color: C.muted, minWidth: 16, flexShrink: 0 }}>{i + 1}</span>
             <span style={{
-              fontSize: 12, fontFamily: '"IBM Plex Mono", monospace',
+              fontSize: 12, fontFamily: "'IBM Plex Mono', monospace",
               color: visible ? C.text : 'transparent',
               textShadow: visible ? 'none' : `0 0 8px ${C.muted}`,
               userSelect: visible ? 'text' : 'none',
@@ -114,11 +114,11 @@ function Modal({ title, onClose, children, wide }: {
       <div style={{
         background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16,
         padding: '28px 32px', width: '100%', maxWidth: wide ? 640 : 520,
-        maxHeight: '92vh', overflowY: 'auto', fontFamily: '"DM Sans", sans-serif',
+        maxHeight: '92vh', overflowY: 'auto', fontFamily: "'DM Sans', sans-serif",
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <h2 style={{ fontSize: 20, fontWeight: 600, color: C.text,
-            fontFamily: '"Playfair Display", serif', margin: 0 }}>{title}</h2>
+            fontFamily: "'Playfair Display', serif", margin: 0 }}>{title}</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none',
             color: C.muted, fontSize: 18, cursor: 'pointer' }}>✕</button>
         </div>
@@ -557,7 +557,7 @@ function KeyRow({ k, accentColor, onDetail, onReveal }: {
         </div>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 11, color: accentColor }}>{k.persona}</span>
-          <span style={{ fontSize: 11, fontFamily: '"IBM Plex Mono", monospace', color: C.muted }}>{k.fingerprint}</span>
+          <span style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: C.muted }}>{k.fingerprint}</span>
           <span style={{ fontSize: 11, color: k.network === 'mainnet' ? C.gold : C.green }}>{k.network.toUpperCase()}</span>
         </div>
       </div>
@@ -597,7 +597,7 @@ function DetailModal({ k, onClose, onReveal, onSecure, onArchive, onDelete }: {
             alignItems: 'center', padding: '9px 14px', borderBottom: `1px solid ${C.border}` }}>
             <span style={{ fontSize: 12, color: C.muted }}>{label}</span>
             <span style={{ fontSize: 13, color: C.text,
-              fontFamily: ['Fingerprint','Path'].includes(label) ? '"IBM Plex Mono", monospace' : 'inherit' }}>
+              fontFamily: ['Fingerprint','Path'].includes(label) ? "'IBM Plex Mono', monospace" : 'inherit' }}>
               {value}
             </span>
           </div>
@@ -611,7 +611,7 @@ function DetailModal({ k, onClose, onReveal, onSecure, onArchive, onDelete }: {
           </button>
         </div>
         <div style={{ background: '#0A0A14', borderRadius: 8, padding: '10px 12px',
-          fontFamily: '"IBM Plex Mono", monospace', fontSize: 11, color: C.sub,
+          fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.sub,
           wordBreak: 'break-all', lineHeight: 1.6 }}>{k.xpub}</div>
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -685,7 +685,7 @@ export default function KeyManager() {
 
 
   return (
-    <div style={{ fontFamily: '"DM Sans", sans-serif' }}>
+    <div style={{ fontFamily: "'DM Sans', sans-serif" }}>
 
       {/* Two generate buttons */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
