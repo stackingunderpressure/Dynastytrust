@@ -127,6 +127,11 @@ async function decryptBlob(blob: EncryptedBlob, password: string): Promise<strin
   return new TextDecoder().decode(plain);
 }
 
+// Browser-safe hex encoder — no Buffer needed
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 // ── HD key helpers ─────────────────────────────────────────────────────────────
 
 function multisigPath(network: Network): string {
@@ -141,7 +146,7 @@ function networkVersions(network: Network) {
 }
 
 function fingerprint(pub: Uint8Array): string {
-  return Buffer.from(pub.subarray(0, 4)).toString('hex');
+  return toHex(pub.subarray(0, 4));
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -192,7 +197,7 @@ export async function generateSoftwareKey(opts: {
     fingerprint:      fingerprint(account.publicKey),
     derivationPath:   path,
     xpub:             account.publicExtendedKey,
-    pubkey:           Buffer.from(account.publicKey).toString('hex'),
+    pubkey:           toHex(account.publicKey),
     status:           'active',
     createdAt:        new Date().toISOString(),
     encryptedMnemonic,
@@ -225,7 +230,7 @@ export function importXpub(opts: {
     const hd = HDKey.fromExtendedKey(opts.xpub);
     if (hd.publicKey) {
       fp     = fingerprint(hd.publicKey);
-      pubkey = Buffer.from(hd.publicKey).toString('hex');
+      pubkey = toHex(hd.publicKey);
     }
   } catch { /* non-standard version bytes — ok */ }
 
