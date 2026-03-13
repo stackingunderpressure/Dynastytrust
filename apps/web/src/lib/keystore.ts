@@ -1,22 +1,21 @@
 /**
  * keystore.ts — Browser-side software key manager
  *
- * Security model (suitable for testing; notes on production hardening inline):
- *   - BIP39 24-word mnemonic generated in-browser via Web Crypto CSPRNG
- *   - HD key derived at m/48'/coin'/0'/2'  (standard multisig path, BIP48)
- *   - Mnemonic encrypted with AES-256-GCM; key derived via PBKDF2-SHA256 (210k rounds)
- *   - Ciphertext stored in localStorage — private material NEVER leaves the browser
- *   - Only xpub + fingerprint are shared with the server / vault policy
+ * Two modes:
  *
- * Multi-persona testing:
- *   Keys are stored with a `personaId` tag. When you generate keys under
- *   different personas (Founder-A, Heir-1, etc.) they all live in the same
- *   localStorage but are grouped and labeled, so one browser can simulate
- *   an entire multisig quorum without needing multiple devices.
+ * TEST MODE (default for testing):
+ *   - No password required
+ *   - Mnemonic stored in plaintext in localStorage
+ *   - Instant generation — no backup flow needed
+ *   - Keys marked with testMnemonic field and backedUp: false
+ *   - Easy to view/copy mnemonic at any time
  *
- * Production upgrade path:
- *   Swap the localStorage read/write functions below for WebAuthn PRF or
- *   Secure Enclave calls — the rest of the API stays identical.
+ * SECURE MODE (for real funds):
+ *   - AES-256-GCM encrypted mnemonic via PBKDF2 (210k rounds)
+ *   - Mandatory backup verify flow
+ *   - Private material never in plaintext after generation
+ *
+ * Production upgrade: swap localStorage for WebAuthn PRF or Secure Enclave.
  */
 
 import { generateMnemonic, mnemonicToSeedSync, validateMnemonic } from '@scure/bip39';
@@ -27,7 +26,7 @@ const STORE_KEY = 'dynastytrust:keyring:v1';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type Network  = 'testnet' | 'mainnet';
+export type Network   = 'testnet' | 'mainnet';
 export type KeyOrigin = 'software' | 'imported_xpub';
 export type KeyStatus = 'active' | 'archived' | 'compromised';
 
@@ -41,7 +40,6 @@ export interface EncryptedBlob {
 export interface LocalKey {
   keyId: string;
   label: string;
-  /** Persona label — used to simulate multiple signers from one browser */
   persona: string;
   origin: KeyOrigin;
   network: Network;
@@ -51,25 +49,24 @@ export interface LocalKey {
   pubkey: string;
   status: KeyStatus;
   createdAt: string;
+  /** Secure mode: AES-256-GCM encrypted mnemonic */
   encryptedMnemonic?: EncryptedBlob;
+  /** Test mode: plaintext mnemonic — never use for real funds */
+  testMnemonic?: string;
+  /** Whether backup verify has been completed */
+  backedUp: boolean;
 }
 
 export interface KeyCreateResult {
   key: LocalKey;
-  /** Shown once for backup — never stored in plaintext */
   mnemonic: string;
 }
 
 // ── Personas ──────────────────────────────────────────────────────────────────
-// Built-in test personas so one browser can act as a full quorum
 
 export const DEFAULT_PERSONAS = [
-  'Founder 1',
-  'Founder 2',
-  'Founder 3',
-  'Heir 1',
-  'Heir 2',
-  'Trustee',
+  'Founder 1', 'Founder 2', 'Founder 3',
+  'Heir 1', 'Heir 2', 'Trustee',
 ];
 
 // ── Storage ───────────────────────────────────────────────────────────────────
@@ -78,9 +75,7 @@ function loadAll(): LocalKey[] {
   try {
     const raw = localStorage.getItem(STORE_KEY);
     return raw ? (JSON.parse(raw) as LocalKey[]) : [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
 function saveAll(keys: LocalKey[]): void {
@@ -95,10 +90,7 @@ async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey>
   );
   return crypto.subtle.deriveKey(
     { name: 'PBKDF2', salt, iterations: 210_000, hash: 'SHA-256' },
-    raw,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt'],
+    raw, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'],
   );
 }
 
@@ -127,12 +119,11 @@ async function decryptBlob(blob: EncryptedBlob, password: string): Promise<strin
   return new TextDecoder().decode(plain);
 }
 
-// Browser-safe hex encoder — no Buffer needed
+// ── HD key helpers ─────────────────────────────────────────────────────────────
+
 function toHex(bytes: Uint8Array): string {
   return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
 }
-
-// ── HD key helpers ─────────────────────────────────────────────────────────────
 
 function multisigPath(network: Network): string {
   const coin = network === 'mainnet' ? '0' : '1';
@@ -149,6 +140,17 @@ function fingerprint(pub: Uint8Array): string {
   return toHex(pub.subarray(0, 4));
 }
 
+function deriveAccount(mnemonic: string, network: Network) {
+  const seed    = mnemonicToSeedSync(mnemonic);
+  const root    = HDKey.fromMasterSeed(seed, networkVersions(network));
+  const path    = multisigPath(network);
+  const account = root.derive(path);
+  if (!account.privateKey || !account.publicKey || !account.publicExtendedKey) {
+    throw new Error('Key derivation failed');
+  }
+  return { account, path };
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export function listKeys(persona?: string): LocalKey[] {
@@ -156,19 +158,48 @@ export function listKeys(persona?: string): LocalKey[] {
   return persona ? all.filter(k => k.persona === persona) : all;
 }
 
-export function listPersonas(): string[] {
-  const all = loadAll();
-  const set = new Set(all.map(k => k.persona));
-  return Array.from(set);
-}
-
 export function getKey(keyId: string): LocalKey | null {
   return loadAll().find(k => k.keyId === keyId) ?? null;
 }
 
 /**
- * Generate a new 24-word BIP39 software key.
- * The mnemonic is encrypted and stored; plaintext is returned once for backup.
+ * QUICK TEST KEY — no password, mnemonic stored in plaintext.
+ * Instant generation. Good for testing multisig flows.
+ * NOT for real funds.
+ */
+export function generateTestKey(opts: {
+  label: string;
+  network: Network;
+  persona: string;
+}): KeyCreateResult {
+  const mnemonic = generateMnemonic(wordlist, 256);
+  const { account, path } = deriveAccount(mnemonic, opts.network);
+
+  const key: LocalKey = {
+    keyId:          crypto.randomUUID(),
+    label:          opts.label,
+    persona:        opts.persona,
+    origin:         'software',
+    network:        opts.network,
+    fingerprint:    fingerprint(account.publicKey),
+    derivationPath: path,
+    xpub:           account.publicExtendedKey,
+    pubkey:         toHex(account.publicKey),
+    status:         'active',
+    createdAt:      new Date().toISOString(),
+    testMnemonic:   mnemonic,   // stored plaintext — easy access, no prod use
+    backedUp:       false,
+  };
+
+  const all = loadAll();
+  all.push(key);
+  saveAll(all);
+  return { key, mnemonic };
+}
+
+/**
+ * SECURE KEY — AES-256-GCM encrypted mnemonic, password required.
+ * Use for real funds. Requires backup verify to mark backedUp: true.
  */
 export async function generateSoftwareKey(opts: {
   label: string;
@@ -177,15 +208,7 @@ export async function generateSoftwareKey(opts: {
   persona: string;
 }): Promise<KeyCreateResult> {
   const mnemonic = generateMnemonic(wordlist, 256);
-  const seed     = mnemonicToSeedSync(mnemonic);
-  const root     = HDKey.fromMasterSeed(seed, networkVersions(opts.network));
-  const path     = multisigPath(opts.network);
-  const account  = root.derive(path);
-
-  if (!account.privateKey || !account.publicKey || !account.publicExtendedKey) {
-    throw new Error('Key derivation failed');
-  }
-
+  const { account, path } = deriveAccount(mnemonic, opts.network);
   const encryptedMnemonic = await encryptText(mnemonic, opts.password);
 
   const key: LocalKey = {
@@ -201,17 +224,17 @@ export async function generateSoftwareKey(opts: {
     status:           'active',
     createdAt:        new Date().toISOString(),
     encryptedMnemonic,
+    backedUp:         false,
   };
 
   const all = loadAll();
   all.push(key);
   saveAll(all);
-
   return { key, mnemonic };
 }
 
 /**
- * Import an xpub (hardware wallet or air-gapped device).
+ * Import an xpub from a hardware wallet.
  */
 export function importXpub(opts: {
   label: string;
@@ -228,11 +251,8 @@ export function importXpub(opts: {
   let pubkey = '';
   try {
     const hd = HDKey.fromExtendedKey(opts.xpub);
-    if (hd.publicKey) {
-      fp     = fingerprint(hd.publicKey);
-      pubkey = toHex(hd.publicKey);
-    }
-  } catch { /* non-standard version bytes — ok */ }
+    if (hd.publicKey) { fp = fingerprint(hd.publicKey); pubkey = toHex(hd.publicKey); }
+  } catch { /* non-standard version bytes */ }
 
   const coin = opts.network === 'mainnet' ? '0' : '1';
   const key: LocalKey = {
@@ -247,6 +267,7 @@ export function importXpub(opts: {
     pubkey,
     status:         'active',
     createdAt:      new Date().toISOString(),
+    backedUp:       true, // xpubs don't need backup
   };
 
   const all = loadAll();
@@ -256,13 +277,20 @@ export function importXpub(opts: {
 }
 
 /**
- * Decrypt and return the mnemonic. Throws on wrong password.
+ * Get mnemonic — works for both test keys (no password) and secure keys (needs password).
  */
-export async function revealMnemonic(keyId: string, password: string): Promise<string> {
+export async function revealMnemonic(keyId: string, password?: string): Promise<string> {
   const key = getKey(keyId);
   if (!key)                      throw new Error('Key not found');
-  if (key.origin !== 'software') throw new Error('Hardware key — no mnemonic stored here');
-  if (!key.encryptedMnemonic)    throw new Error('No encrypted mnemonic found');
+  if (key.origin !== 'software') throw new Error('Hardware key — no mnemonic stored');
+
+  // Test key — no password needed
+  if (key.testMnemonic) return key.testMnemonic;
+
+  // Secure key — password required
+  if (!key.encryptedMnemonic) throw new Error('No mnemonic found on this key');
+  if (!password)              throw new Error('Password required for secure key');
+
   try {
     const m = await decryptBlob(key.encryptedMnemonic, password);
     if (!validateMnemonic(m, wordlist)) throw new Error('Decrypted data is not a valid mnemonic');
@@ -271,6 +299,29 @@ export async function revealMnemonic(keyId: string, password: string): Promise<s
     if (err instanceof Error && err.message.includes('mnemonic')) throw err;
     throw new Error('Wrong password or corrupted backup');
   }
+}
+
+/**
+ * Upgrade a test key to a secure encrypted key (sets password, removes plaintext mnemonic).
+ */
+export async function secureTestKey(keyId: string, password: string): Promise<LocalKey> {
+  const key = getKey(keyId);
+  if (!key)               throw new Error('Key not found');
+  if (!key.testMnemonic)  throw new Error('Not a test key');
+
+  const encryptedMnemonic = await encryptText(key.testMnemonic, password);
+  const all = loadAll();
+  const idx = all.findIndex(k => k.keyId === keyId);
+  all[idx] = { ...all[idx], encryptedMnemonic, testMnemonic: undefined };
+  saveAll(all);
+  return all[idx];
+}
+
+/** Mark a key as backed up after completing verify flow */
+export function markBackedUp(keyId: string): void {
+  const all = loadAll();
+  const idx = all.findIndex(k => k.keyId === keyId);
+  if (idx >= 0) { all[idx] = { ...all[idx], backedUp: true }; saveAll(all); }
 }
 
 export function updateKeyStatus(keyId: string, status: KeyStatus): LocalKey {
@@ -286,9 +337,9 @@ export function deleteKey(keyId: string): void {
   saveAll(loadAll().filter(k => k.keyId !== keyId));
 }
 
-/** Export all public key data as JSON (no private material) */
 export function exportKeyring(): string {
-  const keys = loadAll().map(({ encryptedMnemonic: _, ...pub }) => pub);
+  // Strip plaintext mnemonics from export
+  const keys = loadAll().map(({ testMnemonic: _, encryptedMnemonic: __, ...pub }) => pub);
   return JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), keys }, null, 2);
 }
 
