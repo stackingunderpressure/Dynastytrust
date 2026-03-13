@@ -1,5 +1,5 @@
 [build]
-  command = "npm install && npm run build --workspace @dynastytrust/web"
+  command = "npm install --workspace @dynastytrust/web && npm run build --workspace @dynastytrust/web"
   publish = "apps/web/dist"
 
 [build.environment]
