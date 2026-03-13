@@ -1,7 +1,6 @@
 {
   "name": "dynastytrust-phase1",
   "private": true,
-  "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "build": "npm run build -ws",
     "test:policy": "node scripts/test-policy.mjs",
