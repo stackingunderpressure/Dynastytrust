@@ -1,8 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { api, type Vault, type Proposal, type BalanceResult } from "../lib/api";
 import { listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
-import { HDKey } from "@scure/bip32";
-import { mnemonicToSeedSync } from "@scure/bip39";
+import { signPsbtWithMnemonic, countSignatures, mergePsbts } from "../lib/psbt-signer";
 
 const C = {
   bg: "#07070F", surface: "#0F0F1A", raised: "#141422",
@@ -409,20 +408,19 @@ function SpendTab({ vault, balance, onProposalCreated }: {
   }
 
   async function signWithKey(key: LocalKey) {
-    const pw = key.testMnemonic ? null : prompt("Enter password for " + key.label + ":");
+    const pw = key.testMnemonic ? undefined : prompt("Enter password for " + key.label + ":");
     if (!key.testMnemonic && pw === null) return;
     setBusy(true); setErr(null);
     try {
       const mnemonic = await revealMnemonic(key.keyId, pw || undefined);
-      const seed = mnemonicToSeedSync(mnemonic);
-      const networkVersions = vault.network === "bitcoin"
-        ? { private: 0x0488ade4, public: 0x0488b21e }
-        : { private: 0x04358394, public: 0x043587cf };
-      const root = HDKey.fromMasterSeed(seed, networkVersions);
-      const signingKey = root.derive(key.derivationPath);
-      if (!signingKey.privateKey) throw new Error("Could not derive signing key");
-      alert("Browser signing is in progress. For now, export the PSBT to Sparrow to sign with this key:\n\nFingerprint: " + key.fingerprint + "\nPath: " + key.derivationPath);
-      setSignerPsbts(prev => ({ ...prev, [key.keyId]: psbtResult!.psbt_hex }));
+      const currentPsbt = Object.values(signerPsbts)[0] || psbtResult!.psbt_hex;
+      const result = await signPsbtWithMnemonic(
+        currentPsbt,
+        mnemonic,
+        key.derivationPath,
+        vault.network
+      );
+      setSignerPsbts(prev => ({ ...prev, [key.keyId]: result.psbt_hex }));
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Signing failed");
     } finally {
@@ -430,16 +428,25 @@ function SpendTab({ vault, balance, onProposalCreated }: {
     }
   }
 
-  async function mergePsbts() {
+  async function doMergePsbts() {
     const psbts = Object.values(signerPsbts);
-    if (psbts.length < 2) { setErr("Need at least 2 signed PSBTs to merge"); return; }
+    if (psbts.length < 1) { setErr("No signed PSBTs to merge"); return; }
     setBusy(true); setErr(null);
     try {
-      const result = await api.psbt.merge({ vault_id: vault.id, proposal_id: proposal?.id, psbts });
-      setPsbtResult(prev => prev ? { ...prev, psbt_hex: result.psbt_hex, psbt_b64: result.psbt_b64 } : null);
-      if (result.fully_signed && proposal) {
-        await api.proposals.update(proposal.id, { status: "signed", psbt_signed_hex: result.psbt_hex });
-        setProposal(prev => prev ? { ...prev, status: "signed" } : null);
+      // Merge all signed PSBTs in the browser
+      const mergedHex = psbts.length === 1 ? psbts[0] : mergePsbts(psbts);
+      const sigCount = countSignatures(mergedHex);
+      setPsbtResult(prev => prev ? { ...prev, psbt_hex: mergedHex } : null);
+      // Update proposal in DB
+      if (proposal) {
+        const isFullySigned = sigCount >= vault.founder_quorum;
+        await api.proposals.update(proposal.id, {
+          psbt_signed_hex: mergedHex,
+          status: isFullySigned ? "signed" : "pending",
+        });
+        if (isFullySigned) {
+          setProposal(prev => prev ? { ...prev, status: "signed" } : null);
+        }
       }
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Merge failed");
@@ -567,8 +574,8 @@ function SpendTab({ vault, balance, onProposalCreated }: {
                 )}
               </div>
             ))}
-            {Object.keys(signerPsbts).length >= 2 && (
-              <button style={{ ...goldBtn, width: "100%", marginTop: 10 }} onClick={() => void mergePsbts()}>
+            {Object.keys(signerPsbts).length >= 1 && (
+              <button style={{ ...goldBtn, width: "100%", marginTop: 10 }} onClick={() => void doMergePsbts()}>
                 Merge signatures
               </button>
             )}
