@@ -185,7 +185,7 @@ function CopyField({ label, value, multiline }: { label: string; value: string; 
 export default function PolicyBuilder({ onVaultCreated }: { onVaultCreated?: (v: Vault) => void }) {
   const [allKeys, setAllKeys]     = useState<LocalKey[]>([]);
   const [name, setName]           = useState('My Vault');
-  const [addrType, setAddrType]   = useState<'tr' | 'wsh' | 'tr_multileaf'>('tr');
+  const [addrType, setAddrType]   = useState<'tr' | 'wsh' | 'tr_multileaf'>('tr_multileaf');
   const [founderKeys, setFK]      = useState<SelectedKey[]>([]);
   const [heirKeys, setHK]         = useState<SelectedKey[]>([]);
   const [founderQ, setFQ]         = useState(1);
@@ -275,9 +275,9 @@ export default function PolicyBuilder({ onVaultCreated }: { onVaultCreated?: (v:
           <div style={{ flex: 1 }}>
             <label style={lbl}>Address type</label>
             <select style={inp} value={addrType} onChange={e => { setAddrType(e.target.value as typeof addrType); setCompiled(null); }}>
-              <option value="tr">Taproot (recommended)</option>
-              <option value="tr_multileaf">Taproot multileaf</option>
+              <option value="tr_multileaf">Taproot multileaf (recommended)</option>
               <option value="wsh">SegWit P2WSH</option>
+              <option value="tr">Taproot single leaf</option>
             </select>
           </div>
         </div>
