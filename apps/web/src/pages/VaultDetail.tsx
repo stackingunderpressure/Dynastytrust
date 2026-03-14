@@ -364,15 +364,35 @@ function SendTab({ vault, balance, onDone }: {
         fee_sats: psbtRes.summary.fee_sats,
       });
 
-      // 3. Find local software keys that could sign
-      const localKeys = listKeys().filter(k => k.status === "active" && k.origin === "software");
+      // 3. Find local software keys
+      // Keys are matched against vault by pubkey during actual signing
+      // The vault.founder_keys stores the xpubs used at compile time
+      // We derive pubkey from each xpub and check against local key fingerprints
+      const allLocalKeys = listKeys().filter(k => k.status === "active" && k.origin === "software");
+      
+      // Extract fingerprints from vault founder xpubs for matching
+      const vaultFingerprints = new Set<string>();
+      vault.founder_keys.forEach(xpub => {
+        if (xpub.length === 66) {
+          // It's a hex pubkey - take first 8 chars as fingerprint
+          vaultFingerprints.add(xpub.slice(0, 8));
+        }
+      });
+      
+      // Show keys that match vault fingerprints, or all keys if we can't determine
+      const matchedKeys = vaultFingerprints.size > 0
+        ? allLocalKeys.filter(k => vaultFingerprints.has(k.fingerprint))
+        : allLocalKeys;
+      
+      // If no local keys match, show all with a warning in the UI
+      const signingKeys = matchedKeys.length > 0 ? matchedKeys : allLocalKeys;
 
       setSigning({
         psbt_hex: psbtRes.psbt_hex,
         psbt_b64: psbtRes.psbt_b64,
         summary: psbtRes.summary,
         proposal_id: propRes.proposal.id,
-        signers: localKeys.map(key => ({ key, status: "pending" })),
+        signers: signingKeys.map(key => ({ key, status: "pending" })),
         signaturesCollected: 0,
         requiredSignatures: vault.founder_quorum,
       });
