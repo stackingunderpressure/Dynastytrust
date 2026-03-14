@@ -24,7 +24,7 @@ import { HDKey } from '@scure/bip32';
 
 const STORE_KEY = 'dynastytrust:keyring:v1';
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+//
 
 export type Network   = 'testnet' | 'mainnet';
 export type KeyOrigin = 'software' | 'imported_xpub';
@@ -62,14 +62,14 @@ export interface KeyCreateResult {
   mnemonic: string;
 }
 
-// ── Personas ──────────────────────────────────────────────────────────────────
+//
 
 export const DEFAULT_PERSONAS = [
   'Founder 1', 'Founder 2', 'Founder 3',
   'Heir 1', 'Heir 2', 'Trustee',
 ];
 
-// ── Storage ───────────────────────────────────────────────────────────────────
+//
 
 function loadAll(): LocalKey[] {
   try {
@@ -82,7 +82,7 @@ function saveAll(keys: LocalKey[]): void {
   localStorage.setItem(STORE_KEY, JSON.stringify(keys));
 }
 
-// ── Web Crypto helpers ────────────────────────────────────────────────────────
+//
 
 async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
   const raw = await crypto.subtle.importKey(
@@ -119,7 +119,7 @@ async function decryptBlob(blob: EncryptedBlob, password: string): Promise<strin
   return new TextDecoder().decode(plain);
 }
 
-// ── HD key helpers ─────────────────────────────────────────────────────────────
+//
 
 function toHex(bytes: Uint8Array): string {
   return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -151,7 +151,7 @@ function deriveAccount(mnemonic: string, network: Network) {
   return { account, path };
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
+//
 
 export function listKeys(persona?: string): LocalKey[] {
   const all = loadAll();

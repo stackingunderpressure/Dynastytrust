@@ -105,7 +105,7 @@ export default function Dashboard({ onSelectVault }: Props) {
   );
 }
 
-// ── Create Vault Modal ─────────────────────────────────────────────────────────
+//
 function CreateVaultModal({ onClose, onCreated }: {
   onClose: () => void; onCreated: (v: Vault) => void;
 }) {

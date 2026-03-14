@@ -26,7 +26,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+//
 
 export interface Vault {
   id: string;
@@ -80,7 +80,7 @@ export interface BalanceResult {
   tx_count: number;
 }
 
-// ── Vaults ────────────────────────────────────────────────────────────────────
+//
 
 export const api = {
   vaults: {
