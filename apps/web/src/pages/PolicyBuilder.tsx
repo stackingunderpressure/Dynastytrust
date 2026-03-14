@@ -5,16 +5,18 @@ import { api, type Vault } from '../lib/api';
 import { HDKey } from '@scure/bip32';
 
 // Get compressed pubkey hex from a selected key.
-// Re-derives from xpub if the stored pubkey is missing or wrong length.
+// HDKey.fromExtendedKey gives us the public key at the xpub level directly.
 function toPubkeyHex(k: SelectedKey): string {
-  if (k.pubkey && k.pubkey.length === 66) return k.pubkey;
+  // Always re-derive from xpub - this is the most reliable source
   try {
     const hd = HDKey.fromExtendedKey(k.xpub);
-    if (hd.publicKey) {
-      return Array.from(hd.publicKey).map(b => b.toString(16).padStart(2, '0')).join('');
+    if (hd.publicKey && hd.publicKey.length === 33) {
+      return Array.from(hd.publicKey).map((b: number) => b.toString(16).padStart(2, '0')).join('');
     }
-  } catch { /* ignore */ }
-  return k.pubkey;
+  } catch { /* fall through */ }
+  // Fall back to stored pubkey if xpub derivation fails
+  if (k.pubkey && k.pubkey.length === 66) return k.pubkey;
+  throw new Error('Could not derive pubkey for key: ' + k.label + '. Try regenerating the key.');
 }
 
 
