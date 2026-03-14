@@ -92,7 +92,16 @@ export async function handler(event) {
       });
       clearTimeout(timeout);
 
-      const data = await compilerRes.json();
+      const rawText = await compilerRes.text();
+      let data;
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        return json(502, {
+          error: `Compiler returned non-JSON (status ${compilerRes.status}): ${rawText.slice(0, 200)}`,
+          hint: "Check COMPILER_SECRET matches between Netlify and Fly.io"
+        });
+      }
 
       if (!compilerRes.ok || !data.ok) {
         return json(400, {
