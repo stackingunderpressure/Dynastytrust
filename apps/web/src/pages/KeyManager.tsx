@@ -40,7 +40,7 @@ function WordGrid({ words }: { words: string[] }) {
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
         <button style={{ ...ghostBtn, fontSize: 12, padding: '4px 10px' }}
           onClick={() => setVisible(v => !v)}>
-          {visible  'Hide' : 'Show words'}
+          {visible ? 'Hide' : 'Show words'}
         </button>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 5 }}>
@@ -54,8 +54,8 @@ function WordGrid({ words }: { words: string[] }) {
             <span style={{
               fontSize: 12, fontFamily: "'IBM Plex Mono', monospace",
               color: visible  C.text : 'transparent',
-              textShadow: visible  'none' : `0 0 8px ${C.muted}`,
-              userSelect: visible  'text' : 'none',
+              textShadow: visible ? 'none' : `0 0 8px ${C.muted}`,
+              userSelect: visible ? 'text' : 'none',
             }}>{w}</span>
           </div>
         ))}
@@ -113,7 +113,7 @@ function Modal({ title, onClose, children, wide }: {
     }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{
         background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16,
-        padding: '28px 32px', width: '100%', maxWidth: wide  640 : 520,
+        padding: '28px 32px', width: '100%', maxWidth: wide ? 640 : 520,
         maxHeight: '92vh', overflowY: 'auto', fontFamily: "'DM Sans', sans-serif",
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
@@ -152,7 +152,7 @@ function QuickModal({ onDone, onClose }: {
       <div style={{ padding: '10px 14px', background: '#0A1A14',
         border: `1px solid ${C.green}44`, borderRadius: 8, marginBottom: 18 }}>
         <p style={{ fontSize: 13, color: C.green, margin: 0 }}>
-           No password needed. Mnemonic stored locally for easy access.
+           No password needed.⚡ Mnemonic stored locally for easy access.
           <span style={{ color: C.muted }}> Only use for testnet testing.</span>
         </p>
       </div>
@@ -175,7 +175,7 @@ function QuickModal({ onDone, onClose }: {
         </div>
         <div style={{ display: 'flex', gap: 10, paddingTop: 4 }}>
           <button type="button" style={ghostBtn} onClick={onClose}>Cancel</button>
-          <button type="submit" style={{ ...goldBtn, background: C.green, opacity: busy  0.6 : 1 }} disabled={busy}>
+          <button type="submit" style={{ ...goldBtn, background: C.green, opacity: busy ? 0.6 : 1 }} disabled={busy}>
              Generate instantly
           </button>
         </div>
@@ -194,7 +194,7 @@ function TestKeyCreated({ keyData, mnemonic, onClose }: {
         border: `1px solid ${C.green}44`, borderRadius: 8, marginBottom: 16 }}>
         <p style={{ fontSize: 13, color: C.green, margin: 0 }}>
            <strong>{keyData.label}</strong> created for <strong>{keyData.persona}</strong>.
-          Mnemonic saved locally  you can view it anytime from the key details.
+         ⚡ Mnemonic saved locally  you can view it anytime from the key details.
         </p>
       </div>
       <div style={{ marginBottom: 16 }}>
@@ -245,7 +245,7 @@ function SecureModal({ onDone, onClose }: {
   return (
     <Modal title="Secure key" onClose={onClose}>
       <p style={{ fontSize: 13, color: C.muted, marginBottom: 20, lineHeight: 1.5 }}>
-        Mnemonic encrypted with your password. Required for real funds.
+       ⚡ Mnemonic encrypted with your password. Required for real funds.
       </p>
       <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div>
@@ -275,8 +275,8 @@ function SecureModal({ onDone, onClose }: {
         {err && <p style={{ color: C.red, fontSize: 13, margin: 0 }}>{err}</p>}
         <div style={{ display: 'flex', gap: 10 }}>
           <button type="button" style={ghostBtn} onClick={onClose}>Cancel</button>
-          <button type="submit" style={{ ...goldBtn, opacity: busy  0.6 : 1 }} disabled={busy}>
-            {busy  'Generating' : 'Generate secure key'}
+          <button type="submit" style={{ ...goldBtn, opacity: busy ? 0.6 : 1 }} disabled={busy}>
+            {busy ? 'Generating' : 'Generate secure key'}
           </button>
         </div>
       </form>
@@ -301,7 +301,7 @@ function BackupFlow({ keyData, mnemonic, onDone }: {
 
   function verify() {
     const wrong = positions.filter(p => answers[p].trim().toLowerCase() !== words[p]);
-    if (wrong.length) { setErr(`Word${wrong.length > 1  's' : ''} ${wrong.map(p => `#${p+1}`).join(', ')} incorrect.`); return; }
+    if (wrong.length) { setErr(`Word${wrong.length > 1 ? 's' : ''} ${wrong.map(p => `#${p+1}`).join(', ')} incorrect.`); return; }
     markBackedUp(keyData.keyId);
     onDone();
 
@@ -320,7 +320,7 @@ function BackupFlow({ keyData, mnemonic, onDone }: {
         <input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />
         <span style={{ fontSize: 13, color: C.sub }}>I have written all 24 words in order.</span>
       </label>
-      <button style={{ ...goldBtn, width: '100%', marginTop: 12, opacity: confirmed  1 : 0.4 }}
+      <button style={{ ...goldBtn, width: '100%', marginTop: 12, opacity: confirmed ? 1 : 0.4 }}
         disabled={!confirmed} onClick={() => setStep('verify')}>
         Verify backup 
       </button>
@@ -335,7 +335,7 @@ function BackupFlow({ keyData, mnemonic, onDone }: {
       {positions.map(pos => (
         <div key={pos} style={{ marginBottom: 12 }}>
           <label style={lbl}>Word #{pos + 1}</label>
-          <input style={inp} value={answers[pos]  ''} autoComplete="off" autoCorrect="off" spellCheck={false}
+          <input style={inp} value={answers[pos] ?? ''} autoComplete="off" autoCorrect="off" spellCheck={false}
             onChange={e => setAnswers(p => ({ ...p, [pos]: e.target.value }))} />
         </div>
       ))}
@@ -383,8 +383,8 @@ function RevealModal({ keyData, onClose, onBackedUp }: {
           {err && <p style={{ color: C.red, fontSize: 13 }}>{err}</p>}
           <div style={{ display: 'flex', gap: 10 }}>
             <button type="button" style={ghostBtn} onClick={onClose}>Cancel</button>
-            <button type="submit" style={{ ...goldBtn, opacity: busy  0.6 : 1 }} disabled={busy}>
-              {busy  'Decrypting' : 'Reveal'}
+            <button type="submit" style={{ ...goldBtn, opacity: busy ? 0.6 : 1 }} disabled={busy}>
+              {busy ? 'Decrypting' : 'Reveal'}
             </button>
           </div>
         </form>
@@ -456,8 +456,8 @@ function SecureUpgradeModal({ keyData, onDone, onClose }: {
         {err && <p style={{ color: C.red, fontSize: 13 }}>{err}</p>}
         <div style={{ display: 'flex', gap: 10 }}>
           <button type="button" style={ghostBtn} onClick={onClose}>Cancel</button>
-          <button type="submit" style={{ ...goldBtn, opacity: busy  0.6 : 1 }} disabled={busy}>
-            {busy  'Encrypting' : 'Secure key'}
+          <button type="submit" style={{ ...goldBtn, opacity: busy ? 0.6 : 1 }} disabled={busy}>
+            {busy ? 'Encrypting' : 'Secure key'}
           </button>
         </div>
       </form>
@@ -475,7 +475,7 @@ function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => v
   const [err, setErr]         = useState<string | null>(null);
 
   function handleNetwork(n: Network) {
-    setNetwork(n); setPath(`m/48'/${n === 'mainnet'  '0' : '1'}'/0'/2'`);
+    setNetwork(n); setPath(`m/48'/${n === 'mainnet' ? '0' : '1'}'/0'/2'`);
 
   function submit(e: React.FormEvent) {
     e.preventDefault(); setErr(null);
@@ -537,7 +537,7 @@ function KeyRow({ k, accentColor, onDetail, onReveal }: {
         background: isTest  C.green + '18' : C.blue + '18',
         display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18,
       }}>
-        {k.origin === 'software'  (isTest  '' : '') : ''}
+        {k.origin === 'software' ? (isTest ? '' : '') : ''}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
@@ -564,7 +564,7 @@ function KeyRow({ k, accentColor, onDetail, onReveal }: {
       <div style={{ display: 'flex', gap: 8, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
         {k.origin === 'software' && (
           <button style={{ ...ghostBtn, fontSize: 12, padding: '5px 11px' }} onClick={onReveal}>
-            {k.testMnemonic  ' Mnemonic' : 'Backup'}
+            {k.testMnemonic ? '⚡ Mnemonic' : 'Backup'}
           </button>
         )}
       </div>
@@ -586,18 +586,18 @@ function DetailModal({ k, onClose, onReveal, onSecure, onArchive, onDelete }: {
       <div style={{ background: '#0A0A14', borderRadius: 10, overflow: 'hidden', marginBottom: 14 }}>
         {([
           ['Persona', k.persona],
-          ['Type', k.testMnemonic  'Test key (plaintext mnemonic)' : k.origin === 'imported_xpub'  'Imported xpub' : 'Secure key (encrypted)'],
+          ['Type', k.testMnemonic ? 'Test key (plaintext mnemonic)' : k.origin === 'imported_xpub' ? 'Imported xpub' : 'Secure key (encrypted)'],
           ['Network', k.network.toUpperCase()],
           ['Fingerprint', k.fingerprint],
           ['Path', k.derivationPath],
-          ['Backed up', k.backedUp  ' Yes' : ' Not yet'],
+          ['Backed up', k.backedUp ? '✓ Yes' : '✗ Not yet'],
           ['Created', new Date(k.createdAt).toLocaleDateString()],
         ] as [string, string][]).map(([label, value]) => (
           <div key={label} style={{ display: 'flex', justifyContent: 'space-between',
             alignItems: 'center', padding: '9px 14px', borderBottom: `1px solid ${C.border}` }}>
             <span style={{ fontSize: 12, color: C.muted }}>{label}</span>
             <span style={{ fontSize: 13, color: C.text,
-              fontFamily: ['Fingerprint','Path'].includes(label)  "'IBM Plex Mono', monospace" : 'inherit' }}>
+              fontFamily: ['Fingerprint','Path'].includes(label) ? "'IBM Plex Mono', monospace" : 'inherit' }}>
               {value}
             </span>
           </div>
@@ -607,7 +607,7 @@ function DetailModal({ k, onClose, onReveal, onSecure, onArchive, onDelete }: {
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
           <span style={lbl}>xpub</span>
           <button style={{ ...ghostBtn, padding: '3px 9px', fontSize: 11 }} onClick={() => copy(k.xpub, 'xpub')}>
-            {copied === 'xpub'  ' Copied' : 'Copy'}
+            {copied === 'xpub' ? '✓✓ Copied' : 'Copy'}
           </button>
         </div>
         <div style={{ background: '#0A0A14', borderRadius: 8, padding: '10px 12px',
@@ -617,7 +617,7 @@ function DetailModal({ k, onClose, onReveal, onSecure, onArchive, onDelete }: {
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {k.origin === 'software' && (
           <button style={{ ...ghostBtn, fontSize: 13 }} onClick={onReveal}>
-            {k.testMnemonic  ' View mnemonic' : 'View / backup'}
+            {k.testMnemonic ? '⚡ View mnemonic' : 'View / backup'}
           </button>
         )}
         {k.testMnemonic && (
@@ -715,7 +715,7 @@ export default function KeyManager() {
                 borderColor: p === 'all'  C.gold : personaColors[p]  C.gold,
                 color: p === 'all'  C.gold : personaColors[p]  C.gold,
               } : {}),
-            }}>{p === 'all'  'All' : p}</button>
+            }}>{p === 'all' ? 'All' : p}</button>
           ))}
         </div>
       )}
@@ -745,7 +745,7 @@ export default function KeyManager() {
               {persona}
             </span>
             <span style={{ fontSize: 11, color: C.muted }}>
-              {visible.filter(k => k.persona === persona).length} key{visible.filter(k => k.persona === persona).length !== 1  's' : ''}
+              {visible.filter(k => k.persona === persona).length} key{visible.filter(k => k.persona === persona).length !== 1 ? 's' : ''}
             </span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
