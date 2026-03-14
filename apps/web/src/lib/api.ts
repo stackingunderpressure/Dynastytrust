@@ -145,6 +145,75 @@ export const api = {
     body: JSON.stringify(body),
   }),
 
+
+  psbt: {
+    generate: (body: {
+      vault_id: string;
+      destination: string;
+      amount_sats: number;
+      fee_rate?: number;
+      path?: string;
+    }) => req<{
+      ok: true;
+      psbt_hex: string;
+      psbt_b64: string;
+      summary: {
+        vault_name: string;
+        vault_address: string;
+        destination: string;
+        amount_sats: number;
+        fee_sats: number;
+        change_sats: number;
+        fee_rate: number;
+        input_count: number;
+        total_in_sats: number;
+        network: string;
+        path: string;
+      };
+    }>('/psbt-binary', { method: 'POST', body: JSON.stringify(body) }),
+
+    merge: (body: { vault_id: string; proposal_id?: string; psbts: string[] }) =>
+      req<{ ok: true; psbt_hex: string; psbt_b64: string; signature_count: number; fully_signed: boolean }>(
+        '/psbt-merge', { method: 'POST', body: JSON.stringify(body) }
+      ),
+
+    finalize: (psbt_hex: string) =>
+      req<{ ok: true; raw_tx_hex: string; txid: string; vbytes: number }>(
+        '/psbt-finalize', { method: 'POST', body: JSON.stringify({ psbt_hex }) }
+      ),
+  },
+
+  governance: {
+    status: (body: {
+      vault_id: string;
+      utxo_age_blocks?: number;
+    }) => req<{ ok: true; vault_name: string; result: {
+      current_block: number;
+      active_paths: string[];
+      phase: string;
+      status_label: string;
+      blocks_until_recovery: number | null;
+      blocks_until_inheritance: number | null;
+      days_until_recovery: number | null;
+      days_until_inheritance: number | null;
+    }; fallback?: boolean }>('/governance', { method: 'POST', body: JSON.stringify({ action: 'status', ...body }) }),
+
+    audit: (body: {
+      vault_id: string;
+      path: string;
+      amount_sats: number;
+      destination: string;
+      utxo_age_blocks?: number;
+      total_vault_sats?: number;
+      signers?: { index: number; signed: boolean; label?: string }[];
+    }) => req<{ ok: true; result: unknown }>('/governance', { method: 'POST', body: JSON.stringify({ action: 'audit', ...body }) }),
+  },
+
+  broadcast: (raw_tx_hex: string, network: 'testnet' | 'bitcoin') => {
+    const base = network === 'bitcoin' ? 'https://mempool.space/api/tx' : 'https://mempool.space/testnet/api/tx';
+    return fetch(base, { method: 'POST', body: raw_tx_hex, headers: { 'Content-Type': 'text/plain' } }).then(r => r.text());
+  },
+
   proposals: {
     list: (vault_id: string) =>
       req<{ ok: true; proposals: Proposal[] }>(`/proposals?vault_id=${vault_id}`),
@@ -155,8 +224,21 @@ export const api = {
       amount_sats: number;
       path?: string;
       memo?: string;
+      psbt_hex?: string;
+      psbt_b64?: string;
+      fee_sats?: number;
     }) => req<{ ok: true; proposal: Proposal }>('/proposals', { method: 'POST', body: JSON.stringify(body) }),
+
+    update: (id: string, body: {
+      status?: string;
+      psbt_hex?: string;
+      psbt_b64?: string;
+      psbt_signed_hex?: string;
+      txid?: string;
+      memo?: string;
+    }) => req<{ ok: true; proposal: Proposal }>(`/proposals?id=${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   },
+
 
   pdfUrl: async (vault_id: string): Promise<string> => {
     const token = await getToken();
