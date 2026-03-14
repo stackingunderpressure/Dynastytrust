@@ -21,8 +21,19 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
       ...(init?.headers ?? {}),
     },
   });
-  const payload = await res.json();
-  if (!res.ok) throw new Error(payload.error ?? `Request failed: ${res.status}`);
+  const text = await res.text();
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    // Non-JSON response - surface the raw text as a readable error
+    throw new Error(
+      res.ok
+        ? `Unexpected response from server (not JSON): ${text.slice(0, 120)}`
+        : `Server error ${res.status}: ${text.slice(0, 120)}`
+    );
+  }
+  if (!res.ok) throw new Error((payload.error as string) ?? `Request failed: ${res.status}`);
   return payload as T;
 }
 
