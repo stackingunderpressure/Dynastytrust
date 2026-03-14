@@ -53,7 +53,7 @@ function WordGrid({ words }: { words: string[] }) {
             <span style={{ fontSize: 10, color: C.muted, minWidth: 16, flexShrink: 0 }}>{i + 1}</span>
             <span style={{
               fontSize: 12, fontFamily: "'IBM Plex Mono', monospace",
-              color: visible  C.text : 'transparent',
+              color: visible ? C.text : 'transparent',
               textShadow: visible ? 'none' : `0 0 8px ${C.muted}`,
               userSelect: visible ? 'text' : 'none',
             }}>{w}</span>
@@ -238,7 +238,7 @@ function SecureModal({ onDone, onClose }: {
         label: label.trim() || persona, network, password, persona,
       });
       onDone(key, mnemonic);
-    } catch (e) { setErr(e instanceof Error  e.message : 'Failed'); }
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Failed'); }
     finally { setBusy(false); }
 
 
@@ -361,7 +361,7 @@ function RevealModal({ keyData, onClose, onBackedUp }: {
   async function unlock(e: React.FormEvent) {
     e.preventDefault(); setBusy(true); setErr(null);
     try { setMn(await revealMnemonic(keyData.keyId, pw)); }
-    catch (e) { setErr(e instanceof Error  e.message : 'Failed'); }
+    catch (e) { setErr(e instanceof Error ? e.message : 'Failed'); }
     finally { setBusy(false); }
 
 
@@ -434,7 +434,7 @@ function SecureUpgradeModal({ keyData, onDone, onClose }: {
     if (pw.length < 8)  { setErr('Min 8 characters'); return; }
     setBusy(true); setErr(null);
     try { await secureTestKey(keyData.keyId, pw); onDone(); }
-    catch (e) { setErr(e instanceof Error  e.message : 'Failed'); }
+    catch (e) { setErr(e instanceof Error ? e.message : 'Failed'); }
     finally { setBusy(false); }
 
 
@@ -480,7 +480,7 @@ function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => v
   function submit(e: React.FormEvent) {
     e.preventDefault(); setErr(null);
     try { importXpub({ label: label.trim() || persona, persona, network, xpub: xpub.trim(), derivationPath: path.trim() }); onDone(); }
-    catch (e) { setErr(e instanceof Error  e.message : 'Import failed'); }
+    catch (e) { setErr(e instanceof Error ? e.message : 'Import failed'); }
 
 
   return (
@@ -534,7 +534,7 @@ function KeyRow({ k, accentColor, onDetail, onReveal }: {
     }} onClick={onDetail}>
       <div style={{
         width: 40, height: 40, borderRadius: 9, flexShrink: 0,
-        background: isTest  C.green + '18' : C.blue + '18',
+        background: isTest ? C.green + '18' : C.blue + '18',
         display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18,
       }}>
         {k.origin === 'software' ? (isTest ? '' : '') : ''}
