@@ -346,3 +346,27 @@ export function exportKeyring(): string {
 export function checkMnemonic(words: string): boolean {
   return validateMnemonic(words.trim().toLowerCase(), wordlist);
 }
+
+/**
+ * Re-derives pubkeys for any stored keys that have a missing or wrong-length pubkey.
+ * Call once on app startup to fix keys generated before the pubkey fix.
+ */
+export function repairPubkeys(): number {
+  const all = loadAll();
+  let fixed = 0;
+  const repaired = all.map(key => {
+    if (key.origin !== 'software' && key.origin !== 'imported_xpub') return key;
+    if (key.pubkey && key.pubkey.length === 66) return key;
+    try {
+      const hd = HDKey.fromExtendedKey(key.xpub);
+      if (hd.publicKey) {
+        const pubkey = toHex(hd.publicKey);
+        fixed++;
+        return { ...key, pubkey };
+      }
+    } catch { /* ignore */ }
+    return key;
+  });
+  if (fixed > 0) saveAll(repaired);
+  return fixed;
+}

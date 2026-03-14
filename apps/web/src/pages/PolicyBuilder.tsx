@@ -2,6 +2,23 @@ import { useState, useEffect } from 'react';
 import { listKeys, type LocalKey } from '../lib/keystore';
 import { api, type Vault } from '../lib/api';
 
+import { HDKey } from '@scure/bip32';
+
+// Get compressed pubkey hex from a selected key.
+// Re-derives from xpub if the stored pubkey is missing or wrong length.
+function toPubkeyHex(k: SelectedKey): string {
+  if (k.pubkey && k.pubkey.length === 66) return k.pubkey;
+  try {
+    const hd = HDKey.fromExtendedKey(k.xpub);
+    if (hd.publicKey) {
+      return Array.from(hd.publicKey).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+  } catch { /* ignore */ }
+  return k.pubkey;
+}
+
+
+
 const C = {
   bg: '#07070F', surface: '#0F0F1A', border: '#1E1E30',
   gold: '#C9A84C', goldDim: '#8B6914', text: '#E8E4D8',
@@ -25,6 +42,7 @@ const ghostBtn: React.CSSProperties = {
   padding: '8px 14px', background: 'none', border: `1px solid ${C.border}`,
   borderRadius: 8, color: C.sub, fontSize: 13, fontFamily: '"DM Sans", sans-serif', cursor: 'pointer',
 };
+
 
 function blocksToHuman(b: number) {
   const days = Math.round(b * 10 / 60 / 24);
@@ -214,8 +232,8 @@ export default function PolicyBuilder({ onVaultCreated }: { onVaultCreated?: (v:
       const res = await api.compile({
         name, network: network as 'testnet' | 'bitcoin',
         address_type: addrType,
-        founder_keys: founderKeys.map(k => k.xpub), founder_quorum: founderQ,
-        heir_keys: heirKeys.map(k => k.xpub), heir_quorum: heirQ,
+        founder_keys: founderKeys.map(toPubkeyHex), founder_quorum: founderQ,
+        heir_keys: heirKeys.map(toPubkeyHex), heir_quorum: heirQ,
         recovery_after: recovery, inheritance_after: inherit, save: false,
       });
       setCompiled(res.compiled as CompiledVault);

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase, type Session } from './lib/supabase';
 import Auth from './pages/Auth';
+import { repairPubkeys } from './lib/keystore';
 import KeyManager from './pages/KeyManager';
 import PolicyBuilder from './pages/PolicyBuilder';
 import Dashboard from './pages/Dashboard';
@@ -27,6 +28,7 @@ export default function App() {
   const [page, setPage]       = useState<Page>({ name: 'app', tab: 'keys' });
 
   useEffect(() => {
+    repairPubkeys();
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setLoading(false);
