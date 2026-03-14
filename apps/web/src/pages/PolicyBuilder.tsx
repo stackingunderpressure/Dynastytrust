@@ -4,19 +4,14 @@ import { api, type Vault } from '../lib/api';
 
 import { HDKey } from '@scure/bip32';
 
-// Get compressed pubkey hex from a selected key.
-// HDKey.fromExtendedKey gives us the public key at the xpub level directly.
+// Get compressed pubkey hex - uses the pubkey stored directly during key generation
 function toPubkeyHex(k: SelectedKey): string {
-  // Always re-derive from xpub - this is the most reliable source
-  try {
-    const hd = HDKey.fromExtendedKey(k.xpub);
-    if (hd.publicKey && hd.publicKey.length === 33) {
-      return Array.from(hd.publicKey).map((b: number) => b.toString(16).padStart(2, '0')).join('');
-    }
-  } catch { /* fall through */ }
-  // Fall back to stored pubkey if xpub derivation fails
+  // The keystore stores pubkey as toHex(account.publicKey) during generation
   if (k.pubkey && k.pubkey.length === 66) return k.pubkey;
-  throw new Error('Could not derive pubkey for key: ' + k.label + '. Try regenerating the key.');
+  // If pubkey is missing/wrong, show a clear message
+  console.error('Key missing pubkey:', k.label, 'pubkey:', k.pubkey, 'length:', k.pubkey?.length);
+  throw new Error('Key "' + k.label + '" is missing its pubkey. Please go to the Keys tab, delete this key, and generate a new one.');
+}
 }
 
 
@@ -62,6 +57,7 @@ const PRESETS = [
 ];
 
 interface SelectedKey {
+  pubkey: string;
   keyId: string; label: string; persona: string;
   xpub: string; fingerprint: string; network: string;
 }
@@ -214,7 +210,7 @@ export default function PolicyBuilder({ onVaultCreated }: { onVaultCreated?: (v:
   function addKey(keyId: string, role: 'founder' | 'heir') {
     const k = allKeys.find(k => k.keyId === keyId);
     if (!k) return;
-    const sk: SelectedKey = { keyId: k.keyId, label: k.label, persona: k.persona, xpub: k.xpub, fingerprint: k.fingerprint, network: k.network };
+    const sk: SelectedKey = { keyId: k.keyId, label: k.label, persona: k.persona, xpub: k.xpub, pubkey: k.pubkey, fingerprint: k.fingerprint, network: k.network };
     if (role === 'founder') { setFK(prev => { const n = [...prev, sk]; setFQ(q => Math.min(q, n.length)); return n; }); }
     else                    { setHK(prev => { const n = [...prev, sk]; setHQ(q => Math.min(q, n.length)); return n; }); }
     setCompiled(null);
