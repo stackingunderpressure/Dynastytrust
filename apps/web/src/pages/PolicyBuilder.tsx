@@ -12,9 +12,6 @@ function toPubkeyHex(k: SelectedKey): string {
   console.error('Key missing pubkey:', k.label, 'pubkey:', k.pubkey, 'length:', k.pubkey?.length);
   throw new Error('Key "' + k.label + '" is missing its pubkey. Please go to the Keys tab, delete this key, and generate a new one.');
 }
-}
-
-
 
 const C = {
   bg: '#07070F', surface: '#0F0F1A', border: '#1E1E30',
