@@ -53,6 +53,8 @@ export interface LocalKey {
   encryptedMnemonic?: EncryptedBlob;
   /** Test mode: plaintext mnemonic — never use for real funds */
   testMnemonic?: string;
+  /** Master key fingerprint (root BIP32 key, first 4 bytes) — used in descriptors */
+  masterFingerprint?: string;
   /** Whether backup verify has been completed */
   backedUp: boolean;
 }
@@ -148,7 +150,9 @@ function deriveAccount(mnemonic: string, network: Network) {
   if (!account.privateKey || !account.publicKey || !account.publicExtendedKey) {
     throw new Error('Key derivation failed');
   }
-  return { account, path };
+  // Master fingerprint = first 4 bytes of root public key (used in descriptors)
+  const masterFingerprint = root.publicKey ? toHex(root.publicKey.subarray(0, 4)) : undefined;
+  return { account, path, masterFingerprint };
 }
 
 //
@@ -173,22 +177,23 @@ export function generateTestKey(opts: {
   persona: string;
 }): KeyCreateResult {
   const mnemonic = generateMnemonic(wordlist, 256);
-  const { account, path } = deriveAccount(mnemonic, opts.network);
+  const { account, path, masterFingerprint } = deriveAccount(mnemonic, opts.network);
 
   const key: LocalKey = {
-    keyId:          crypto.randomUUID(),
-    label:          opts.label,
-    persona:        opts.persona,
-    origin:         'software',
-    network:        opts.network,
-    fingerprint:    fingerprint(account.publicKey),
-    derivationPath: path,
-    xpub:           account.publicExtendedKey,
-    pubkey:         toHex(account.publicKey),
-    status:         'active',
-    createdAt:      new Date().toISOString(),
-    testMnemonic:   mnemonic,   // stored plaintext — easy access, no prod use
-    backedUp:       false,
+    keyId:             crypto.randomUUID(),
+    label:             opts.label,
+    persona:           opts.persona,
+    origin:            'software',
+    network:           opts.network,
+    fingerprint:       fingerprint(account.publicKey),
+    masterFingerprint,
+    derivationPath:    path,
+    xpub:              account.publicExtendedKey,
+    pubkey:            toHex(account.publicKey),
+    status:            'active',
+    createdAt:         new Date().toISOString(),
+    testMnemonic:      mnemonic,
+    backedUp:          false,
   };
 
   const all = loadAll();
@@ -208,23 +213,24 @@ export async function generateSoftwareKey(opts: {
   persona: string;
 }): Promise<KeyCreateResult> {
   const mnemonic = generateMnemonic(wordlist, 256);
-  const { account, path } = deriveAccount(mnemonic, opts.network);
+  const { account, path, masterFingerprint } = deriveAccount(mnemonic, opts.network);
   const encryptedMnemonic = await encryptText(mnemonic, opts.password);
 
   const key: LocalKey = {
-    keyId:            crypto.randomUUID(),
-    label:            opts.label,
-    persona:          opts.persona,
-    origin:           'software',
-    network:          opts.network,
-    fingerprint:      fingerprint(account.publicKey),
-    derivationPath:   path,
-    xpub:             account.publicExtendedKey,
-    pubkey:           toHex(account.publicKey),
-    status:           'active',
-    createdAt:        new Date().toISOString(),
+    keyId:             crypto.randomUUID(),
+    label:             opts.label,
+    persona:           opts.persona,
+    origin:            'software',
+    network:           opts.network,
+    fingerprint:       fingerprint(account.publicKey),
+    masterFingerprint,
+    derivationPath:    path,
+    xpub:              account.publicExtendedKey,
+    pubkey:            toHex(account.publicKey),
+    status:            'active',
+    createdAt:         new Date().toISOString(),
     encryptedMnemonic,
-    backedUp:         false,
+    backedUp:          false,
   };
 
   const all = loadAll();
@@ -369,4 +375,37 @@ export function repairPubkeys(): number {
   });
   if (fixed > 0) saveAll(repaired);
   return fixed;
+}
+
+/** Rename / relabel a key */
+export function renameKey(keyId: string, label: string, persona?: string): LocalKey {
+  const all = loadAll();
+  const idx = all.findIndex(k => k.keyId === keyId);
+  if (idx < 0) throw new Error('Key not found');
+  all[idx] = { ...all[idx], label, ...(persona ? { persona } : {}) };
+  saveAll(all);
+  return all[idx];
+}
+
+/** Import a full keyring JSON (public data only — no mnemonics) */
+export function importKeyringJson(json: string): number {
+  let data: { keys?: unknown[] };
+  try { data = JSON.parse(json); }
+  catch { throw new Error('Invalid JSON'); }
+  if (!Array.isArray(data.keys)) throw new Error('No keys array found');
+  const existing = loadAll();
+  const existingIds = new Set(existing.map(k => k.keyId));
+  let added = 0;
+  for (const k of data.keys as LocalKey[]) {
+    if (!k.keyId || !k.xpub || existingIds.has(k.keyId)) continue;
+    existing.push({ ...k, status: 'active', backedUp: true });
+    added++;
+  }
+  saveAll(existing);
+  return added;
+}
+
+/** Get all keys including archived for a full export */
+export function listAllKeys(): LocalKey[] {
+  return loadAll();
 }

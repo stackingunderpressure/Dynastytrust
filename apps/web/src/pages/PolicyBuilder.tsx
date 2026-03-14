@@ -13,6 +13,53 @@ function toPubkeyHex(k: SelectedKey): string {
   throw new Error('Key "' + k.label + '" is missing its pubkey. Please go to the Keys tab, delete this key, and generate a new one.');
 }
 
+// Map from pubkey hex -> key origin string for descriptor post-processing
+interface KeyOriginMap {
+  [pubkeyHex: string]: {
+    masterFingerprint: string;
+    derivationPath: string;
+    xpub: string;
+  };
+}
+
+/**
+ * Convert a raw-pubkey descriptor from the compiler into a Nunchuk/Sparrow-compatible
+ * descriptor with key origin info: pk(03abcd...) -> pk([masterFP/path]xpub/0/*)
+ *
+ * Nunchuk format: pk([deadbeef/48'/1'/0'/2']tpubXXX/0/*)
+ */
+function upgradeDescriptor(descriptor: string, keyOrigins: KeyOriginMap): string {
+  let result = descriptor;
+  for (const [pubkeyHex, origin] of Object.entries(keyOrigins)) {
+    // Clean derivation path for descriptor: remove leading m/
+    const cleanPath = origin.derivationPath.replace(/^m\//, '');
+    const keyExpr = `[${origin.masterFingerprint}/${cleanPath}]${origin.xpub}/0/*`;
+    // Replace all occurrences of pk(pubkeyHex) with pk(keyExpr)
+    result = result.split(`pk(${pubkeyHex})`).join(`pk(${keyExpr})`);
+  }
+  return result;
+}
+
+/**
+ * Build BSMS (Bitcoin Secure Multisig Setup) export string for Nunchuk/Coldcard.
+ * BSMS v1.0 format as per BIP-BSMS.
+ */
+function buildBsmsExport(
+  descriptor: string,
+  network: string,
+  name: string
+): string {
+  const lines = [
+    'BSMS 1.0',
+    descriptor,
+    '/0/*,/1/*',
+    name + ' - ' + network.toUpperCase(),
+  ];
+  return lines.join('\n');
+}
+
+
+
 const C = {
   bg: '#07070F', surface: '#0F0F1A', border: '#1E1E30',
   gold: '#C9A84C', goldDim: '#8B6914', text: '#E8E4D8',
@@ -63,21 +110,22 @@ function validate(fk: SelectedKey[], hk: SelectedKey[], fq: number, hq: number, 
   const errors: string[] = [];
   const warnings: string[] = [];
   if (!fk.length)    errors.push('At least one founder key is required.');
-  if (fq < 1)        errors.push('Founder quorum must be ≥ 1.');
+  if (fq < 1)        errors.push('Founder quorum must be >= 1.');
   if (fq > fk.length) errors.push(`Founder quorum (${fq}) exceeds founder key count (${fk.length}).`);
-  if (!hk.length)    warnings.push('No heir keys — inheritance path will not be compiled.');
+  if (!hk.length)    warnings.push('No heir keys -- inheritance path will not be compiled.');
   if (hk.length && hq > hk.length) errors.push(`Heir quorum (${hq}) exceeds heir key count (${hk.length}).`);
-  if (ra < 26_000)   errors.push(`Recovery timelock must be ≥ 26,000 blocks (~6 months). Got ${ra.toLocaleString()}.`);
+  if (ra < 26_000)   errors.push(`Recovery timelock must be >= 26,000 blocks (~6 months). Got ${ra.toLocaleString()}.`);
   if (ia <= ra)      errors.push('Inheritance timelock must be greater than recovery timelock.');
   const nets = new Set([...fk, ...hk].map(k => k.network));
   if (nets.size > 1) errors.push('All selected keys must be on the same network.');
-  if (fk.length === 1 && fq === 1) warnings.push('1-of-1 founder path — single point of failure.');
+  if (fk.length === 1 && fq === 1) warnings.push('1-of-1 founder path -- single point of failure.');
   return { errors, warnings };
 }
 
 interface CompiledVault {
   address: string; descriptor: string;
   miniscript_policy: string; network: string; address_type: string;
+  bsms?: string;
 }
 
 function Section({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) {
@@ -126,26 +174,26 @@ function KeyPicker({ selected, available, onAdd, onRemove, role, accentColor }: 
           background: '#0A0A14', borderRadius: 8, padding: '10px 14px',
           border: `1px solid ${accentColor}44`, marginBottom: 6,
         }}>
-          <span style={{ fontSize: 16 }}>{role === 'founder' ? '🏛️' : '👨‍👩‍👧'}</span>
+          <span style={{ fontSize: 16 }}>{role === 'founder' ? 'F' : 'H'}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 14, fontWeight: 500, color: C.text }}>{k.label}</div>
             <div style={{ fontSize: 11, color: C.muted }}>
               <span style={{ color: accentColor }}>{k.persona}</span>
-              {' · '}{k.fingerprint}{' · '}{k.network}
+              {' . '}{k.fingerprint}{' . '}{k.network}
             </div>
           </div>
           <button onClick={() => onRemove(k.keyId)} style={{
             background: 'none', border: 'none', color: C.muted, cursor: 'pointer', fontSize: 16,
-          }}>✕</button>
+          }}>x</button>
         </div>
       ))}
       {available.length > 0 && (
         <select style={{ ...inp, color: C.muted }} value=""
           onChange={e => { if (e.target.value) onAdd(e.target.value); }}>
-          <option value="">+ Add {role} key…</option>
+          <option value="">+ Add {role} key...</option>
           {available.map(k => (
             <option key={k.keyId} value={k.keyId}>
-              [{k.persona}] {k.label} ({k.fingerprint} · {k.network})
+              [{k.persona}] {k.label} ({k.fingerprint} . {k.network})
             </option>
           ))}
         </select>
@@ -169,7 +217,7 @@ function CopyField({ label, value, multiline }: { label: string; value: string; 
           onClick={() => navigator.clipboard.writeText(value).then(() => {
             setCopied(true); setTimeout(() => setCopied(false), 1500);
           })}>
-          {copied ? '✓ Copied' : 'Copy'}
+          {copied ? 'check Copied' : 'Copy'}
         </button>
       </div>
       <div style={{
@@ -260,7 +308,7 @@ export default function PolicyBuilder({ onVaultCreated }: { onVaultCreated?: (v:
       {allKeys.length === 0 && (
         <div style={{ padding: '14px 18px', background: '#1A1400', border: `1px solid ${C.goldDim}`,
           borderRadius: 10, fontSize: 13, color: C.sub }}>
-          ⚠️ No active keys found. Go to the <strong style={{ color: C.gold }}>Keys</strong> tab
+          ! No active keys found. Go to the <strong style={{ color: C.gold }}>Keys</strong> tab
           and generate keys first, then return here.
         </div>
       )}
@@ -284,7 +332,7 @@ export default function PolicyBuilder({ onVaultCreated }: { onVaultCreated?: (v:
       </Section>
 
       {/* Founder keys */}
-      <Section title="Founder keys" sub="Day-to-day spending — available immediately">
+      <Section title="Founder keys" sub="Day-to-day spending -- available immediately">
         <KeyPicker selected={founderKeys} available={availForFounder}
           onAdd={id => addKey(id, 'founder')} onRemove={id => removeKey(id, 'founder')}
           role="founder" accentColor={C.gold} />
@@ -294,7 +342,7 @@ export default function PolicyBuilder({ onVaultCreated }: { onVaultCreated?: (v:
       </Section>
 
       {/* Heir keys */}
-      <Section title="Heir keys" sub="Inheritance path — unlocks after timelock">
+      <Section title="Heir keys" sub="Inheritance path -- unlocks after timelock">
         <KeyPicker selected={heirKeys} available={availForHeir}
           onAdd={id => addKey(id, 'heir')} onRemove={id => removeKey(id, 'heir')}
           role="heir" accentColor={C.green} />
@@ -306,8 +354,8 @@ export default function PolicyBuilder({ onVaultCreated }: { onVaultCreated?: (v:
       {/* Timelocks */}
       <Section title="Timelocks">
         {[
-          { label: 'Recovery after', sub: 'Founder recovery path — for lost devices', val: recovery, set: setRecovery, min: 26_000 },
-          { label: 'Inheritance after', sub: 'Heir inheritance — the dynasty transfer window', val: inherit, set: setInherit, min: recovery + 1 },
+          { label: 'Recovery after', sub: 'Founder recovery path -- for lost devices', val: recovery, set: setRecovery, min: 26_000 },
+          { label: 'Inheritance after', sub: 'Heir inheritance -- the dynasty transfer window', val: inherit, set: setInherit, min: recovery + 1 },
         ].map(({ label, sub, val, set, min }) => (
           <div key={label} style={{ marginBottom: 18 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
@@ -346,14 +394,14 @@ export default function PolicyBuilder({ onVaultCreated }: { onVaultCreated?: (v:
             <div key={i} style={{ padding: '10px 14px', borderRadius: 8, fontSize: 13,
               background: C.red + '11', border: `1px solid ${C.red}33`, color: C.red,
               display: 'flex', gap: 8 }}>
-              <span>✕</span><span>{e}</span>
+              <span>x</span><span>{e}</span>
             </div>
           ))}
           {warnings.map((w, i) => (
             <div key={i} style={{ padding: '10px 14px', borderRadius: 8, fontSize: 13,
               background: C.gold + '11', border: `1px solid ${C.gold}33`, color: C.gold,
               display: 'flex', gap: 8 }}>
-              <span>⚠</span><span>{w}</span>
+              <span>!</span><span>{w}</span>
             </div>
           ))}
         </div>
@@ -365,12 +413,12 @@ export default function PolicyBuilder({ onVaultCreated }: { onVaultCreated?: (v:
           <div>
             <div style={{ fontSize: 15, fontWeight: 600, color: C.text }}>Compile vault</div>
             <div style={{ fontSize: 13, color: C.muted, marginTop: 2 }}>
-              Sends xpubs to your Fly.io Rust compiler → returns address, descriptor, Miniscript
+              Sends xpubs to your Fly.io Rust compiler -> returns address, descriptor, Miniscript
             </div>
           </div>
           <button style={{ ...goldBtn, opacity: (!canCompile || compiling) ? 0.4 : 1 }}
             disabled={!canCompile || compiling} onClick={compile}>
-            {compiling ? 'Compiling…' : compiled ? 'Recompile' : 'Compile →'}
+            {compiling ? 'Compiling...' : compiled ? 'Recompile' : 'Compile ->'}
           </button>
         </div>
 
@@ -386,16 +434,17 @@ export default function PolicyBuilder({ onVaultCreated }: { onVaultCreated?: (v:
             <div style={{ padding: '10px 14px', background: '#0A1400',
               border: `1px solid ${C.green}44`, borderRadius: 8,
               color: C.green, fontSize: 13 }}>
-              ✓ Compiled — {compiled.network.toUpperCase()} · {compiled.address_type.toUpperCase()}
+              check Compiled -- {compiled.network.toUpperCase()} . {compiled.address_type.toUpperCase()}
             </div>
             <CopyField label="Bitcoin address" value={compiled.address} />
-            <CopyField label="Output descriptor" value={compiled.descriptor} multiline />
+            <CopyField label="Output descriptor (Nunchuk/Sparrow)" value={compiled.descriptor} multiline />
             <CopyField label="Miniscript policy" value={compiled.miniscript_policy} multiline />
+            {compiled.bsms && <CopyField label="BSMS export (Nunchuk import)" value={compiled.bsms} multiline />}
 
             {saveErr && <p style={{ color: C.red, fontSize: 13 }}>{saveErr}</p>}
 
             <button style={{ ...goldBtn, opacity: saving ? 0.6 : 1 }} disabled={saving} onClick={save}>
-              {saving ? 'Saving vault…' : 'Save vault →'}
+              {saving ? 'Saving vault...' : 'Save vault ->'}
             </button>
           </div>
         )}
