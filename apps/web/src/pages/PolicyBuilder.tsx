@@ -1,9 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listKeys, type LocalKey } from '../lib/keystore';
-import { api, type Vault } from '../lib/api';
-
-import { HDKey } from '@scure/bip32';
+import { api } from '../lib/api';
 
 // Get compressed pubkey hex - uses the pubkey stored directly during key generation
 function toPubkeyHex(k: SelectedKey): string {

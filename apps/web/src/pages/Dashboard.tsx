@@ -51,7 +51,7 @@ export default function Dashboard(){
   async function unarchive(v:Vault,e:React.MouseEvent){
     e.stopPropagation();
     try{await (api.vaults as unknown as {unarchive:(id:string)=>Promise<unknown>}).unarchive?.(v.id);}
-    catch{}
+    catch{/* unarchive is best-effort; refresh the list regardless */}
     void load();
   }
 
