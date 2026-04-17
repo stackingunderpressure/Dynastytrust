@@ -413,7 +413,7 @@ export default function PolicyBuilder({ onVaultCreated }: { onVaultCreated?: (v:
           <div>
             <div style={{ fontSize: 15, fontWeight: 600, color: C.text }}>Compile vault</div>
             <div style={{ fontSize: 13, color: C.muted, marginTop: 2 }}>
-              Sends xpubs to your Fly.io Rust compiler -> returns address, descriptor, Miniscript
+              Sends xpubs to your Fly.io Rust compiler — returns address, descriptor, Miniscript
             </div>
           </div>
           <button style={{ ...goldBtn, opacity: (!canCompile || compiling) ? 0.4 : 1 }}
