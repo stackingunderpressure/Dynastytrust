@@ -6,7 +6,10 @@ import {
   DEFAULT_PERSONAS, type LocalKey, type Network,
 } from "../lib/keystore";
 import { useToast } from "../components/toast";
+import { colors, fonts, radii, space } from "../theme";
+import { Button, Input, Label, Textarea } from "../components/ui";
 
+// Local style objects kept until the bottom half of the file migrates.
 const C = {
   bg:"#07070F",surface:"#0F0F1A",raised:"#141422",border:"#1E1E30",
   gold:"#C9A84C",goldDim:"#8B6914",text:"#E8E4D8",muted:"#5A5570",
@@ -23,53 +26,157 @@ const goldBtn: React.CSSProperties={padding:"10px 20px",background:C.gold,border
 const ghostBtn: React.CSSProperties={padding:"9px 16px",background:"none",border:"1px solid #1E1E30",borderRadius:8,color:C.sub,fontSize:13,fontFamily:"DM Sans,sans-serif",cursor:"pointer"};
 const dangerBtn: React.CSSProperties={...ghostBtn,color:C.red,borderColor:"#3A1A1A"};
 
-function WordGrid({words}:{words:string[]}){
-  const [vis,setVis]=useState(false);
+function WordGrid({ words }: { words: string[] }) {
+  const [vis, setVis] = useState(false);
   return (
     <div>
-      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:6}}>
-        <button style={{...ghostBtn,fontSize:12,padding:"4px 10px"}} onClick={()=>setVis(v=>!v)}>
-          {vis?"Hide":"Reveal words"}
-        </button>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+        <Button variant="ghost" size="sm" style={{ fontSize: 12, padding: "4px 10px" }} onClick={() => setVis(v => !v)}>
+          {vis ? "Hide" : "Reveal words"}
+        </Button>
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5}}>
-        {words.map((w,i)=>(
-          <div key={i} style={{background:"#0A0A14",border:"1px solid #1E1E30",borderRadius:6,padding:"6px 10px",display:"flex",gap:6,alignItems:"center"}}>
-            <span style={{fontSize:10,color:C.muted,minWidth:16,flexShrink:0}}>{i+1}</span>
-            <span style={{fontSize:12,fontFamily:"IBM Plex Mono,monospace",color:vis?C.text:"transparent",textShadow:vis?"none":"0 0 8px #5A5570",userSelect:vis?"text":"none"}}>{w}</span>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 5 }}>
+        {words.map((w, i) => (
+          <div
+            key={i}
+            style={{
+              background: "#0A0A14",
+              border: `1px solid ${colors.border}`,
+              borderRadius: 6,
+              padding: "6px 10px",
+              display: "flex",
+              gap: 6,
+              alignItems: "center",
+            }}
+          >
+            <span style={{ fontSize: 10, color: colors.muted, minWidth: 16, flexShrink: 0 }}>{i + 1}</span>
+            <span
+              style={{
+                fontSize: 12,
+                fontFamily: fonts.mono,
+                color: vis ? colors.text : "transparent",
+                textShadow: vis ? "none" : `0 0 8px ${colors.muted}`,
+                userSelect: vis ? "text" : "none",
+              }}
+            >
+              {w}
+            </span>
           </div>
         ))}
       </div>
-      {vis&&<button style={{...ghostBtn,width:"100%",marginTop:10,fontSize:12}} onClick={()=>navigator.clipboard.writeText(words.join(" "))}>Copy all 24 words</button>}
+      {vis && (
+        <Button
+          variant="ghost"
+          size="sm"
+          style={{ width: "100%", marginTop: 10, fontSize: 12 }}
+          onClick={() => navigator.clipboard.writeText(words.join(" "))}
+        >
+          Copy all 24 words
+        </Button>
+      )}
     </div>
   );
 }
 
-function PersonaPicker({value,onChange}:{value:string;onChange:(v:string)=>void}){
-  const [custom,setCustom]=useState("");
-  const [show,setShow]=useState(false);
-  const extras=value&&!DEFAULT_PERSONAS.includes(value)?[value]:[];
-  const all=[...DEFAULT_PERSONAS,...extras];
+function PersonaPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [custom, setCustom] = useState("");
+  const [show, setShow] = useState(false);
+  const extras = value && !DEFAULT_PERSONAS.includes(value) ? [value] : [];
+  const all = [...DEFAULT_PERSONAS, ...extras];
   return (
     <div>
-      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:6}}>
-        {all.map(p=>(
-          <button key={p} onClick={()=>{onChange(p);setShow(false);}} style={{...ghostBtn,padding:"5px 12px",fontSize:12,borderColor:value===p?C.gold:"#1E1E30",color:value===p?C.gold:C.sub,background:value===p?"#C9A84C18":"transparent"}}>{p}</button>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+        {all.map(p => (
+          <Button
+            key={p}
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              onChange(p);
+              setShow(false);
+            }}
+            style={{
+              padding: "5px 12px",
+              fontSize: 12,
+              borderColor: value === p ? colors.gold : colors.border,
+              color: value === p ? colors.gold : colors.sub,
+              background: value === p ? "#C9A84C18" : "transparent",
+            }}
+          >
+            {p}
+          </Button>
         ))}
-        <button onClick={()=>setShow(s=>!s)} style={{...ghostBtn,padding:"5px 12px",fontSize:12}}>+ Custom</button>
+        <Button variant="ghost" size="sm" style={{ padding: "5px 12px", fontSize: 12 }} onClick={() => setShow(s => !s)}>
+          + Custom
+        </Button>
       </div>
-      {show&&<div style={{display:"flex",gap:8}}><input style={{...inp,flex:1}} placeholder="Custom persona" value={custom} onChange={e=>setCustom(e.target.value)}/><button style={ghostBtn} onClick={()=>{if(custom.trim()){onChange(custom.trim());setShow(false);}}}>Set</button></div>}
+      {show && (
+        <div style={{ display: "flex", gap: 8 }}>
+          <Input style={{ flex: 1 }} placeholder="Custom persona" value={custom} onChange={e => setCustom(e.target.value)} />
+          <Button
+            variant="ghost"
+            onClick={() => {
+              if (custom.trim()) {
+                onChange(custom.trim());
+                setShow(false);
+              }
+            }}
+          >
+            Set
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
 
-function Modal({title,onClose,children,wide}:{title:string;onClose:()=>void;children:React.ReactNode;wide?:boolean}){
+function Modal({
+  title,
+  onClose,
+  children,
+  wide,
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  wide?: boolean;
+}) {
   return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.78)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:16}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
-      <div style={{background:C.surface,border:"1px solid "+C.border,borderRadius:16,padding:"28px 32px",width:"100%",maxWidth:wide?660:520,maxHeight:"92vh",overflowY:"auto",fontFamily:"DM Sans,sans-serif"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-          <h2 style={{fontSize:20,fontWeight:600,color:C.text,fontFamily:"Playfair Display,serif",margin:0}}>{title}</h2>
-          <button onClick={onClose} style={{background:"none",border:"none",color:C.muted,fontSize:18,cursor:"pointer"}}>x</button>
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.78)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 200,
+        padding: space[4],
+      }}
+      onClick={e => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        style={{
+          background: colors.surface,
+          border: `1px solid ${colors.border}`,
+          borderRadius: 16,
+          padding: "28px 32px",
+          width: "100%",
+          maxWidth: wide ? 660 : 520,
+          maxHeight: "92vh",
+          overflowY: "auto",
+          fontFamily: fonts.sans,
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <h2 style={{ fontSize: 20, fontWeight: 600, color: colors.text, fontFamily: fonts.display, margin: 0 }}>
+            {title}
+          </h2>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: colors.muted, fontSize: 18, cursor: "pointer" }}>
+            x
+          </button>
         </div>
         {children}
       </div>
@@ -77,109 +184,225 @@ function Modal({title,onClose,children,wide}:{title:string;onClose:()=>void;chil
   );
 }
 
-function QuickModal({onDone,onClose}:{onClose:()=>void;onDone:(key:LocalKey,mnemonic:string)=>void}){
-  const [label,setLabel]=useState("");
-  const [persona,setPersona]=useState(DEFAULT_PERSONAS[0]);
-  const [network,setNetwork]=useState<Network>("testnet");
-  function submit(e:React.FormEvent){
+function QuickModal({ onDone, onClose }: { onClose: () => void; onDone: (key: LocalKey, mnemonic: string) => void }) {
+  const [label, setLabel] = useState("");
+  const [persona, setPersona] = useState(DEFAULT_PERSONAS[0]);
+  const [network, setNetwork] = useState<Network>("testnet");
+  function submit(e: React.FormEvent) {
     e.preventDefault();
-    const {key,mnemonic}=generateTestKey({label:label.trim()||persona,network,persona});
-    onDone(key,mnemonic);
+    const { key, mnemonic } = generateTestKey({ label: label.trim() || persona, network, persona });
+    onDone(key, mnemonic);
   }
   return (
     <Modal title="Quick test key" onClose={onClose}>
-      <div style={{padding:"10px 14px",background:"#0A1A14",border:"1px solid #52C47A44",borderRadius:8,marginBottom:18}}>
-        <p style={{fontSize:13,color:C.green,margin:0}}>No password needed. Mnemonic stored in browser. Testnet only.</p>
+      <div style={{ padding: "10px 14px", background: "#0A1A14", border: `1px solid ${colors.green}44`, borderRadius: radii.md, marginBottom: 18 }}>
+        <p style={{ fontSize: 13, color: colors.green, margin: 0 }}>
+          No password needed. Mnemonic stored in browser. Testnet only.
+        </p>
       </div>
-      <form onSubmit={submit} style={{display:"flex",flexDirection:"column",gap:14}}>
-        <div><label style={lbl}>Label</label><input style={inp} value={label} onChange={e=>setLabel(e.target.value)} placeholder={persona}/></div>
-        <div><label style={lbl}>Persona</label><PersonaPicker value={persona} onChange={setPersona}/></div>
-        <div><label style={lbl}>Network</label><select style={inp} value={network} onChange={e=>setNetwork(e.target.value as Network)}><option value="testnet">Testnet</option><option value="mainnet">Mainnet</option></select></div>
-        <div style={{display:"flex",gap:10}}><button type="button" style={ghostBtn} onClick={onClose}>Cancel</button><button type="submit" style={{...goldBtn,background:C.green}}>Generate instantly</button></div>
+      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div>
+          <Label>Label</Label>
+          <Input value={label} onChange={e => setLabel(e.target.value)} placeholder={persona} />
+        </div>
+        <div>
+          <Label>Persona</Label>
+          <PersonaPicker value={persona} onChange={setPersona} />
+        </div>
+        <div>
+          <Label>Network</Label>
+          <select style={inp} value={network} onChange={e => setNetwork(e.target.value as Network)}>
+            <option value="testnet">Testnet</option>
+            <option value="mainnet">Mainnet</option>
+          </select>
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" style={{ background: colors.green }}>
+            Generate instantly
+          </Button>
+        </div>
       </form>
     </Modal>
   );
 }
 
-function TestKeyCreated({keyData,mnemonic,onClose}:{keyData:LocalKey;mnemonic:string;onClose:()=>void}){
+function TestKeyCreated({ keyData, mnemonic, onClose }: { keyData: LocalKey; mnemonic: string; onClose: () => void }) {
   return (
     <Modal title="Key created" onClose={onClose} wide>
-      <div style={{padding:"10px 14px",background:"#0A1A14",border:"1px solid #52C47A44",borderRadius:8,marginBottom:16}}>
-        <p style={{fontSize:13,color:C.green,margin:0}}><strong>{keyData.label}</strong> created for <strong>{keyData.persona}</strong>. Recovery phrase below - tap "Reveal words" to see it.</p>
+      <div style={{ padding: "10px 14px", background: "#0A1A14", border: `1px solid ${colors.green}44`, borderRadius: radii.md, marginBottom: 16 }}>
+        <p style={{ fontSize: 13, color: colors.green, margin: 0 }}>
+          <strong>{keyData.label}</strong> created for <strong>{keyData.persona}</strong>. Recovery phrase below - tap
+          "Reveal words" to see it.
+        </p>
       </div>
-      <WordGrid words={mnemonic.split(" ")}/>
-      <div style={{display:"flex",gap:10,marginTop:16}}>
-        <button style={{...ghostBtn,flex:1}} onClick={onClose}>Done - back up later</button>
-        <button style={{...goldBtn,flex:1}} onClick={onClose}>Continue</button>
+      <WordGrid words={mnemonic.split(" ")} />
+      <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+        <Button variant="ghost" style={{ flex: 1 }} onClick={onClose}>
+          Done - back up later
+        </Button>
+        <Button style={{ flex: 1 }} onClick={onClose}>
+          Continue
+        </Button>
       </div>
     </Modal>
   );
 }
 
-function SecureModal({onDone,onClose}:{onClose:()=>void;onDone:(key:LocalKey,mnemonic:string)=>void}){
-  const [label,setLabel]=useState("");
-  const [persona,setPersona]=useState(DEFAULT_PERSONAS[0]);
-  const [network,setNetwork]=useState<Network>("testnet");
-  const [password,setPassword]=useState("");
-  const [confirm,setConfirm]=useState("");
-  const [busy,setBusy]=useState(false);
-  const [err,setErr]=useState<string|null>(null);
-  async function submit(e:React.FormEvent){
+function SecureModal({ onDone, onClose }: { onClose: () => void; onDone: (key: LocalKey, mnemonic: string) => void }) {
+  const [label, setLabel] = useState("");
+  const [persona, setPersona] = useState(DEFAULT_PERSONAS[0]);
+  const [network, setNetwork] = useState<Network>("testnet");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if(password!==confirm){setErr("Passwords do not match");return;}
-    if(password.length<8){setErr("Password must be at least 8 characters");return;}
-    setBusy(true);setErr(null);
-    try{const {key,mnemonic}=await generateSoftwareKey({label:label.trim()||persona,network,password,persona});onDone(key,mnemonic);}
-    catch(e){setErr(e instanceof Error?e.message:"Failed");}
-    finally{setBusy(false);}
+    if (password !== confirm) {
+      setErr("Passwords do not match");
+      return;
+    }
+    if (password.length < 8) {
+      setErr("Password must be at least 8 characters");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      const { key, mnemonic } = await generateSoftwareKey({ label: label.trim() || persona, network, password, persona });
+      onDone(key, mnemonic);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
   }
   return (
     <Modal title="Secure key" onClose={onClose}>
-      <p style={{fontSize:13,color:C.muted,marginBottom:20,lineHeight:1.5}}>Mnemonic encrypted with your password. Use for real funds.</p>
-      <form onSubmit={submit} style={{display:"flex",flexDirection:"column",gap:14}}>
-        <div><label style={lbl}>Label</label><input style={inp} value={label} onChange={e=>setLabel(e.target.value)} placeholder={persona}/></div>
-        <div><label style={lbl}>Persona</label><PersonaPicker value={persona} onChange={setPersona}/></div>
-        <div><label style={lbl}>Network</label><select style={inp} value={network} onChange={e=>setNetwork(e.target.value as Network)}><option value="testnet">Testnet</option><option value="mainnet">Mainnet</option></select></div>
-        <div><label style={lbl}>Encryption password</label><input style={inp} type="password" value={password} onChange={e=>setPassword(e.target.value)} required minLength={8} placeholder="Min 8 characters"/></div>
-        <div><label style={lbl}>Confirm password</label><input style={inp} type="password" value={confirm} onChange={e=>setConfirm(e.target.value)} required/></div>
-        {err&&<p style={{color:C.red,fontSize:13,margin:0}}>{err}</p>}
-        <div style={{display:"flex",gap:10}}><button type="button" style={ghostBtn} onClick={onClose}>Cancel</button><button type="submit" style={{...goldBtn,opacity:busy?0.6:1}} disabled={busy}>{busy?"Generating...":"Generate"}</button></div>
+      <p style={{ fontSize: 13, color: colors.muted, marginBottom: 20, lineHeight: 1.5 }}>
+        Mnemonic encrypted with your password. Use for real funds.
+      </p>
+      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div>
+          <Label>Label</Label>
+          <Input value={label} onChange={e => setLabel(e.target.value)} placeholder={persona} />
+        </div>
+        <div>
+          <Label>Persona</Label>
+          <PersonaPicker value={persona} onChange={setPersona} />
+        </div>
+        <div>
+          <Label>Network</Label>
+          <select style={inp} value={network} onChange={e => setNetwork(e.target.value as Network)}>
+            <option value="testnet">Testnet</option>
+            <option value="mainnet">Mainnet</option>
+          </select>
+        </div>
+        <div>
+          <Label>Encryption password</Label>
+          <Input type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={8} placeholder="Min 8 characters" />
+        </div>
+        <div>
+          <Label>Confirm password</Label>
+          <Input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} required />
+        </div>
+        {err && <p style={{ color: colors.red, fontSize: 13, margin: 0 }}>{err}</p>}
+        <div style={{ display: "flex", gap: 10 }}>
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={busy}>
+            {busy ? "Generating..." : "Generate"}
+          </Button>
+        </div>
       </form>
     </Modal>
   );
 }
 
-function BackupFlow({keyData,mnemonic,onDone}:{keyData:LocalKey;mnemonic:string;onDone:()=>void}){
-  const words=mnemonic.split(" ");
-  const [step,setStep]=useState<"show"|"verify">("show");
-  const [confirmed,setConfirmed]=useState(false);
-  const [positions]=useState<number[]>(()=>{const p:number[]=[];while(p.length<4){const n=Math.floor(Math.random()*24);if(!p.includes(n))p.push(n);}return p.sort((a,b)=>a-b);});
-  const [answers,setAnswers]=useState<Record<number,string>>({});
-  const [err,setErr]=useState<string|null>(null);
-  function verify(){
-    const wrong=positions.filter(p=>answers[p]?.trim().toLowerCase()!==words[p]);
-    if(wrong.length){setErr("Wrong: "+wrong.map(p=>"#"+(p+1)).join(", "));return;}
-    markBackedUp(keyData.keyId);onDone();
+function BackupFlow({ keyData, mnemonic, onDone }: { keyData: LocalKey; mnemonic: string; onDone: () => void }) {
+  const words = mnemonic.split(" ");
+  const [step, setStep] = useState<"show" | "verify">("show");
+  const [confirmed, setConfirmed] = useState(false);
+  const [positions] = useState<number[]>(() => {
+    const p: number[] = [];
+    while (p.length < 4) {
+      const n = Math.floor(Math.random() * 24);
+      if (!p.includes(n)) p.push(n);
+    }
+    return p.sort((a, b) => a - b);
+  });
+  const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [err, setErr] = useState<string | null>(null);
+
+  function verify() {
+    const wrong = positions.filter(p => answers[p]?.trim().toLowerCase() !== words[p]);
+    if (wrong.length) {
+      setErr("Wrong: " + wrong.map(p => "#" + (p + 1)).join(", "));
+      return;
+    }
+    markBackedUp(keyData.keyId);
+    onDone();
   }
-  if(step==="show")return(
-    <Modal title="Write down your recovery phrase" onClose={()=>{}} wide>
-      <div style={{padding:"10px 14px",background:"#1A0A0A",border:"1px solid #3A1A1A",borderRadius:8,marginBottom:16}}><p style={{fontSize:13,color:C.red,margin:0}}>Write all 24 words on paper in order. Never store digitally or share.</p></div>
-      <WordGrid words={words}/>
-      <label style={{display:"flex",gap:10,alignItems:"center",cursor:"pointer",marginTop:16,padding:12,background:C.raised,borderRadius:8}}>
-        <input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>
-        <span style={{fontSize:13,color:C.sub}}>I have written all 24 words in order.</span>
-      </label>
-      <button style={{...goldBtn,width:"100%",marginTop:12,opacity:confirmed?1:0.4}} disabled={!confirmed} onClick={()=>setStep("verify")}>Verify backup</button>
-    </Modal>
-  );
-  return(
-    <Modal title="Verify backup" onClose={()=>{}}>
-      <p style={{fontSize:13,color:C.muted,marginBottom:20}}>Enter the words at the positions below.</p>
-      {positions.map(pos=>(
-        <div key={pos} style={{marginBottom:12}}><label style={lbl}>Word #{pos+1}</label><input style={inp} value={answers[pos]??""} autoComplete="off" autoCorrect="off" spellCheck={false} onChange={e=>setAnswers(p=>({...p,[pos]:e.target.value}))}/></div>
+
+  if (step === "show")
+    return (
+      <Modal title="Write down your recovery phrase" onClose={() => {}} wide>
+        <div style={{ padding: "10px 14px", background: "#1A0A0A", border: `1px solid ${colors.borderDanger}`, borderRadius: radii.md, marginBottom: 16 }}>
+          <p style={{ fontSize: 13, color: colors.red, margin: 0 }}>
+            Write all 24 words on paper in order. Never store digitally or share.
+          </p>
+        </div>
+        <WordGrid words={words} />
+        <label
+          style={{
+            display: "flex",
+            gap: 10,
+            alignItems: "center",
+            cursor: "pointer",
+            marginTop: 16,
+            padding: 12,
+            background: colors.raised,
+            borderRadius: radii.md,
+          }}
+        >
+          <input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />
+          <span style={{ fontSize: 13, color: colors.sub }}>I have written all 24 words in order.</span>
+        </label>
+        <Button
+          style={{ width: "100%", marginTop: 12 }}
+          disabled={!confirmed}
+          onClick={() => setStep("verify")}
+        >
+          Verify backup
+        </Button>
+      </Modal>
+    );
+
+  return (
+    <Modal title="Verify backup" onClose={() => {}}>
+      <p style={{ fontSize: 13, color: colors.muted, marginBottom: 20 }}>
+        Enter the words at the positions below.
+      </p>
+      {positions.map(pos => (
+        <div key={pos} style={{ marginBottom: 12 }}>
+          <Label>Word #{pos + 1}</Label>
+          <Input
+            value={answers[pos] ?? ""}
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            onChange={e => setAnswers(p => ({ ...p, [pos]: e.target.value }))}
+          />
+        </div>
       ))}
-      {err&&<p style={{color:C.red,fontSize:13}}>{err}</p>}
-      <button style={{...goldBtn,width:"100%",marginTop:8}} onClick={verify}>Confirm</button>
+      {err && <p style={{ color: colors.red, fontSize: 13 }}>{err}</p>}
+      <Button style={{ width: "100%", marginTop: 8 }} onClick={verify}>
+        Confirm
+      </Button>
     </Modal>
   );
 }
