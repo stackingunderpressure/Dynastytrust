@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { api, type Vault, type BalanceResult } from "../lib/api";
+import { useToast } from "../components/toast";
 
 interface Props { onSelectVault: (v: Vault) => void; }
 
@@ -18,6 +19,7 @@ function satsToBtc(sats:number){return(sats/1e8).toFixed(8).replace(/\.?0+$/,"")
 function blocksToLabel(blocks:number){if(!blocks)return"--";const days=Math.round(blocks*10/60/24);if(days<30)return"~"+days+"d";if(days<365)return"~"+Math.round(days/30)+"mo";return"~"+(days/365).toFixed(1)+"yr";}
 
 export default function Dashboard({onSelectVault}:Props){
+  const toast=useToast();
   const [vaults,setVaults]=useState<Vault[]>([]);
   const [balances,setBalances]=useState<Record<string,BalanceResult>>({});
   const [loading,setLoading]=useState(true);
@@ -42,7 +44,7 @@ export default function Dashboard({onSelectVault}:Props){
   async function archive(v:Vault,e:React.MouseEvent){
     e.stopPropagation();
     if(!confirm("Archive "+v.name+"?"))return;
-    try{await api.vaults.archive(v.id);void load();}catch(err){alert(err instanceof Error?err.message:"Failed");}
+    try{await api.vaults.archive(v.id);void load();}catch(err){toast.error(err instanceof Error?err.message:"Failed to archive vault");}
   }
 
   async function unarchive(v:Vault,e:React.MouseEvent){
@@ -117,12 +119,13 @@ export default function Dashboard({onSelectVault}:Props){
 }
 
 function RenameModal({vault,onClose,onDone}:{vault:Vault;onClose:()=>void;onDone:()=>void}){
+  const toast=useToast();
   const [name,setName]=useState(vault.name);
   const [busy,setBusy]=useState(false);
   async function submit(e:React.FormEvent){
     e.preventDefault();setBusy(true);
     try{await api.vaults.rename(vault.id,name.trim());onDone();}
-    catch(err){alert(err instanceof Error?err.message:"Failed");}
+    catch(err){toast.error(err instanceof Error?err.message:"Failed to rename vault");}
     finally{setBusy(false);}
   }
   return(

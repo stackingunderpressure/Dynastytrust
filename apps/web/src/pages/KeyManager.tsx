@@ -5,6 +5,7 @@ import {
   markBackedUp, exportKeyring, importKeyringJson, renameKey,
   DEFAULT_PERSONAS, type LocalKey, type Network,
 } from "../lib/keystore";
+import { useToast } from "../components/toast";
 
 const C = {
   bg:"#07070F",surface:"#0F0F1A",raised:"#141422",border:"#1E1E30",
@@ -316,6 +317,7 @@ type ModalState=
   |{type:"upgrade";key:LocalKey}|{type:"edit";key:LocalKey};
 
 export default function KeyManager(){
+  const toast=useToast();
   const [keys,setKeys]=useState<LocalKey[]>([]);
   const [modal,setModal]=useState<ModalState|null>(null);
   const [filter,setFilter]=useState<"active"|"archived"|"all">("active");
@@ -352,8 +354,8 @@ export default function KeyManager(){
     const file=e.target.files?.[0];if(!file)return;
     const reader=new FileReader();
     reader.onload=ev=>{
-      try{const n=importKeyringJson(ev.target?.result as string);reload();alert("Imported "+n+" key(s).");}
-      catch(err){alert("Import failed: "+(err instanceof Error?err.message:"Unknown error"));}
+      try{const n=importKeyringJson(ev.target?.result as string);reload();toast.success("Imported "+n+" key(s)");}
+      catch(err){toast.error("Import failed: "+(err instanceof Error?err.message:"Unknown error"));}
     };
     reader.readAsText(file);
     e.target.value="";

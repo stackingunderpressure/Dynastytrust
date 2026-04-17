@@ -3,6 +3,7 @@ import { api, type Vault, type Proposal, type BalanceResult } from "../lib/api";
 import { listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
 import { signPsbtWithMnemonic, countSignatures, mergePsbts } from "../lib/psbt-signer";
 import { APP_NAME, broadcastTxUrl, explorerTxUrl } from "../config";
+import { useToast } from "../components/toast";
 
 const C = {
   bg: "#07070F", surface: "#0F0F1A", raised: "#141422",
@@ -52,6 +53,7 @@ function statusColor(s: string): string {
 interface Props { vault: Vault; onBack: () => void; }
 
 export default function VaultDetail({ vault, onBack }: Props) {
+  const toast = useToast();
   const [balance, setBalance] = useState<BalanceResult | null>(null);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [tab, setTab] = useState<"overview" | "send" | "history">("overview");
@@ -79,7 +81,7 @@ export default function VaultDetail({ vault, onBack }: Props) {
     if (!confirm("Archive " + vault.name + "?")) return;
     setArchiving(true);
     try { await api.vaults.archive(vault.id); onBack(); }
-    catch (e) { alert(e instanceof Error ? e.message : "Failed"); }
+    catch (e) { toast.error(e instanceof Error ? e.message : "Failed to archive vault"); }
     finally { setArchiving(false); }
   }
 
