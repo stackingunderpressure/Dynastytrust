@@ -1,8 +1,0 @@
-node_modules/
-apps/*/dist/
-packages/*/dist/
-.env
-.env.*
-!.env.example
-.DS_Store
-*.log
