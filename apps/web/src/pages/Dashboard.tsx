@@ -1,8 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, type Vault, type BalanceResult } from "../lib/api";
 import { useToast } from "../components/toast";
-
-interface Props { onSelectVault: (v: Vault) => void; }
 
 const C = {
   bg:"#07070F",surface:"#0F0F1A",border:"#1E1E30",gold:"#C9A84C",
@@ -18,8 +17,10 @@ const ta: React.CSSProperties={...monoInp,resize:"vertical"};
 function satsToBtc(sats:number){return(sats/1e8).toFixed(8).replace(/\.?0+$/,"")||"0";}
 function blocksToLabel(blocks:number){if(!blocks)return"--";const days=Math.round(blocks*10/60/24);if(days<30)return"~"+days+"d";if(days<365)return"~"+Math.round(days/30)+"mo";return"~"+(days/365).toFixed(1)+"yr";}
 
-export default function Dashboard({onSelectVault}:Props){
+export default function Dashboard(){
   const toast=useToast();
+  const navigate=useNavigate();
+  const openVault=(v:Vault)=>navigate(`/vaults/${v.id}`,{state:{vault:v}});
   const [vaults,setVaults]=useState<Vault[]>([]);
   const [balances,setBalances]=useState<Record<string,BalanceResult>>({});
   const [loading,setLoading]=useState(true);
@@ -80,7 +81,7 @@ export default function Dashboard({onSelectVault}:Props){
         {visible.map(v=>{
           const bal=balances[v.id];
           return(
-            <div key={v.id} style={{background:C.surface,border:"1px solid "+C.border,borderRadius:14,padding:20,cursor:"pointer",position:"relative",opacity:v.archived?0.6:1}} onClick={()=>onSelectVault(v)}>
+            <div key={v.id} style={{background:C.surface,border:"1px solid "+C.border,borderRadius:14,padding:20,cursor:"pointer",position:"relative",opacity:v.archived?0.6:1}} onClick={()=>openVault(v)}>
               {v.archived&&<div style={{position:"absolute",top:12,right:12,fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:4,background:"#5A557022",color:C.muted}}>ARCHIVED</div>}
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
                 <div>
@@ -112,7 +113,7 @@ export default function Dashboard({onSelectVault}:Props){
         })}
       </div>
 
-      {showCreate&&<CreateVaultModal onClose={()=>setShowCreate(false)} onCreated={(v)=>{setShowCreate(false);void load();onSelectVault(v);}}/>}
+      {showCreate&&<CreateVaultModal onClose={()=>setShowCreate(false)} onCreated={(v)=>{setShowCreate(false);void load();openVault(v);}}/>}
       {renaming&&<RenameModal vault={renaming} onClose={()=>setRenaming(null)} onDone={()=>{setRenaming(null);void load();}}/>}
     </div>
   );

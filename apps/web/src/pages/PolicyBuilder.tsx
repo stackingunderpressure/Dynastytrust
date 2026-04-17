@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { listKeys, type LocalKey } from '../lib/keystore';
 import { api, type Vault } from '../lib/api';
 
@@ -230,7 +231,8 @@ function CopyField({ label, value, multiline }: { label: string; value: string; 
   );
 }
 
-export default function PolicyBuilder({ onVaultCreated }: { onVaultCreated?: (v: Vault) => void }) {
+export default function PolicyBuilder() {
+  const navigate = useNavigate();
   const [allKeys, setAllKeys]     = useState<LocalKey[]>([]);
   const [name, setName]           = useState('My Vault');
   const [addrType, setAddrType]   = useState<'tr' | 'wsh' | 'tr_multileaf'>('tr_multileaf');
@@ -297,7 +299,7 @@ export default function PolicyBuilder({ onVaultCreated }: { onVaultCreated?: (v:
         founder_keys: founderKeys.map(k => k.xpub),
         heir_keys: heirKeys.map(k => k.xpub),
       });
-      onVaultCreated?.(res.vault);
+      navigate(`/vaults/${res.vault.id}`, { state: { vault: res.vault } });
     } catch (e) { setSaveErr(e instanceof Error ? e.message : 'Save failed'); }
     finally { setSaving(false); }
   }

@@ -14,7 +14,8 @@
     "@scure/bip39": "^1.6.0",
     "@supabase/supabase-js": "^2.49.0",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "react-router-dom": "^7.14.1"
   },
   "devDependencies": {
     "@types/react": "^19.1.12",

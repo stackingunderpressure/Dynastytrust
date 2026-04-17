@@ -1,9 +1,11 @@
 import { useEffect, useState, useCallback } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, type Vault, type Proposal, type BalanceResult } from "../lib/api";
 import { listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
 import { signPsbtWithMnemonic, countSignatures, mergePsbts } from "../lib/psbt-signer";
 import { APP_NAME, broadcastTxUrl, explorerTxUrl } from "../config";
 import { useToast } from "../components/toast";
+import { LoadingScreen } from "../components/LoadingScreen";
 
 const C = {
   bg: "#07070F", surface: "#0F0F1A", raised: "#141422",
@@ -50,9 +52,32 @@ function statusColor(s: string): string {
   return C.blue;
 }
 
-interface Props { vault: Vault; onBack: () => void; }
+export default function VaultDetail() {
+  const { id } = useParams<{ id: string }>();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const stateVault = (location.state as { vault?: Vault } | null)?.vault;
+  const [vault, setVault] = useState<Vault | null>(stateVault ?? null);
 
-export default function VaultDetail({ vault, onBack }: Props) {
+  useEffect(() => {
+    if (vault || !id) return;
+    let cancelled = false;
+    Promise.all([api.vaults.list(false), api.vaults.list(true)])
+      .then(([active, archived]) => {
+        if (cancelled) return;
+        const found = [...active.vaults, ...archived.vaults].find(v => v.id === id);
+        if (found) setVault(found);
+        else navigate("/vaults", { replace: true });
+      })
+      .catch(() => !cancelled && navigate("/vaults", { replace: true }));
+    return () => { cancelled = true; };
+  }, [id, vault, navigate]);
+
+  if (!vault) return <LoadingScreen />;
+  return <VaultDetailInner vault={vault} onBack={() => navigate("/vaults")} />;
+}
+
+function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void }) {
   const toast = useToast();
   const [balance, setBalance] = useState<BalanceResult | null>(null);
   const [proposals, setProposals] = useState<Proposal[]>([]);
