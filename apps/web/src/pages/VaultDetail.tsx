@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { api, type Vault, type Proposal, type BalanceResult } from "../lib/api";
 import { listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
 import { signPsbtWithMnemonic, countSignatures, mergePsbts } from "../lib/psbt-signer";
+import { APP_NAME, broadcastTxUrl, explorerTxUrl } from "../config";
 
 const C = {
   bg: "#07070F", surface: "#0F0F1A", raised: "#141422",
@@ -100,7 +101,7 @@ export default function VaultDetail({ vault, onBack }: Props) {
         <span style={{
           fontFamily: "Playfair Display, serif", fontSize: 15,
           fontWeight: 700, letterSpacing: "0.12em", color: C.gold,
-        }}>DYNASTYTRUST</span>
+        }}>{APP_NAME}</span>
         <button onClick={archive} disabled={archiving} style={{
           ...ghostBtn, fontSize: 12, color: C.red, borderColor: "#3A1A1A",
         }}>Archive</button>
@@ -482,12 +483,7 @@ function SendTab({ vault, balance, onDone }: {
       // Finalize via Fly.io
       const finalized = await api.psbt.finalize(signing.psbt_hex);
 
-      // Broadcast to mempool.space
-      const mempoolBase = vault.network === "bitcoin"
-        ? "https://mempool.space/api/tx"
-        : "https://mempool.space/testnet/api/tx";
-
-      const res = await fetch(mempoolBase, {
+      const res = await fetch(broadcastTxUrl(vault.network), {
         method: "POST",
         body: finalized.raw_tx_hex,
         headers: { "Content-Type": "text/plain" },
@@ -515,9 +511,6 @@ function SendTab({ vault, balance, onDone }: {
 
   // Done screen
   if (step === "done" && signing?.txid) {
-    const explorerBase = vault.network === "bitcoin"
-      ? "https://mempool.space/tx/"
-      : "https://mempool.space/testnet/tx/";
     return (
       <div style={{
         background: "#0A1A0A", border: "1px solid " + C.green + "44",
@@ -531,7 +524,7 @@ function SendTab({ vault, balance, onDone }: {
           fontFamily: "IBM Plex Mono, monospace", fontSize: 11,
           color: C.muted, marginBottom: 20, wordBreak: "break-all",
         }}>{signing.txid}</div>
-        <a href={explorerBase + signing.txid} target="_blank" rel="noreferrer"
+        <a href={explorerTxUrl(vault.network, signing.txid)} target="_blank" rel="noreferrer"
           style={{ color: C.gold, fontSize: 14 }}>
           View on mempool.space
         </a>
@@ -849,7 +842,7 @@ function ProposalCard({ proposal: p, vault }: { proposal: Proposal; vault: Vault
             </div>
           )}
           {p.txid && (
-            <a href={"https://mempool.space/" + (vault.network === "bitcoin" ? "" : "testnet/") + "tx/" + p.txid}
+            <a href={explorerTxUrl(vault.network, p.txid)}
               target="_blank" rel="noreferrer"
               style={{ fontSize: 13, color: C.gold, textDecoration: "none" }}>
               View on mempool.space

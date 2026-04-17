@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { broadcastTxUrl, type Network } from '../config';
 
 // In production, /api/* is redirected to /.netlify/functions/* by netlify.toml.
 // In local dev with `netlify dev`, the same redirect applies automatically.
@@ -209,9 +210,12 @@ export const api = {
     }) => req<{ ok: true; result: unknown }>('/governance', { method: 'POST', body: JSON.stringify({ action: 'audit', ...body }) }),
   },
 
-  broadcast: (raw_tx_hex: string, network: 'testnet' | 'bitcoin') => {
-    const base = network === 'bitcoin' ? 'https://mempool.space/api/tx' : 'https://mempool.space/testnet/api/tx';
-    return fetch(base, { method: 'POST', body: raw_tx_hex, headers: { 'Content-Type': 'text/plain' } }).then(r => r.text());
+  broadcast: (raw_tx_hex: string, network: Network) => {
+    return fetch(broadcastTxUrl(network), {
+      method: 'POST',
+      body: raw_tx_hex,
+      headers: { 'Content-Type': 'text/plain' },
+    }).then(r => r.text());
   },
 
   proposals: {

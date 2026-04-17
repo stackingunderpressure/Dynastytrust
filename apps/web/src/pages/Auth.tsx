@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { APP_NAME } from '../config';
 
 export default function Auth() {
   const [mode, setMode]       = useState<'login' | 'signup'>('login');
@@ -35,7 +36,7 @@ export default function Auth() {
     return (
       <div style={s.page}>
         <div style={s.card}>
-          <div style={s.logo}>DYNASTYTRUST</div>
+          <div style={s.logo}>{APP_NAME}</div>
           <h2 style={s.heading}>Check your email</h2>
           <p style={s.sub}>
             We sent a confirmation link to <strong style={{ color: '#C9A84C' }}>{email}</strong>.
@@ -52,7 +53,7 @@ export default function Auth() {
   return (
     <div style={s.page}>
       <div style={s.card}>
-        <div style={s.logo}>DYNASTYTRUST</div>
+        <div style={s.logo}>{APP_NAME}</div>
         <p style={s.tagline}>Bitcoin vault infrastructure for multi-generational wealth</p>
 
         <div style={s.tabs}>

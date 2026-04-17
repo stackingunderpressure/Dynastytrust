@@ -7,20 +7,15 @@ import PolicyBuilder from './pages/PolicyBuilder';
 import Dashboard from './pages/Dashboard';
 import VaultDetail from './pages/VaultDetail';
 import type { Vault } from './lib/api';
+import { APP_NAME, NAV_LINKS } from './config';
 
-type Tab  = 'keys' | 'policy' | 'vaults';
+type Tab = typeof NAV_LINKS[number]['id'];
 type Page = { name: 'app'; tab: Tab } | { name: 'vault'; vault: Vault };
 
 const C = {
   bg: '#07070F', header: '#0A0A12', border: '#1E1E30',
   gold: '#C9A84C', text: '#E8E4D8', muted: '#5A5570',
 };
-
-const TABS: { id: Tab; label: string; icon: string }[] = [
-  { id: 'keys',   label: 'Keys',           icon: '🔑' },
-  { id: 'policy', label: 'Policy builder', icon: '⚙️' },
-  { id: 'vaults', label: 'Vaults',         icon: '🏦' },
-];
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -42,7 +37,7 @@ export default function App() {
       <div style={{ minHeight: '100vh', background: C.bg, display: 'flex',
         alignItems: 'center', justifyContent: 'center' }}>
         <span style={{ fontFamily: '"Playfair Display", serif', fontSize: 22,
-          letterSpacing: '0.14em', color: C.gold }}>DYNASTYTRUST</span>
+          letterSpacing: '0.14em', color: C.gold }}>{APP_NAME}</span>
       </div>
     );
   }
@@ -64,9 +59,9 @@ export default function App() {
         background: C.header, position: 'sticky', top: 0, zIndex: 100,
       }}>
         <span style={{ fontFamily: '"Playfair Display", serif', fontSize: 17,
-          fontWeight: 700, letterSpacing: '0.12em', color: C.gold }}>DYNASTYTRUST</span>
+          fontWeight: 700, letterSpacing: '0.12em', color: C.gold }}>{APP_NAME}</span>
         <nav style={{ display: 'flex', gap: 2 }}>
-          {TABS.map(t => (
+          {NAV_LINKS.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)} style={{
               padding: '6px 18px', border: 'none', borderRadius: 8, fontSize: 14,
               cursor: 'pointer', fontFamily: '"DM Sans", sans-serif',
