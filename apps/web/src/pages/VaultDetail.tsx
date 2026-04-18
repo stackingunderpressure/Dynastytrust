@@ -67,7 +67,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
   const toast = useToast();
   const [balance, setBalance] = useState<BalanceResult | null>(null);
   const [proposals, setProposals] = useState<Proposal[]>([]);
-  const [tab, setTab] = useState<"overview" | "send" | "history" | "members">("overview");
+  const [tab, setTab] = useState<"overview" | "send" | "history" | "members" | "activity">("overview");
   const [archiving, setArchiving] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -251,6 +251,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
             { id: "send", label: "Send" },
             { id: "history", label: "History", count: pendingCount },
             { id: "members", label: "Members" },
+            { id: "activity", label: "Activity" },
           ].map(t => (
             <button
               key={t.id}
@@ -303,6 +304,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
           <HistoryTab vault={vault} proposals={proposals} onRefresh={load} />
         )}
         {tab === "members" && <MembersTab vault={vault} />}
+        {tab === "activity" && <ActivityTab vault={vault} />}
       </main>
     </div>
   );
@@ -1627,4 +1629,118 @@ function InviteModal({
       </div>
     </div>
   );
+}
+
+// // -- Activity tab
+
+type VaultEvent = Awaited<ReturnType<typeof api.vaultEvents.list>>["events"][number];
+
+function ActivityTab({ vault }: { vault: Vault }) {
+  const [events, setEvents] = useState<VaultEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setErr(null);
+    try {
+      const res = await api.vaultEvents.list(vault.id, 100);
+      setEvents(res.events);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed to load activity");
+    } finally {
+      setLoading(false);
+    }
+  }, [vault.id]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useRealtimeRefresh(
+    { table: "vault_events", filter: `vault_id=eq.${vault.id}` },
+    () => void load(),
+  );
+
+  if (loading) return <p style={{ color: colors.muted, fontSize: 14 }}>Loading activity...</p>;
+  if (err) return <p style={{ color: colors.red, fontSize: 14 }}>{err}</p>;
+  if (events.length === 0)
+    return <p style={{ color: colors.muted, fontSize: 14 }}>No activity yet.</p>;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+      {events.map(e => (
+        <EventRow key={e.id} event={e} />
+      ))}
+    </div>
+  );
+}
+
+function EventRow({ event }: { event: VaultEvent }) {
+  const { icon, title, color } = describeEvent(event);
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: 12,
+        padding: "12px 4px",
+        borderBottom: `1px solid ${colors.border}`,
+      }}
+    >
+      <div
+        style={{
+          width: 28,
+          height: 28,
+          borderRadius: 999,
+          flexShrink: 0,
+          background: `${color}22`,
+          color: color,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 13,
+          fontWeight: 700,
+        }}
+      >
+        {icon}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, color: colors.text }}>{title}</div>
+        <div style={{ fontSize: 11, color: colors.muted, marginTop: 2 }}>
+          {new Date(event.created_at).toLocaleString()}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function describeEvent(e: VaultEvent): { icon: string; title: string; color: string } {
+  const meta = e.metadata || {};
+  switch (e.event_type) {
+    case "created":
+      return { icon: "+", title: "Vault created", color: colors.gold };
+    case "invite_created":
+      return { icon: "i", title: `Invite sent (${String(meta.role ?? "member")})`, color: colors.blue };
+    case "member_joined":
+      return { icon: "@", title: `Member joined as ${String(meta.role ?? "member")}`, color: colors.green };
+    case "member_removed":
+      return { icon: "-", title: `Member removed`, color: colors.red };
+    case "psbt_generated":
+      return {
+        icon: "T",
+        title: `Proposal created${meta.amount_sats ? ` (${(Number(meta.amount_sats) / 1e8).toFixed(8).replace(/\.?0+$/, "")} BTC)` : ""}`,
+        color: colors.orange,
+      };
+    case "signed":
+      return { icon: "S", title: `Signature added`, color: colors.gold };
+    case "broadcast":
+      return {
+        icon: "B",
+        title: `Broadcast${meta.txid ? ` (${String(meta.txid).slice(0, 12)}...)` : ""}`,
+        color: colors.green,
+      };
+    case "cancelled":
+      return { icon: "x", title: `Proposal cancelled`, color: colors.muted };
+    default:
+      return { icon: "*", title: e.event_type, color: colors.sub };
+  }
 }

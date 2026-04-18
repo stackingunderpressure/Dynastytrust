@@ -283,6 +283,21 @@ export const api = {
     return `/api/vault-pdf?id=${vault_id}&token=${token}`;
   },
 
+  vaultEvents: {
+    list: (vault_id: string, limit = 50) =>
+      req<{
+        ok: true;
+        events: {
+          id: string;
+          created_at: string;
+          vault_id: string;
+          user_id: string;
+          event_type: string;
+          metadata: Record<string, unknown>;
+        }[];
+      }>(`/vault-events?vault_id=${vault_id}&limit=${limit}`),
+  },
+
   signerSessions: {
     list: (proposal_id: string) =>
       req<{
