@@ -137,7 +137,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 14 }}>
+      <div className="dt-responsive-grid">
         {visible.map(v => {
           const bal = balances[v.id];
           return (

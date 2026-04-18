@@ -399,7 +399,7 @@ export async function signPsbtWithMnemonic(
   // /0/0 (first receive-chain child). Sign with that private key so
   // the signature matches the leaf's pubkey.
   const account = root.derive(derivationPath);
-  const child00 = account.derive('0/0');
+  const child00 = account.deriveChild(0).deriveChild(0);
 
   if (!child00.privateKey) throw new Error("Could not derive private key");
 

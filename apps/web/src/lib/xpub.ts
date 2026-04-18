@@ -21,7 +21,9 @@ function toHex(bytes: Uint8Array): string {
 
 export function pubkeyFromXpub(xpub: string): string {
   const hd = HDKey.fromExtendedKey(xpub.trim());
-  const child00 = hd.derive('0/0');
+  // HDKey.derive() requires an absolute path starting with m/;
+  // walk the two steps down via deriveChild() instead.
+  const child00 = hd.deriveChild(0).deriveChild(0);
   if (!child00.publicKey) throw new Error('Could not derive pubkey from xpub');
   return toHex(child00.publicKey);
 }
