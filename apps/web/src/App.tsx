@@ -4,6 +4,7 @@ import KeyManager from './pages/KeyManager';
 import PolicyBuilder from './pages/PolicyBuilder';
 import Dashboard from './pages/Dashboard';
 import VaultDetail from './pages/VaultDetail';
+import InviteClaim from './pages/InviteClaim';
 import { NAV_LINKS } from './config';
 import { Layout } from './components/Layout';
 import { PageHeader } from './components/PageHeader';
@@ -12,7 +13,15 @@ import { RequireAuth } from './components/RequireAuth';
 export default function App() {
   return (
     <BrowserRouter>
-      <RequireAuth>{() => <AuthedApp />}</RequireAuth>
+      <Routes>
+        {/* Public: the claim page must load before the user is signed in. */}
+        <Route path="/invite/:token" element={<InviteClaim />} />
+        {/* Everything else sits behind RequireAuth. */}
+        <Route
+          path="*"
+          element={<RequireAuth>{() => <AuthedApp />}</RequireAuth>}
+        />
+      </Routes>
     </BrowserRouter>
   );
 }

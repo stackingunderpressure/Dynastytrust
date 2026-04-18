@@ -1,6 +1,14 @@
 import { useEffect, useState, useCallback } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { api, type Vault, type Proposal, type BalanceResult } from "../lib/api";
+import {
+  api,
+  type Vault,
+  type Proposal,
+  type BalanceResult,
+  type VaultMember,
+  type VaultInvite,
+  type VaultRole,
+} from "../lib/api";
 import { listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
 import { signPsbtWithMnemonic, countSignatures, mergePsbts } from "../lib/psbt-signer";
 import { APP_NAME, broadcastTxUrl, explorerTxUrl } from "../config";
@@ -58,7 +66,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
   const toast = useToast();
   const [balance, setBalance] = useState<BalanceResult | null>(null);
   const [proposals, setProposals] = useState<Proposal[]>([]);
-  const [tab, setTab] = useState<"overview" | "send" | "history">("overview");
+  const [tab, setTab] = useState<"overview" | "send" | "history" | "members">("overview");
   const [archiving, setArchiving] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -231,6 +239,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
             { id: "overview", label: "Overview" },
             { id: "send", label: "Send" },
             { id: "history", label: "History", count: pendingCount },
+            { id: "members", label: "Members" },
           ].map(t => (
             <button
               key={t.id}
@@ -282,6 +291,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
         {tab === "history" && (
           <HistoryTab vault={vault} proposals={proposals} onRefresh={load} />
         )}
+        {tab === "members" && <MembersTab vault={vault} />}
       </main>
     </div>
   );
@@ -1178,6 +1188,395 @@ function ProposalCard({ proposal: p, vault }: { proposal: Proposal; vault: Vault
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// // -- Members tab
+
+function MembersTab({ vault }: { vault: Vault }) {
+  const toast = useToast();
+  const [members, setMembers] = useState<VaultMember[]>([]);
+  const [invites, setInvites] = useState<VaultInvite[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [showInvite, setShowInvite] = useState(false);
+  const [recentLink, setRecentLink] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setErr(null);
+    try {
+      const [m, i] = await Promise.allSettled([
+        api.members.list(vault.id),
+        api.invites.list(vault.id),
+      ]);
+      if (m.status === "fulfilled") setMembers(m.value.members);
+      // Invite list is owner-only; non-owner members get 403 here, which
+      // is expected and not an error.
+      if (i.status === "fulfilled") setInvites(i.value.invites);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed to load members");
+    } finally {
+      setLoading(false);
+    }
+  }, [vault.id]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function revoke(invite: VaultInvite) {
+    if (!confirm("Revoke this invite?")) return;
+    try {
+      await api.invites.revoke(invite.id);
+      toast.success("Invite revoked");
+      void load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to revoke invite");
+    }
+  }
+
+  async function removeMember(m: VaultMember) {
+    if (m.role === "owner") return;
+    if (!confirm(`Remove ${m.label ?? "member"} from the vault?`)) return;
+    try {
+      await api.members.remove(m.id);
+      toast.success("Member removed");
+      void load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to remove member");
+    }
+  }
+
+  if (loading) return <p style={{ color: colors.muted, fontSize: 14 }}>Loading members...</p>;
+  if (err) return <p style={{ color: colors.red, fontSize: 14 }}>{err}</p>;
+
+  const pendingInvites = invites.filter(i => !i.claimed_at && new Date(i.expires_at).getTime() > Date.now());
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {recentLink && (
+        <div
+          style={{
+            padding: "12px 14px",
+            background: `${colors.gold}11`,
+            border: `1px solid ${colors.gold}44`,
+            borderRadius: radii.md,
+            fontSize: 13,
+            color: colors.sub,
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}
+        >
+          <div>Share this link with the new signer. They have 14 days to claim.</div>
+          <div
+            style={{
+              fontFamily: fonts.mono,
+              fontSize: 11,
+              background: "#0A0A14",
+              padding: "8px 10px",
+              borderRadius: radii.sm,
+              wordBreak: "break-all",
+            }}
+          >
+            {recentLink}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Button
+              size="sm"
+              onClick={() => {
+                navigator.clipboard.writeText(recentLink);
+                toast.success("Link copied");
+              }}
+            >
+              Copy link
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setRecentLink(null)}>
+              Dismiss
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Members list */}
+      <div
+        style={{
+          background: colors.surface,
+          border: `1px solid ${colors.border}`,
+          borderRadius: 12,
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            padding: "12px 16px",
+            borderBottom: `1px solid ${colors.border}`,
+          }}
+        >
+          <div style={{ fontSize: 14, fontWeight: 600, color: colors.text }}>
+            Members ({members.length})
+          </div>
+          <Button size="sm" onClick={() => setShowInvite(true)}>
+            + Invite
+          </Button>
+        </div>
+        {members.map(m => (
+          <MemberRow key={m.id} member={m} onRemove={() => void removeMember(m)} />
+        ))}
+      </div>
+
+      {/* Pending invites */}
+      {pendingInvites.length > 0 && (
+        <div
+          style={{
+            background: colors.surface,
+            border: `1px solid ${colors.border}`,
+            borderRadius: 12,
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              padding: "12px 16px",
+              borderBottom: `1px solid ${colors.border}`,
+              fontSize: 14,
+              fontWeight: 600,
+              color: colors.text,
+            }}
+          >
+            Pending invites ({pendingInvites.length})
+          </div>
+          {pendingInvites.map(inv => (
+            <InviteRow
+              key={inv.id}
+              invite={inv}
+              onCopyLink={() => {
+                const url = `${window.location.origin}/invite/${inv.token}`;
+                navigator.clipboard.writeText(url);
+                toast.success("Link copied");
+              }}
+              onRevoke={() => void revoke(inv)}
+            />
+          ))}
+        </div>
+      )}
+
+      {showInvite && (
+        <InviteModal
+          vault={vault}
+          onClose={() => setShowInvite(false)}
+          onCreated={invite => {
+            setShowInvite(false);
+            setRecentLink(`${window.location.origin}/invite/${invite.token}`);
+            void load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function MemberRow({ member: m, onRemove }: { member: VaultMember; onRemove: () => void }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "12px 16px",
+        borderBottom: `1px solid ${colors.border}`,
+      }}
+    >
+      <div>
+        <div style={{ fontSize: 14, fontWeight: 500, color: colors.text }}>
+          {m.label ?? "Unnamed"}
+          {m.role === "owner" && (
+            <span
+              style={{
+                marginLeft: 8,
+                fontSize: 10,
+                fontWeight: 700,
+                padding: "2px 6px",
+                borderRadius: 4,
+                background: `${colors.gold}22`,
+                color: colors.gold,
+                letterSpacing: "0.06em",
+              }}
+            >
+              OWNER
+            </span>
+          )}
+        </div>
+        <div style={{ fontSize: 11, color: colors.muted }}>
+          {m.role}
+          {m.fingerprint ? ` / ${m.fingerprint}` : " / no key yet"}
+        </div>
+      </div>
+      {m.role !== "owner" && (
+        <Button variant="ghost" size="sm" style={{ fontSize: 12 }} onClick={onRemove}>
+          Remove
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function InviteRow({
+  invite,
+  onCopyLink,
+  onRevoke,
+}: {
+  invite: VaultInvite;
+  onCopyLink: () => void;
+  onRevoke: () => void;
+}) {
+  const expires = new Date(invite.expires_at);
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "12px 16px",
+        borderBottom: `1px solid ${colors.border}`,
+      }}
+    >
+      <div>
+        <div style={{ fontSize: 14, color: colors.text }}>
+          {invite.invited_label ?? "Unnamed"} ({invite.invited_role})
+        </div>
+        <div style={{ fontSize: 11, color: colors.muted }}>
+          Expires {expires.toLocaleDateString()}
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 6 }}>
+        <Button variant="ghost" size="sm" style={{ fontSize: 12 }} onClick={onCopyLink}>
+          Copy link
+        </Button>
+        <Button variant="danger" size="sm" style={{ fontSize: 12 }} onClick={onRevoke}>
+          Revoke
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function InviteModal({
+  vault,
+  onClose,
+  onCreated,
+}: {
+  vault: Vault;
+  onClose: () => void;
+  onCreated: (invite: VaultInvite) => void;
+}) {
+  const [role, setRole] = useState<Exclude<VaultRole, "owner">>("founder");
+  const [label, setLabel] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await api.invites.create({
+        vault_id: vault.id,
+        invited_role: role,
+        invited_label: label.trim() || undefined,
+      });
+      onCreated(res.invite);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed to create invite");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.75)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 200,
+        padding: space[4],
+      }}
+      onClick={e => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        style={{
+          background: colors.surface,
+          border: `1px solid ${colors.border}`,
+          borderRadius: 16,
+          padding: "28px 32px",
+          width: "100%",
+          maxWidth: 420,
+        }}
+      >
+        <h2
+          style={{
+            fontSize: 18,
+            fontWeight: 600,
+            color: colors.text,
+            fontFamily: fonts.display,
+            margin: 0,
+            marginBottom: 20,
+          }}
+        >
+          Invite co-signer
+        </h2>
+        <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div>
+            <Label>Role</Label>
+            <select
+              value={role}
+              onChange={e => setRole(e.target.value as typeof role)}
+              style={{
+                width: "100%",
+                padding: "11px 13px",
+                background: colors.input,
+                border: `1px solid ${colors.border}`,
+                borderRadius: radii.md,
+                color: colors.text,
+                fontSize: 14,
+                fontFamily: fonts.sans,
+                boxSizing: "border-box",
+              }}
+            >
+              <option value="founder">Founder (can sign immediately)</option>
+              <option value="heir">Heir (inheritance path only)</option>
+              <option value="viewer">Viewer (read-only)</option>
+            </select>
+          </div>
+          <div>
+            <Label>Display name (optional)</Label>
+            <Input
+              value={label}
+              onChange={e => setLabel(e.target.value)}
+              placeholder="e.g. Dad, Sister, Lawyer"
+            />
+          </div>
+          {err && <p style={{ color: colors.red, fontSize: 13, margin: 0 }}>{err}</p>}
+          <div style={{ display: "flex", gap: 10 }}>
+            <Button type="button" variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy}>
+              {busy ? "Creating..." : "Create invite link"}
+            </Button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
