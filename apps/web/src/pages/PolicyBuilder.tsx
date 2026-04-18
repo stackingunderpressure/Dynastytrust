@@ -627,7 +627,7 @@ export default function PolicyBuilder() {
           <div>
             <div style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>Compile vault</div>
             <div style={{ fontSize: 13, color: colors.muted, marginTop: 2 }}>
-              Sends xpubs to your Fly.io Rust compiler — returns address, descriptor, Miniscript
+              Sends xpubs to your Fly.io Rust compiler -- returns address, descriptor, Miniscript
             </div>
           </div>
           <Button disabled={!canCompile || compiling} onClick={compile}>
