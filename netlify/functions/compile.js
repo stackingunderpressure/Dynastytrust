@@ -48,19 +48,25 @@ export async function handler(event) {
     founder_keys = [],
     founder_quorum,
     heir_keys = [],
-    heir_quorum,
-    recovery_after,
-    inheritance_after,
+    heir_quorum = 1,
+    recovery_after = 0,
+    inheritance_after = 0,
     save = true,   // if true, auto-save compiled vault to DB
   } = body;
 
-  // 3. Validate required fields
+  // 3. Validate required fields. Heirs + timelocks are optional --
+  // omitting them compiles a plain multisig / single-sig vault with
+  // no recovery or inheritance paths.
   if (!founder_keys.length) return json(400, { error: "Missing: founder_keys" });
-  if (!heir_keys.length)    return json(400, { error: "Missing: heir_keys" });
   if (!founder_quorum)      return json(400, { error: "Missing: founder_quorum" });
-  if (!heir_quorum)         return json(400, { error: "Missing: heir_quorum" });
-  if (!recovery_after)      return json(400, { error: "Missing: recovery_after" });
-  if (!inheritance_after)   return json(400, { error: "Missing: inheritance_after" });
+  const hasHeirsOrTimelocks =
+    heir_keys.length > 0 || recovery_after > 0 || inheritance_after > 0;
+  if (hasHeirsOrTimelocks) {
+    if (!heir_keys.length)      return json(400, { error: "Missing: heir_keys" });
+    if (!heir_quorum)           return json(400, { error: "Missing: heir_quorum" });
+    if (!recovery_after)        return json(400, { error: "Missing: recovery_after" });
+    if (!inheritance_after)     return json(400, { error: "Missing: inheritance_after" });
+  }
 
   if (!COMPILER_URL) {
     return json(503, {

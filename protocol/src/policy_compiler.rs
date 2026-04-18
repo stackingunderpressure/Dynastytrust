@@ -22,6 +22,17 @@ pub struct DynastyPolicy {
     pub inheritance_after: u32,
 }
 
+impl DynastyPolicy {
+    /// Plain mode: no heirs, no timelocks. The compiled vault is a
+    /// straight M-of-N multisig (or single-sig) with no recovery or
+    /// inheritance paths. Intended for users who want a normal
+    /// Bitcoin wallet or co-signer setup, without the estate-planning
+    /// machinery.
+    pub fn is_plain(&self) -> bool {
+        self.heir_keys.is_empty() && self.recovery_after == 0 && self.inheritance_after == 0
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CompiledVault {
     pub miniscript_policy: String,
@@ -167,20 +178,7 @@ pub fn compile_dynasty_policy_tr_multileaf(
         .map(|k| format!("pk({k})"))
         .collect();
 
-    let heirs: Vec<String> = policy
-        .heir_keys
-        .iter()
-        .map(|k| format!("pk({k})"))
-        .collect();
-
     let founder_thresh = format!("thresh({},{})", policy.founder_quorum, founders.join(","));
-    let recovery_branch = format!("and(after({}),{})", policy.recovery_after, founder_thresh);
-    let inheritance_branch = format!(
-        "and(after({}),thresh({},{}))",
-        policy.inheritance_after,
-        policy.heir_quorum,
-        heirs.join(",")
-    );
 
     let compile_leaf =
         |policy_str: &str| -> Result<Miniscript<PublicKey, miniscript::Tap>, PolicyError> {
@@ -196,6 +194,43 @@ pub fn compile_dynasty_policy_tr_multileaf(
                 .compile()
                 .map_err(|e| PolicyError::Miniscript(format!("compile {policy_str}: {e:?}")))
         };
+
+    // Plain mode: single leaf, no recovery or inheritance branch.
+    if policy.is_plain() {
+        let ms_founder = compile_leaf(&founder_thresh)?;
+
+        let builder = TaprootBuilder::new()
+            .add_leaf(0, ms_founder.encode())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?;
+
+        let spend_info = builder
+            .finalize(&secp, internal_key)
+            .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
+
+        let addr = Address::p2tr_tweaked(spend_info.output_key(), network);
+        let descriptor = format!("tr({},{{{}}})", internal_key, ms_founder);
+
+        return Ok(CompiledVault {
+            miniscript_policy: founder_thresh,
+            descriptor,
+            address: addr,
+            address_type: AddressType::TrMultileaf,
+        });
+    }
+
+    let heirs: Vec<String> = policy
+        .heir_keys
+        .iter()
+        .map(|k| format!("pk({k})"))
+        .collect();
+
+    let recovery_branch = format!("and(after({}),{})", policy.recovery_after, founder_thresh);
+    let inheritance_branch = format!(
+        "and(after({}),thresh({},{}))",
+        policy.inheritance_after,
+        policy.heir_quorum,
+        heirs.join(",")
+    );
 
     let ms_founder = compile_leaf(&founder_thresh)?;
     let ms_recovery = compile_leaf(&recovery_branch)?;
@@ -240,13 +275,18 @@ fn build_policy_string(policy: &DynastyPolicy) -> String {
         .map(|k| format!("pk({k})"))
         .collect();
 
+    let founder_thresh = format!("thresh({},{})", policy.founder_quorum, founders.join(","));
+
+    if policy.is_plain() {
+        return founder_thresh;
+    }
+
     let heirs: Vec<String> = policy
         .heir_keys
         .iter()
         .map(|k| format!("pk({k})"))
         .collect();
 
-    let founder_thresh = format!("thresh({},{})", policy.founder_quorum, founders.join(","));
     let recovery_branch = format!("and(after({}),{})", policy.recovery_after, founder_thresh);
     let inheritance_branch = format!(
         "and(after({}),thresh({},{}))",
@@ -264,6 +304,11 @@ fn build_policy_string(policy: &DynastyPolicy) -> String {
 fn verify(policy: &DynastyPolicy) -> Result<(), PolicyError> {
     if policy.founder_quorum == 0 || policy.founder_quorum > policy.founder_keys.len() {
         return Err(PolicyError::InvalidQuorum);
+    }
+
+    if policy.is_plain() {
+        // Plain mode: only the founder threshold matters.
+        return Ok(());
     }
 
     if policy.heir_quorum == 0 || policy.heir_quorum > policy.heir_keys.len() {

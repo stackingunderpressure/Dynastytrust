@@ -80,7 +80,10 @@ interface SelectedKey {
   network: string;
 }
 
+type VaultMode = 'plain' | 'inheritance';
+
 function validate(
+  mode: VaultMode,
   fk: SelectedKey[],
   hk: SelectedKey[],
   fq: number,
@@ -90,18 +93,22 @@ function validate(
 ) {
   const errors: string[] = [];
   const warnings: string[] = [];
-  if (!fk.length) errors.push('At least one founder key is required.');
-  if (fq < 1) errors.push('Founder quorum must be >= 1.');
-  if (fq > fk.length) errors.push(`Founder quorum (${fq}) exceeds founder key count (${fk.length}).`);
-  if (!hk.length) warnings.push('No heir keys -- inheritance path will not be compiled.');
-  if (hk.length && hq > hk.length)
-    errors.push(`Heir quorum (${hq}) exceeds heir key count (${hk.length}).`);
-  if (ra < 26_000)
-    errors.push(`Recovery timelock must be >= 26,000 blocks (~6 months). Got ${ra.toLocaleString()}.`);
-  if (ia <= ra) errors.push('Inheritance timelock must be greater than recovery timelock.');
+  if (!fk.length) errors.push('At least one signing key is required.');
+  if (fq < 1) errors.push('Signing quorum must be >= 1.');
+  if (fq > fk.length) errors.push(`Signing quorum (${fq}) exceeds key count (${fk.length}).`);
+
+  if (mode === 'inheritance') {
+    if (!hk.length) warnings.push('No heir keys -- inheritance path will not be compiled.');
+    if (hk.length && hq > hk.length)
+      errors.push(`Heir quorum (${hq}) exceeds heir key count (${hk.length}).`);
+    if (ra < 26_000)
+      errors.push(`Recovery timelock must be >= 26,000 blocks (~6 months). Got ${ra.toLocaleString()}.`);
+    if (ia <= ra) errors.push('Inheritance timelock must be greater than recovery timelock.');
+  }
+
   const nets = new Set([...fk, ...hk].map(k => k.network));
   if (nets.size > 1) errors.push('All selected keys must be on the same network.');
-  if (fk.length === 1 && fq === 1) warnings.push('1-of-1 founder path -- single point of failure.');
+  if (fk.length === 1 && fq === 1) warnings.push('1-of-1 -- single point of failure. Back up the seed on metal.');
   return { errors, warnings };
 }
 
@@ -341,11 +348,15 @@ export default function PolicyBuilder() {
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const [savedVault, setSavedVault] = useState<Vault | null>(null);
 
+  // Vault type: plain (single-sig or multisig, no timelocks) vs
+  // inheritance (founders + heirs + recovery + inheritance).
+  const [mode, setMode] = useState<VaultMode>('plain');
+
   // Draft mode -- the target shape of the vault when compiled.
   // Defaults track the currently-selected counts so the existing
   // "compile immediately" flow still feels the same.
-  const [plannedFounders, setPlannedFounders] = useState(3);
-  const [plannedHeirs, setPlannedHeirs] = useState(1);
+  const [plannedFounders, setPlannedFounders] = useState(1);
+  const [plannedHeirs, setPlannedHeirs] = useState(0);
   const [draftSaving, setDraftSaving] = useState(false);
   const [draftErr, setDraftErr] = useState<string | null>(null);
 
@@ -354,7 +365,7 @@ export default function PolicyBuilder() {
   }, []);
 
   const network = [...founderKeys, ...heirKeys][0]?.network ?? 'testnet';
-  const { errors, warnings } = validate(founderKeys, heirKeys, founderQ, heirQ, recovery, inherit);
+  const { errors, warnings } = validate(mode, founderKeys, heirKeys, founderQ, heirQ, recovery, inherit);
   const canCompile = errors.length === 0 && founderKeys.length > 0;
 
   function addKey(keyId: string, role: 'founder' | 'heir') {
@@ -414,20 +425,21 @@ export default function PolicyBuilder() {
     setSlowHint(false);
     const slowTimer = window.setTimeout(() => setSlowHint(true), 1500);
     try {
+      const plain = mode === 'plain';
       const res = await api.compile({
         name,
         network: network as 'testnet' | 'bitcoin',
         address_type: addrType,
         founder_keys: founderKeys.map(toPubkeyHex),
         founder_quorum: founderQ,
-        heir_keys: heirKeys.map(toPubkeyHex),
-        heir_quorum: heirQ,
-        recovery_after: recovery,
-        inheritance_after: inherit,
+        heir_keys: plain ? [] : heirKeys.map(toPubkeyHex),
+        heir_quorum: plain ? 1 : heirQ,
+        recovery_after: plain ? 0 : recovery,
+        inheritance_after: plain ? 0 : inherit,
         save: false,
       });
       const raw = res.compiled as CompiledVault;
-      const origins = buildKeyOrigins([...founderKeys, ...heirKeys]);
+      const origins = buildKeyOrigins(plain ? founderKeys : [...founderKeys, ...heirKeys]);
       setCompiled({ ...raw, descriptor: upgradeDescriptor(raw.descriptor, origins) });
     } catch (e) {
       setCompErr(e instanceof Error ? e.message : 'Compilation failed');
@@ -442,17 +454,19 @@ export default function PolicyBuilder() {
     setDraftSaving(true);
     setDraftErr(null);
     try {
+      const plain = mode === 'plain';
       const draftNet = founderKeys[0]?.network ?? heirKeys[0]?.network ?? 'testnet';
+      const effectivePlannedHeirs = plain ? 0 : plannedHeirs;
       const res = await api.vaults.createDraft({
         name,
         network: draftNet as 'testnet' | 'bitcoin',
         address_type: addrType,
         planned_founder_count: plannedFounders,
-        planned_heir_count: plannedHeirs,
+        planned_heir_count: effectivePlannedHeirs,
         founder_quorum: Math.min(founderQ, plannedFounders),
-        heir_quorum: plannedHeirs > 0 ? Math.min(heirQ, plannedHeirs) : 1,
-        recovery_after: recovery,
-        inheritance_after: inherit,
+        heir_quorum: effectivePlannedHeirs > 0 ? Math.min(heirQ, effectivePlannedHeirs) : 1,
+        recovery_after: plain ? 0 : recovery,
+        inheritance_after: plain ? 0 : inherit,
       });
 
       // If the owner already picked a founder key of their own, seed
@@ -490,6 +504,7 @@ export default function PolicyBuilder() {
     setSaving(true);
     setSaveErr(null);
     try {
+      const plain = mode === 'plain';
       const res = await api.vaults.create({
         name,
         network: compiled.network as 'testnet' | 'bitcoin',
@@ -498,11 +513,11 @@ export default function PolicyBuilder() {
         miniscript_policy: compiled.miniscript_policy,
         address_type: compiled.address_type,
         founder_quorum: founderQ,
-        heir_quorum: heirQ,
-        recovery_after: recovery,
-        inheritance_after: inherit,
+        heir_quorum: plain ? 1 : heirQ,
+        recovery_after: plain ? 0 : recovery,
+        inheritance_after: plain ? 0 : inherit,
         founder_keys: founderKeys.map(k => k.xpub),
-        heir_keys: heirKeys.map(k => k.xpub),
+        heir_keys: plain ? [] : heirKeys.map(k => k.xpub),
       });
       setSavedVault(res.vault);
     } catch (e) {
@@ -529,6 +544,45 @@ export default function PolicyBuilder() {
           and generate keys first, then return here.
         </div>
       )}
+
+      <Section
+        title="Vault type"
+        sub="Plain is a normal wallet -- single-sig or multisig, spendable any time. Inheritance adds a timelocked recovery path for founders and a later inheritance path for heirs."
+      >
+        <div
+          style={{
+            display: 'flex',
+            gap: 4,
+            background: colors.input,
+            borderRadius: radii.md,
+            padding: 4,
+          }}
+        >
+          {(['plain', 'inheritance'] as const).map(m => {
+            const active = mode === m;
+            return (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMode(m)}
+                style={{
+                  flex: 1,
+                  padding: '10px 0',
+                  border: 'none',
+                  borderRadius: radii.sm,
+                  background: active ? colors.border : 'transparent',
+                  color: active ? colors.text : colors.muted,
+                  fontSize: 13,
+                  fontFamily: fonts.sans,
+                  cursor: 'pointer',
+                }}
+              >
+                {m === 'plain' ? 'Plain (no timelocks)' : 'Inheritance vault'}
+              </button>
+            );
+          })}
+        </div>
+      </Section>
 
       <Section title="Vault settings">
         <div style={{ display: 'flex', gap: 14 }}>
@@ -560,7 +614,14 @@ export default function PolicyBuilder() {
         </div>
       </Section>
 
-      <Section title="Founder keys" sub="Day-to-day spending -- available immediately">
+      <Section
+        title={mode === 'plain' ? 'Signing keys' : 'Founder keys'}
+        sub={
+          mode === 'plain'
+            ? 'Day-to-day spending. Quorum below determines how many signatures are needed.'
+            : 'Day-to-day spending -- available immediately'
+        }
+      >
         <KeyPicker
           selected={founderKeys}
           available={availForFounder}
@@ -582,28 +643,31 @@ export default function PolicyBuilder() {
         )}
       </Section>
 
-      <Section title="Heir keys" sub="Inheritance path -- unlocks after timelock">
-        <KeyPicker
-          selected={heirKeys}
-          available={availForHeir}
-          onAdd={id => addKey(id, 'heir')}
-          onRemove={id => removeKey(id, 'heir')}
-          role="heir"
-          accentColor={colors.green}
-        />
-        {heirKeys.length > 0 && (
-          <QuorumPicker
-            max={heirKeys.length}
-            value={heirQ}
-            onChange={q => {
-              setHQ(q);
-              setCompiled(null);
-            }}
-            color={colors.green}
+      {mode === 'inheritance' && (
+        <Section title="Heir keys" sub="Inheritance path -- unlocks after timelock">
+          <KeyPicker
+            selected={heirKeys}
+            available={availForHeir}
+            onAdd={id => addKey(id, 'heir')}
+            onRemove={id => removeKey(id, 'heir')}
+            role="heir"
+            accentColor={colors.green}
           />
-        )}
-      </Section>
+          {heirKeys.length > 0 && (
+            <QuorumPicker
+              max={heirKeys.length}
+              value={heirQ}
+              onChange={q => {
+                setHQ(q);
+                setCompiled(null);
+              }}
+              color={colors.green}
+            />
+          )}
+        </Section>
+      )}
 
+      {mode === 'inheritance' && (
       <Section title="Timelocks">
         {[
           {
@@ -679,6 +743,7 @@ export default function PolicyBuilder() {
           </div>
         ))}
       </Section>
+      )}
 
       {(errors.length > 0 || warnings.length > 0) && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -728,7 +793,7 @@ export default function PolicyBuilder() {
       >
         <div style={{ display: 'flex', gap: 14, marginBottom: 14 }}>
           <div style={{ flex: 1 }}>
-            <Label>Planned founder count</Label>
+            <Label>{mode === 'plain' ? 'Planned signer count' : 'Planned founder count'}</Label>
             <Input
               type="number"
               min={1}
@@ -736,6 +801,7 @@ export default function PolicyBuilder() {
               onChange={e => setPlannedFounders(Math.max(1, parseInt(e.target.value) || 1))}
             />
           </div>
+          {mode === 'inheritance' && (
           <div style={{ flex: 1 }}>
             <Label>Planned heir count</Label>
             <Input
@@ -745,6 +811,7 @@ export default function PolicyBuilder() {
               onChange={e => setPlannedHeirs(Math.max(0, parseInt(e.target.value) || 0))}
             />
           </div>
+          )}
         </div>
         {draftErr && <p style={{ color: colors.red, fontSize: 13, margin: 0, marginBottom: 10 }}>{draftErr}</p>}
         <Button disabled={draftSaving} onClick={saveDraft}>
