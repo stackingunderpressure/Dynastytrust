@@ -158,7 +158,9 @@ function deriveAccount(mnemonic: string, network: Network) {
   // address and the upgraded `[fp/path]xpub/0/*` descriptor's first
   // address coincide. Without this, Nunchuk import would show an
   // empty balance at the address our app just funded.
-  const child00 = account.derive('0/0');
+  // NB: HDKey.derive() requires an absolute path (m/...); relative
+  // descent goes through deriveChild().
+  const child00 = account.deriveChild(0).deriveChild(0);
   if (
     !account.privateKey ||
     !account.publicKey ||
@@ -279,7 +281,7 @@ export function importXpub(opts: {
     // the miniscript leaf at receive index 0: xpub/0/0. The xpub's
     // own fingerprint also needs to be the BIP32 standard so
     // hardware-wallet compat works.
-    const child00 = hd.derive('0/0');
+    const child00 = hd.deriveChild(0).deriveChild(0);
     if (hd.publicKey) fp = bip32Fingerprint(hd.publicKey);
     if (child00.publicKey) pubkey = toHex(child00.publicKey);
   } catch { /* non-standard version bytes */ }
@@ -402,7 +404,7 @@ export function repairPubkeys(): number {
     if (key.origin !== 'software' && key.origin !== 'imported_xpub') return key;
     try {
       const hd = HDKey.fromExtendedKey(key.xpub);
-      const child00 = hd.derive('0/0');
+      const child00 = hd.deriveChild(0).deriveChild(0);
       if (!hd.publicKey || !child00.publicKey) return key;
       const correctPubkey = toHex(child00.publicKey);
       const correctFingerprint = bip32Fingerprint(hd.publicKey);
