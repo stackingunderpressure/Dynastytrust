@@ -40,6 +40,8 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 
 //
 
+export type VaultStatus = 'draft' | 'compiled' | 'archived';
+
 export interface Vault {
   id: string;
   created_at: string;
@@ -47,9 +49,10 @@ export interface Vault {
   user_id: string;
   name: string;
   network: 'testnet' | 'bitcoin';
-  address: string;
-  descriptor: string;
-  miniscript_policy: string;
+  // Null for drafts, set after compile.
+  address: string | null;
+  descriptor: string | null;
+  miniscript_policy: string | null;
   address_type: 'wsh' | 'tr' | 'tr_multileaf';
   founder_quorum: number;
   heir_quorum: number;
@@ -58,6 +61,11 @@ export interface Vault {
   founder_keys: string[];
   heir_keys: string[];
   archived: boolean;
+  status: VaultStatus;
+  // Draft-only: how many signing slots the vault will have when
+  // compiled. Null on legacy compiled rows.
+  planned_founder_count: number | null;
+  planned_heir_count: number | null;
 }
 
 export interface Proposal {
@@ -350,6 +358,16 @@ export const api = {
           founder_quorum: number;
           heir_quorum: number;
         };
+        signer_sessions?: {
+          id: string;
+          signer_index: number;
+          signer_role: 'founder' | 'heir';
+          label: string | null;
+          signed: boolean;
+          signed_at: string | null;
+          fingerprint: string | null;
+          member_id: string | null;
+        }[];
       })[];
     }>(`/proposals-mine`),
 

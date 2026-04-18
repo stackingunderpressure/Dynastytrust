@@ -75,10 +75,12 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
 
   const load = useCallback(async () => {
     const [balRes, propRes] = await Promise.allSettled([
-      api.balance(vault.address, vault.network),
+      vault.address
+        ? api.balance(vault.address, vault.network)
+        : Promise.resolve(null),
       api.proposals.list(vault.id),
     ]);
-    if (balRes.status === "fulfilled") setBalance(balRes.value);
+    if (balRes.status === "fulfilled" && balRes.value) setBalance(balRes.value);
     if (propRes.status === "fulfilled") setProposals(propRes.value.proposals);
   }, [vault]);
 
@@ -212,7 +214,13 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
             <Button style={{ flex: 1, padding: "12px" }} onClick={() => setTab("send")}>
               Send
             </Button>
-            <Button variant="ghost" size="sm" style={{ fontSize: 12 }} onClick={() => copy(vault.address, "addr")}>
+            <Button
+              variant="ghost"
+              size="sm"
+              style={{ fontSize: 12 }}
+              disabled={!vault.address}
+              onClick={() => vault.address && copy(vault.address, "addr")}
+            >
               {copied === "addr" ? "Copied!" : "Copy address"}
             </Button>
             {balance && (
@@ -430,7 +438,8 @@ function OverviewTab({
               variant="ghost"
               size="sm"
               style={{ padding: "3px 9px", fontSize: 11 }}
-              onClick={() => copy(vault.descriptor, "desc")}
+              disabled={!vault.descriptor}
+              onClick={() => vault.descriptor && copy(vault.descriptor, "desc")}
             >
               {copied === "desc" ? "Copied" : "Copy"}
             </Button>

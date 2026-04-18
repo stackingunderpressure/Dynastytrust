@@ -14,9 +14,9 @@ import type { Vault } from './api';
 export interface VaultBackupLike {
   name: string;
   network: 'testnet' | 'bitcoin';
-  address: string;
-  descriptor: string;
-  miniscript_policy: string;
+  address: string | null;
+  descriptor: string | null;
+  miniscript_policy: string | null;
   address_type: string;
   founder_quorum: number;
   heir_quorum: number;
@@ -35,13 +35,13 @@ export function vaultBackupText(v: VaultBackupLike): string {
     `# Generated: ${new Date().toISOString()}`,
     ``,
     `# Receive address`,
-    v.address,
+    v.address ?? '(not compiled yet)',
     ``,
     `# Output descriptor (Nunchuk / Sparrow / Coldcard import)`,
-    v.descriptor,
+    v.descriptor ?? '(not compiled yet)',
     ``,
     `# Miniscript policy`,
-    v.miniscript_policy,
+    v.miniscript_policy ?? '(not compiled yet)',
     ``,
     `# Spending rules`,
     `Founders:       ${v.founder_quorum} of ${v.founder_keys.length}`,

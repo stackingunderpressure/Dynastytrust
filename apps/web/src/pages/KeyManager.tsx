@@ -208,7 +208,7 @@ function QuickModal({ onDone, onClose }: { onClose: () => void; onDone: (key: Lo
         </div>
         <div>
           <Label>Network</Label>
-          <select style={inp} value={network} onChange={e => setNetwork(e.target.value as Network)}>
+          <select style={selectStyle} value={network} onChange={e => setNetwork(e.target.value as Network)}>
             <option value="testnet">Testnet</option>
             <option value="mainnet">Mainnet</option>
           </select>
@@ -293,7 +293,7 @@ function SecureModal({ onDone, onClose }: { onClose: () => void; onDone: (key: L
         </div>
         <div>
           <Label>Network</Label>
-          <select style={inp} value={network} onChange={e => setNetwork(e.target.value as Network)}>
+          <select style={selectStyle} value={network} onChange={e => setNetwork(e.target.value as Network)}>
             <option value="testnet">Testnet</option>
             <option value="mainnet">Mainnet</option>
           </select>

@@ -38,6 +38,7 @@ export default function Dashboard() {
       const { vaults } = await api.vaults.list(showArchived);
       setVaults(vaults);
       for (const v of vaults) {
+        if (!v.address) continue; // drafts have no address yet
         api
           .balance(v.address, v.network)
           .then(b => setBalances(prev => ({ ...prev, [v.id]: b })))
@@ -81,7 +82,7 @@ export default function Dashboard() {
     v =>
       !search ||
       v.name.toLowerCase().includes(search.toLowerCase()) ||
-      v.address.includes(search),
+      (v.address ?? '').includes(search),
   );
 
   return (
@@ -202,7 +203,9 @@ export default function Dashboard() {
                 </div>
               )}
               <div style={{ fontFamily: fonts.mono, fontSize: 11, color: colors.muted, marginBottom: 12 }}>
-                {v.address.slice(0, 14)}...{v.address.slice(-8)}
+                {v.address
+                  ? `${v.address.slice(0, 14)}...${v.address.slice(-8)}`
+                  : "Draft -- awaiting compile"}
               </div>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", borderTop: "1px solid #1A1A28", paddingTop: 12 }}>
                 <span style={{ fontSize: 11, color: colors.muted }}>
