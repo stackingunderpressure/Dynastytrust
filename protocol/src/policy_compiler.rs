@@ -1,7 +1,7 @@
 use bitcoin::{Address, Network, PublicKey};
 use bitcoin::secp256k1::{Secp256k1, XOnlyPublicKey};
 use bitcoin::taproot::TaprootBuilder;
-use miniscript::policy::Concrete;
+use miniscript::policy::{Concrete, Liftable};
 use miniscript::{Descriptor, Miniscript};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -85,11 +85,7 @@ pub fn compile_dynasty_policy(
         .parse()
         .map_err(|e| PolicyError::Miniscript(format!("{e:?}")))?;
 
-    let semantic = concrete
-        .lift()
-        .map_err(|e| PolicyError::Miniscript(format!("{e:?}")))?;
-
-    let ms: Miniscript<PublicKey, miniscript::Segwitv0> = semantic
+    let ms: Miniscript<PublicKey, miniscript::Segwitv0> = concrete
         .compile()
         .map_err(|e| PolicyError::Miniscript(format!("{e:?}")))?;
 
@@ -122,11 +118,7 @@ pub fn compile_dynasty_policy_tr(
         .parse()
         .map_err(|e| PolicyError::Miniscript(format!("{e:?}")))?;
 
-    let semantic = concrete
-        .lift()
-        .map_err(|e| PolicyError::Miniscript(format!("{e:?}")))?;
-
-    let ms: Miniscript<PublicKey, miniscript::Tap> = semantic
+    let ms: Miniscript<PublicKey, miniscript::Tap> = concrete
         .compile()
         .map_err(|e| PolicyError::Miniscript(format!("{e:?}")))?;
 
@@ -186,11 +178,7 @@ pub fn compile_dynasty_policy_tr_multileaf(
                 .parse::<Concrete<PublicKey>>()
                 .map_err(|e| PolicyError::Miniscript(format!("parse {policy_str}: {e:?}")))?;
 
-            let semantic = concrete
-                .lift()
-                .map_err(|e| PolicyError::Miniscript(format!("lift {policy_str}: {e:?}")))?;
-
-            semantic
+            concrete
                 .compile()
                 .map_err(|e| PolicyError::Miniscript(format!("compile {policy_str}: {e:?}")))
         };

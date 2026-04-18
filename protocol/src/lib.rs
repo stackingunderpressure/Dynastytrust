@@ -16,5 +16,5 @@ pub use policy_compiler::{
 
 pub use psbt_builder::{
     PsbtError, SpendRequest, VaultUTXO,
-    build_psbt, build_psbt_multi, select_coins,
+    build_spend_psbt, select_coins,
 };

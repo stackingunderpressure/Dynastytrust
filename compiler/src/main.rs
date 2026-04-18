@@ -9,7 +9,7 @@ use bitcoin::{
     absolute::LockTime, transaction::Version, Amount, Network, OutPoint,
     PublicKey, ScriptBuf, Transaction, TxIn, TxOut, Txid, Witness,
 };
-use bitcoin::psbt::PartiallySignedTransaction as Psbt;
+use bitcoin::psbt::Psbt;
 use bitcoin::taproot::{LeafVersion, TaprootBuilder};
 use bitcoin::secp256k1::{Secp256k1, XOnlyPublicKey};
 use dynastytrust_protocol::{
@@ -408,7 +408,7 @@ async fn psbt_finalize(
 
     let raw_tx_bytes = bitcoin::consensus::encode::serialize(&raw_tx);
     let raw_tx_hex   = hex::encode(&raw_tx_bytes);
-    let txid         = raw_tx.compute_txid().to_string();
+    let txid         = raw_tx.txid().to_string();
     let input_count  = raw_tx.input.len();
     let output_count = raw_tx.output.len();
 
@@ -455,7 +455,7 @@ async fn psbt_merge(
 
     let mut merged = psbts.remove(0);
     for other in psbts {
-        merged.merge(other)
+        merged.combine(other)
             .map_err(|e| api_err(StatusCode::BAD_REQUEST, format!("merge: {e}")))?;
     }
 
