@@ -4,7 +4,18 @@ import { APP_NAME } from '../config';
 import { colors, fonts, radii, space } from '../theme';
 import { Button, Input } from '../components/ui';
 
-export default function Auth() {
+interface AuthProps {
+  /**
+   * If the user signs up, Supabase sends a confirmation email. Without
+   * a redirect Supabase routes the click to the site default, which
+   * loses any deep-link context like an invite token. Pass the current
+   * URL here so the confirmation link brings the user back where they
+   * started.
+   */
+  redirectTo?: string;
+}
+
+export default function Auth({ redirectTo }: AuthProps = {}) {
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -19,7 +30,11 @@ export default function Auth() {
 
     try {
       if (mode === 'signup') {
-        const { error } = await supabase.auth.signUp({ email, password });
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+          ...(redirectTo ? { options: { emailRedirectTo: redirectTo } } : null),
+        });
         if (error) throw error;
         setDone(true);
       } else {

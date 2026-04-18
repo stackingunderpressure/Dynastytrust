@@ -80,7 +80,7 @@ export default function InviteClaim() {
         }}
       >
         <InviteBanner invite={invite} vault={vault} />
-        <Auth />
+        <Auth redirectTo={typeof window !== 'undefined' ? window.location.href : undefined} />
       </div>
     );
   }
