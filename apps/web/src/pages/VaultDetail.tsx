@@ -478,6 +478,9 @@ function OverviewTab({
       <TrustDocSection vault={vault} />
       <StipendsSection vault={vault} onSendPrefill={onSendPrefill} />
       <DistributionWalletsSection vault={vault} onSendPrefill={onSendPrefill} />
+      {vault.status !== "draft" && (
+        <UtxosSection vault={vault} onSendPrefill={onSendPrefill} />
+      )}
 
       {/* Spending paths */}
       {paths.map(p => (
@@ -612,6 +615,7 @@ interface SendPrefill {
   rule_id?: string | null;
   memo?: string;
   name?: string;
+  selected_utxos?: { txid: string; vout: number }[];
 }
 
 interface SigningState {
@@ -688,6 +692,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
         amount_sats: amountSats,
         fee_rate: feeRate ? parseFloat(feeRate) : undefined,
         path: "founders_now",
+        selected_utxos: prefill?.selected_utxos,
       }) as {
         ok: boolean;
         psbt_hex: string;
@@ -1186,6 +1191,24 @@ function SendTab({ vault, balance, onDone, prefill }: {
       onSubmit={e => void buildAndSign(e)}
       style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 480 }}
     >
+      {prefill?.selected_utxos && prefill.selected_utxos.length > 0 && (
+        <div
+          style={{
+            padding: "8px 10px",
+            background: colors.gold + "11",
+            border: `1px solid ${colors.gold}44`,
+            borderRadius: radii.md,
+            fontSize: 12,
+            color: colors.gold,
+          }}
+        >
+          Locked to {prefill.selected_utxos.length} UTXO
+          {prefill.selected_utxos.length === 1 ? "" : "s"}:{" "}
+          <span style={{ fontFamily: fonts.mono, fontSize: 11 }}>
+            {prefill.selected_utxos.map(u => `${u.txid.slice(0, 8)}:${u.vout}`).join(", ")}
+          </span>
+        </div>
+      )}
       <div>
         <Label>Send to</Label>
         <Input
@@ -3934,5 +3957,207 @@ function DistributionWalletCreator({
         </Button>
       </div>
     </form>
+  );
+}
+
+// // -- UTXO list (per-coin view + coin-control)
+// Every confirmed or unconfirmed output sitting at the vault
+// address, shown individually so trustees can see exactly what
+// they hold and (for confirmed UTXOs) click "Spend" to lock the
+// Send flow to that one coin.
+
+function UtxosSection({
+  vault,
+  onSendPrefill,
+}: {
+  vault: Vault;
+  onSendPrefill: (p: SendPrefill) => void;
+}) {
+  const toast = useToast();
+  const [utxos, setUtxos] = useState<Array<{
+    txid: string;
+    vout: number;
+    value_sats: number;
+    confirmed: boolean;
+    block_height: number | null;
+    block_time: number | null;
+    confirmations: number;
+  }>>([]);
+  const [tip, setTip] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [copied, setCopied] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api.utxos(vault.id);
+      setUtxos(res.utxos);
+      setTip(res.tip);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to load UTXOs");
+    } finally {
+      setLoading(false);
+    }
+  }, [vault.id, toast]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  if (loading && utxos.length === 0) {
+    return (
+      <div
+        style={{
+          background: colors.surface,
+          border: `1px solid ${colors.border}`,
+          borderRadius: 12,
+          padding: "14px 16px",
+          fontSize: 12,
+          color: colors.muted,
+        }}
+      >
+        Loading UTXOs...
+      </div>
+    );
+  }
+
+  if (utxos.length === 0) return null;
+
+  const total = utxos.reduce((n, u) => n + u.value_sats, 0);
+
+  function copy(text: string, id: string) {
+    navigator.clipboard.writeText(text);
+    setCopied(id);
+    setTimeout(() => setCopied(null), 1600);
+  }
+
+  function spendOnly(u: typeof utxos[number]) {
+    onSendPrefill({
+      selected_utxos: [{ txid: u.txid, vout: u.vout }],
+      memo: `Spend UTXO ${u.txid.slice(0, 8)}:${u.vout}`,
+    });
+  }
+
+  return (
+    <div
+      style={{
+        background: colors.surface,
+        border: `1px solid ${colors.border}`,
+        borderRadius: 12,
+        padding: "14px 16px",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 10,
+          gap: 8,
+        }}
+      >
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: "0.1em",
+            color: colors.muted,
+            textTransform: "uppercase",
+          }}
+        >
+          UTXOs ({utxos.length}) . {satsToBtc(total)} BTC total
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          style={{ fontSize: 11, padding: "3px 9px" }}
+          onClick={() => void load()}
+        >
+          Refresh
+        </Button>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {utxos.map(u => {
+          const id = `${u.txid}:${u.vout}`;
+          const ageBlocks = u.confirmations;
+          const label =
+            !u.confirmed
+              ? "Unconfirmed"
+              : ageBlocks === 0
+                ? "0 confs"
+                : ageBlocks === 1
+                  ? "1 conf"
+                  : `${ageBlocks.toLocaleString()} confs`;
+          return (
+            <div
+              key={id}
+              style={{
+                border: `1px solid ${u.confirmed ? colors.border : colors.orange + "55"}`,
+                background: u.confirmed ? "transparent" : colors.orange + "0A",
+                borderRadius: 8,
+                padding: "9px 11px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 4,
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 14, fontWeight: 600, color: colors.text }}>
+                  {satsToBtc(u.value_sats)} BTC
+                </span>
+                <span style={{ fontSize: 11, color: u.confirmed ? colors.muted : colors.orange }}>
+                  {label}
+                  {u.confirmed && tip != null && u.block_height != null && (
+                    <> . block {u.block_height.toLocaleString()}</>
+                  )}
+                </span>
+              </div>
+              <div
+                style={{
+                  fontFamily: fonts.mono,
+                  fontSize: 10,
+                  color: colors.muted,
+                  wordBreak: "break-all",
+                }}
+              >
+                {u.txid}:{u.vout}
+              </div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 2 }}>
+                {u.confirmed && (
+                  <Button
+                    size="sm"
+                    style={{ fontSize: 11, padding: "3px 9px" }}
+                    onClick={() => spendOnly(u)}
+                  >
+                    Spend only this
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  style={{ fontSize: 11, padding: "3px 9px" }}
+                  onClick={() => copy(u.txid, id)}
+                >
+                  {copied === id ? "Copied" : "Copy txid"}
+                </Button>
+                <a
+                  href={explorerTxUrl(vault.network, u.txid)}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    fontSize: 11,
+                    color: colors.gold,
+                    textDecoration: "none",
+                    padding: "3px 9px",
+                    border: `1px solid ${colors.border}`,
+                    borderRadius: radii.md,
+                  }}
+                >
+                  Explorer
+                </a>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }

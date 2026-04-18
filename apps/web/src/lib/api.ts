@@ -344,6 +344,23 @@ export const api = {
   balance: (address: string, network: 'testnet' | 'bitcoin') =>
     req<BalanceResult>(`/balance?address=${encodeURIComponent(address)}&network=${network}`),
 
+  utxos: (vault_id: string) =>
+    req<{
+      ok: true;
+      vault_address: string;
+      network: 'testnet' | 'bitcoin';
+      tip: number | null;
+      utxos: {
+        txid: string;
+        vout: number;
+        value_sats: number;
+        confirmed: boolean;
+        block_height: number | null;
+        block_time: number | null;
+        confirmations: number;
+      }[];
+    }>(`/utxos?vault_id=${vault_id}`),
+
   compile: (body: {
     name: string;
     network: 'testnet' | 'bitcoin';
@@ -374,6 +391,7 @@ export const api = {
       amount_sats: number;
       fee_rate?: number;
       path?: string;
+      selected_utxos?: { txid: string; vout: number }[];
     }) => req<{
       ok: true;
       psbt_hex: string;
