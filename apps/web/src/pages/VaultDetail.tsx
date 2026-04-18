@@ -7,35 +7,8 @@ import { APP_NAME, broadcastTxUrl, explorerTxUrl } from "../config";
 import { useToast } from "../components/toast";
 import { LoadingScreen } from "../components/LoadingScreen";
 import { colors, fonts, radii, space } from "../theme";
-import { Button } from "../components/ui";
+import { Button, Input, Label, Textarea } from "../components/ui";
 
-// Kept until the bottom half of this file migrates; the send/history
-// sub-components below still reference these locally.
-const C = {
-  bg: "#07070F", surface: "#0F0F1A", raised: "#141422",
-  border: "#1E1E30", gold: "#C9A84C", goldDim: "#8B6914",
-  text: "#E8E4D8", muted: "#5A5570", sub: "#9994A8",
-  red: "#E05C5C", green: "#52C47A", blue: "#4A90D9", orange: "#E09050",
-};
-
-const inp: React.CSSProperties = {
-  width: "100%", padding: "11px 13px", background: "#161622",
-  border: "1px solid #1E1E30", borderRadius: 8, color: C.text,
-  fontSize: 14, fontFamily: "DM Sans, sans-serif", boxSizing: "border-box",
-};
-const monoInp: React.CSSProperties = { ...inp, fontFamily: "IBM Plex Mono, monospace", fontSize: 12 };
-const lbl: React.CSSProperties = {
-  fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", color: C.muted,
-  textTransform: "uppercase", marginBottom: 5, display: "block",
-};
-const goldBtn: React.CSSProperties = {
-  padding: "11px 22px", background: C.gold, border: "none", borderRadius: 8,
-  color: C.bg, fontWeight: 700, fontSize: 14, fontFamily: "DM Sans, sans-serif", cursor: "pointer",
-};
-const ghostBtn: React.CSSProperties = {
-  padding: "9px 16px", background: "none", border: "1px solid #1E1E30",
-  borderRadius: 8, color: C.sub, fontSize: 13, fontFamily: "DM Sans, sans-serif", cursor: "pointer",
-};
 
 function satsToBtc(sats: number): string {
   return (sats / 1e8).toFixed(8).replace(/\.?0+$/, "") || "0";
@@ -50,10 +23,10 @@ function blocksToLabel(blocks: number): string {
 }
 
 function statusColor(s: string): string {
-  if (s === "broadcast") return C.green;
-  if (s === "signed") return C.gold;
-  if (s === "cancelled") return C.muted;
-  return C.blue;
+  if (s === "broadcast") return colors.green;
+  if (s === "signed") return colors.gold;
+  if (s === "cancelled") return colors.muted;
+  return colors.blue;
 }
 
 export default function VaultDetail() {
@@ -489,12 +462,6 @@ function SendTab({ vault, balance, onDone }: {
   const [signing, setSigning] = useState<SigningState | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
-  function copy(text: string, id: string) {
-    navigator.clipboard.writeText(text);
-    setCopied(id);
-    setTimeout(() => setCopied(null), 1600);
-  }
-
   const confirmedSats = balance?.confirmed_sats ?? 0;
   const amountSats = Math.round(parseFloat(amountBtc || "0") * 1e8);
 
@@ -692,20 +659,36 @@ function SendTab({ vault, balance, onDone }: {
   // Done screen
   if (step === "done" && signing?.txid) {
     return (
-      <div style={{
-        background: "#0A1A0A", border: "1px solid " + C.green + "44",
-        borderRadius: 16, padding: 32, textAlign: "center",
-      }}>
+      <div
+        style={{
+          background: "#0A1A0A",
+          border: `1px solid ${colors.green}44`,
+          borderRadius: 16,
+          padding: 32,
+          textAlign: "center",
+        }}
+      >
         <div style={{ fontSize: 52, marginBottom: 12 }}>sent</div>
-        <div style={{ fontSize: 20, fontWeight: 600, color: C.green, marginBottom: 8 }}>
+        <div style={{ fontSize: 20, fontWeight: 600, color: colors.green, marginBottom: 8 }}>
           Transaction broadcast
         </div>
-        <div style={{
-          fontFamily: "IBM Plex Mono, monospace", fontSize: 11,
-          color: C.muted, marginBottom: 20, wordBreak: "break-all",
-        }}>{signing.txid}</div>
-        <a href={explorerTxUrl(vault.network, signing.txid)} target="_blank" rel="noreferrer"
-          style={{ color: C.gold, fontSize: 14 }}>
+        <div
+          style={{
+            fontFamily: fonts.mono,
+            fontSize: 11,
+            color: colors.muted,
+            marginBottom: 20,
+            wordBreak: "break-all",
+          }}
+        >
+          {signing.txid}
+        </div>
+        <a
+          href={explorerTxUrl(vault.network, signing.txid)}
+          target="_blank"
+          rel="noreferrer"
+          style={{ color: colors.gold, fontSize: 14 }}
+        >
           View on mempool.space
         </a>
       </div>
@@ -715,96 +698,149 @@ function SendTab({ vault, balance, onDone }: {
   // Signing screen
   if (step === "signing" && signing) {
     const quorumMet = signing.signaturesCollected >= signing.requiredSignatures;
+    const needed = signing.requiredSignatures - signing.signaturesCollected;
+
+    function copyPsbt(text: string, id: string) {
+      navigator.clipboard.writeText(text);
+      setCopied(id);
+      setTimeout(() => setCopied(null), 1600);
+    }
+
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-
         {/* Summary card */}
-        <div style={{
-          background: C.surface, border: "1px solid " + C.border,
-          borderRadius: 12, padding: 20,
-        }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 14 }}>
+        <div
+          style={{
+            background: colors.surface,
+            border: `1px solid ${colors.border}`,
+            borderRadius: 12,
+            padding: 20,
+          }}
+        >
+          <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 14 }}>
             Transaction
           </div>
           {[
             ["To", signing.summary.destination],
-            ["Amount", satsToBtc(signing.summary.amount_sats) + " BTC"],
-            ["Fee", satsToBtc(signing.summary.fee_sats) + " BTC (~" + signing.summary.fee_rate + " sat/vb)"],
-            ["Change back", satsToBtc(signing.summary.change_sats) + " BTC"],
+            ["Amount", `${satsToBtc(signing.summary.amount_sats)} BTC`],
+            ["Fee", `${satsToBtc(signing.summary.fee_sats)} BTC (~${signing.summary.fee_rate} sat/vb)`],
+            ["Change back", `${satsToBtc(signing.summary.change_sats)} BTC`],
           ].map(([k, v]) => (
-            <div key={k} style={{
-              display: "flex", justifyContent: "space-between",
-              padding: "8px 0", borderBottom: "1px solid " + C.border,
-            }}>
-              <span style={{ fontSize: 13, color: C.muted }}>{k}</span>
-              <span style={{
-                fontSize: 13, color: C.text,
-                fontFamily: k === "To" ? "IBM Plex Mono, monospace" : "inherit",
-                wordBreak: "break-all", textAlign: "right", maxWidth: "60%",
-              }}>{v}</span>
+            <div
+              key={k}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                padding: "8px 0",
+                borderBottom: `1px solid ${colors.border}`,
+              }}
+            >
+              <span style={{ fontSize: 13, color: colors.muted }}>{k}</span>
+              <span
+                style={{
+                  fontSize: 13,
+                  color: colors.text,
+                  fontFamily: k === "To" ? fonts.mono : "inherit",
+                  wordBreak: "break-all",
+                  textAlign: "right",
+                  maxWidth: "60%",
+                }}
+              >
+                {v}
+              </span>
             </div>
           ))}
 
           {/* Signature progress */}
           <div style={{ marginTop: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-              <span style={{ fontSize: 12, color: C.muted }}>Signatures</span>
-              <span style={{ fontSize: 12, color: quorumMet ? C.green : C.orange }}>
+              <span style={{ fontSize: 12, color: colors.muted }}>Signatures</span>
+              <span style={{ fontSize: 12, color: quorumMet ? colors.green : colors.orange }}>
                 {signing.signaturesCollected} / {signing.requiredSignatures} required
               </span>
             </div>
-            <div style={{ height: 4, background: C.border, borderRadius: 2 }}>
-              <div style={{
-                height: "100%", borderRadius: 2,
-                background: quorumMet ? C.green : C.gold,
-                width: Math.min(100, (signing.signaturesCollected / signing.requiredSignatures) * 100) + "%",
-                transition: "width 0.3s",
-              }} />
+            <div style={{ height: 4, background: colors.border, borderRadius: 2 }}>
+              <div
+                style={{
+                  height: "100%",
+                  borderRadius: 2,
+                  background: quorumMet ? colors.green : colors.gold,
+                  width: `${Math.min(100, (signing.signaturesCollected / signing.requiredSignatures) * 100)}%`,
+                  transition: "width 0.3s",
+                }}
+              />
             </div>
           </div>
         </div>
 
         {/* Browser keys signing */}
         {signing.signers.length > 0 && (
-          <div style={{
-            background: C.surface, border: "1px solid " + C.border,
-            borderRadius: 12, padding: 20,
-          }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 4 }}>
+          <div
+            style={{
+              background: colors.surface,
+              border: `1px solid ${colors.border}`,
+              borderRadius: 12,
+              padding: 20,
+            }}
+          >
+            <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
               Sign with browser keys
             </div>
-            <div style={{ fontSize: 12, color: C.muted, marginBottom: 14 }}>
-              Tap a key to sign. {signing.requiredSignatures > 1 ? "Need " + signing.requiredSignatures + " signatures." : "Only 1 signature needed."}
+            <div style={{ fontSize: 12, color: colors.muted, marginBottom: 14 }}>
+              Tap a key to sign.{" "}
+              {signing.requiredSignatures > 1
+                ? `Need ${signing.requiredSignatures} signatures.`
+                : "Only 1 signature needed."}
             </div>
             {signing.signers.map((signer, i) => {
-              const statusIcon = signer.status === "signed" ? "Signed" :
-                signer.status === "signing" ? "Signing..." :
-                signer.status === "error" ? "Error" : "Tap to sign";
-              const statusColor2 = signer.status === "signed" ? C.green :
-                signer.status === "error" ? C.red :
-                signer.status === "signing" ? C.gold : C.muted;
+              const statusIcon =
+                signer.status === "signed"
+                  ? "Signed"
+                  : signer.status === "signing"
+                    ? "Signing..."
+                    : signer.status === "error"
+                      ? "Error"
+                      : "Tap to sign";
+              const accent =
+                signer.status === "signed"
+                  ? colors.green
+                  : signer.status === "error"
+                    ? colors.red
+                    : signer.status === "signing"
+                      ? colors.gold
+                      : colors.muted;
               return (
-                <div key={signer.key.keyId} style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  padding: "12px 14px", borderRadius: 10, marginBottom: 8,
-                  background: signer.status === "signed" ? C.green + "0D" : "#0A0A14",
-                  border: "1px solid " + (signer.status === "signed" ? C.green + "44" : C.border),
-                  cursor: signer.status === "pending" ? "pointer" : "default",
-                  opacity: signer.status === "signing" ? 0.7 : 1,
-                }} onClick={() => signer.status === "pending" && void signWithKey(i)}>
+                <div
+                  key={signer.key.keyId}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "12px 14px",
+                    borderRadius: 10,
+                    marginBottom: 8,
+                    background: signer.status === "signed" ? `${colors.green}0D` : "#0A0A14",
+                    border: `1px solid ${signer.status === "signed" ? `${colors.green}44` : colors.border}`,
+                    cursor: signer.status === "pending" ? "pointer" : "default",
+                    opacity: signer.status === "signing" ? 0.7 : 1,
+                  }}
+                  onClick={() => signer.status === "pending" && void signWithKey(i)}
+                >
                   <div>
-                    <div style={{ fontSize: 14, fontWeight: 500, color: C.text }}>
+                    <div style={{ fontSize: 14, fontWeight: 500, color: colors.text }}>
                       {signer.key.label}
                     </div>
-                    <div style={{ fontSize: 11, color: C.muted }}>
+                    <div style={{ fontSize: 11, color: colors.muted }}>
                       {signer.key.persona} / {signer.key.fingerprint}
                       {signer.key.testMnemonic ? " / test key" : ""}
                     </div>
                     {signer.error && (
-                      <div style={{ fontSize: 11, color: C.red, marginTop: 4 }}>{signer.error}</div>
+                      <div style={{ fontSize: 11, color: colors.red, marginTop: 4 }}>
+                        {signer.error}
+                      </div>
                     )}
                   </div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: statusColor2 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: accent }}>
                     {statusIcon}
                   </div>
                 </div>
@@ -814,115 +850,167 @@ function SendTab({ vault, balance, onDone }: {
         )}
 
         {/* Hardware wallet / external PSBT */}
-        <div style={{
-          background: C.surface, border: "1px solid " + C.border,
-          borderRadius: 12, padding: 20,
-        }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 4 }}>
+        <div
+          style={{
+            background: colors.surface,
+            border: `1px solid ${colors.border}`,
+            borderRadius: 12,
+            padding: 20,
+          }}
+        >
+          <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
             Sign with hardware wallet
           </div>
-          <div style={{ fontSize: 12, color: C.muted, marginBottom: 14 }}>
+          <div style={{ fontSize: 12, color: colors.muted, marginBottom: 14 }}>
             Export to Sparrow, Nunchuk, or Coldcard. Paste the signed PSBT back here.
           </div>
           <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-            <button style={{ ...ghostBtn, fontSize: 12 }}
-              onClick={() => { navigator.clipboard.writeText(signing.psbt_hex); setCopied("hex"); setTimeout(() => setCopied(null), 1600); }}>
+            <Button
+              variant="ghost"
+              size="sm"
+              style={{ fontSize: 12 }}
+              onClick={() => copyPsbt(signing.psbt_hex, "hex")}
+            >
               {copied === "hex" ? "Copied!" : "Copy PSBT hex"}
-            </button>
-            <button style={{ ...ghostBtn, fontSize: 12 }}
-              onClick={() => { navigator.clipboard.writeText(signing.psbt_b64); setCopied("b64"); setTimeout(() => setCopied(null), 1600); }}>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              style={{ fontSize: 12 }}
+              onClick={() => copyPsbt(signing.psbt_b64, "b64")}
+            >
               {copied === "b64" ? "Copied!" : "Copy base64"}
-            </button>
+            </Button>
           </div>
           <ExternalPsbtInput
-            currentPsbt={signing.psbt_hex}
-            onImport={(importedHex) => {
+            onImport={importedHex => {
               const merged = mergePsbts([signing.psbt_hex, importedHex]);
               const totalSigs = countSignatures(merged);
-              setSigning(prev => prev ? { ...prev, psbt_hex: merged, signaturesCollected: totalSigs } : prev);
+              setSigning(prev =>
+                prev ? { ...prev, psbt_hex: merged, signaturesCollected: totalSigs } : prev,
+              );
             }}
           />
         </div>
 
         {/* Action buttons */}
-        {err && <p style={{ color: C.red, fontSize: 13, margin: 0 }}>{err}</p>}
+        {err && <p style={{ color: colors.red, fontSize: 13, margin: 0 }}>{err}</p>}
 
         {quorumMet ? (
-          <button style={{ ...goldBtn, background: C.green, width: "100%", padding: "14px", fontSize: 16, opacity: busy ? 0.6 : 1 }}
-            disabled={busy} onClick={() => void broadcast()}>
+          <Button
+            disabled={busy}
+            style={{ background: colors.green, width: "100%", padding: "14px", fontSize: 16 }}
+            onClick={() => void broadcast()}
+          >
             {busy ? "Broadcasting..." : "Broadcast transaction"}
-          </button>
+          </Button>
         ) : (
-          <div style={{ fontSize: 13, color: C.muted, textAlign: "center", padding: "10px 0" }}>
-            {signing.requiredSignatures - signing.signaturesCollected} more signature{signing.requiredSignatures - signing.signaturesCollected !== 1 ? "s" : ""} needed
+          <div style={{ fontSize: 13, color: colors.muted, textAlign: "center", padding: "10px 0" }}>
+            {needed} more signature{needed !== 1 ? "s" : ""} needed
           </div>
         )}
 
-        <button style={{ ...ghostBtn, width: "100%" }}
-          onClick={() => { setStep("form"); setSigning(null); setErr(null); }}>
+        <Button
+          variant="ghost"
+          style={{ width: "100%" }}
+          onClick={() => {
+            setStep("form");
+            setSigning(null);
+            setErr(null);
+          }}
+        >
           Cancel
-        </button>
+        </Button>
       </div>
     );
   }
 
   // Form screen
   return (
-    <form onSubmit={e => void buildAndSign(e)}
-      style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 480 }}>
-
+    <form
+      onSubmit={e => void buildAndSign(e)}
+      style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 480 }}
+    >
       <div>
-        <label style={lbl}>Send to</label>
-        <input style={monoInp} value={dest} onChange={e => setDest(e.target.value)}
-          required placeholder="tb1p... or bc1p..." />
+        <Label>Send to</Label>
+        <Input
+          mono
+          value={dest}
+          onChange={e => setDest(e.target.value)}
+          required
+          placeholder="tb1p... or bc1p..."
+        />
       </div>
 
       <div style={{ display: "flex", gap: 12 }}>
         <div style={{ flex: 2 }}>
-          <label style={lbl}>Amount (BTC)</label>
-          <input style={inp} type="number" step="0.00000001" min="0.00000546"
-            value={amountBtc} onChange={e => setAmountBtc(e.target.value)} required placeholder="0.001" />
+          <Label>Amount (BTC)</Label>
+          <Input
+            type="number"
+            step="0.00000001"
+            min="0.00000546"
+            value={amountBtc}
+            onChange={e => setAmountBtc(e.target.value)}
+            required
+            placeholder="0.001"
+          />
           {confirmedSats > 0 && (
-            <div style={{ fontSize: 11, color: C.muted, marginTop: 5 }}>
+            <div style={{ fontSize: 11, color: colors.muted, marginTop: 5 }}>
               {satsToBtc(confirmedSats)} BTC available
-              <button type="button" style={{
-                background: "none", border: "none", color: C.gold,
-                cursor: "pointer", fontSize: 11, marginLeft: 8,
-              }} onClick={() => {
-                const max = confirmedSats - 2000;
-                if (max > 0) setAmountBtc((max / 1e8).toFixed(8));
-              }}>Max</button>
+              <button
+                type="button"
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: colors.gold,
+                  cursor: "pointer",
+                  fontSize: 11,
+                  marginLeft: 8,
+                }}
+                onClick={() => {
+                  const max = confirmedSats - 2000;
+                  if (max > 0) setAmountBtc((max / 1e8).toFixed(8));
+                }}
+              >
+                Max
+              </button>
             </div>
           )}
         </div>
         <div style={{ flex: 1 }}>
-          <label style={lbl}>Fee (sat/vb)</label>
-          <input style={inp} type="number" step="0.1" min="1"
-            value={feeRate} onChange={e => setFeeRate(e.target.value)} placeholder="Auto" />
+          <Label>Fee (sat/vb)</Label>
+          <Input
+            type="number"
+            step="0.1"
+            min="1"
+            value={feeRate}
+            onChange={e => setFeeRate(e.target.value)}
+            placeholder="Auto"
+          />
         </div>
       </div>
 
       <div>
-        <label style={lbl}>Memo (optional)</label>
-        <input style={inp} value={memo} onChange={e => setMemo(e.target.value)} placeholder="Note" />
+        <Label>Memo (optional)</Label>
+        <Input value={memo} onChange={e => setMemo(e.target.value)} placeholder="Note" />
       </div>
 
-      {err && <p style={{ color: C.red, fontSize: 13, margin: 0 }}>{err}</p>}
+      {err && <p style={{ color: colors.red, fontSize: 13, margin: 0 }}>{err}</p>}
 
-      <button type="submit" style={{ ...goldBtn, padding: "14px", fontSize: 15, opacity: busy ? 0.6 : 1 }}
-        disabled={busy}>
+      <Button
+        type="submit"
+        disabled={busy}
+        style={{ padding: "14px", fontSize: 15 }}
+      >
         {busy ? "Building transaction..." : "Review & sign"}
-      </button>
+      </Button>
     </form>
   );
 }
 
 // // -- External PSBT import
 
-function ExternalPsbtInput({ currentPsbt, onImport }: {
-  currentPsbt: string;
-  onImport: (hex: string) => void;
-}) {
+function ExternalPsbtInput({ onImport }: { onImport: (hex: string) => void }) {
   const [psbtHex, setPsbtHex] = useState("");
   const [err, setErr] = useState<string | null>(null);
 
@@ -944,28 +1032,40 @@ function ExternalPsbtInput({ currentPsbt, onImport }: {
 
   return (
     <form onSubmit={submit}>
-      <textarea style={{ ...monoInp, resize: "vertical", width: "100%", boxSizing: "border-box" }}
-        rows={3} value={psbtHex} onChange={e => setPsbtHex(e.target.value)}
-        placeholder="70736274ff... (paste signed PSBT hex)" />
-      {err && <p style={{ color: C.red, fontSize: 12, margin: "4px 0" }}>{err}</p>}
-      <button type="submit" style={{ ...ghostBtn, marginTop: 8, opacity: !psbtHex ? 0.4 : 1 }}
-        disabled={!psbtHex}>
+      <Textarea
+        mono
+        rows={3}
+        value={psbtHex}
+        onChange={e => setPsbtHex(e.target.value)}
+        placeholder="70736274ff... (paste signed PSBT hex)"
+      />
+      {err && <p style={{ color: colors.red, fontSize: 12, margin: "4px 0" }}>{err}</p>}
+      <Button
+        type="submit"
+        variant="ghost"
+        disabled={!psbtHex}
+        style={{ marginTop: 8 }}
+      >
         Add signature
-      </button>
+      </Button>
     </form>
   );
 }
 
 // // -- History tab
 
-function HistoryTab({ vault, proposals, onRefresh }: {
+function HistoryTab({
+  vault,
+  proposals,
+  onRefresh,
+}: {
   vault: Vault;
   proposals: Proposal[];
   onRefresh: () => void;
 }) {
   void onRefresh;
   if (proposals.length === 0) {
-    return <p style={{ color: C.muted, fontSize: 14 }}>No transactions yet.</p>;
+    return <p style={{ color: colors.muted, fontSize: 14 }}>No transactions yet.</p>;
   }
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -980,60 +1080,100 @@ function ProposalCard({ proposal: p, vault }: { proposal: Proposal; vault: Vault
   const [expanded, setExpanded] = useState(false);
   const sc = statusColor(p.status);
   return (
-    <div style={{
-      background: C.surface, border: "1px solid " + C.border,
-      borderRadius: 12, overflow: "hidden",
-    }}>
-      <div style={{
-        display: "flex", justifyContent: "space-between", alignItems: "center",
-        padding: "14px 16px", cursor: "pointer",
-      }} onClick={() => setExpanded(e => !e)}>
+    <div
+      style={{
+        background: colors.surface,
+        border: `1px solid ${colors.border}`,
+        borderRadius: 12,
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          padding: "14px 16px",
+          cursor: "pointer",
+        }}
+        onClick={() => setExpanded(e => !e)}
+      >
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ width: 8, height: 8, borderRadius: "50%", background: sc }} />
           <div>
-            <div style={{ fontSize: 15, fontWeight: 600, color: C.text,
-              fontFamily: "Playfair Display, serif" }}>
+            <div
+              style={{
+                fontSize: 15,
+                fontWeight: 600,
+                color: colors.text,
+                fontFamily: fonts.display,
+              }}
+            >
               {satsToBtc(p.amount_sats)} BTC
             </div>
-            <div style={{ fontSize: 11, color: C.muted }}>
+            <div style={{ fontSize: 11, color: colors.muted }}>
               {new Date(p.created_at).toLocaleDateString()}
             </div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{
-            fontSize: 11, fontWeight: 700, letterSpacing: "0.06em",
-            padding: "3px 8px", borderRadius: 4,
-            background: sc + "22", color: sc, textTransform: "uppercase",
-          }}>{p.status}</span>
-          <span style={{ color: C.muted, fontSize: 12 }}>{expanded ? "^" : "v"}</span>
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: "0.06em",
+              padding: "3px 8px",
+              borderRadius: 4,
+              background: `${sc}22`,
+              color: sc,
+              textTransform: "uppercase",
+            }}
+          >
+            {p.status}
+          </span>
+          <span style={{ color: colors.muted, fontSize: 12 }}>{expanded ? "^" : "v"}</span>
         </div>
       </div>
 
       {expanded && (
-        <div style={{ padding: "0 16px 16px", borderTop: "1px solid " + C.border }}>
-          <div style={{ fontSize: 12, color: C.muted, marginBottom: 8, marginTop: 12,
-            fontFamily: "IBM Plex Mono, monospace", wordBreak: "break-all" }}>
+        <div style={{ padding: "0 16px 16px", borderTop: `1px solid ${colors.border}` }}>
+          <div
+            style={{
+              fontSize: 12,
+              color: colors.muted,
+              marginBottom: 8,
+              marginTop: 12,
+              fontFamily: fonts.mono,
+              wordBreak: "break-all",
+            }}
+          >
             To: {p.destination}
           </div>
           {p.memo && (
-            <div style={{ fontSize: 12, color: C.sub, marginBottom: 8 }}>
+            <div style={{ fontSize: 12, color: colors.sub, marginBottom: 8 }}>
               Note: {p.memo}
             </div>
           )}
           {p.txid && (
-            <a href={explorerTxUrl(vault.network, p.txid)}
-              target="_blank" rel="noreferrer"
-              style={{ fontSize: 13, color: C.gold, textDecoration: "none" }}>
+            <a
+              href={explorerTxUrl(vault.network, p.txid)}
+              target="_blank"
+              rel="noreferrer"
+              style={{ fontSize: 13, color: colors.gold, textDecoration: "none" }}
+            >
               View on mempool.space
             </a>
           )}
           {p.psbt_hex && (
             <div style={{ marginTop: 10 }}>
-              <button style={{ ...ghostBtn, fontSize: 12 }}
-                onClick={() => navigator.clipboard.writeText(p.psbt_hex!)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                style={{ fontSize: 12 }}
+                onClick={() => navigator.clipboard.writeText(p.psbt_hex!)}
+              >
                 Copy PSBT
-              </button>
+              </Button>
             </div>
           )}
         </div>
