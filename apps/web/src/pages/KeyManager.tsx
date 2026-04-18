@@ -8,6 +8,7 @@ import {
 import { useToast } from "../components/toast";
 import { colors, fonts, radii, space } from "../theme";
 import { Button, Input, Label, Textarea } from "../components/ui";
+import { QrImage } from "../components/QrImage";
 
 // Shared select styling (kept inline since the UI primitives only cover
 // inputs, textareas, labels, and buttons right now).
@@ -668,6 +669,7 @@ function DetailModal({
   onEdit: () => void;
 }) {
   const [copied, setCopied] = useState<string | null>(null);
+  const [showQr, setShowQr] = useState(false);
   function copy(text: string, id: string) {
     navigator.clipboard.writeText(text);
     setCopied(id);
@@ -718,12 +720,52 @@ function DetailModal({
         ))}
       </div>
       <div style={{ marginBottom: 14 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5, gap: 6 }}>
           <Label>Extended public key (xpub)</Label>
-          <Button variant="ghost" size="sm" style={{ padding: "3px 9px", fontSize: 11 }} onClick={() => copy(k.xpub, "xpub")}>
-            {copied === "xpub" ? "Copied" : "Copy"}
-          </Button>
+          <div style={{ display: "flex", gap: 6 }}>
+            <Button
+              variant="ghost"
+              size="sm"
+              style={{ padding: "3px 9px", fontSize: 11 }}
+              onClick={() => setShowQr(v => !v)}
+            >
+              {showQr ? "Hide QR" : "Show QR"}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              style={{ padding: "3px 9px", fontSize: 11 }}
+              onClick={() => copy(k.xpub, "xpub")}
+            >
+              {copied === "xpub" ? "Copied" : "Copy"}
+            </Button>
+          </div>
         </div>
+        {showQr && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 8,
+              padding: 16,
+              background: "#0A0A14",
+              borderRadius: radii.md,
+              marginBottom: 8,
+            }}
+          >
+            <QrImage
+              data={JSON.stringify({
+                xpub: k.xpub,
+                xfp: k.masterFingerprint ?? k.fingerprint,
+                path: k.derivationPath,
+              })}
+            />
+            <div style={{ fontSize: 11, color: colors.muted, textAlign: "center" }}>
+              Scan into Sparrow / Nunchuk / another DynastyTrust browser to import this xpub.
+            </div>
+          </div>
+        )}
         <div style={{ background: "#0A0A14", borderRadius: radii.md, padding: "10px 12px", fontFamily: fonts.mono, fontSize: 11, color: colors.sub, wordBreak: "break-all", lineHeight: 1.6 }}>
           {k.xpub}
         </div>
