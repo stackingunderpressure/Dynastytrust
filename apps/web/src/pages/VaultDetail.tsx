@@ -16,6 +16,7 @@ import { useToast } from "../components/toast";
 import { LoadingScreen } from "../components/LoadingScreen";
 import { colors, fonts, radii, space } from "../theme";
 import { Button, Input, Label, Textarea } from "../components/ui";
+import { useRealtimeRefresh } from "../lib/realtime";
 
 
 function satsToBtc(sats: number): string {
@@ -80,6 +81,16 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
   }, [vault]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Live proposal + signature updates for the current vault.
+  useRealtimeRefresh(
+    { table: "proposals", filter: `vault_id=eq.${vault.id}` },
+    () => void load(),
+  );
+  useRealtimeRefresh(
+    { table: "signer_sessions", channel: `vault:${vault.id}:sigs` },
+    () => void load(),
+  );
 
   function copy(text: string, id: string) {
     navigator.clipboard.writeText(text);
@@ -1251,6 +1262,16 @@ function MembersTab({ vault }: { vault: Vault }) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Live updates when someone joins or a new invite lands.
+  useRealtimeRefresh(
+    { table: "vault_members", filter: `vault_id=eq.${vault.id}` },
+    () => void load(),
+  );
+  useRealtimeRefresh(
+    { table: "vault_invites", filter: `vault_id=eq.${vault.id}` },
+    () => void load(),
+  );
 
   async function revoke(invite: VaultInvite) {
     if (!confirm("Revoke this invite?")) return;

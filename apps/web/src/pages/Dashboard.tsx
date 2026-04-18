@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type Vault, type BalanceResult } from "../lib/api";
 import { useToast } from "../components/toast";
+import { useRealtimeRefresh } from "../lib/realtime";
 import { colors, fonts, radii, space } from "../theme";
 import { Button, Input, Label, Textarea } from "../components/ui";
 
@@ -528,7 +529,7 @@ function PendingFeed() {
   const [items, setItems] = useState<PendingProposal[]>([]);
   const [loaded, setLoaded] = useState(false);
 
-  useEffect(() => {
+  const reload = useCallback(() => {
     api
       .proposalsMine()
       .then(res => setItems(res.proposals))
@@ -537,6 +538,14 @@ function PendingFeed() {
       })
       .finally(() => setLoaded(true));
   }, []);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  // Refresh on any proposal or signature change across all vaults.
+  useRealtimeRefresh({ table: "proposals", channel: "pending-feed:proposals" }, reload);
+  useRealtimeRefresh({ table: "signer_sessions", channel: "pending-feed:sigs" }, reload);
 
   if (!loaded || items.length === 0) return null;
 

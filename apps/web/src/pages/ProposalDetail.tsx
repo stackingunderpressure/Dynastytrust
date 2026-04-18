@@ -16,6 +16,7 @@ import {
 import { LoadingScreen } from "../components/LoadingScreen";
 import { useToast } from "../components/toast";
 import { Button } from "../components/ui";
+import { useRealtimeRefresh } from "../lib/realtime";
 import { colors, fonts, radii, space } from "../theme";
 
 type Session = Awaited<ReturnType<typeof api.signerSessions.list>>["sessions"][number];
@@ -70,6 +71,15 @@ export default function ProposalDetail() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useRealtimeRefresh(
+    { table: "signer_sessions", filter: `proposal_id=eq.${proposalId ?? ""}` },
+    () => void load(),
+  );
+  useRealtimeRefresh(
+    { table: "proposals", filter: `id=eq.${proposalId ?? ""}` },
+    () => void load(),
+  );
 
   if (loading) return <LoadingScreen />;
   if (error || !vault || !proposal) {
