@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 import { APP_NAME, NAV_LINKS } from '../config';
-import { colors, fonts, radii, space } from '../theme';
+import { colors, fonts, radii } from '../theme';
 
 interface LayoutProps {
   activeNavId: string;
@@ -12,20 +12,7 @@ interface LayoutProps {
 export function Layout({ activeNavId, onSignOut, children }: LayoutProps) {
   return (
     <div style={{ minHeight: '100vh', fontFamily: fonts.sans }}>
-      <header
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: `0 ${space[8]}px`,
-          height: 60,
-          borderBottom: `1px solid ${colors.border}`,
-          background: colors.header,
-          position: 'sticky',
-          top: 0,
-          zIndex: 100,
-        }}
-      >
+      <header className="dt-header">
         <span
           style={{
             fontFamily: fonts.display,
@@ -33,11 +20,12 @@ export function Layout({ activeNavId, onSignOut, children }: LayoutProps) {
             fontWeight: 700,
             letterSpacing: '0.12em',
             color: colors.gold,
+            whiteSpace: 'nowrap',
           }}
         >
           {APP_NAME}
         </span>
-        <nav style={{ display: 'flex', gap: 2 }}>
+        <nav>
           {NAV_LINKS.map(link => {
             const active = link.id === activeNavId;
             return (
@@ -45,7 +33,7 @@ export function Layout({ activeNavId, onSignOut, children }: LayoutProps) {
                 key={link.id}
                 to={link.path}
                 style={{
-                  padding: '6px 18px',
+                  padding: '6px 14px',
                   borderRadius: radii.md,
                   fontSize: 14,
                   fontFamily: fonts.sans,
@@ -53,6 +41,7 @@ export function Layout({ activeNavId, onSignOut, children }: LayoutProps) {
                   color: active ? colors.text : colors.muted,
                   fontWeight: active ? 600 : 400,
                   textDecoration: 'none',
+                  whiteSpace: 'nowrap',
                 }}
               >
                 {link.icon} {link.label}
@@ -76,9 +65,7 @@ export function Layout({ activeNavId, onSignOut, children }: LayoutProps) {
           Sign out
         </button>
       </header>
-      <main style={{ maxWidth: 1000, margin: '0 auto', padding: `${space[8]}px ${space[8]}px` }}>
-        {children}
-      </main>
+      <main className="dt-page-main">{children}</main>
     </div>
   );
 }

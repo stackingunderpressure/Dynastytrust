@@ -55,6 +55,13 @@
 html,
 body {
   height: 100%;
+  width: 100%;
+  /* Cap to the real viewport -- narrow phones get nothing wider than
+     the screen, so a long xpub hex string can't push the whole page
+     sideways. NB: overflow-x:hidden on html/body breaks
+     `position: sticky` in some mobile browsers, so we rely on
+     per-element wrapping instead. */
+  max-width: 100vw;
 }
 
 body {
@@ -64,6 +71,89 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  overscroll-behavior-y: contain;
+}
+
+/* Mobile page padding: Layout's `<main>` and the VaultDetail
+   header/main read this via className. */
+.dt-page-main {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 32px 32px;
+}
+
+.dt-page-main--narrow {
+  max-width: 680px;
+  padding: 24px 16px;
+}
+
+@media (max-width: 640px) {
+  .dt-page-main {
+    padding: 20px 14px;
+  }
+  .dt-page-main--narrow {
+    padding: 16px 12px;
+  }
+}
+
+/* Grid that used to use a 300px hard min; this lets single-column
+   phones actually fit. Apply via className on the vault-card grid. */
+.dt-responsive-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+  gap: 14px;
+}
+
+/* Sticky app header -- always on top, 14px horizontal padding on
+   mobile so the logo + nav + sign-out don't get squeezed. */
+.dt-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 32px;
+  height: 60px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-header);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  gap: 8px;
+}
+
+.dt-header nav {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.dt-header nav::-webkit-scrollbar {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .dt-header {
+    padding: 0 12px;
+    height: 52px;
+  }
+}
+
+/* Media + code blobs with long strings should never blow out their
+   container. */
+img,
+svg,
+canvas,
+video {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+pre,
+code {
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 button,
@@ -73,6 +163,7 @@ textarea {
   outline: none;
   font: inherit;
   color: inherit;
+  max-width: 100%;
 }
 
 a {

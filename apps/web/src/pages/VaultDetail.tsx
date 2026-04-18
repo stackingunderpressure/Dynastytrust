@@ -143,20 +143,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
 
   return (
     <div style={{ minHeight: "100vh", fontFamily: fonts.sans }}>
-      <header
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: `0 ${space[5]}px`,
-          height: 56,
-          borderBottom: `1px solid ${colors.border}`,
-          background: colors.header,
-          position: "sticky",
-          top: 0,
-          zIndex: 50,
-        }}
-      >
+      <header className="dt-header" style={{ height: 56, zIndex: 50 }}>
         <button
           onClick={onBack}
           style={{
@@ -192,7 +179,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
         </Button>
       </header>
 
-      <main style={{ maxWidth: 680, margin: "0 auto", padding: `${space[6]}px ${space[4]}px` }}>
+      <main className="dt-page-main dt-page-main--narrow">
         {/* Balance hero */}
         <div
           style={{
