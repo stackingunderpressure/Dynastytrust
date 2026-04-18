@@ -11,18 +11,28 @@ export async function handler(event) {
   const supabase = getSupabaseAdmin();
 
   // ── GET /api/vaults ──────────────────────────────────────────
+  // Returns every vault the caller is an active member of (owner
+  // rows are seeded by a trigger so creators are included too).
   if (event.httpMethod === "GET") {
     const showArchived = event.queryStringParameters?.archived === "true";
+
+    const { data: memberships, error: mErr } = await supabase
+      .from("vault_members")
+      .select("vault_id")
+      .eq("user_id", u.userId)
+      .eq("status", "active");
+    if (mErr) return json(500, { error: mErr.message });
+
+    const vaultIds = (memberships ?? []).map(m => m.vault_id);
+    if (vaultIds.length === 0) return json(200, { ok: true, vaults: [] });
 
     let query = supabase
       .from("vaults")
       .select(VAULT_FIELDS)
-      .eq("user_id", u.userId)
+      .in("id", vaultIds)
       .order("created_at", { ascending: false });
 
-    if (!showArchived) {
-      query = query.eq("archived", false);
-    }
+    if (!showArchived) query = query.eq("archived", false);
 
     const { data, error } = await query;
     if (error) return json(500, { error: error.message });

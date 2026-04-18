@@ -78,7 +78,10 @@ export default function Dashboard() {
     void load();
   }
 
-  const visible = vaults.filter(
+  const drafts = vaults.filter(v => v.status === 'draft' && !v.archived);
+  const liveVaults = vaults.filter(v => v.status !== 'draft');
+
+  const visible = liveVaults.filter(
     v =>
       !search ||
       v.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -88,6 +91,7 @@ export default function Dashboard() {
   return (
     <div style={{ fontFamily: fonts.sans }}>
       <PendingFeed />
+      {drafts.length > 0 && <DraftsSection drafts={drafts} />}
 
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
         <Input
@@ -614,6 +618,70 @@ function PendingRow({ item, onOpen }: { item: PendingProposal; onOpen: () => voi
         <div style={{ fontSize: 11, color: colors.muted, marginTop: 2 }}>
           {item.vault.network === "bitcoin" ? "MAINNET" : "TESTNET"}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// // -- Drafts section
+// Vaults in status='draft' -- either the owner hasn't compiled yet
+// or co-signers haven't all provisioned their keys. One row per
+// draft; clicking goes straight to the vault.
+
+function DraftsSection({ drafts }: { drafts: Vault[] }) {
+  const navigate = useNavigate();
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div
+        style={{
+          fontSize: 12,
+          fontWeight: 700,
+          letterSpacing: "0.1em",
+          color: colors.gold,
+          marginBottom: 10,
+          textTransform: "uppercase",
+        }}
+      >
+        Drafts in progress ({drafts.length})
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {drafts.map(v => (
+          <div
+            key={v.id}
+            onClick={() =>
+              navigate(`/vaults/${v.id}`, { state: { vault: v } })
+            }
+            style={{
+              background: colors.surface,
+              border: `1px solid ${colors.border}`,
+              borderLeft: `3px solid ${colors.gold}`,
+              borderRadius: 12,
+              padding: "12px 16px",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              cursor: "pointer",
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: colors.text }}>
+                {v.name}
+              </div>
+              <div style={{ fontSize: 12, color: colors.muted, marginTop: 2 }}>
+                {v.planned_founder_count ?? 0} founder
+                {(v.planned_founder_count ?? 0) === 1 ? "" : "s"}
+                {(v.planned_heir_count ?? 0) > 0
+                  ? ` / ${v.planned_heir_count} heir${(v.planned_heir_count ?? 0) === 1 ? "" : "s"}`
+                  : ""}
+                {" / "}
+                {v.network === "bitcoin" ? "MAINNET" : "TESTNET"}
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: colors.gold, fontWeight: 600 }}>
+              DRAFT
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
