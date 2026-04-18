@@ -337,6 +337,11 @@ export default function PolicyBuilder() {
   const [founderKeys, setFK] = useState<SelectedKey[]>([]);
   const [heirKeys, setHK] = useState<SelectedKey[]>([]);
   const [founderQ, setFQ] = useState(1);
+  // Recovery path's quorum after the timelock. Defaults to
+  // founderQ - 1 (floor 1) so Path 2 actually grants a new
+  // capability: e.g. 3-of-3 now, 2-of-3 after a 3-month timelock
+  // protects against a single lost device.
+  const [recoveryQ, setRecoveryQ] = useState(1);
   const [heirQ, setHQ] = useState(1);
   const [recovery, setRecovery] = useState(26_280);
   const [inherit, setInherit] = useState(52_560);
@@ -363,6 +368,15 @@ export default function PolicyBuilder() {
   useEffect(() => {
     setAllKeys(listKeys().filter(k => k.status === 'active'));
   }, []);
+
+  // Keep recoveryQ one below founderQ by default so Path 2 is
+  // meaningful. Users can override manually.
+  useEffect(() => {
+    setRecoveryQ(prev => {
+      const suggested = Math.max(1, founderQ - 1);
+      return prev > founderQ || prev === 0 ? suggested : prev;
+    });
+  }, [founderQ]);
 
   const network = [...founderKeys, ...heirKeys][0]?.network ?? 'testnet';
   const { errors, warnings } = validate(mode, founderKeys, heirKeys, founderQ, heirQ, recovery, inherit);
@@ -432,6 +446,7 @@ export default function PolicyBuilder() {
         address_type: addrType,
         founder_keys: founderKeys.map(toPubkeyHex),
         founder_quorum: founderQ,
+        recovery_quorum: plain ? undefined : recoveryQ,
         heir_keys: plain ? [] : heirKeys.map(toPubkeyHex),
         heir_quorum: plain ? 1 : heirQ,
         recovery_after: plain ? 0 : recovery,
@@ -457,14 +472,18 @@ export default function PolicyBuilder() {
       const plain = mode === 'plain';
       const draftNet = founderKeys[0]?.network ?? heirKeys[0]?.network ?? 'testnet';
       const effectivePlannedHeirs = plain ? 0 : plannedHeirs;
+      const effectiveFounderQ = Math.min(founderQ, plannedFounders);
       const res = await api.vaults.createDraft({
         name,
         network: draftNet as 'testnet' | 'bitcoin',
         address_type: addrType,
         planned_founder_count: plannedFounders,
         planned_heir_count: effectivePlannedHeirs,
-        founder_quorum: Math.min(founderQ, plannedFounders),
+        founder_quorum: effectiveFounderQ,
         heir_quorum: effectivePlannedHeirs > 0 ? Math.min(heirQ, effectivePlannedHeirs) : 1,
+        recovery_quorum: plain
+          ? null
+          : Math.min(recoveryQ, Math.max(1, effectiveFounderQ)),
         recovery_after: plain ? 0 : recovery,
         inheritance_after: plain ? 0 : inherit,
       });
@@ -514,6 +533,7 @@ export default function PolicyBuilder() {
         address_type: compiled.address_type,
         founder_quorum: founderQ,
         heir_quorum: plain ? 1 : heirQ,
+        recovery_quorum: plain ? null : recoveryQ,
         recovery_after: plain ? 0 : recovery,
         inheritance_after: plain ? 0 : inherit,
         founder_keys: founderKeys.map(k => k.xpub),
@@ -640,6 +660,33 @@ export default function PolicyBuilder() {
             }}
             color={colors.gold}
           />
+        )}
+        {mode === 'inheritance' && founderKeys.length > 0 && (
+          <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${colors.border}` }}>
+            <div style={{ fontSize: 13, fontWeight: 500, color: colors.text, marginBottom: 4 }}>
+              Recovery quorum after timelock
+            </div>
+            <div style={{ fontSize: 12, color: colors.muted, marginBottom: 10 }}>
+              How many trustees are needed to spend via the recovery path once the timelock
+              elapses. Set below the normal quorum so Path 2 actually unlocks something (e.g.
+              3-of-3 normally, 2-of-3 after 3 months as insurance against a lost device).
+            </div>
+            <QuorumPicker
+              max={founderKeys.length}
+              value={recoveryQ}
+              onChange={q => {
+                setRecoveryQ(q);
+                setCompiled(null);
+              }}
+              color={colors.blue}
+            />
+            {recoveryQ >= founderQ && (
+              <div style={{ fontSize: 11, color: colors.orange, marginTop: 8 }}>
+                Warning: recovery quorum equals the normal quorum, so Path 2 grants no new
+                capability -- anyone who could sign Path 2 could already sign Path 1 today.
+              </div>
+            )}
+          </div>
         )}
       </Section>
 

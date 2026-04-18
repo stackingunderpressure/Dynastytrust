@@ -2,7 +2,7 @@ import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 
 const VAULT_FIELDS =
-  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, archived, status, planned_founder_count, planned_heir_count, trust_doc";
+  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, archived, status, planned_founder_count, planned_heir_count, trust_doc";
 
 export async function handler(event) {
   const u = await requireUser(event);
@@ -91,6 +91,7 @@ export async function handler(event) {
         miniscript_policy: null,
         founder_quorum: body.founder_quorum ?? planned_founder_count,
         heir_quorum: body.heir_quorum ?? Math.max(1, planned_heir_count),
+        recovery_quorum: body.recovery_quorum ?? null,
         recovery_after: body.recovery_after ?? 26000,
         inheritance_after: body.inheritance_after ?? 52560,
         founder_keys: [],
@@ -115,6 +116,7 @@ export async function handler(event) {
         address_type,
         founder_quorum: body.founder_quorum ?? 2,
         heir_quorum: body.heir_quorum ?? 2,
+        recovery_quorum: body.recovery_quorum ?? null,
         recovery_after: body.recovery_after ?? 26000,
         inheritance_after: body.inheritance_after ?? 52560,
         founder_keys: body.founder_keys ?? [],

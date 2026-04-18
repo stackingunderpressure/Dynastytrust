@@ -16,6 +16,13 @@ const NUMS_HEX: &str =
 pub struct DynastyPolicy {
     pub founder_keys: Vec<PublicKey>,
     pub founder_quorum: usize,
+    /// Quorum for the timelocked recovery branch. When set and
+    /// different from `founder_quorum`, Path 2 becomes materially
+    /// distinct from Path 1: e.g. 3-of-3 now, 2-of-3 after 3 months
+    /// as insurance against a lost device. Null = fall back to
+    /// `founder_quorum` (legacy behavior).
+    #[serde(default)]
+    pub recovery_quorum: Option<usize>,
     pub heir_keys: Vec<PublicKey>,
     pub heir_quorum: usize,
     pub recovery_after: u32,
@@ -212,7 +219,9 @@ pub fn compile_dynasty_policy_tr_multileaf(
         .map(|k| format!("pk({k})"))
         .collect();
 
-    let recovery_branch = format!("and(after({}),{})", policy.recovery_after, founder_thresh);
+    let recovery_quorum = policy.recovery_quorum.unwrap_or(policy.founder_quorum);
+    let recovery_thresh = format!("thresh({},{})", recovery_quorum, founders.join(","));
+    let recovery_branch = format!("and(after({}),{})", policy.recovery_after, recovery_thresh);
     let inheritance_branch = format!(
         "and(after({}),thresh({},{}))",
         policy.inheritance_after,
@@ -275,7 +284,11 @@ fn build_policy_string(policy: &DynastyPolicy) -> String {
         .map(|k| format!("pk({k})"))
         .collect();
 
-    let recovery_branch = format!("and(after({}),{})", policy.recovery_after, founder_thresh);
+    // Recovery branch uses its own quorum when the trust asked for
+    // one; otherwise falls back to founder_quorum (legacy rows).
+    let recovery_quorum = policy.recovery_quorum.unwrap_or(policy.founder_quorum);
+    let recovery_thresh = format!("thresh({},{})", recovery_quorum, founders.join(","));
+    let recovery_branch = format!("and(after({}),{})", policy.recovery_after, recovery_thresh);
     let inheritance_branch = format!(
         "and(after({}),thresh({},{}))",
         policy.inheritance_after,
@@ -292,6 +305,12 @@ fn build_policy_string(policy: &DynastyPolicy) -> String {
 fn verify(policy: &DynastyPolicy) -> Result<(), PolicyError> {
     if policy.founder_quorum == 0 || policy.founder_quorum > policy.founder_keys.len() {
         return Err(PolicyError::InvalidQuorum);
+    }
+
+    if let Some(rq) = policy.recovery_quorum {
+        if rq == 0 || rq > policy.founder_keys.len() {
+            return Err(PolicyError::InvalidQuorum);
+        }
     }
 
     if policy.is_plain() {

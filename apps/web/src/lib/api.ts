@@ -56,6 +56,10 @@ export interface Vault {
   address_type: 'wsh' | 'tr' | 'tr_multileaf';
   founder_quorum: number;
   heir_quorum: number;
+  /** Quorum for the timelocked recovery branch. Null = legacy
+   *  (same as founder_quorum); set explicitly on new vaults so
+   *  Path 2 unlocks a different capability than Path 1. */
+  recovery_quorum: number | null;
   recovery_after: number;
   inheritance_after: number;
   founder_keys: string[];
@@ -185,6 +189,7 @@ export const api = {
       address_type?: string;
       founder_quorum?: number;
       heir_quorum?: number;
+      recovery_quorum?: number | null;
       recovery_after?: number;
       inheritance_after?: number;
       founder_keys?: string[];
@@ -201,6 +206,7 @@ export const api = {
       planned_heir_count: number;
       founder_quorum?: number;
       heir_quorum?: number;
+      recovery_quorum?: number | null;
       recovery_after?: number;
       inheritance_after?: number;
     }) =>
@@ -243,6 +249,7 @@ export const api = {
     address_type?: string;
     founder_keys: string[];
     founder_quorum: number;
+    recovery_quorum?: number | null;
     heir_keys: string[];
     heir_quorum: number;
     recovery_after: number;

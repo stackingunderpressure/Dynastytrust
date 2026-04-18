@@ -47,6 +47,7 @@ export async function handler(event) {
     address_type = "tr",
     founder_keys = [],
     founder_quorum,
+    recovery_quorum = null,
     heir_keys = [],
     heir_quorum = 1,
     recovery_after = 0,
@@ -92,6 +93,7 @@ export async function handler(event) {
         body: JSON.stringify({
           name, network, address_type,
           founder_keys, founder_quorum,
+          recovery_quorum,
           heir_keys, heir_quorum,
           recovery_after, inheritance_after,
         }),
@@ -152,6 +154,7 @@ export async function handler(event) {
           descriptor:        compiled.descriptor,
           miniscript_policy: compiled.miniscript_policy,
           founder_quorum,
+          recovery_quorum,
           heir_quorum,
           recovery_after,
           inheritance_after,

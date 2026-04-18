@@ -29,7 +29,7 @@ const COMPILER_URL = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
 
 const VAULT_FIELDS =
-  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, archived, status, planned_founder_count, planned_heir_count";
+  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, archived, status, planned_founder_count, planned_heir_count, trust_doc";
 
 // Replace every occurrence of a raw pubkey hex in the descriptor
 // with its Nunchuk-format key origin expression. Pure string work,
@@ -116,6 +116,7 @@ export async function handler(event) {
     address_type: vault.address_type,
     founder_keys: founders.map(m => m.pubkey),
     founder_quorum: vault.founder_quorum,
+    recovery_quorum: vault.recovery_quorum,
     heir_keys: heirs.map(m => m.pubkey),
     heir_quorum: vault.heir_quorum,
     recovery_after: vault.recovery_after,

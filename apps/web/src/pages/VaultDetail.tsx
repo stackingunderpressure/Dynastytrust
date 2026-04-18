@@ -404,7 +404,10 @@ function OverviewTab({
           num: 2,
           color: colors.blue,
           title: "Recovery - " + blocksToLabel(vault.recovery_after),
-          body: `Trustees can recover after ${vault.recovery_after.toLocaleString()} blocks on a separate path -- insurance against lost devices.`,
+          body:
+            vault.recovery_quorum != null && vault.recovery_quorum !== vault.founder_quorum
+              ? `${vault.recovery_quorum} of ${vault.founder_keys.length} trustee signatures after ${vault.recovery_after.toLocaleString()} blocks. Insurance against a lost device: quorum drops below the normal ${vault.founder_quorum}-of-${vault.founder_keys.length} so trustees can still spend if one key is gone.`
+              : `Trustees can recover after ${vault.recovery_after.toLocaleString()} blocks. Note: the recovery quorum matches the normal quorum, so this path grants no extra capability.`,
         },
         {
           num: 3,
