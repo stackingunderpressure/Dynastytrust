@@ -90,6 +90,17 @@ export interface TrustBeneficiary {
   notes?: string;
 }
 
+export type ProposalVote = 'approve' | 'abstain' | 'decline';
+
+export interface ProposalComment {
+  id: string;
+  created_at: string;
+  proposal_id: string;
+  user_id: string;
+  body: string | null;
+  vote: ProposalVote | null;
+}
+
 export interface Proposal {
   id: string;
   created_at: string;
@@ -358,6 +369,20 @@ export const api = {
           metadata: Record<string, unknown>;
         }[];
       }>(`/vault-events?vault_id=${vault_id}&limit=${limit}`),
+  },
+
+  proposalComments: {
+    list: (proposal_id: string) =>
+      req<{ ok: true; comments: ProposalComment[] }>(`/proposal-comments?proposal_id=${proposal_id}`),
+
+    create: (body: { proposal_id: string; body?: string; vote?: ProposalVote }) =>
+      req<{ ok: true; comment: ProposalComment }>(`/proposal-comments`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+
+    remove: (id: string) =>
+      req<{ ok: true }>(`/proposal-comments?id=${id}`, { method: 'DELETE' }),
   },
 
   signerSessions: {

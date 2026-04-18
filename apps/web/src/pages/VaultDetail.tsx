@@ -1832,6 +1832,14 @@ function describeEvent(e: VaultEvent): { icon: string; title: string; color: str
       };
     case "cancelled":
       return { icon: "x", title: `Proposal cancelled`, color: colors.muted };
+    case "commented":
+      return { icon: "c", title: `Discussion comment`, color: colors.sub };
+    case "voted_approve":
+      return { icon: "+", title: `Vote: approve`, color: colors.green };
+    case "voted_abstain":
+      return { icon: "o", title: `Vote: abstain`, color: colors.muted };
+    case "voted_decline":
+      return { icon: "-", title: `Vote: decline`, color: colors.red };
     default:
       return { icon: "*", title: e.event_type, color: colors.sub };
   }
