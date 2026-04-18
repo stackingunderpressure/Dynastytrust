@@ -113,6 +113,26 @@ export interface TrustBeneficiary {
 
 export type ProposalVote = 'approve' | 'abstain' | 'decline';
 
+export type VaultRequestStatus = 'pending' | 'approved' | 'declined' | 'fulfilled' | 'cancelled';
+
+export interface VaultRequest {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  vault_id: string;
+  requested_by: string;
+  rule_id: string | null;
+  rule_name: string | null;
+  amount_sats: number;
+  recipient_name: string | null;
+  reason: string | null;
+  status: VaultRequestStatus;
+  linked_proposal_id: string | null;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  resolution_note: string | null;
+}
+
 export interface ProposalComment {
   id: string;
   created_at: string;
@@ -158,7 +178,7 @@ export interface BalanceResult {
 // Endpoints land in B2; these types let the UI start consuming them
 // without a round-trip.
 
-export type VaultRole = 'owner' | 'founder' | 'heir' | 'viewer';
+export type VaultRole = 'owner' | 'founder' | 'heir' | 'viewer' | 'beneficiary';
 export type VaultMemberStatus = 'active' | 'pending' | 'removed';
 
 export interface VaultMember {
@@ -393,6 +413,37 @@ export const api = {
           metadata: Record<string, unknown>;
         }[];
       }>(`/vault-events?vault_id=${vault_id}&limit=${limit}`),
+  },
+
+  vaultRequests: {
+    list: (vault_id: string) =>
+      req<{ ok: true; requests: VaultRequest[] }>(`/vault-requests?vault_id=${vault_id}`),
+
+    create: (body: {
+      vault_id: string;
+      rule_id?: string;
+      rule_name?: string;
+      amount_sats: number;
+      recipient_name?: string;
+      reason?: string;
+    }) =>
+      req<{ ok: true; request: VaultRequest }>(`/vault-requests`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+
+    update: (
+      id: string,
+      body: {
+        status?: VaultRequestStatus;
+        resolution_note?: string;
+        linked_proposal_id?: string;
+      },
+    ) =>
+      req<{ ok: true; request: VaultRequest }>(`/vault-requests?id=${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
   },
 
   proposalComments: {

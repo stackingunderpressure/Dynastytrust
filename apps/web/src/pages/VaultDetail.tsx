@@ -10,7 +10,10 @@ import {
   type VaultRole,
   type TrustDoc,
   type DistributionRule,
+  type VaultRequest,
+  type VaultRequestStatus,
 } from "../lib/api";
+import { supabase } from "../lib/supabase";
 import { listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
 import { signPsbtWithMnemonic, countSignatures, mergePsbts } from "../lib/psbt-signer";
 import { APP_NAME, broadcastTxUrl, explorerTxUrl } from "../config";
@@ -58,9 +61,15 @@ function roleLabel(role: string): string {
       return "Successor trustee";
     case "viewer":
       return "Observer";
+    case "beneficiary":
+      return "Beneficiary";
     default:
       return role;
   }
+}
+
+function isTrusteeRole(role: string): boolean {
+  return role === "owner" || role === "founder";
 }
 
 export default function VaultDetail() {
@@ -92,7 +101,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
   const toast = useToast();
   const [balance, setBalance] = useState<BalanceResult | null>(null);
   const [proposals, setProposals] = useState<Proposal[]>([]);
-  const [tab, setTab] = useState<"overview" | "send" | "history" | "members" | "activity">("overview");
+  const [tab, setTab] = useState<"overview" | "send" | "history" | "members" | "activity" | "requests">("overview");
   const [archiving, setArchiving] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -305,6 +314,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
             : [
                 { id: "overview", label: "Overview" },
                 { id: "send", label: "Send" },
+                { id: "requests", label: "Requests" },
                 { id: "history", label: "History", count: pendingCount },
                 { id: "members", label: "Members" },
                 { id: "activity", label: "Activity" },
@@ -362,6 +372,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
         )}
         {tab === "members" && <MembersTab vault={vault} />}
         {tab === "activity" && <ActivityTab vault={vault} />}
+        {tab === "requests" && <RequestsTab vault={vault} />}
       </main>
     </div>
   );
@@ -1769,6 +1780,7 @@ function InviteModal({
             >
               <option value="founder">Trustee (can sign immediately)</option>
               <option value="heir">Successor trustee (inheritance path)</option>
+              <option value="beneficiary">Beneficiary (receives distributions, files requests)</option>
               <option value="viewer">Observer (read-only)</option>
             </select>
           </div>
@@ -1912,6 +1924,20 @@ function describeEvent(e: VaultEvent): { icon: string; title: string; color: str
       return { icon: "o", title: `Vote: abstain`, color: colors.muted };
     case "voted_decline":
       return { icon: "-", title: `Vote: decline`, color: colors.red };
+    case "request_created":
+      return {
+        icon: "R",
+        title: `Distribution request${meta.rule_name ? ` (${String(meta.rule_name)})` : ""}${meta.amount_sats ? ` -- ${(Number(meta.amount_sats) / 1e8).toFixed(8).replace(/\.?0+$/, "")} BTC` : ""}`,
+        color: colors.orange,
+      };
+    case "request_approved":
+      return { icon: "+", title: "Request approved", color: colors.green };
+    case "request_declined":
+      return { icon: "x", title: "Request declined", color: colors.red };
+    case "request_fulfilled":
+      return { icon: "!", title: "Request fulfilled", color: colors.green };
+    case "request_cancelled":
+      return { icon: "o", title: "Request cancelled", color: colors.muted };
     default:
       return { icon: "*", title: e.event_type, color: colors.sub };
   }
@@ -2433,6 +2459,453 @@ function TrustRulesEditor({
         <Button variant="ghost" size="sm" onClick={add}>
           + Add rule
         </Button>
+      </div>
+    </div>
+  );
+}
+
+// // -- Requests tab
+// Distribution request queue. Beneficiaries (or any member) file
+// a request; trustees approve -> creates a draft proposal
+// pre-filled with the amount + rule, or decline with a note.
+
+function RequestsTab({ vault }: { vault: Vault }) {
+  const toast = useToast();
+  const navigate = useNavigate();
+  const [requests, setRequests] = useState<VaultRequest[]>([]);
+  const [members, setMembers] = useState<VaultMember[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const [r, m] = await Promise.all([
+        api.vaultRequests.list(vault.id),
+        api.members.list(vault.id),
+      ]);
+      setRequests(r.requests);
+      setMembers(m.members);
+    } catch {
+      /* silent */
+    } finally {
+      setLoading(false);
+    }
+  }, [vault.id]);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setCurrentUserId(data.session?.user.id ?? null);
+    });
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useRealtimeRefresh(
+    { table: "vault_requests", filter: `vault_id=eq.${vault.id}` },
+    () => void load(),
+  );
+
+  const me = members.find(m => m.user_id === currentUserId);
+  const iAmTrustee = me ? isTrusteeRole(me.role) : false;
+
+  async function resolve(r: VaultRequest, status: VaultRequestStatus, note?: string) {
+    try {
+      await api.vaultRequests.update(r.id, {
+        status,
+        resolution_note: note,
+      });
+      toast.success(`Request ${status}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    }
+  }
+
+  function startProposalFromRequest(r: VaultRequest) {
+    // The Send tab reads state via form inputs; we can't prefill
+    // directly without a refactor, so we just navigate there and
+    // let the trustee paste the amount. Future improvement:
+    // pass amount + rule + reason via location state.
+    navigate(`/vaults/${vault.id}`, { state: { vault, sendPrefill: r } });
+    toast.info("Create the proposal in the Send tab with this request's details");
+  }
+
+  if (loading) return <p style={{ color: colors.muted, fontSize: 14 }}>Loading...</p>;
+
+  const pending = requests.filter(r => r.status === "pending");
+  const resolved = requests.filter(r => r.status !== "pending");
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        <div style={{ fontSize: 14, color: colors.muted }}>
+          {pending.length} pending, {resolved.length} resolved
+        </div>
+        <Button size="sm" onClick={() => setShowCreate(true)}>
+          + New request
+        </Button>
+      </div>
+
+      {pending.length > 0 ? (
+        <div
+          style={{
+            background: colors.surface,
+            border: `1px solid ${colors.border}`,
+            borderRadius: 12,
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              padding: "10px 16px",
+              borderBottom: `1px solid ${colors.border}`,
+              fontSize: 13,
+              fontWeight: 600,
+              color: colors.text,
+            }}
+          >
+            Pending
+          </div>
+          {pending.map(r => (
+            <RequestRow
+              key={r.id}
+              request={r}
+              requesterLabel={members.find(m => m.user_id === r.requested_by)?.label ?? "Member"}
+              iAmTrustee={iAmTrustee}
+              iAmRequester={r.requested_by === currentUserId}
+              onApprove={() => {
+                void resolve(r, "approved", "Create the proposal in Send.");
+                startProposalFromRequest(r);
+              }}
+              onDecline={() => {
+                const note = prompt("Reason for declining? (optional)") ?? undefined;
+                void resolve(r, "declined", note);
+              }}
+              onCancel={() => void resolve(r, "cancelled")}
+            />
+          ))}
+        </div>
+      ) : (
+        <p style={{ color: colors.muted, fontSize: 13 }}>
+          No pending requests. {iAmTrustee ? "Beneficiaries file here." : "Tap + New request to ask for a distribution."}
+        </p>
+      )}
+
+      {resolved.length > 0 && (
+        <div
+          style={{
+            background: colors.surface,
+            border: `1px solid ${colors.border}`,
+            borderRadius: 12,
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              padding: "10px 16px",
+              borderBottom: `1px solid ${colors.border}`,
+              fontSize: 13,
+              fontWeight: 600,
+              color: colors.muted,
+            }}
+          >
+            History
+          </div>
+          {resolved.map(r => (
+            <RequestRow
+              key={r.id}
+              request={r}
+              requesterLabel={members.find(m => m.user_id === r.requested_by)?.label ?? "Member"}
+              iAmTrustee={false}
+              iAmRequester={false}
+            />
+          ))}
+        </div>
+      )}
+
+      {showCreate && (
+        <NewRequestModal
+          vault={vault}
+          onClose={() => setShowCreate(false)}
+          onCreated={() => {
+            setShowCreate(false);
+            void load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function RequestRow({
+  request: r,
+  requesterLabel,
+  iAmTrustee,
+  iAmRequester,
+  onApprove,
+  onDecline,
+  onCancel,
+}: {
+  request: VaultRequest;
+  requesterLabel: string;
+  iAmTrustee: boolean;
+  iAmRequester: boolean;
+  onApprove?: () => void;
+  onDecline?: () => void;
+  onCancel?: () => void;
+}) {
+  const color =
+    r.status === "approved" || r.status === "fulfilled"
+      ? colors.green
+      : r.status === "declined" || r.status === "cancelled"
+        ? colors.red
+        : colors.orange;
+
+  return (
+    <div
+      style={{
+        padding: "12px 16px",
+        borderBottom: `1px solid ${colors.border}`,
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+        <div>
+          <span style={{ fontSize: 14, fontWeight: 600, color: colors.text, fontFamily: fonts.display }}>
+            {(r.amount_sats / 1e8).toFixed(8).replace(/\.?0+$/, "") || "0"} BTC
+          </span>
+          {r.rule_name && (
+            <span style={{ color: colors.muted, fontSize: 12, marginLeft: 8 }}>
+              via {r.rule_name}
+            </span>
+          )}
+        </div>
+        <span
+          style={{
+            fontSize: 10,
+            fontWeight: 700,
+            padding: "2px 7px",
+            borderRadius: 4,
+            background: color + "22",
+            color,
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+          }}
+        >
+          {r.status}
+        </span>
+      </div>
+      <div style={{ fontSize: 12, color: colors.muted }}>
+        Requested by {requesterLabel}
+        {r.recipient_name ? ` for ${r.recipient_name}` : ""}
+        {" / "}
+        {new Date(r.created_at).toLocaleDateString()}
+      </div>
+      {r.reason && (
+        <div style={{ fontSize: 13, color: colors.sub, whiteSpace: "pre-wrap" }}>{r.reason}</div>
+      )}
+      {r.resolution_note && (
+        <div style={{ fontSize: 12, color: colors.muted, fontStyle: "italic" }}>
+          Note: {r.resolution_note}
+        </div>
+      )}
+      {r.status === "pending" && (iAmTrustee || iAmRequester) && (
+        <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+          {iAmTrustee && onApprove && (
+            <Button size="sm" style={{ fontSize: 12 }} onClick={onApprove}>
+              Approve + create proposal
+            </Button>
+          )}
+          {iAmTrustee && onDecline && (
+            <Button variant="danger" size="sm" style={{ fontSize: 12 }} onClick={onDecline}>
+              Decline
+            </Button>
+          )}
+          {iAmRequester && onCancel && (
+            <Button variant="ghost" size="sm" style={{ fontSize: 12 }} onClick={onCancel}>
+              Cancel
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NewRequestModal({
+  vault,
+  onClose,
+  onCreated,
+}: {
+  vault: Vault;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const toast = useToast();
+  const rules = vault.trust_doc?.rules ?? [];
+  const [ruleId, setRuleId] = useState<string>(rules[0]?.id ?? "");
+  const [amountBtc, setAmountBtc] = useState("");
+  const [recipient, setRecipient] = useState("");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const selectedRule = rules.find(r => r.id === ruleId);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const sats = Math.round(parseFloat(amountBtc || "0") * 1e8);
+    if (sats < 546) {
+      setErr("Minimum 546 sats");
+      return;
+    }
+    if (selectedRule?.max_sats && sats > selectedRule.max_sats) {
+      setErr(
+        `Exceeds "${selectedRule.name}" cap of ${satsToBtc(selectedRule.max_sats)} BTC per request.`,
+      );
+      return;
+    }
+    if (selectedRule?.requires_comment && !reason.trim()) {
+      setErr(`"${selectedRule.name}" requires a reason.`);
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.vaultRequests.create({
+        vault_id: vault.id,
+        rule_id: selectedRule?.id,
+        rule_name: selectedRule?.name,
+        amount_sats: sats,
+        recipient_name: recipient.trim() || undefined,
+        reason: reason.trim() || undefined,
+      });
+      toast.success("Request filed");
+      onCreated();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.75)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 200,
+        padding: space[4],
+      }}
+      onClick={e => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        style={{
+          background: colors.surface,
+          border: `1px solid ${colors.border}`,
+          borderRadius: 16,
+          padding: "28px 32px",
+          width: "100%",
+          maxWidth: 460,
+        }}
+      >
+        <h2
+          style={{
+            fontSize: 18,
+            fontWeight: 600,
+            color: colors.text,
+            fontFamily: fonts.display,
+            margin: 0,
+            marginBottom: 20,
+          }}
+        >
+          File a distribution request
+        </h2>
+        <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {rules.length > 0 && (
+            <div>
+              <Label>Distribution rule</Label>
+              <select
+                value={ruleId}
+                onChange={e => setRuleId(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "11px 13px",
+                  background: colors.input,
+                  border: `1px solid ${colors.border}`,
+                  borderRadius: radii.md,
+                  color: colors.text,
+                  fontSize: 14,
+                  fontFamily: fonts.sans,
+                  boxSizing: "border-box",
+                }}
+              >
+                <option value="">-- pick a rule --</option>
+                {rules.map(r => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                    {r.max_sats ? ` (max ${satsToBtc(r.max_sats)} BTC)` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div>
+            <Label>Amount (BTC)</Label>
+            <Input
+              type="number"
+              step="0.00000001"
+              min="0.00000546"
+              value={amountBtc}
+              onChange={e => setAmountBtc(e.target.value)}
+              required
+              placeholder="0.01"
+            />
+          </div>
+          <div>
+            <Label>Recipient (optional)</Label>
+            <Input
+              value={recipient}
+              onChange={e => setRecipient(e.target.value)}
+              placeholder="e.g. Emma (daughter), University of X"
+            />
+          </div>
+          <div>
+            <Label>
+              Reason{selectedRule?.requires_comment ? " (required)" : " (optional)"}
+            </Label>
+            <Textarea
+              rows={3}
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+              placeholder="Why this distribution? Which clause of the trust does it satisfy?"
+            />
+          </div>
+          {err && <p style={{ color: colors.red, fontSize: 13, margin: 0 }}>{err}</p>}
+          <div style={{ display: "flex", gap: 10 }}>
+            <Button type="button" variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy}>
+              {busy ? "Filing..." : "File request"}
+            </Button>
+          </div>
+        </form>
       </div>
     </div>
   );
