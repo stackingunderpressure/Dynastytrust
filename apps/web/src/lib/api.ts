@@ -120,6 +120,25 @@ export type ProposalVote = 'approve' | 'abstain' | 'decline';
 
 export type VaultRequestStatus = 'pending' | 'approved' | 'declined' | 'fulfilled' | 'cancelled';
 
+export type StipendInterval = 'weekly' | 'monthly' | 'quarterly' | 'annually';
+
+export interface ScheduledStipend {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  vault_id: string;
+  name: string;
+  recipient_name: string | null;
+  destination: string | null;
+  rule_id: string | null;
+  amount_sats: number;
+  interval_kind: StipendInterval;
+  next_due_at: string;
+  last_proposed_at: string | null;
+  last_proposal_id: string | null;
+  active: boolean;
+}
+
 export interface VaultRequest {
   id: string;
   created_at: string;
@@ -411,6 +430,39 @@ export const api = {
   pdfUrl: async (vault_id: string): Promise<string> => {
     const token = await getToken();
     return `/api/vault-pdf?id=${vault_id}&token=${token}`;
+  },
+
+  stipends: {
+    list: (vault_id: string) =>
+      req<{ ok: true; stipends: ScheduledStipend[] }>(`/stipends?vault_id=${vault_id}`),
+
+    create: (body: {
+      vault_id: string;
+      name: string;
+      recipient_name?: string;
+      destination?: string;
+      rule_id?: string;
+      amount_sats: number;
+      interval_kind: StipendInterval;
+      starts_at?: string;
+    }) =>
+      req<{ ok: true; stipend: ScheduledStipend }>(`/stipends`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+
+    update: (id: string, body: Partial<Pick<ScheduledStipend,
+      'name' | 'recipient_name' | 'destination' | 'rule_id' |
+      'amount_sats' | 'interval_kind' | 'next_due_at' |
+      'last_proposed_at' | 'last_proposal_id' | 'active'
+    >>) =>
+      req<{ ok: true; stipend: ScheduledStipend }>(`/stipends?id=${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
+
+    remove: (id: string) =>
+      req<{ ok: true }>(`/stipends?id=${id}`, { method: 'DELETE' }),
   },
 
   vaultEvents: {
