@@ -17,6 +17,7 @@ import { LoadingScreen } from "../components/LoadingScreen";
 import { useToast } from "../components/toast";
 import { Button, Textarea } from "../components/ui";
 import { useRealtimeRefresh } from "../lib/realtime";
+import { normalizePsbt } from "../lib/psbt-format";
 import { colors, fonts, radii, space } from "../theme";
 
 type Session = Awaited<ReturnType<typeof api.signerSessions.list>>["sessions"][number];
@@ -495,16 +496,16 @@ function ExternalPsbt({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
-    const clean = hex.trim();
-    if (!clean.toLowerCase().startsWith("70736274ff")) {
-      setErr("Not a valid PSBT (should start with 70736274ff)");
+    const normalized = normalizePsbt(hex);
+    if (!normalized) {
+      setErr("Not a valid PSBT. Paste hex (starts with 70736274ff) or base64 (starts with cHNidP8).");
       return;
     }
     setBusy(true);
     try {
       await api.signerSessions.submit({
         proposal_id: proposalId,
-        psbt_partial_hex: clean,
+        psbt_partial_hex: normalized,
         label: "Hardware wallet",
       });
       setHex("");
@@ -524,7 +525,7 @@ function ExternalPsbt({
         rows={3}
         value={hex}
         onChange={e => setHex(e.target.value)}
-        placeholder="70736274ff... (paste signed PSBT hex)"
+        placeholder="Paste signed PSBT (hex or base64 both work)"
       />
       {err && <p style={{ color: colors.red, fontSize: 12, margin: "4px 0" }}>{err}</p>}
       <Button

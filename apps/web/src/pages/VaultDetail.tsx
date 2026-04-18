@@ -17,6 +17,7 @@ import { LoadingScreen } from "../components/LoadingScreen";
 import { colors, fonts, radii, space } from "../theme";
 import { Button, Input, Label, Textarea } from "../components/ui";
 import { useRealtimeRefresh } from "../lib/realtime";
+import { normalizePsbt } from "../lib/psbt-format";
 
 
 function satsToBtc(sats: number): string {
@@ -1067,9 +1068,9 @@ function ExternalPsbtInput({ onImport }: { onImport: (hex: string) => void }) {
   function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
-    const hex = psbtHex.trim();
-    if (!hex.toLowerCase().startsWith("70736274ff")) {
-      setErr("Not a valid PSBT (should start with 70736274ff)");
+    const hex = normalizePsbt(psbtHex);
+    if (!hex) {
+      setErr("Not a valid PSBT. Paste hex (starts with 70736274ff) or base64 (starts with cHNidP8).");
       return;
     }
     try {
@@ -1087,7 +1088,7 @@ function ExternalPsbtInput({ onImport }: { onImport: (hex: string) => void }) {
         rows={3}
         value={psbtHex}
         onChange={e => setPsbtHex(e.target.value)}
-        placeholder="70736274ff... (paste signed PSBT hex)"
+        placeholder="Paste signed PSBT (hex or base64 both work)"
       />
       {err && <p style={{ color: colors.red, fontSize: 12, margin: "4px 0" }}>{err}</p>}
       <Button
