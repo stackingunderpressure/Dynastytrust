@@ -283,5 +283,72 @@ export const api = {
     return `/api/vault-pdf?id=${vault_id}&token=${token}`;
   },
 
+  members: {
+    list: (vault_id: string) =>
+      req<{ ok: true; members: VaultMember[] }>(`/members?vault_id=${vault_id}`),
+
+    update: (
+      id: string,
+      body: Partial<Pick<VaultMember, 'label' | 'xpub' | 'fingerprint' | 'key_label'>>,
+    ) =>
+      req<{ ok: true; member: VaultMember }>(`/members?id=${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
+
+    remove: (id: string) =>
+      req<{ ok: true }>(`/members?id=${id}`, { method: 'DELETE' }),
+  },
+
+  invites: {
+    list: (vault_id: string) =>
+      req<{ ok: true; invites: VaultInvite[] }>(`/invites?vault_id=${vault_id}`),
+
+    create: (body: {
+      vault_id: string;
+      invited_role: Exclude<VaultRole, 'owner'>;
+      invited_label?: string;
+      invited_email?: string;
+    }) =>
+      req<{ ok: true; invite: VaultInvite }>(`/invites`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+
+    revoke: (id: string) =>
+      req<{ ok: true }>(`/invites?id=${id}`, { method: 'DELETE' }),
+
+    // Public lookup (no auth). Returns only the fields the claim page needs.
+    lookup: (token: string) =>
+      fetch(`/api/invites-lookup?token=${encodeURIComponent(token)}`).then(async r => {
+        const body = (await r.json()) as {
+          ok?: boolean;
+          error?: string;
+          invite?: {
+            id: string;
+            vault_id: string;
+            invited_role: Exclude<VaultRole, 'owner'>;
+            invited_label: string | null;
+            expires_at: string;
+          } | null;
+          vault?: { id: string; name: string; network: 'testnet' | 'bitcoin' } | null;
+        };
+        if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+        return body as { ok: true; invite: NonNullable<typeof body.invite>; vault: typeof body.vault };
+      }),
+
+    claim: (body: {
+      token: string;
+      label?: string;
+      xpub?: string;
+      fingerprint?: string;
+      key_label?: string;
+    }) =>
+      req<{ ok: true; member_id: string; vault_id: string }>(`/invites-claim`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+  },
+
   health: () => fetch('/api/health').then(r => r.json()),
 };
