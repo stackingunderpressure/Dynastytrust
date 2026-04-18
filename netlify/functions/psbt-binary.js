@@ -55,7 +55,7 @@ export async function handler(event) {
   try { body = JSON.parse(event.body || '{}'); }
   catch { return json(400, { error: 'Invalid JSON' }); }
 
-  const { vault_id, destination, amount_sats, fee_rate, path = 'founders_now' } = body;
+  const { vault_id, destination, amount_sats, fee_rate, path = 'founders_now', selected_utxos } = body;
   if (!vault_id)    return json(400, { error: 'Missing: vault_id' });
   if (!destination) return json(400, { error: 'Missing: destination' });
   if (!amount_sats || amount_sats < 546) return json(400, { error: 'amount_sats must be >= 546' });
@@ -108,14 +108,26 @@ export async function handler(event) {
   const rate = fee_rate || await getFeeRate(network);
   const estFee = estimateFee(1, 2, rate);
 
-  // Coin selection — greedy largest first
-  const sorted = [...confirmed].sort((a, b) => b.value - a.value);
-  const selected = [];
+  // Coin selection: explicit list if caller supplied selected_utxos
+  // (coin-control from the UI), otherwise greedy largest-first.
+  let selected;
   let totalIn = 0;
-  for (const u of sorted) {
-    selected.push(u);
-    totalIn += u.value;
-    if (totalIn >= amount_sats + estFee) break;
+  if (Array.isArray(selected_utxos) && selected_utxos.length > 0) {
+    const key = (u) => `${u.txid}:${u.vout}`;
+    const wanted = new Set(selected_utxos.map(key));
+    selected = confirmed.filter(u => wanted.has(key(u)));
+    if (selected.length !== selected_utxos.length) {
+      return json(400, { error: "One or more selected UTXOs are unconfirmed or not found" });
+    }
+    totalIn = selected.reduce((n, u) => n + u.value, 0);
+  } else {
+    const sorted = [...confirmed].sort((a, b) => b.value - a.value);
+    selected = [];
+    for (const u of sorted) {
+      selected.push(u);
+      totalIn += u.value;
+      if (totalIn >= amount_sats + estFee) break;
+    }
   }
 
   const finalFee   = estimateFee(selected.length, 2, rate);
