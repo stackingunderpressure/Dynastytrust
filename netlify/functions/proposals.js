@@ -55,14 +55,23 @@ export async function handler(event) {
     const vault_id = event.queryStringParameters?.vault_id;
     if (!vault_id) return json(400, { error: 'Missing: vault_id' });
 
+    // Caller must be an active member of the vault (or its creator).
+    const { data: membership } = await supabase
+      .from('vault_members')
+      .select('id')
+      .eq('vault_id', vault_id)
+      .eq('user_id', u.userId)
+      .eq('status', 'active')
+      .maybeSingle();
+    if (!membership) return json(403, { error: 'Not a member of this vault' });
+
     const { data, error } = await supabase
       .from('proposals')
       .select(`
         *,
-        signer_sessions (id, signer_index, signer_role, label, signed, signed_at)
+        signer_sessions (id, signer_index, signer_role, label, signed, signed_at, fingerprint, member_id)
       `)
       .eq('vault_id', vault_id)
-      .eq('user_id', u.userId)
       .order('created_at', { ascending: false });
 
     if (error) return json(500, { error: error.message });

@@ -283,6 +283,23 @@ export const api = {
     return `/api/vault-pdf?id=${vault_id}&token=${token}`;
   },
 
+  // Cross-vault pending proposals for the current member. Each row
+  // includes a joined `vault` so the Dashboard can render labels
+  // without a second fetch.
+  proposalsMine: () =>
+    req<{
+      ok: true;
+      proposals: (Proposal & {
+        vault: {
+          id: string;
+          name: string;
+          network: 'testnet' | 'bitcoin';
+          founder_quorum: number;
+          heir_quorum: number;
+        };
+      })[];
+    }>(`/proposals-mine`),
+
   members: {
     list: (vault_id: string) =>
       req<{ ok: true; members: VaultMember[] }>(`/members?vault_id=${vault_id}`),

@@ -85,6 +85,8 @@ export default function Dashboard() {
 
   return (
     <div style={{ fontFamily: fonts.sans }}>
+      <PendingFeed />
+
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
         <Input
           placeholder="Search vaults..."
@@ -510,6 +512,100 @@ function ModalShell({
         }}
       >
         {children}
+      </div>
+    </div>
+  );
+}
+
+// // -- Pending proposals feed
+// Shows non-terminal proposals across every vault the user is a
+// member of. Lets members act without clicking through each vault.
+
+type PendingProposal = Awaited<ReturnType<typeof api.proposalsMine>>["proposals"][number];
+
+function PendingFeed() {
+  const navigate = useNavigate();
+  const [items, setItems] = useState<PendingProposal[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    api
+      .proposalsMine()
+      .then(res => setItems(res.proposals))
+      .catch(() => {
+        /* silent; feed is optional */
+      })
+      .finally(() => setLoaded(true));
+  }, []);
+
+  if (!loaded || items.length === 0) return null;
+
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div
+        style={{
+          fontSize: 12,
+          fontWeight: 700,
+          letterSpacing: "0.1em",
+          color: colors.orange,
+          marginBottom: 10,
+          textTransform: "uppercase",
+        }}
+      >
+        Waiting for your signature ({items.length})
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {items.map(p => (
+          <PendingRow
+            key={p.id}
+            item={p}
+            onOpen={() =>
+              navigate(`/vaults/${p.vault_id}`, {
+                state: { vault: { ...p.vault, id: p.vault_id } as Vault },
+              })
+            }
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PendingRow({ item, onOpen }: { item: PendingProposal; onOpen: () => void }) {
+  const amount = (item.amount_sats / 1e8).toFixed(8).replace(/\.?0+$/, "") || "0";
+  const signed = (item.signer_sessions ?? []).filter(s => s.signed).length;
+  const quorum = item.vault.founder_quorum;
+  return (
+    <div
+      onClick={onOpen}
+      style={{
+        background: colors.surface,
+        border: `1px solid ${colors.border}`,
+        borderLeft: `3px solid ${colors.orange}`,
+        borderRadius: 12,
+        padding: "12px 16px",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        cursor: "pointer",
+      }}
+    >
+      <div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: colors.text }}>
+          {item.vault.name}
+        </div>
+        <div style={{ fontSize: 12, color: colors.muted, marginTop: 2 }}>
+          Send {amount} BTC
+          {item.destination ? ` to ${item.destination.slice(0, 8)}...${item.destination.slice(-6)}` : ""}
+        </div>
+      </div>
+      <div style={{ textAlign: "right" }}>
+        <div style={{ fontSize: 12, color: colors.orange, fontWeight: 600 }}>
+          {signed} / {quorum} signed
+        </div>
+        <div style={{ fontSize: 11, color: colors.muted, marginTop: 2 }}>
+          {item.vault.network === "bitcoin" ? "MAINNET" : "TESTNET"}
+        </div>
       </div>
     </div>
   );
