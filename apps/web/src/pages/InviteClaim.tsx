@@ -9,6 +9,7 @@ import { Button, Input, Label } from '../components/ui';
 import { LoadingScreen } from '../components/LoadingScreen';
 import { useToast } from '../components/toast';
 import { QrScanner } from '../components/QrScanner';
+import { pubkeyFromXpub } from '../lib/xpub';
 import Auth from './Auth';
 
 interface InviteInfo {
@@ -134,6 +135,7 @@ interface HwKeyDraft {
   xpub: string;
   fingerprint: string;
   derivation_path: string;
+  pubkey: string;
 }
 
 function ClaimForm({
@@ -193,6 +195,7 @@ function ClaimForm({
             xpub: hwKey.xpub,
             fingerprint: hwKey.fingerprint,
             derivation_path: hwKey.derivation_path,
+            pubkey: hwKey.pubkey,
             key_label: 'Hardware wallet',
           };
         }
@@ -453,7 +456,14 @@ function HardwareKeyInput({
       );
       return;
     }
-    onChange({ xpub, fingerprint, derivation_path });
+    let pubkey: string;
+    try {
+      pubkey = pubkeyFromXpub(xpub);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not derive pubkey from xpub');
+      return;
+    }
+    onChange({ xpub, fingerprint, derivation_path, pubkey });
   }
 
   if (showScanner) {
