@@ -60,18 +60,25 @@ export async function handler(event) {
     save = true,   // if true, auto-save compiled vault to DB
   } = body;
 
-  // 3. Validate required fields. Heirs + timelocks are optional --
+  // Validate required fields. Heirs + timelocks are optional --
   // omitting them compiles a plain multisig / single-sig vault with
-  // no recovery or inheritance paths.
+  // no recovery or inheritance paths. If the caller says "no heirs"
+  // we also zero the timelocks so Rust's is_plain() kicks in and
+  // skips the heir-quorum check that would otherwise fail with
+  // heir_keys=[] and heir_quorum=1.
+  let finalHeirQuorum = heir_quorum;
+  let finalRecoveryAfter = recovery_after;
+  let finalInheritanceAfter = inheritance_after;
   if (!founder_keys.length) return json(400, { error: "Missing: founder_keys" });
   if (!founder_quorum)      return json(400, { error: "Missing: founder_quorum" });
-  const hasHeirsOrTimelocks =
-    heir_keys.length > 0 || recovery_after > 0 || inheritance_after > 0;
-  if (hasHeirsOrTimelocks) {
-    if (!heir_keys.length)      return json(400, { error: "Missing: heir_keys" });
-    if (!heir_quorum)           return json(400, { error: "Missing: heir_quorum" });
-    if (!recovery_after)        return json(400, { error: "Missing: recovery_after" });
-    if (!inheritance_after)     return json(400, { error: "Missing: inheritance_after" });
+  if (heir_keys.length === 0) {
+    finalHeirQuorum = 1;
+    finalRecoveryAfter = 0;
+    finalInheritanceAfter = 0;
+  } else {
+    if (!finalHeirQuorum) return json(400, { error: "Missing: heir_quorum" });
+    if (!finalRecoveryAfter) return json(400, { error: "Missing: recovery_after" });
+    if (!finalInheritanceAfter) return json(400, { error: "Missing: inheritance_after" });
   }
 
   if (!COMPILER_URL) {
@@ -99,8 +106,10 @@ export async function handler(event) {
           name, network, address_type,
           founder_keys, founder_quorum,
           recovery_quorum,
-          heir_keys, heir_quorum,
-          recovery_after, inheritance_after,
+          heir_keys,
+          heir_quorum: finalHeirQuorum,
+          recovery_after: finalRecoveryAfter,
+          inheritance_after: finalInheritanceAfter,
           ...(protector_keys.length > 0 && protector_quorum != null && protector_after != null
             ? { protector_keys, protector_quorum, protector_after }
             : {}),

@@ -492,7 +492,10 @@ export default function PolicyBuilder() {
     setSlowHint(false);
     const slowTimer = window.setTimeout(() => setSlowHint(true), 1500);
     try {
-      const plain = mode === 'plain';
+      // Treat inheritance mode with zero heirs as plain -- Rust's
+      // is_plain() requires both empty heir keys AND zero timelocks,
+      // otherwise heir_quorum > 0 trips InvalidQuorum on the server.
+      const plain = mode === 'plain' || (mode === 'inheritance' && heirKeys.length === 0);
       const hasProtector = !plain && protectorKeys.length > 0;
       const hasConsent = consentKeys.length > 0;
       const res = await api.compile({
