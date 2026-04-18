@@ -6,7 +6,11 @@ import { signPsbtWithMnemonic, countSignatures, mergePsbts } from "../lib/psbt-s
 import { APP_NAME, broadcastTxUrl, explorerTxUrl } from "../config";
 import { useToast } from "../components/toast";
 import { LoadingScreen } from "../components/LoadingScreen";
+import { colors, fonts, radii, space } from "../theme";
+import { Button } from "../components/ui";
 
+// Kept until the bottom half of this file migrates; the send/history
+// sub-components below still reference these locally.
 const C = {
   bg: "#07070F", surface: "#0F0F1A", raised: "#141422",
   border: "#1E1E30", gold: "#C9A84C", goldDim: "#8B6914",
@@ -115,65 +119,126 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
   ).length;
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "DM Sans, sans-serif" }}>
-      <header style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "0 20px", height: 56, borderBottom: "1px solid " + C.border,
-        background: "#0A0A12", position: "sticky", top: 0, zIndex: 50,
-      }}>
-        <button onClick={onBack} style={{
-          background: "none", border: "none", color: C.muted,
-          fontSize: 14, cursor: "pointer", fontFamily: "DM Sans, sans-serif",
-        }}>Back</button>
-        <span style={{
-          fontFamily: "Playfair Display, serif", fontSize: 15,
-          fontWeight: 700, letterSpacing: "0.12em", color: C.gold,
-        }}>{APP_NAME}</span>
-        <button onClick={archive} disabled={archiving} style={{
-          ...ghostBtn, fontSize: 12, color: C.red, borderColor: "#3A1A1A",
-        }}>Archive</button>
+    <div style={{ minHeight: "100vh", fontFamily: fonts.sans }}>
+      <header
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: `0 ${space[5]}px`,
+          height: 56,
+          borderBottom: `1px solid ${colors.border}`,
+          background: colors.header,
+          position: "sticky",
+          top: 0,
+          zIndex: 50,
+        }}
+      >
+        <button
+          onClick={onBack}
+          style={{
+            background: "none",
+            border: "none",
+            color: colors.muted,
+            fontSize: 14,
+            cursor: "pointer",
+            fontFamily: fonts.sans,
+          }}
+        >
+          Back
+        </button>
+        <span
+          style={{
+            fontFamily: fonts.display,
+            fontSize: 15,
+            fontWeight: 700,
+            letterSpacing: "0.12em",
+            color: colors.gold,
+          }}
+        >
+          {APP_NAME}
+        </span>
+        <Button
+          variant="danger"
+          size="sm"
+          disabled={archiving}
+          style={{ fontSize: 12 }}
+          onClick={archive}
+        >
+          Archive
+        </Button>
       </header>
 
-      <main style={{ maxWidth: 680, margin: "0 auto", padding: "24px 16px" }}>
-
+      <main style={{ maxWidth: 680, margin: "0 auto", padding: `${space[6]}px ${space[4]}px` }}>
         {/* Balance hero */}
-        <div style={{
-          background: C.surface, border: "1px solid " + C.border,
-          borderRadius: 16, padding: "24px 20px", marginBottom: 20,
-        }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", color: C.muted, marginBottom: 4 }}>
+        <div
+          style={{
+            background: colors.surface,
+            border: `1px solid ${colors.border}`,
+            borderRadius: 16,
+            padding: "24px 20px",
+            marginBottom: 20,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: "0.1em",
+              color: colors.muted,
+              marginBottom: 4,
+            }}
+          >
             {vault.name.toUpperCase()} / {vault.network === "bitcoin" ? "MAINNET" : "TESTNET"}
           </div>
-          <div style={{
-            fontSize: 36, fontWeight: 700, color: C.text,
-            fontFamily: "Playfair Display, serif", margin: "8px 0 4px",
-          }}>
+          <div
+            style={{
+              fontSize: 36,
+              fontWeight: 700,
+              color: colors.text,
+              fontFamily: fonts.display,
+              margin: "8px 0 4px",
+            }}
+          >
             {balance ? satsToBtc(balance.total_sats) : "--"}
-            <span style={{ fontSize: 18, color: C.muted }}> BTC</span>
+            <span style={{ fontSize: 18, color: colors.muted }}> BTC</span>
           </div>
           {balance?.usd_value != null && (
-            <div style={{ fontSize: 18, color: C.sub, marginBottom: 8 }}>
+            <div style={{ fontSize: 18, color: colors.sub, marginBottom: 8 }}>
               ${balance.usd_value.toLocaleString("en-US", { maximumFractionDigits: 0 })}
             </div>
           )}
           {balance && balance.unconfirmed_sats !== 0 && (
-            <div style={{ fontSize: 12, color: C.orange, marginBottom: 8 }}>
+            <div style={{ fontSize: 12, color: colors.orange, marginBottom: 8 }}>
               + {satsToBtc(balance.unconfirmed_sats)} BTC unconfirmed
             </div>
           )}
 
           <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-            <button style={{ ...goldBtn, flex: 1, padding: "12px" }}
-              onClick={() => setTab("send")}>
+            <Button style={{ flex: 1, padding: "12px" }} onClick={() => setTab("send")}>
               Send
-            </button>
-            <button style={{ ...ghostBtn, fontSize: 12 }}
-              onClick={() => copy(vault.address, "addr")}>
+            </Button>
+            <Button variant="ghost" size="sm" style={{ fontSize: 12 }} onClick={() => copy(vault.address, "addr")}>
               {copied === "addr" ? "Copied!" : "Copy address"}
-            </button>
+            </Button>
             {balance && (
-              <a href={balance.mempool_url} target="_blank" rel="noreferrer"
-                style={{ ...ghostBtn, fontSize: 12, textDecoration: "none", display: "flex", alignItems: "center" }}>
+              <a
+                href={balance.mempool_url}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  padding: "9px 16px",
+                  background: "none",
+                  border: `1px solid ${colors.border}`,
+                  borderRadius: radii.md,
+                  color: colors.sub,
+                  fontSize: 12,
+                  fontFamily: fonts.sans,
+                  textDecoration: "none",
+                  display: "flex",
+                  alignItems: "center",
+                }}
+              >
                 Explorer
               </a>
             )}
@@ -181,29 +246,51 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
         </div>
 
         {/* Tabs */}
-        <div style={{
-          display: "flex", gap: 2, borderBottom: "1px solid " + C.border, marginBottom: 20,
-        }}>
+        <div
+          style={{
+            display: "flex",
+            gap: 2,
+            borderBottom: `1px solid ${colors.border}`,
+            marginBottom: 20,
+          }}
+        >
           {[
             { id: "overview", label: "Overview" },
             { id: "send", label: "Send" },
             { id: "history", label: "History", count: pendingCount },
           ].map(t => (
-            <button key={t.id} onClick={() => setTab(t.id as typeof tab)} style={{
-              padding: "9px 18px", border: "none", fontSize: 14,
-              cursor: "pointer", fontFamily: "DM Sans, sans-serif",
-              background: "transparent",
-              color: tab === t.id ? C.text : C.muted,
-              borderBottom: tab === t.id ? "2px solid " + C.gold : "2px solid transparent",
-              marginBottom: -1,
-              display: "flex", alignItems: "center", gap: 6,
-            }}>
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id as typeof tab)}
+              style={{
+                padding: "9px 18px",
+                border: "none",
+                fontSize: 14,
+                cursor: "pointer",
+                fontFamily: fonts.sans,
+                background: "transparent",
+                color: tab === t.id ? colors.text : colors.muted,
+                borderBottom: tab === t.id ? `2px solid ${colors.gold}` : "2px solid transparent",
+                marginBottom: -1,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
               {t.label}
               {t.count != null && t.count > 0 && (
-                <span style={{
-                  background: C.orange, color: C.bg,
-                  fontSize: 10, fontWeight: 700, borderRadius: 10, padding: "1px 6px",
-                }}>{t.count}</span>
+                <span
+                  style={{
+                    background: colors.orange,
+                    color: colors.bg,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    borderRadius: 10,
+                    padding: "1px 6px",
+                  }}
+                >
+                  {t.count}
+                </span>
               )}
             </button>
           ))}
@@ -229,7 +316,11 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
 
 // // -- Overview tab
 
-function OverviewTab({ vault, copy, copied }: {
+function OverviewTab({
+  vault,
+  copy,
+  copied,
+}: {
   vault: Vault;
   copy: (text: string, id: string) => void;
   copied: string | null;
@@ -238,62 +329,124 @@ function OverviewTab({ vault, copy, copied }: {
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {/* Spending paths */}
       {[
-        { num: 1, color: C.gold, title: "Founders - Now", body: vault.founder_quorum + " of " + vault.founder_keys.length + " founder signatures required. Available at any time." },
-        { num: 2, color: C.blue, title: "Recovery - " + blocksToLabel(vault.recovery_after), body: "Founders can recover after " + vault.recovery_after.toLocaleString() + " blocks using a separate path." },
-        { num: 3, color: C.green, title: "Inheritance - " + blocksToLabel(vault.inheritance_after), body: vault.heir_quorum + " of " + vault.heir_keys.length + " heir signatures after " + vault.inheritance_after.toLocaleString() + " blocks." },
+        {
+          num: 1,
+          color: colors.gold,
+          title: "Founders - Now",
+          body: `${vault.founder_quorum} of ${vault.founder_keys.length} founder signatures required. Available at any time.`,
+        },
+        {
+          num: 2,
+          color: colors.blue,
+          title: "Recovery - " + blocksToLabel(vault.recovery_after),
+          body: `Founders can recover after ${vault.recovery_after.toLocaleString()} blocks using a separate path.`,
+        },
+        {
+          num: 3,
+          color: colors.green,
+          title: "Inheritance - " + blocksToLabel(vault.inheritance_after),
+          body: `${vault.heir_quorum} of ${vault.heir_keys.length} heir signatures after ${vault.inheritance_after.toLocaleString()} blocks.`,
+        },
       ].map(p => (
-        <div key={p.num} style={{
-          background: C.surface, border: "1px solid " + C.border,
-          borderRadius: 12, padding: "14px 16px",
-          borderLeft: "3px solid " + p.color,
-        }}>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", color: p.color, marginBottom: 4 }}>
+        <div
+          key={p.num}
+          style={{
+            background: colors.surface,
+            border: `1px solid ${colors.border}`,
+            borderRadius: 12,
+            padding: "14px 16px",
+            borderLeft: `3px solid ${p.color}`,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: "0.1em",
+              color: p.color,
+              marginBottom: 4,
+            }}
+          >
             PATH {p.num}
           </div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 4 }}>{p.title}</div>
-          <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.5 }}>{p.body}</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+            {p.title}
+          </div>
+          <div style={{ fontSize: 12, color: colors.sub, lineHeight: 1.5 }}>{p.body}</div>
         </div>
       ))}
 
       {/* Details */}
-      <div style={{
-        background: C.surface, border: "1px solid " + C.border,
-        borderRadius: 12, overflow: "hidden",
-      }}>
+      <div
+        style={{
+          background: colors.surface,
+          border: `1px solid ${colors.border}`,
+          borderRadius: 12,
+          overflow: "hidden",
+        }}
+      >
         {[
           ["Address type", vault.address_type.toUpperCase()],
-          ["Founder quorum", vault.founder_quorum + " of " + vault.founder_keys.length],
-          ["Heir quorum", vault.heir_quorum + " of " + vault.heir_keys.length],
-          ["Recovery", vault.recovery_after.toLocaleString() + " blocks"],
-          ["Inheritance", vault.inheritance_after.toLocaleString() + " blocks"],
+          ["Founder quorum", `${vault.founder_quorum} of ${vault.founder_keys.length}`],
+          ["Heir quorum", `${vault.heir_quorum} of ${vault.heir_keys.length}`],
+          ["Recovery", `${vault.recovery_after.toLocaleString()} blocks`],
+          ["Inheritance", `${vault.inheritance_after.toLocaleString()} blocks`],
         ].map(([k, v]) => (
-          <div key={k} style={{
-            display: "flex", justifyContent: "space-between",
-            padding: "11px 16px", borderBottom: "1px solid " + C.border,
-          }}>
-            <span style={{ fontSize: 13, color: C.muted }}>{k}</span>
-            <span style={{ fontSize: 13, color: C.text }}>{v}</span>
+          <div
+            key={k}
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              padding: "11px 16px",
+              borderBottom: `1px solid ${colors.border}`,
+            }}
+          >
+            <span style={{ fontSize: 13, color: colors.muted }}>{k}</span>
+            <span style={{ fontSize: 13, color: colors.text }}>{v}</span>
           </div>
         ))}
       </div>
 
       {/* Descriptor */}
-      <div style={{
-        background: C.surface, border: "1px solid " + C.border, borderRadius: 12, padding: 16,
-      }}>
+      <div
+        style={{
+          background: colors.surface,
+          border: `1px solid ${colors.border}`,
+          borderRadius: 12,
+          padding: 16,
+        }}
+      >
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: C.muted }}>
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: "0.08em",
+              color: colors.muted,
+            }}
+          >
             DESCRIPTOR
           </span>
-          <button style={{ ...ghostBtn, padding: "3px 9px", fontSize: 11 }}
-            onClick={() => copy(vault.descriptor, "desc")}>
+          <Button
+            variant="ghost"
+            size="sm"
+            style={{ padding: "3px 9px", fontSize: 11 }}
+            onClick={() => copy(vault.descriptor, "desc")}
+          >
             {copied === "desc" ? "Copied" : "Copy"}
-          </button>
+          </Button>
         </div>
-        <div style={{
-          fontFamily: "IBM Plex Mono, monospace", fontSize: 10, color: C.sub,
-          wordBreak: "break-all", lineHeight: 1.6,
-        }}>{vault.descriptor}</div>
+        <div
+          style={{
+            fontFamily: fonts.mono,
+            fontSize: 10,
+            color: colors.sub,
+            wordBreak: "break-all",
+            lineHeight: 1.6,
+          }}
+        >
+          {vault.descriptor}
+        </div>
       </div>
     </div>
   );
