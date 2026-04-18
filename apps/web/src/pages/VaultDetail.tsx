@@ -615,6 +615,22 @@ function SendTab({ vault, balance, onDone }: {
       const mergedHex = allPsbts.length > 1 ? mergePsbts(allPsbts) : result.psbt_hex;
       const totalSigs = countSignatures(mergedHex);
 
+      // Persist this signer's partial PSBT so other members see progress.
+      // Fire-and-forget; a failure here doesn't block the UI because the
+      // local merged PSBT is still usable for broadcast by this user.
+      if (signing.proposal_id) {
+        api.signerSessions
+          .submit({
+            proposal_id: signing.proposal_id,
+            psbt_partial_hex: result.psbt_hex,
+            fingerprint: key.fingerprint,
+            label: key.label,
+          })
+          .catch(() => {
+            /* silent -- surfaces next time the proposal is opened */
+          });
+      }
+
       setSigning(prev => {
         if (!prev) return prev;
         const signers = [...prev.signers];
@@ -896,6 +912,17 @@ function SendTab({ vault, balance, onDone }: {
             onImport={importedHex => {
               const merged = mergePsbts([signing.psbt_hex, importedHex]);
               const totalSigs = countSignatures(merged);
+              if (signing.proposal_id) {
+                api.signerSessions
+                  .submit({
+                    proposal_id: signing.proposal_id,
+                    psbt_partial_hex: importedHex,
+                    label: "Hardware wallet",
+                  })
+                  .catch(() => {
+                    /* best-effort; local merge is authoritative for this browser */
+                  });
+              }
               setSigning(prev =>
                 prev ? { ...prev, psbt_hex: merged, signaturesCollected: totalSigs } : prev,
               );

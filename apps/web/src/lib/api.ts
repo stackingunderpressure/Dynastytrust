@@ -283,6 +283,44 @@ export const api = {
     return `/api/vault-pdf?id=${vault_id}&token=${token}`;
   },
 
+  signerSessions: {
+    list: (proposal_id: string) =>
+      req<{
+        ok: true;
+        sessions: {
+          id: string;
+          created_at: string;
+          proposal_id: string;
+          signer_index: number;
+          signer_role: 'founder' | 'heir';
+          label: string | null;
+          signed: boolean;
+          signed_at: string | null;
+          fingerprint: string | null;
+          member_id: string | null;
+          psbt_partial_hex: string | null;
+        }[];
+      }>(`/signer-sessions?proposal_id=${proposal_id}`),
+
+    submit: (body: {
+      proposal_id: string;
+      psbt_partial_hex: string;
+      fingerprint?: string;
+      label?: string;
+    }) =>
+      req<{
+        ok: true;
+        session: {
+          id: string;
+          member_id: string | null;
+          fingerprint: string | null;
+          signed: boolean;
+          signed_at: string | null;
+          psbt_partial_hex: string | null;
+        };
+      }>(`/signer-sessions`, { method: 'POST', body: JSON.stringify(body) }),
+  },
+
   // Cross-vault pending proposals for the current member. Each row
   // includes a joined `vault` so the Dashboard can render labels
   // without a second fetch.

@@ -142,11 +142,28 @@ export async function handler(event) {
 
     if (!Object.keys(updates).length) return json(400, { error: 'No valid fields to update' });
 
+    // Any active member of the proposal's vault can PATCH. Creator-only
+    // was too restrictive once quorum is collected by co-signers.
+    const { data: existing } = await supabase
+      .from('proposals')
+      .select('vault_id')
+      .eq('id', id)
+      .maybeSingle();
+    if (!existing) return json(404, { error: 'Proposal not found' });
+
+    const { data: membership } = await supabase
+      .from('vault_members')
+      .select('id')
+      .eq('vault_id', existing.vault_id)
+      .eq('user_id', u.userId)
+      .eq('status', 'active')
+      .maybeSingle();
+    if (!membership) return json(403, { error: 'Not a member of this vault' });
+
     const { data: updated, error: upErr } = await supabase
       .from('proposals')
       .update(updates)
       .eq('id', id)
-      .eq('user_id', u.userId)
       .select()
       .single();
 
