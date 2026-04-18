@@ -335,6 +335,7 @@ export default function PolicyBuilder() {
   const [compiled, setCompiled] = useState<CompiledVault | null>(null);
   const [compiling, setCompiling] = useState(false);
   const [compileErr, setCompErr] = useState<string | null>(null);
+  const [slowHint, setSlowHint] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState<string | null>(null);
 
@@ -400,6 +401,8 @@ export default function PolicyBuilder() {
     setCompiling(true);
     setCompErr(null);
     setCompiled(null);
+    setSlowHint(false);
+    const slowTimer = window.setTimeout(() => setSlowHint(true), 1500);
     try {
       const res = await api.compile({
         name,
@@ -419,7 +422,9 @@ export default function PolicyBuilder() {
     } catch (e) {
       setCompErr(e instanceof Error ? e.message : 'Compilation failed');
     } finally {
+      window.clearTimeout(slowTimer);
       setCompiling(false);
+      setSlowHint(false);
     }
   }
 
@@ -675,7 +680,13 @@ export default function PolicyBuilder() {
             </div>
           </div>
           <Button disabled={!canCompile || compiling} onClick={compile}>
-            {compiling ? 'Compiling...' : compiled ? 'Recompile' : 'Compile ->'}
+            {compiling
+              ? slowHint
+                ? 'Waking compiler...'
+                : 'Compiling...'
+              : compiled
+                ? 'Recompile'
+                : 'Compile ->'}
           </Button>
         </div>
 

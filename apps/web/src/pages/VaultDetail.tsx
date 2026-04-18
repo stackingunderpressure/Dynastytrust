@@ -485,6 +485,7 @@ function SendTab({ vault, balance, onDone }: {
   const [err, setErr] = useState<string | null>(null);
   const [signing, setSigning] = useState<SigningState | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [slowHint, setSlowHint] = useState(false);
 
   const confirmedSats = balance?.confirmed_sats ?? 0;
   const amountSats = Math.round(parseFloat(amountBtc || "0") * 1e8);
@@ -493,7 +494,8 @@ function SendTab({ vault, balance, onDone }: {
     e.preventDefault();
     if (amountSats < 546) { setErr("Minimum 546 sats (dust limit)"); return; }
     if (amountSats > confirmedSats) { setErr("Insufficient confirmed balance"); return; }
-    setBusy(true); setErr(null);
+    setBusy(true); setErr(null); setSlowHint(false);
+    const slowTimer = window.setTimeout(() => setSlowHint(true), 1500);
 
     try {
       // 1. Build PSBT via Fly.io
@@ -572,7 +574,9 @@ function SendTab({ vault, balance, onDone }: {
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to build transaction");
     } finally {
+      window.clearTimeout(slowTimer);
       setBusy(false);
+      setSlowHint(false);
     }
   }
 
@@ -1053,7 +1057,7 @@ function SendTab({ vault, balance, onDone }: {
         disabled={busy}
         style={{ padding: "14px", fontSize: 15 }}
       >
-        {busy ? "Building transaction..." : "Review & sign"}
+        {busy ? (slowHint ? "Waking compiler..." : "Building transaction...") : "Review & sign"}
       </Button>
     </form>
   );
