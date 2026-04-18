@@ -14,6 +14,8 @@ import {
   type VaultRequestStatus,
   type ScheduledStipend,
   type StipendInterval,
+  type DistributionWallet,
+  type DistributionTranche,
 } from "../lib/api";
 import { supabase } from "../lib/supabase";
 import { listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
@@ -475,6 +477,7 @@ function OverviewTab({
       {!plain && <TimelockCountdown vault={vault} />}
       <TrustDocSection vault={vault} />
       <StipendsSection vault={vault} onSendPrefill={onSendPrefill} />
+      <DistributionWalletsSection vault={vault} onSendPrefill={onSendPrefill} />
 
       {/* Spending paths */}
       {paths.map(p => (
@@ -3440,5 +3443,496 @@ function NewRequestModal({
         </form>
       </div>
     </div>
+  );
+}
+
+// // -- Distribution wallets (T-vesting)
+// Each wallet splits a lump sum into N tranches, each gated by
+// CLTV at an absolute block height. Beneficiary claims alone after
+// the unlock; trustees always retain an escape hatch on every
+// tranche so unclaimed funds aren't stranded. The creation
+// ceremony calls api.distributionWallets.compileTranche once per
+// tranche (via Fly.io), collects the addresses, then POSTs the
+// whole plan in one shot.
+
+function DistributionWalletsSection({
+  vault,
+  onSendPrefill,
+}: {
+  vault: Vault;
+  onSendPrefill: (p: SendPrefill) => void;
+}) {
+  const toast = useToast();
+  const [wallets, setWallets] = useState<DistributionWallet[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [session, setSession] = useState<{ user: { id: string } } | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session as unknown as { user: { id: string } });
+    });
+  }, []);
+
+  const isOwner = session?.user.id === vault.user_id;
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api.distributionWallets.list(vault.id);
+      setWallets(res.wallets);
+    } catch {
+      /* empty state is fine */
+    } finally {
+      setLoading(false);
+    }
+  }, [vault.id]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  useRealtimeRefresh(
+    { table: "distribution_wallets", filter: `vault_id=eq.${vault.id}` },
+    () => void load(),
+  );
+
+  if (loading) return null;
+  if (!isOwner && wallets.length === 0) return null;
+  // Distribution wallets only make sense once a vault is compiled
+  // (the ceremony needs the vault's trustee pubkeys).
+  if (vault.status === "draft") return null;
+
+  return (
+    <div
+      style={{
+        background: colors.surface,
+        border: `1px solid ${colors.border}`,
+        borderRadius: 12,
+        padding: "14px 16px",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: wallets.length === 0 && !creating ? 0 : 10,
+          gap: 8,
+        }}
+      >
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: "0.1em",
+            color: colors.muted,
+            textTransform: "uppercase",
+          }}
+        >
+          Distribution wallets
+        </div>
+        {isOwner && !creating && (
+          <Button
+            variant="ghost"
+            size="sm"
+            style={{ fontSize: 11, padding: "3px 9px" }}
+            onClick={() => setCreating(true)}
+          >
+            New plan
+          </Button>
+        )}
+      </div>
+
+      {wallets.length === 0 && !creating && isOwner && (
+        <div style={{ fontSize: 12, color: colors.muted, marginTop: 8 }}>
+          No distribution wallets yet. Create one to split a lump sum
+          into N tranches that unlock on a schedule (annual, quarterly,
+          monthly). Each tranche is claimable by the beneficiary alone
+          once its block height is reached; trustees always retain an
+          escape hatch on every tranche.
+        </div>
+      )}
+
+      {wallets.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {wallets.map(w => (
+            <DistributionWalletRow
+              key={w.id}
+              wallet={w}
+              vault={vault}
+              onSendPrefill={onSendPrefill}
+            />
+          ))}
+        </div>
+      )}
+
+      {creating && (
+        <div style={{ marginTop: 10 }}>
+          <DistributionWalletCreator
+            vault={vault}
+            onCancel={() => setCreating(false)}
+            onSaved={() => { setCreating(false); void load(); toast.success("Distribution wallet created"); }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DistributionWalletRow({
+  wallet,
+  vault,
+  onSendPrefill,
+}: {
+  wallet: DistributionWallet;
+  vault: Vault;
+  onSendPrefill: (p: SendPrefill) => void;
+}) {
+  const [tip, setTip] = useState<number | null>(null);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    tipHeight(vault.network).then(setTip).catch(() => {});
+  }, [vault.network]);
+
+  const total = wallet.tranches.reduce((n, t) => n + t.amount_sats, 0);
+  const claimed = wallet.tranches.filter(t => t.claimed_txid).length;
+  const funded = wallet.tranches.filter(t => t.funded_txid).length;
+
+  return (
+    <div
+      style={{
+        border: `1px solid ${colors.border}`,
+        borderRadius: 10,
+        padding: "10px 12px",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: colors.text }}>
+            {wallet.name}
+            {wallet.beneficiary_name && (
+              <span style={{ color: colors.muted, fontWeight: 400, marginLeft: 6 }}>
+                -- {wallet.beneficiary_name}
+              </span>
+            )}
+          </div>
+          <div style={{ fontSize: 12, color: colors.muted }}>
+            {wallet.tranches.length} tranches . {satsToBtc(total)} BTC total
+            {funded > 0 && <> . {funded} funded</>}
+            {claimed > 0 && <> . {claimed} claimed</>}
+          </div>
+        </div>
+        <Button variant="ghost" size="sm" style={{ fontSize: 11 }} onClick={() => setExpanded(e => !e)}>
+          {expanded ? "Hide" : "Show"}
+        </Button>
+      </div>
+      {expanded && (
+        <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+          {wallet.tranches.map(t => (
+            <TrancheRow
+              key={t.index}
+              tranche={t}
+              tip={tip}
+              onFund={() =>
+                onSendPrefill({
+                  destination: t.address,
+                  amount_sats: t.amount_sats,
+                  memo: `Fund ${wallet.name} tranche ${t.index + 1}`,
+                })
+              }
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TrancheRow({
+  tranche: t,
+  tip,
+  onFund,
+}: {
+  tranche: DistributionTranche;
+  tip: number | null;
+  onFund: () => void;
+}) {
+  const isClaimed = !!t.claimed_txid;
+  const isFunded = !!t.funded_txid;
+  const blocksLeft = tip != null ? Math.max(0, t.unlock_block - tip) : null;
+  const unlocked = tip != null && tip >= t.unlock_block;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: 8,
+        fontSize: 12,
+        padding: "6px 8px",
+        borderRadius: 6,
+        background: isClaimed
+          ? colors.green + "11"
+          : unlocked
+            ? colors.gold + "11"
+            : "transparent",
+        border: `1px solid ${isClaimed ? colors.green + "44" : colors.border}`,
+      }}
+    >
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ color: colors.text }}>
+          Tranche {t.index + 1} . {satsToBtc(t.amount_sats)} BTC
+        </div>
+        <div style={{ fontSize: 11, color: colors.muted, fontFamily: fonts.mono, wordBreak: "break-all" }}>
+          {t.address}
+        </div>
+      </div>
+      <div style={{ textAlign: "right", fontSize: 11, color: colors.sub }}>
+        <div>Unlock block {t.unlock_block.toLocaleString()}</div>
+        {blocksLeft != null && blocksLeft > 0 && (
+          <div style={{ color: colors.muted }}>{blocksLeft.toLocaleString()} blocks left</div>
+        )}
+        {isClaimed && <div style={{ color: colors.green }}>claimed</div>}
+        {!isClaimed && !isFunded && (
+          <Button size="sm" style={{ fontSize: 10, padding: "2px 6px", marginTop: 3 }} onClick={onFund}>
+            Fund
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DistributionWalletCreator({
+  vault,
+  onCancel,
+  onSaved,
+}: {
+  vault: Vault;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const toast = useToast();
+  const [name, setName] = useState("");
+  const [beneficiaryName, setBeneficiaryName] = useState("");
+  const [beneficiaryXpub, setBeneficiaryXpub] = useState("");
+  const [beneficiaryKeyId, setBeneficiaryKeyId] = useState("");
+  const [trancheCount, setTrancheCount] = useState(12);
+  const [amountPerTrancheBtc, setAmountPerTrancheBtc] = useState("0.01");
+  const [intervalBlocks, setIntervalBlocks] = useState(4380); // ~1 month
+  const [firstUnlockBlock, setFirstUnlockBlock] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const localKeys = listKeys().filter(k =>
+    k.status === "active" && k.network === vault.network,
+  );
+
+  useEffect(() => {
+    // Default first unlock = current tip + one interval
+    tipHeight(vault.network)
+      .then(h => setFirstUnlockBlock(h + 4380))
+      .catch(() => setFirstUnlockBlock(100_000));
+  }, [vault.network]);
+
+  // Derive trustee pubkeys from vault.founder_keys. Each entry is an
+  // xpub; the compiler needs pubkey hex at xpub/0/0 (Nunchuk parity).
+  async function deriveTrusteePubkeys(): Promise<string[]> {
+    return vault.founder_keys.map(x => pubkeyFromXpub(x));
+  }
+
+  async function create(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) { setErr("Name required"); return; }
+    const amountSats = Math.round(parseFloat(amountPerTrancheBtc || "0") * 1e8);
+    if (amountSats < 546) { setErr("Amount per tranche must be at least 546 sats"); return; }
+    if (trancheCount < 1 || trancheCount > 60) { setErr("Tranche count must be 1-60"); return; }
+    if (!firstUnlockBlock || firstUnlockBlock < 1) { setErr("First unlock block required"); return; }
+
+    let beneficiaryPubkey = "";
+    let beneficiaryXpubEffective = beneficiaryXpub.trim();
+
+    if (beneficiaryKeyId) {
+      const k = localKeys.find(k => k.keyId === beneficiaryKeyId);
+      if (!k) { setErr("Pick a beneficiary key"); return; }
+      beneficiaryXpubEffective = k.xpub;
+      beneficiaryPubkey = pubkeyFromXpub(k.xpub);
+    } else if (beneficiaryXpubEffective) {
+      try {
+        beneficiaryPubkey = pubkeyFromXpub(beneficiaryXpubEffective);
+      } catch {
+        setErr("Invalid beneficiary xpub");
+        return;
+      }
+    } else {
+      setErr("Pick a local beneficiary key or paste an xpub");
+      return;
+    }
+
+    setBusy(true);
+    setErr(null);
+    try {
+      const trusteeKeys = await deriveTrusteePubkeys();
+      const tranches: DistributionTranche[] = [];
+      for (let i = 0; i < trancheCount; i++) {
+        const unlock = firstUnlockBlock + i * intervalBlocks;
+        const compiled = await api.distributionWallets.compileTranche({
+          network: vault.network,
+          beneficiary_key: beneficiaryPubkey,
+          trustee_keys: trusteeKeys,
+          trustee_quorum: vault.founder_quorum,
+          unlock_block: unlock,
+        });
+        tranches.push({
+          index: i,
+          unlock_block: unlock,
+          amount_sats: amountSats,
+          address: compiled.address,
+          descriptor: compiled.descriptor,
+        });
+      }
+      await api.distributionWallets.create({
+        vault_id: vault.id,
+        name: name.trim(),
+        beneficiary_name: beneficiaryName.trim() || undefined,
+        beneficiary_xpub: beneficiaryXpubEffective,
+        beneficiary_pubkey: beneficiaryPubkey,
+        trustee_keys: trusteeKeys,
+        trustee_quorum: vault.founder_quorum,
+        network: vault.network,
+        tranches,
+      });
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed");
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form
+      onSubmit={create}
+      style={{
+        border: `1px solid ${colors.gold}44`,
+        borderRadius: 10,
+        padding: 12,
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+      }}
+    >
+      <div>
+        <Label>Plan name</Label>
+        <Input
+          value={name}
+          onChange={e => setName(e.target.value)}
+          placeholder="Sarah 2026 annual"
+        />
+      </div>
+      <div>
+        <Label>Beneficiary name (optional)</Label>
+        <Input
+          value={beneficiaryName}
+          onChange={e => setBeneficiaryName(e.target.value)}
+          placeholder="Sarah"
+        />
+      </div>
+      <div>
+        <Label>Beneficiary key</Label>
+        {localKeys.length > 0 && (
+          <select
+            value={beneficiaryKeyId}
+            onChange={e => { setBeneficiaryKeyId(e.target.value); setBeneficiaryXpub(""); }}
+            style={{
+              width: "100%",
+              padding: "8px 10px",
+              background: colors.bg,
+              border: `1px solid ${colors.border}`,
+              borderRadius: radii.md,
+              color: colors.text,
+              fontFamily: fonts.sans,
+              fontSize: 13,
+              marginBottom: 6,
+            }}
+          >
+            <option value="">-- Pick a local key --</option>
+            {localKeys.map(k => (
+              <option key={k.keyId} value={k.keyId}>
+                {k.label} ({k.persona})
+              </option>
+            ))}
+          </select>
+        )}
+        <Input
+          mono
+          value={beneficiaryXpub}
+          onChange={e => { setBeneficiaryXpub(e.target.value); setBeneficiaryKeyId(""); }}
+          placeholder="...or paste a beneficiary xpub"
+          disabled={!!beneficiaryKeyId}
+        />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div>
+          <Label>Tranche count</Label>
+          <Input
+            type="number"
+            min={1}
+            max={60}
+            value={trancheCount}
+            onChange={e => setTrancheCount(parseInt(e.target.value) || 1)}
+          />
+        </div>
+        <div>
+          <Label>BTC per tranche</Label>
+          <Input
+            mono
+            value={amountPerTrancheBtc}
+            onChange={e => setAmountPerTrancheBtc(e.target.value)}
+          />
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div>
+          <Label>Interval (blocks)</Label>
+          <Input
+            type="number"
+            min={144}
+            value={intervalBlocks}
+            onChange={e => setIntervalBlocks(parseInt(e.target.value) || 4380)}
+          />
+          <div style={{ fontSize: 11, color: colors.muted, marginTop: 4 }}>
+            {blocksToLabel(intervalBlocks)} . 4380 =~ 1 month, 13140 =~ 3 months, 52560 =~ 1 year
+          </div>
+        </div>
+        <div>
+          <Label>First unlock block</Label>
+          <Input
+            type="number"
+            value={firstUnlockBlock ?? ""}
+            onChange={e => setFirstUnlockBlock(parseInt(e.target.value) || 0)}
+          />
+          <div style={{ fontSize: 11, color: colors.muted, marginTop: 4 }}>
+            Absolute height where the first tranche unlocks.
+          </div>
+        </div>
+      </div>
+      {err && <div style={{ color: colors.orange, fontSize: 12 }}>{err}</div>}
+      <div style={{ fontSize: 11, color: colors.muted }}>
+        Compiles one Taproot address per tranche via the Fly.io
+        compiler. Each tranche: beneficiary alone after its unlock
+        block, or trustees any time (escape hatch).
+      </div>
+      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+        <Button variant="ghost" size="sm" style={{ fontSize: 12 }} type="button" onClick={onCancel} disabled={busy}>
+          Cancel
+        </Button>
+        <Button size="sm" style={{ fontSize: 12 }} type="submit" disabled={busy}>
+          {busy ? `Compiling ${trancheCount} tranches...` : `Create (${trancheCount} tranches)`}
+        </Button>
+      </div>
+    </form>
   );
 }

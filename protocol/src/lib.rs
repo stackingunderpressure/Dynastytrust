@@ -10,8 +10,9 @@ pub use governance::{
 };
 
 pub use policy_compiler::{
-    AddressType, CompiledVault, DynastyPolicy, PolicyError, MIN_RECOVERY_BLOCKS,
+    AddressType, CompiledVault, DynastyPolicy, PolicyError, TranchePolicy, MIN_RECOVERY_BLOCKS,
     compile_dynasty_policy, compile_dynasty_policy_tr, compile_dynasty_policy_tr_multileaf,
+    compile_tranche_tr_multileaf,
 };
 
 pub use psbt_builder::{

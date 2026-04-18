@@ -128,6 +128,32 @@ export type VaultRequestStatus = 'pending' | 'approved' | 'declined' | 'fulfille
 
 export type StipendInterval = 'weekly' | 'monthly' | 'quarterly' | 'annually';
 
+export interface DistributionTranche {
+  index: number;
+  unlock_block: number;
+  amount_sats: number;
+  address: string;
+  descriptor: string;
+  funded_txid?: string | null;
+  claimed_txid?: string | null;
+  label?: string | null;
+}
+
+export interface DistributionWallet {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  vault_id: string;
+  name: string;
+  beneficiary_name: string | null;
+  beneficiary_xpub: string;
+  beneficiary_pubkey: string;
+  trustee_keys: string[];
+  trustee_quorum: number;
+  tranches: DistributionTranche[];
+  network: 'testnet' | 'bitcoin';
+}
+
 export interface ScheduledStipend {
   id: string;
   created_at: string;
@@ -441,6 +467,52 @@ export const api = {
   pdfUrl: async (vault_id: string): Promise<string> => {
     const token = await getToken();
     return `/api/vault-pdf?id=${vault_id}&token=${token}`;
+  },
+
+  distributionWallets: {
+    list: (vault_id: string) =>
+      req<{ ok: true; wallets: DistributionWallet[] }>(`/distribution-wallets?vault_id=${vault_id}`),
+
+    create: (body: {
+      vault_id: string;
+      name: string;
+      beneficiary_name?: string;
+      beneficiary_xpub: string;
+      beneficiary_pubkey: string;
+      trustee_keys: string[];
+      trustee_quorum: number;
+      network: 'testnet' | 'bitcoin';
+      tranches: DistributionTranche[];
+    }) =>
+      req<{ ok: true; wallet: DistributionWallet }>(`/distribution-wallets`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+
+    update: (id: string, body: Partial<Pick<DistributionWallet, 'name' | 'beneficiary_name' | 'tranches'>>) =>
+      req<{ ok: true; wallet: DistributionWallet }>(`/distribution-wallets?id=${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
+
+    remove: (id: string) =>
+      req<{ ok: true }>(`/distribution-wallets?id=${id}`, { method: 'DELETE' }),
+
+    compileTranche: (body: {
+      network: 'testnet' | 'bitcoin';
+      beneficiary_key: string;
+      trustee_keys: string[];
+      trustee_quorum: number;
+      unlock_block: number;
+    }) =>
+      req<{
+        ok: true;
+        network: string;
+        miniscript_policy: string;
+        descriptor: string;
+        address: string;
+        unlock_block: number;
+      }>(`/compile-tranche`, { method: 'POST', body: JSON.stringify(body) }),
   },
 
   stipends: {

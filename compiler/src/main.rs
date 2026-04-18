@@ -14,9 +14,10 @@ use bitcoin::taproot::{LeafVersion, TaprootBuilder};
 use bitcoin::secp256k1::{Secp256k1, XOnlyPublicKey};
 use dynastytrust_protocol::{
     audit_spend, compile_dynasty_policy, compile_dynasty_policy_tr,
-    compile_dynasty_policy_tr_multileaf, evaluate_spend_proposal,
-    evaluate_vault_status, next_action, DynastyPolicy, ProposedSpend,
-    SignerStatus, SpendingPath, VaultPolicy,
+    compile_dynasty_policy_tr_multileaf, compile_tranche_tr_multileaf,
+    evaluate_spend_proposal, evaluate_vault_status, next_action,
+    DynastyPolicy, ProposedSpend, SignerStatus, SpendingPath,
+    TranchePolicy, VaultPolicy,
 };
 use miniscript::policy::concrete::Policy;
 use miniscript::{psbt::PsbtExt, Miniscript};
@@ -90,7 +91,7 @@ fn base64_encode(data: &[u8]) -> String {
 async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "ok": true, "service": "dynastytrust-compiler",
-        "endpoints": ["/health","/compile","/psbt-binary","/psbt-finalize","/psbt-merge","/governance/status","/governance/audit"]
+        "endpoints": ["/health","/compile","/compile-tranche","/psbt-binary","/psbt-finalize","/psbt-merge","/governance/status","/governance/audit"]
     }))
 }
 
@@ -150,6 +151,59 @@ async fn compile(
         network: req.network, address_type: compiled.address_type.to_string(),
         miniscript_policy: compiled.miniscript_policy,
         descriptor: compiled.descriptor, address: compiled.address.to_string(),
+    }))
+}
+
+// ── /compile-tranche ─────────────────────────────────────────────────────────
+// Single tranche of a T-vesting distribution wallet: beneficiary
+// alone can claim after the absolute unlock block; trustees always
+// retain an escape hatch. Callers build one of these per scheduled
+// unlock (e.g. 12 for monthly over a year, 4 for quarterly).
+
+#[derive(Deserialize)]
+struct TrancheRequest {
+    network: String,
+    beneficiary_key: String,
+    trustee_keys: Vec<String>,
+    trustee_quorum: usize,
+    unlock_block: u32,
+}
+
+#[derive(Serialize)]
+struct TrancheResponse {
+    ok: bool,
+    network: String,
+    miniscript_policy: String,
+    descriptor: String,
+    address: String,
+    unlock_block: u32,
+}
+
+async fn compile_tranche(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<TrancheRequest>,
+) -> Result<Json<TrancheResponse>, ApiError> {
+    check_auth(&headers, &state)?;
+    let network = parse_network(&req.network).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+    let beneficiary = PublicKey::from_str(&req.beneficiary_key)
+        .map_err(|e| api_err(StatusCode::BAD_REQUEST, format!("bad beneficiary key: {e}")))?;
+    let trustees = parse_pubkeys(&req.trustee_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+    let policy = TranchePolicy {
+        beneficiary_key: beneficiary,
+        trustee_keys: trustees,
+        trustee_quorum: req.trustee_quorum,
+        unlock_block: req.unlock_block,
+    };
+    let compiled = compile_tranche_tr_multileaf(policy, network)
+        .map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(TrancheResponse {
+        ok: true,
+        network: req.network,
+        miniscript_policy: compiled.miniscript_policy,
+        descriptor: compiled.descriptor,
+        address: compiled.address.to_string(),
+        unlock_block: req.unlock_block,
     }))
 }
 
@@ -599,6 +653,7 @@ async fn main() {
     let app = Router::new()
         .route("/health",            get(health))
         .route("/compile",           post(compile))
+        .route("/compile-tranche",   post(compile_tranche))
         .route("/psbt-binary",       post(psbt_binary))
         .route("/psbt-finalize",     post(psbt_finalize))
         .route("/psbt-merge",        post(psbt_merge))

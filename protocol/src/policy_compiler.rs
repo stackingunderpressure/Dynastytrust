@@ -359,6 +359,79 @@ pub fn compile_dynasty_policy_tr_multileaf(
     })
 }
 
+// // -- Tranche vault (T-vesting)
+// A child "distribution wallet" address that unlocks a single
+// tranche at an absolute block height. Beneficiary can claim alone
+// after the timelock; trustees retain an escape hatch any time so
+// unclaimed funds aren't stranded.
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TranchePolicy {
+    pub beneficiary_key: PublicKey,
+    pub trustee_keys: Vec<PublicKey>,
+    pub trustee_quorum: usize,
+    /// Absolute block height at which the beneficiary path unlocks.
+    pub unlock_block: u32,
+}
+
+pub fn compile_tranche_tr_multileaf(
+    policy: TranchePolicy,
+    network: Network,
+) -> Result<CompiledVault, PolicyError> {
+    if policy.trustee_quorum == 0 || policy.trustee_quorum > policy.trustee_keys.len() {
+        return Err(PolicyError::InvalidQuorum);
+    }
+
+    let secp = Secp256k1::verification_only();
+
+    let nums_bytes = hex::decode(NUMS_HEX)
+        .map_err(|e| PolicyError::Descriptor(format!("NUMS decode: {e}")))?;
+    let internal_key = XOnlyPublicKey::from_slice(&nums_bytes)
+        .map_err(|e| PolicyError::Descriptor(format!("NUMS xonly: {e}")))?;
+
+    let trustees: Vec<String> = policy
+        .trustee_keys
+        .iter()
+        .map(|k| format!("pk({k})"))
+        .collect();
+    let trustee_thresh = format!("thresh({},{})", policy.trustee_quorum, trustees.join(","));
+    let beneficiary_branch = format!(
+        "and(after({}),pk({}))",
+        policy.unlock_block, policy.beneficiary_key,
+    );
+
+    let compile_leaf = |s: &str| -> Result<Miniscript<PublicKey, miniscript::Tap>, PolicyError> {
+        s.parse::<Concrete<PublicKey>>()
+            .map_err(|e| PolicyError::Miniscript(format!("parse {s}: {e:?}")))?
+            .compile()
+            .map_err(|e| PolicyError::Miniscript(format!("compile {s}: {e:?}")))
+    };
+
+    let ms_beneficiary = compile_leaf(&beneficiary_branch)?;
+    let ms_trustees = compile_leaf(&trustee_thresh)?;
+
+    let builder = TaprootBuilder::new()
+        .add_leaf(1, ms_beneficiary.encode())
+        .map_err(|e| PolicyError::Descriptor(format!("leaf beneficiary: {e:?}")))?
+        .add_leaf(1, ms_trustees.encode())
+        .map_err(|e| PolicyError::Descriptor(format!("leaf trustees: {e:?}")))?;
+
+    let spend_info = builder
+        .finalize(&secp, internal_key)
+        .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
+
+    let addr = Address::p2tr_tweaked(spend_info.output_key(), network);
+    let descriptor = format!("tr({},{{{},{}}})", internal_key, ms_beneficiary, ms_trustees);
+    let miniscript_policy = format!("or({},{})", beneficiary_branch, trustee_thresh);
+
+    Ok(CompiledVault {
+        miniscript_policy,
+        descriptor,
+        address: addr,
+        address_type: AddressType::TrMultileaf,
+    })
+}
+
 fn build_policy_string(policy: &DynastyPolicy) -> String {
     let founders: Vec<String> = policy
         .founder_keys
