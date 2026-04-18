@@ -116,6 +116,8 @@ export interface VaultMember {
   label: string | null;
   xpub: string | null;
   fingerprint: string | null;
+  pubkey: string | null;
+  derivation_path: string | null;
   key_label: string | null;
   status: VaultMemberStatus;
 }
@@ -155,6 +157,30 @@ export const api = {
       founder_keys?: string[];
       heir_keys?: string[];
     }) => req<{ ok: true; vault: Vault }>('/vaults', { method: 'POST', body: JSON.stringify(body) }),
+
+    // Draft vault: no descriptor yet. Members bring their xpubs via
+    // invites; owner calls compile() once every slot is full.
+    createDraft: (body: {
+      name: string;
+      network: 'testnet' | 'bitcoin';
+      address_type?: 'wsh' | 'tr' | 'tr_multileaf';
+      planned_founder_count: number;
+      planned_heir_count: number;
+      founder_quorum?: number;
+      heir_quorum?: number;
+      recovery_after?: number;
+      inheritance_after?: number;
+    }) =>
+      req<{ ok: true; vault: Vault }>('/vaults', {
+        method: 'POST',
+        body: JSON.stringify({ ...body, mode: 'draft' }),
+      }),
+
+    compile: (vault_id: string) =>
+      req<{ ok: true; vault: Vault }>('/vaults-compile', {
+        method: 'POST',
+        body: JSON.stringify({ vault_id }),
+      }),
 
     archive: (id: string) =>
       req<{ ok: true; vault: Vault }>(`/vaults?id=${id}`, {
@@ -377,7 +403,7 @@ export const api = {
 
     update: (
       id: string,
-      body: Partial<Pick<VaultMember, 'label' | 'xpub' | 'fingerprint' | 'key_label'>>,
+      body: Partial<Pick<VaultMember, 'label' | 'xpub' | 'fingerprint' | 'pubkey' | 'derivation_path' | 'key_label'>>,
     ) =>
       req<{ ok: true; member: VaultMember }>(`/members?id=${id}`, {
         method: 'PATCH',
@@ -430,6 +456,8 @@ export const api = {
       label?: string;
       xpub?: string;
       fingerprint?: string;
+      pubkey?: string;
+      derivation_path?: string;
       key_label?: string;
     }) =>
       req<{ ok: true; member_id: string; vault_id: string }>(`/invites-claim`, {
