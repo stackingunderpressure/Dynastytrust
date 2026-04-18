@@ -559,11 +559,7 @@ function PendingFeed() {
           <PendingRow
             key={p.id}
             item={p}
-            onOpen={() =>
-              navigate(`/vaults/${p.vault_id}`, {
-                state: { vault: { ...p.vault, id: p.vault_id } as Vault },
-              })
-            }
+            onOpen={() => navigate(`/vaults/${p.vault_id}/proposals/${p.id}`)}
           />
         ))}
       </div>

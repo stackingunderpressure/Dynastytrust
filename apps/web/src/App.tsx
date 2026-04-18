@@ -4,6 +4,7 @@ import KeyManager from './pages/KeyManager';
 import PolicyBuilder from './pages/PolicyBuilder';
 import Dashboard from './pages/Dashboard';
 import VaultDetail from './pages/VaultDetail';
+import ProposalDetail from './pages/ProposalDetail';
 import InviteClaim from './pages/InviteClaim';
 import { NAV_LINKS } from './config';
 import { Layout } from './components/Layout';
@@ -71,6 +72,7 @@ function AuthedApp() {
         }
       />
       <Route path="/vaults/:id" element={<VaultDetail />} />
+      <Route path="/vaults/:vaultId/proposals/:proposalId" element={<ProposalDetail />} />
       <Route path="*" element={<Navigate to="/keys" replace />} />
     </Routes>
   );
