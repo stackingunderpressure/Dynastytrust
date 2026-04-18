@@ -64,6 +64,11 @@ export interface Vault {
   inheritance_after: number;
   founder_keys: string[];
   heir_keys: string[];
+  /** Protector branch: optional fourth path in the Taproot tree.
+   *  Empty = not configured. */
+  protector_keys: string[];
+  protector_quorum: number | null;
+  protector_after: number | null;
   archived: boolean;
   status: VaultStatus;
   // Draft-only: how many signing slots the vault will have when
@@ -178,7 +183,7 @@ export interface BalanceResult {
 // Endpoints land in B2; these types let the UI start consuming them
 // without a round-trip.
 
-export type VaultRole = 'owner' | 'founder' | 'heir' | 'viewer' | 'beneficiary';
+export type VaultRole = 'owner' | 'founder' | 'heir' | 'protector' | 'viewer' | 'beneficiary';
 export type VaultMemberStatus = 'active' | 'pending' | 'removed';
 
 export interface VaultMember {
@@ -231,6 +236,9 @@ export const api = {
       inheritance_after?: number;
       founder_keys?: string[];
       heir_keys?: string[];
+      protector_keys?: string[];
+      protector_quorum?: number | null;
+      protector_after?: number | null;
     }) => req<{ ok: true; vault: Vault }>('/vaults', { method: 'POST', body: JSON.stringify(body) }),
 
     // Draft vault: no descriptor yet. Members bring their xpubs via
@@ -246,6 +254,8 @@ export const api = {
       recovery_quorum?: number | null;
       recovery_after?: number;
       inheritance_after?: number;
+      protector_quorum?: number | null;
+      protector_after?: number | null;
     }) =>
       req<{ ok: true; vault: Vault }>('/vaults', {
         method: 'POST',
@@ -291,6 +301,9 @@ export const api = {
     heir_quorum: number;
     recovery_after: number;
     inheritance_after: number;
+    protector_keys?: string[];
+    protector_quorum?: number | null;
+    protector_after?: number | null;
     save?: boolean;
   }) => req<{ ok: true; compiled: unknown; saved: boolean; vault?: Vault }>('/compile', {
     method: 'POST',

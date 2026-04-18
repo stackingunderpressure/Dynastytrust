@@ -59,6 +59,8 @@ function roleLabel(role: string): string {
       return "Trustee";
     case "heir":
       return "Successor trustee";
+    case "protector":
+      return "Protector";
     case "viewer":
       return "Observer";
     case "beneficiary":
@@ -427,6 +429,18 @@ function OverviewTab({
           title: "Inheritance - " + blocksToLabel(vault.inheritance_after),
           body: `${vault.heir_quorum} of ${vault.heir_keys.length} successor signatures after ${vault.inheritance_after.toLocaleString()} blocks. Triggered only if the trustees are unreachable for the full window.`,
         },
+        ...(vault.protector_keys.length > 0 &&
+        vault.protector_quorum != null &&
+        vault.protector_after != null
+          ? [
+              {
+                num: 4,
+                color: colors.blue,
+                title: "Protector - " + blocksToLabel(vault.protector_after),
+                body: `${vault.protector_quorum} of ${vault.protector_keys.length} protector signatures after ${vault.protector_after.toLocaleString()} blocks. An independent watchdog who can rescue funds if trustees go rogue before inheritance triggers.`,
+              },
+            ]
+          : []),
       ];
 
   return (
@@ -1780,6 +1794,7 @@ function InviteModal({
             >
               <option value="founder">Trustee (can sign immediately)</option>
               <option value="heir">Successor trustee (inheritance path)</option>
+              <option value="protector">Protector (can intervene if trustees go rogue)</option>
               <option value="beneficiary">Beneficiary (receives distributions, files requests)</option>
               <option value="viewer">Observer (read-only)</option>
             </select>

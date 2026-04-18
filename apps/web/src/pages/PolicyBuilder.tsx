@@ -343,6 +343,11 @@ export default function PolicyBuilder() {
   // protects against a single lost device.
   const [recoveryQ, setRecoveryQ] = useState(1);
   const [heirQ, setHQ] = useState(1);
+  // Protector: independent party who can rescue funds after a
+  // medium timelock between recovery and inheritance.
+  const [protectorKeys, setProtectorKeys] = useState<SelectedKey[]>([]);
+  const [protectorQ, setProtectorQ] = useState(1);
+  const [protectorAfter, setProtectorAfter] = useState(26_280); // ~6 months default
   const [recovery, setRecovery] = useState(26_280);
   const [inherit, setInherit] = useState(52_560);
   const [compiled, setCompiled] = useState<CompiledVault | null>(null);
@@ -382,7 +387,7 @@ export default function PolicyBuilder() {
   const { errors, warnings } = validate(mode, founderKeys, heirKeys, founderQ, heirQ, recovery, inherit);
   const canCompile = errors.length === 0 && founderKeys.length > 0;
 
-  function addKey(keyId: string, role: 'founder' | 'heir') {
+  function addKey(keyId: string, role: 'founder' | 'heir' | 'protector') {
     const k = allKeys.find(k => k.keyId === keyId);
     if (!k) return;
     const sk: SelectedKey = {
@@ -402,35 +407,58 @@ export default function PolicyBuilder() {
         setFQ(q => Math.min(q, n.length));
         return n;
       });
-    } else {
+    } else if (role === 'heir') {
       setHK(prev => {
         const n = [...prev, sk];
         setHQ(q => Math.min(q, n.length));
+        return n;
+      });
+    } else {
+      setProtectorKeys(prev => {
+        const n = [...prev, sk];
+        setProtectorQ(q => Math.min(q, n.length));
         return n;
       });
     }
     setCompiled(null);
   }
 
-  function removeKey(keyId: string, role: 'founder' | 'heir') {
+  function removeKey(keyId: string, role: 'founder' | 'heir' | 'protector') {
     if (role === 'founder') {
       setFK(prev => {
         const n = prev.filter(k => k.keyId !== keyId);
         setFQ(q => Math.min(q, n.length || 1));
         return n;
       });
-    } else {
+    } else if (role === 'heir') {
       setHK(prev => {
         const n = prev.filter(k => k.keyId !== keyId);
         setHQ(q => Math.min(q, n.length || 1));
+        return n;
+      });
+    } else {
+      setProtectorKeys(prev => {
+        const n = prev.filter(k => k.keyId !== keyId);
+        setProtectorQ(q => Math.min(q, n.length || 1));
         return n;
       });
     }
     setCompiled(null);
   }
 
-  const availForFounder = allKeys.filter(k => !founderKeys.some(fk => fk.keyId === k.keyId));
-  const availForHeir = allKeys.filter(k => !heirKeys.some(hk => hk.keyId === k.keyId));
+  const availForFounder = allKeys.filter(k =>
+    !founderKeys.some(fk => fk.keyId === k.keyId) &&
+    !protectorKeys.some(pk => pk.keyId === k.keyId),
+  );
+  const availForHeir = allKeys.filter(k =>
+    !heirKeys.some(hk => hk.keyId === k.keyId) &&
+    !protectorKeys.some(pk => pk.keyId === k.keyId),
+  );
+  const availForProtector = allKeys.filter(k =>
+    !founderKeys.some(fk => fk.keyId === k.keyId) &&
+    !heirKeys.some(hk => hk.keyId === k.keyId) &&
+    !protectorKeys.some(pk => pk.keyId === k.keyId),
+  );
 
   async function compile() {
     setCompiling(true);
@@ -440,6 +468,7 @@ export default function PolicyBuilder() {
     const slowTimer = window.setTimeout(() => setSlowHint(true), 1500);
     try {
       const plain = mode === 'plain';
+      const hasProtector = !plain && protectorKeys.length > 0;
       const res = await api.compile({
         name,
         network: network as 'testnet' | 'bitcoin',
@@ -451,10 +480,21 @@ export default function PolicyBuilder() {
         heir_quorum: plain ? 1 : heirQ,
         recovery_after: plain ? 0 : recovery,
         inheritance_after: plain ? 0 : inherit,
+        ...(hasProtector
+          ? {
+              protector_keys: protectorKeys.map(toPubkeyHex),
+              protector_quorum: protectorQ,
+              protector_after: protectorAfter,
+            }
+          : {}),
         save: false,
       });
       const raw = res.compiled as CompiledVault;
-      const origins = buildKeyOrigins(plain ? founderKeys : [...founderKeys, ...heirKeys]);
+      const origins = buildKeyOrigins(
+        plain
+          ? founderKeys
+          : [...founderKeys, ...heirKeys, ...protectorKeys],
+      );
       setCompiled({ ...raw, descriptor: upgradeDescriptor(raw.descriptor, origins) });
     } catch (e) {
       setCompErr(e instanceof Error ? e.message : 'Compilation failed');
@@ -538,6 +578,13 @@ export default function PolicyBuilder() {
         inheritance_after: plain ? 0 : inherit,
         founder_keys: founderKeys.map(k => k.xpub),
         heir_keys: plain ? [] : heirKeys.map(k => k.xpub),
+        ...(protectorKeys.length > 0 && !plain
+          ? {
+              protector_keys: protectorKeys.map(k => k.xpub),
+              protector_quorum: protectorQ,
+              protector_after: protectorAfter,
+            }
+          : {}),
       });
       setSavedVault(res.vault);
     } catch (e) {
@@ -710,6 +757,61 @@ export default function PolicyBuilder() {
               }}
               color={colors.green}
             />
+          )}
+        </Section>
+      )}
+
+      {mode === 'inheritance' && (
+        <Section
+          title="Protector (optional)"
+          sub="An independent party -- typically an estate attorney or family advisor -- who can spend after their own timelock if the trustees go rogue. Longer than the recovery timelock so trustees recover first; shorter than the inheritance timelock so the protector can intervene before succession."
+        >
+          <KeyPicker
+            selected={protectorKeys}
+            available={availForProtector}
+            onAdd={id => addKey(id, 'protector')}
+            onRemove={id => removeKey(id, 'protector')}
+            role="protector"
+            accentColor={colors.blue}
+          />
+          {protectorKeys.length > 0 && (
+            <>
+              <QuorumPicker
+                max={protectorKeys.length}
+                value={protectorQ}
+                onChange={q => {
+                  setProtectorQ(q);
+                  setCompiled(null);
+                }}
+                color={colors.blue}
+              />
+              <div style={{ marginTop: 14 }}>
+                <Label>Protector timelock (blocks)</Label>
+                <div style={{ fontSize: 12, color: colors.muted, marginBottom: 6 }}>
+                  Should sit between the recovery timelock and the inheritance
+                  timelock. ~26,280 blocks = 6 months.
+                </div>
+                <Input
+                  type="number"
+                  min={recovery + 1}
+                  value={protectorAfter}
+                  onChange={e => {
+                    setProtectorAfter(Math.max(recovery + 1, parseInt(e.target.value) || recovery + 1));
+                    setCompiled(null);
+                  }}
+                />
+                {protectorAfter <= recovery && (
+                  <div style={{ fontSize: 11, color: colors.orange, marginTop: 6 }}>
+                    Protector timelock must exceed recovery ({recovery.toLocaleString()}).
+                  </div>
+                )}
+                {protectorAfter >= inherit && (
+                  <div style={{ fontSize: 11, color: colors.orange, marginTop: 6 }}>
+                    Warning: protector path unlocks after or with inheritance -- it may be redundant.
+                  </div>
+                )}
+              </div>
+            </>
           )}
         </Section>
       )}

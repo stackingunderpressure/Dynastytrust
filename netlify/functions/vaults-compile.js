@@ -29,7 +29,7 @@ const COMPILER_URL = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
 
 const VAULT_FIELDS =
-  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, archived, status, planned_founder_count, planned_heir_count, trust_doc";
+  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, archived, status, planned_founder_count, planned_heir_count, trust_doc";
 
 // Replace every occurrence of a raw pubkey hex in the descriptor
 // with its Nunchuk-format key origin expression. Pure string work,
@@ -94,6 +94,7 @@ export async function handler(event) {
   );
   const founders = ready.filter(m => m.role === "founder" || m.role === "owner");
   const heirs = ready.filter(m => m.role === "heir");
+  const protectors = ready.filter(m => m.role === "protector");
 
   const plannedF = vault.planned_founder_count ?? founders.length;
   const plannedH = vault.planned_heir_count ?? heirs.length;
@@ -110,6 +111,10 @@ export async function handler(event) {
   }
 
   // Forward to the Fly.io compiler.
+  const hasProtector =
+    protectors.length > 0 &&
+    vault.protector_quorum != null &&
+    vault.protector_after != null;
   const compilePayload = {
     name: vault.name,
     network: vault.network,
@@ -121,6 +126,13 @@ export async function handler(event) {
     heir_quorum: vault.heir_quorum,
     recovery_after: vault.recovery_after,
     inheritance_after: vault.inheritance_after,
+    ...(hasProtector
+      ? {
+          protector_keys: protectors.map(m => m.pubkey),
+          protector_quorum: vault.protector_quorum,
+          protector_after: vault.protector_after,
+        }
+      : {}),
   };
 
   let compiled;
@@ -167,6 +179,7 @@ export async function handler(event) {
       miniscript_policy: compiled.miniscript_policy,
       founder_keys: founders.map(m => m.xpub),
       heir_keys: heirs.map(m => m.xpub),
+      protector_keys: protectors.map(m => m.xpub),
       status: "compiled",
     })
     .eq("id", vaultId)

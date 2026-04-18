@@ -27,16 +27,34 @@ pub struct DynastyPolicy {
     pub heir_quorum: usize,
     pub recovery_after: u32,
     pub inheritance_after: u32,
+
+    /// Optional protector branch -- an independent party (often a
+    /// trust lawyer) who can spend after their own timelock.
+    /// Typically set BETWEEN recovery_after and inheritance_after
+    /// so: trustees recover first, then protector can rescue
+    /// funds if trustees failed, then finally successor trustees
+    /// take over for true incapacitation. All three fields must
+    /// be set together.
+    #[serde(default)]
+    pub protector_keys: Vec<PublicKey>,
+    #[serde(default)]
+    pub protector_quorum: Option<usize>,
+    #[serde(default)]
+    pub protector_after: Option<u32>,
 }
 
 impl DynastyPolicy {
-    /// Plain mode: no heirs, no timelocks. The compiled vault is a
-    /// straight M-of-N multisig (or single-sig) with no recovery or
-    /// inheritance paths. Intended for users who want a normal
-    /// Bitcoin wallet or co-signer setup, without the estate-planning
-    /// machinery.
     pub fn is_plain(&self) -> bool {
-        self.heir_keys.is_empty() && self.recovery_after == 0 && self.inheritance_after == 0
+        self.heir_keys.is_empty()
+            && self.recovery_after == 0
+            && self.inheritance_after == 0
+            && self.protector_keys.is_empty()
+    }
+
+    pub fn has_protector(&self) -> bool {
+        !self.protector_keys.is_empty()
+            && self.protector_quorum.is_some()
+            && self.protector_after.is_some()
     }
 }
 
@@ -233,29 +251,72 @@ pub fn compile_dynasty_policy_tr_multileaf(
     let ms_recovery = compile_leaf(&recovery_branch)?;
     let ms_inheritance = compile_leaf(&inheritance_branch)?;
 
-    let builder = TaprootBuilder::new()
-        .add_leaf(1, ms_founder.encode())
-        .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?
-        .add_leaf(2, ms_recovery.encode())
-        .map_err(|e| PolicyError::Descriptor(format!("leaf recovery: {e:?}")))?
-        .add_leaf(2, ms_inheritance.encode())
-        .map_err(|e| PolicyError::Descriptor(format!("leaf inheritance: {e:?}")))?;
+    // Tree layout depends on whether a protector branch is present.
+    // 3 leaves: depths 1/2/2. 4 leaves: depths 1/2/3/3 -- keeps the
+    // common founder path cheapest; the rare inheritance and
+    // protector branches pay a tiny extra witness cost.
+    let (addr, descriptor, miniscript_policy) = if policy.has_protector() {
+        let protectors: Vec<String> = policy
+            .protector_keys
+            .iter()
+            .map(|k| format!("pk({k})"))
+            .collect();
+        let protector_branch = format!(
+            "and(after({}),thresh({},{}))",
+            policy.protector_after.unwrap(),
+            policy.protector_quorum.unwrap(),
+            protectors.join(",")
+        );
+        let ms_protector = compile_leaf(&protector_branch)?;
 
-    let spend_info = builder
-        .finalize(&secp, internal_key)
-        .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
+        let builder = TaprootBuilder::new()
+            .add_leaf(1, ms_founder.encode())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?
+            .add_leaf(2, ms_recovery.encode())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf recovery: {e:?}")))?
+            .add_leaf(3, ms_inheritance.encode())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf inheritance: {e:?}")))?
+            .add_leaf(3, ms_protector.encode())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf protector: {e:?}")))?;
 
-    let addr = Address::p2tr_tweaked(spend_info.output_key(), network);
+        let spend_info = builder
+            .finalize(&secp, internal_key)
+            .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
 
-    let descriptor = format!(
-        "tr({},{{{},{{{},{}}}}})",
-        internal_key, ms_founder, ms_recovery, ms_inheritance
-    );
+        let addr = Address::p2tr_tweaked(spend_info.output_key(), network);
+        let descriptor = format!(
+            "tr({},{{{},{{{},{{{},{}}}}}}})",
+            internal_key, ms_founder, ms_recovery, ms_inheritance, ms_protector
+        );
+        let miniscript_policy = format!(
+            "or({},or({},or({},{})))",
+            founder_thresh, recovery_branch, inheritance_branch, protector_branch
+        );
+        (addr, descriptor, miniscript_policy)
+    } else {
+        let builder = TaprootBuilder::new()
+            .add_leaf(1, ms_founder.encode())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?
+            .add_leaf(2, ms_recovery.encode())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf recovery: {e:?}")))?
+            .add_leaf(2, ms_inheritance.encode())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf inheritance: {e:?}")))?;
 
-    let miniscript_policy = format!(
-        "or({},or({},{}))",
-        founder_thresh, recovery_branch, inheritance_branch
-    );
+        let spend_info = builder
+            .finalize(&secp, internal_key)
+            .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
+
+        let addr = Address::p2tr_tweaked(spend_info.output_key(), network);
+        let descriptor = format!(
+            "tr({},{{{},{{{},{}}}}})",
+            internal_key, ms_founder, ms_recovery, ms_inheritance
+        );
+        let miniscript_policy = format!(
+            "or({},or({},{}))",
+            founder_thresh, recovery_branch, inheritance_branch
+        );
+        (addr, descriptor, miniscript_policy)
+    };
 
     Ok(CompiledVault {
         miniscript_policy,
@@ -296,10 +357,27 @@ fn build_policy_string(policy: &DynastyPolicy) -> String {
         heirs.join(",")
     );
 
-    format!(
+    let base = format!(
         "or({},or({},{}))",
         founder_thresh, recovery_branch, inheritance_branch
-    )
+    );
+
+    if policy.has_protector() {
+        let protectors: Vec<String> = policy
+            .protector_keys
+            .iter()
+            .map(|k| format!("pk({k})"))
+            .collect();
+        let protector_branch = format!(
+            "and(after({}),thresh({},{}))",
+            policy.protector_after.unwrap(),
+            policy.protector_quorum.unwrap(),
+            protectors.join(",")
+        );
+        format!("or({},{})", base, protector_branch)
+    } else {
+        base
+    }
 }
 
 fn verify(policy: &DynastyPolicy) -> Result<(), PolicyError> {
@@ -309,6 +387,13 @@ fn verify(policy: &DynastyPolicy) -> Result<(), PolicyError> {
 
     if let Some(rq) = policy.recovery_quorum {
         if rq == 0 || rq > policy.founder_keys.len() {
+            return Err(PolicyError::InvalidQuorum);
+        }
+    }
+
+    if policy.has_protector() {
+        let pq = policy.protector_quorum.unwrap();
+        if pq == 0 || pq > policy.protector_keys.len() {
             return Err(PolicyError::InvalidQuorum);
         }
     }

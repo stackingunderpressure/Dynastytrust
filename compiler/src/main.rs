@@ -100,9 +100,13 @@ async fn health() -> Json<serde_json::Value> {
 struct CompileRequest {
     name: Option<String>, network: String,
     founder_keys: Vec<String>, founder_quorum: usize,
+    #[serde(default)] recovery_quorum: Option<usize>,
     heir_keys: Vec<String>,    heir_quorum: usize,
     recovery_after: u32,       inheritance_after: u32,
     #[serde(default = "default_addr_type")] address_type: String,
+    #[serde(default)] protector_keys: Vec<String>,
+    #[serde(default)] protector_quorum: Option<usize>,
+    #[serde(default)] protector_after: Option<u32>,
 }
 fn default_addr_type() -> String { "tr".to_string() }
 
@@ -121,10 +125,15 @@ async fn compile(
     let network  = parse_network(&req.network).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
     let founders = parse_pubkeys(&req.founder_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
     let heirs    = parse_pubkeys(&req.heir_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+    let protectors = parse_pubkeys(&req.protector_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
     let policy = DynastyPolicy {
         founder_keys: founders, founder_quorum: req.founder_quorum,
+        recovery_quorum: req.recovery_quorum,
         heir_keys: heirs,       heir_quorum: req.heir_quorum,
         recovery_after: req.recovery_after, inheritance_after: req.inheritance_after,
+        protector_keys: protectors,
+        protector_quorum: req.protector_quorum,
+        protector_after: req.protector_after,
     };
     let compiled = match req.address_type.as_str() {
         "wsh"          => compile_dynasty_policy(policy, network),
@@ -255,8 +264,12 @@ async fn psbt_binary(
             (Ok(founders), Ok(heirs)) => {
                 let pol = DynastyPolicy {
                     founder_keys: founders, founder_quorum: fq,
+                    recovery_quorum: None,
                     heir_keys: heirs,       heir_quorum: hq,
                     recovery_after: ra,     inheritance_after: ia,
+                    protector_keys: vec![],
+                    protector_quorum: None,
+                    protector_after: None,
                 };
                 build_founders_leaf_script(&pol, addr_type).ok()
             }
