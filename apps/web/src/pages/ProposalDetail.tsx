@@ -5,7 +5,10 @@ import {
   type Proposal,
   type Vault,
   type VaultMember,
+  type ProposalComment,
+  type ProposalVote,
 } from "../lib/api";
+import { supabase } from "../lib/supabase";
 import { broadcastTxUrl, explorerTxUrl } from "../config";
 import { listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
 import {
@@ -211,6 +214,8 @@ export default function ProposalDetail() {
       />
 
       <MembersSection members={members} sessions={sessions} />
+
+      <DiscussionSection proposalId={proposal.id} members={members} />
 
       {!terminal && signableKeys.length > 0 && (
         <ActionCard>
@@ -538,4 +543,291 @@ function ExternalPsbt({
       </Button>
     </form>
   );
+}
+
+// // -- Discussion + votes
+// Every trustee can record an "approve / abstain / decline" vote and
+// attach a free-text reason. Votes are separate from signatures --
+// a trustee can decline without blocking the signing quorum, which
+// preserves their dissent in the audit log. A blue "approve",
+// grey "abstain", or red "decline" badge sits next to each row.
+
+function DiscussionSection({
+  proposalId,
+  members,
+}: {
+  proposalId: string;
+  members: VaultMember[];
+}) {
+  const toast = useToast();
+  const [comments, setComments] = useState<ProposalComment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  const [body, setBody] = useState("");
+  const [vote, setVote] = useState<ProposalVote | "">("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await api.proposalComments.list(proposalId);
+      setComments(res.comments);
+    } catch (e) {
+      /* silent; banner below renders on submit errors */
+      void e;
+    } finally {
+      setLoading(false);
+    }
+  }, [proposalId]);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setCurrentUserId(data.session?.user.id ?? null);
+    });
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useRealtimeRefresh(
+    { table: "proposal_comments", filter: `proposal_id=eq.${proposalId}` },
+    () => void load(),
+  );
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    if (!body.trim() && !vote) {
+      setErr("Write a message or pick a vote (or both).");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.proposalComments.create({
+        proposal_id: proposalId,
+        body: body.trim() || undefined,
+        vote: vote || undefined,
+      });
+      setBody("");
+      setVote("");
+      toast.success(vote ? `Vote recorded: ${vote}` : "Comment posted");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not post");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(id: string) {
+    if (!confirm("Delete this comment?")) return;
+    try {
+      await api.proposalComments.remove(id);
+      toast.success("Deleted");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Delete failed");
+    }
+  }
+
+  // Latest vote per member -- later rows supersede earlier ones.
+  const latestVoteByUser = new Map<string, ProposalVote>();
+  for (const c of comments) {
+    if (c.vote) latestVoteByUser.set(c.user_id, c.vote);
+  }
+  const tally = { approve: 0, abstain: 0, decline: 0 };
+  for (const v of latestVoteByUser.values()) tally[v]++;
+
+  function authorLabel(userId: string): string {
+    const m = members.find(x => x.user_id === userId);
+    return m?.label || "Member";
+  }
+
+  return (
+    <div
+      style={{
+        background: colors.surface,
+        border: `1px solid ${colors.border}`,
+        borderRadius: 12,
+        padding: 16,
+        marginTop: space[3],
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "baseline",
+          marginBottom: 12,
+        }}
+      >
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: "0.1em",
+            color: colors.muted,
+            textTransform: "uppercase",
+          }}
+        >
+          Discussion
+        </div>
+        <div style={{ display: "flex", gap: 10, fontSize: 11 }}>
+          <span style={{ color: colors.green }}>approve {tally.approve}</span>
+          <span style={{ color: colors.muted }}>abstain {tally.abstain}</span>
+          <span style={{ color: colors.red }}>decline {tally.decline}</span>
+        </div>
+      </div>
+
+      {loading ? (
+        <p style={{ color: colors.muted, fontSize: 13 }}>Loading...</p>
+      ) : comments.length === 0 ? (
+        <p style={{ color: colors.muted, fontSize: 13, marginBottom: 14 }}>
+          No discussion yet. Record your position or note context before signing.
+        </p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
+          {comments.map(c => (
+            <CommentRow
+              key={c.id}
+              comment={c}
+              authorLabel={authorLabel(c.user_id)}
+              canDelete={c.user_id === currentUserId}
+              onDelete={() => void remove(c.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <Textarea
+          rows={2}
+          value={body}
+          onChange={e => setBody(e.target.value)}
+          placeholder="Add context. What rule does this spend fall under? Tax category? Reason for urgency?"
+        />
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: 4,
+              background: colors.input,
+              borderRadius: radii.md,
+              padding: 3,
+            }}
+          >
+            {(["approve", "abstain", "decline"] as const).map(v => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setVote(vote === v ? "" : v)}
+                style={{
+                  padding: "6px 14px",
+                  border: "none",
+                  borderRadius: radii.sm,
+                  background: vote === v ? voteColor(v) + "33" : "transparent",
+                  color: vote === v ? voteColor(v) : colors.muted,
+                  fontSize: 12,
+                  fontFamily: fonts.sans,
+                  cursor: "pointer",
+                  textTransform: "capitalize",
+                  fontWeight: vote === v ? 600 : 400,
+                }}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+          <Button type="submit" size="sm" disabled={busy} style={{ marginLeft: "auto" }}>
+            {busy ? "Posting..." : vote ? "Record vote" : "Post comment"}
+          </Button>
+        </div>
+        {err && <p style={{ color: colors.red, fontSize: 12, margin: 0 }}>{err}</p>}
+      </form>
+    </div>
+  );
+}
+
+function CommentRow({
+  comment,
+  authorLabel,
+  canDelete,
+  onDelete,
+}: {
+  comment: ProposalComment;
+  authorLabel: string;
+  canDelete: boolean;
+  onDelete: () => void;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 4,
+        padding: "10px 12px",
+        background: "#0A0A14",
+        border: `1px solid ${colors.border}`,
+        borderRadius: radii.md,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>{authorLabel}</span>
+          {comment.vote && (
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                padding: "2px 7px",
+                borderRadius: 4,
+                background: voteColor(comment.vote) + "22",
+                color: voteColor(comment.vote),
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+              }}
+            >
+              {comment.vote}
+            </span>
+          )}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 11, color: colors.muted }}>
+            {new Date(comment.created_at).toLocaleString()}
+          </span>
+          {canDelete && (
+            <button
+              onClick={onDelete}
+              style={{
+                background: "none",
+                border: "none",
+                color: colors.muted,
+                cursor: "pointer",
+                fontSize: 11,
+                padding: 0,
+              }}
+            >
+              delete
+            </button>
+          )}
+        </div>
+      </div>
+      {comment.body && (
+        <div style={{ fontSize: 13, color: colors.text, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+          {comment.body}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function voteColor(v: ProposalVote): string {
+  switch (v) {
+    case "approve":
+      return colors.green;
+    case "decline":
+      return colors.red;
+    default:
+      return colors.muted;
+  }
 }

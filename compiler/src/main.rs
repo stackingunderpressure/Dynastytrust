@@ -9,14 +9,15 @@ use bitcoin::{
     absolute::LockTime, transaction::Version, Amount, Network, OutPoint,
     PublicKey, ScriptBuf, Transaction, TxIn, TxOut, Txid, Witness,
 };
-use bitcoin::psbt::PartiallySignedTransaction as Psbt;
+use bitcoin::psbt::Psbt;
 use bitcoin::taproot::{LeafVersion, TaprootBuilder};
 use bitcoin::secp256k1::{Secp256k1, XOnlyPublicKey};
 use dynastytrust_protocol::{
     audit_spend, compile_dynasty_policy, compile_dynasty_policy_tr,
-    compile_dynasty_policy_tr_multileaf, evaluate_spend_proposal,
-    evaluate_vault_status, next_action, DynastyPolicy, ProposedSpend,
-    SignerStatus, SpendingPath, VaultPolicy,
+    compile_dynasty_policy_tr_multileaf, compile_tranche_tr_multileaf,
+    evaluate_spend_proposal, evaluate_vault_status, next_action,
+    DynastyPolicy, ProposedSpend, SignerStatus, SpendingPath,
+    TranchePolicy, VaultPolicy,
 };
 use miniscript::policy::concrete::Policy;
 use miniscript::{psbt::PsbtExt, Miniscript};
@@ -90,7 +91,7 @@ fn base64_encode(data: &[u8]) -> String {
 async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "ok": true, "service": "dynastytrust-compiler",
-        "endpoints": ["/health","/compile","/psbt-binary","/psbt-finalize","/psbt-merge","/governance/status","/governance/audit"]
+        "endpoints": ["/health","/compile","/compile-tranche","/psbt-binary","/psbt-finalize","/psbt-merge","/governance/status","/governance/audit"]
     }))
 }
 
@@ -100,9 +101,15 @@ async fn health() -> Json<serde_json::Value> {
 struct CompileRequest {
     name: Option<String>, network: String,
     founder_keys: Vec<String>, founder_quorum: usize,
+    #[serde(default)] recovery_quorum: Option<usize>,
     heir_keys: Vec<String>,    heir_quorum: usize,
     recovery_after: u32,       inheritance_after: u32,
     #[serde(default = "default_addr_type")] address_type: String,
+    #[serde(default)] protector_keys: Vec<String>,
+    #[serde(default)] protector_quorum: Option<usize>,
+    #[serde(default)] protector_after: Option<u32>,
+    #[serde(default)] consent_keys: Vec<String>,
+    #[serde(default)] consent_quorum: Option<usize>,
 }
 fn default_addr_type() -> String { "tr".to_string() }
 
@@ -121,10 +128,18 @@ async fn compile(
     let network  = parse_network(&req.network).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
     let founders = parse_pubkeys(&req.founder_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
     let heirs    = parse_pubkeys(&req.heir_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+    let protectors = parse_pubkeys(&req.protector_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+    let consenters = parse_pubkeys(&req.consent_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
     let policy = DynastyPolicy {
         founder_keys: founders, founder_quorum: req.founder_quorum,
+        recovery_quorum: req.recovery_quorum,
         heir_keys: heirs,       heir_quorum: req.heir_quorum,
         recovery_after: req.recovery_after, inheritance_after: req.inheritance_after,
+        protector_keys: protectors,
+        protector_quorum: req.protector_quorum,
+        protector_after: req.protector_after,
+        consent_keys: consenters,
+        consent_quorum: req.consent_quorum,
     };
     let compiled = match req.address_type.as_str() {
         "wsh"          => compile_dynasty_policy(policy, network),
@@ -136,6 +151,59 @@ async fn compile(
         network: req.network, address_type: compiled.address_type.to_string(),
         miniscript_policy: compiled.miniscript_policy,
         descriptor: compiled.descriptor, address: compiled.address.to_string(),
+    }))
+}
+
+// ── /compile-tranche ─────────────────────────────────────────────────────────
+// Single tranche of a T-vesting distribution wallet: beneficiary
+// alone can claim after the absolute unlock block; trustees always
+// retain an escape hatch. Callers build one of these per scheduled
+// unlock (e.g. 12 for monthly over a year, 4 for quarterly).
+
+#[derive(Deserialize)]
+struct TrancheRequest {
+    network: String,
+    beneficiary_key: String,
+    trustee_keys: Vec<String>,
+    trustee_quorum: usize,
+    unlock_block: u32,
+}
+
+#[derive(Serialize)]
+struct TrancheResponse {
+    ok: bool,
+    network: String,
+    miniscript_policy: String,
+    descriptor: String,
+    address: String,
+    unlock_block: u32,
+}
+
+async fn compile_tranche(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<TrancheRequest>,
+) -> Result<Json<TrancheResponse>, ApiError> {
+    check_auth(&headers, &state)?;
+    let network = parse_network(&req.network).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+    let beneficiary = PublicKey::from_str(&req.beneficiary_key)
+        .map_err(|e| api_err(StatusCode::BAD_REQUEST, format!("bad beneficiary key: {e}")))?;
+    let trustees = parse_pubkeys(&req.trustee_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+    let policy = TranchePolicy {
+        beneficiary_key: beneficiary,
+        trustee_keys: trustees,
+        trustee_quorum: req.trustee_quorum,
+        unlock_block: req.unlock_block,
+    };
+    let compiled = compile_tranche_tr_multileaf(policy, network)
+        .map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(TrancheResponse {
+        ok: true,
+        network: req.network,
+        miniscript_policy: compiled.miniscript_policy,
+        descriptor: compiled.descriptor,
+        address: compiled.address.to_string(),
+        unlock_block: req.unlock_block,
     }))
 }
 
@@ -166,6 +234,8 @@ struct PsbtBinaryRequest {
     recovery_after:   Option<u32>,
     inheritance_after: Option<u32>,
     address_type:     Option<String>,
+    #[serde(default)] consent_keys:   Vec<String>,
+    #[serde(default)] consent_quorum: Option<usize>,
     // Fallback raw scripts (if policy params not provided)
     leaf_script_hex:    Option<String>,
     witness_script_hex: Option<String>,
@@ -253,10 +323,17 @@ async fn psbt_binary(
         let addr_type = req.address_type.as_deref().unwrap_or("tr");
         match (parse_pubkeys(fk), parse_pubkeys(hk)) {
             (Ok(founders), Ok(heirs)) => {
+                let consenters = parse_pubkeys(&req.consent_keys).unwrap_or_default();
                 let pol = DynastyPolicy {
                     founder_keys: founders, founder_quorum: fq,
+                    recovery_quorum: None,
                     heir_keys: heirs,       heir_quorum: hq,
                     recovery_after: ra,     inheritance_after: ia,
+                    protector_keys: vec![],
+                    protector_quorum: None,
+                    protector_after: None,
+                    consent_keys: consenters,
+                    consent_quorum: req.consent_quorum,
                 };
                 build_founders_leaf_script(&pol, addr_type).ok()
             }
@@ -322,7 +399,18 @@ async fn psbt_binary(
 
 fn build_founders_leaf_script(policy: &DynastyPolicy, addr_type: &str) -> Result<ScriptBuf> {
     let founders: Vec<String> = policy.founder_keys.iter().map(|k| format!("pk({k})")).collect();
-    let founder_thresh = format!("thresh({},{})", policy.founder_quorum, founders.join(","));
+    let trustee_thresh = format!("thresh({},{})", policy.founder_quorum, founders.join(","));
+    let founder_thresh = if policy.has_consent() {
+        let consenters: Vec<String> = policy.consent_keys.iter().map(|k| format!("pk({k})")).collect();
+        let consent_thresh = format!(
+            "thresh({},{})",
+            policy.consent_quorum.unwrap(),
+            consenters.join(","),
+        );
+        format!("and({},{})", trustee_thresh, consent_thresh)
+    } else {
+        trustee_thresh
+    };
 
     if addr_type == "wsh" {
         let heirs: Vec<String> = policy.heir_keys.iter().map(|k| format!("pk({k})")).collect();
@@ -408,7 +496,7 @@ async fn psbt_finalize(
 
     let raw_tx_bytes = bitcoin::consensus::encode::serialize(&raw_tx);
     let raw_tx_hex   = hex::encode(&raw_tx_bytes);
-    let txid         = raw_tx.compute_txid().to_string();
+    let txid         = raw_tx.txid().to_string();
     let input_count  = raw_tx.input.len();
     let output_count = raw_tx.output.len();
 
@@ -455,7 +543,7 @@ async fn psbt_merge(
 
     let mut merged = psbts.remove(0);
     for other in psbts {
-        merged.merge(other)
+        merged.combine(other)
             .map_err(|e| api_err(StatusCode::BAD_REQUEST, format!("merge: {e}")))?;
     }
 
@@ -565,6 +653,7 @@ async fn main() {
     let app = Router::new()
         .route("/health",            get(health))
         .route("/compile",           post(compile))
+        .route("/compile-tranche",   post(compile_tranche))
         .route("/psbt-binary",       post(psbt_binary))
         .route("/psbt-finalize",     post(psbt_finalize))
         .route("/psbt-merge",        post(psbt_merge))

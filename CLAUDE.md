@@ -325,6 +325,16 @@ See `Stack` above for the layout.
 3. **Hardware wallet signing flow** (Coldcard PSBT export/import).
 4. **Governance panel** showing real block height from mempool.space.
 5. **PDF vault backup** download (function exists, no UI button).
+6. **Dependency upgrades (no rush, batch when convenient).** Current pins:
+   - Rust: `bitcoin = 0.31.2` (latest stable 0.32.x), `miniscript = 11.2.3`
+     (latest 13.0.0). Both rust-bitcoin maintained.
+   - Browser: `@scure/bip32 = 1.7.0`, `@scure/bip39 = 1.6.0`, `@noble/curves
+     = 1.9.7`, `@noble/hashes = 1.8.0`. All v2 is out.
+   Upgrading each is breaking-change work (method renames in bitcoin 0.32,
+   API changes in miniscript 12+13, Uint8Array signature tightening in
+   paulmillr v2). No CVE pressure; upgrade when a specific feature or fix
+   is needed, not on schedule. Cheapest path: browser libs first, then
+   bitcoin 0.31 -> 0.32, then miniscript 11 -> 13.
 
 **Recently closed:**
 

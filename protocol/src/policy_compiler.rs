@@ -1,7 +1,7 @@
 use bitcoin::{Address, Network, PublicKey};
 use bitcoin::secp256k1::{Secp256k1, XOnlyPublicKey};
 use bitcoin::taproot::TaprootBuilder;
-use miniscript::policy::Concrete;
+use miniscript::policy::{Concrete, Liftable};
 use miniscript::{Descriptor, Miniscript};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -16,10 +16,60 @@ const NUMS_HEX: &str =
 pub struct DynastyPolicy {
     pub founder_keys: Vec<PublicKey>,
     pub founder_quorum: usize,
+    /// Quorum for the timelocked recovery branch. When set and
+    /// different from `founder_quorum`, Path 2 becomes materially
+    /// distinct from Path 1: e.g. 3-of-3 now, 2-of-3 after 3 months
+    /// as insurance against a lost device. Null = fall back to
+    /// `founder_quorum` (legacy behavior).
+    #[serde(default)]
+    pub recovery_quorum: Option<usize>,
     pub heir_keys: Vec<PublicKey>,
     pub heir_quorum: usize,
     pub recovery_after: u32,
     pub inheritance_after: u32,
+
+    /// Optional protector branch -- an independent party (often a
+    /// trust lawyer) who can spend after their own timelock.
+    /// Typically set BETWEEN recovery_after and inheritance_after
+    /// so: trustees recover first, then protector can rescue
+    /// funds if trustees failed, then finally successor trustees
+    /// take over for true incapacitation. All three fields must
+    /// be set together.
+    #[serde(default)]
+    pub protector_keys: Vec<PublicKey>,
+    #[serde(default)]
+    pub protector_quorum: Option<usize>,
+    #[serde(default)]
+    pub protector_after: Option<u32>,
+
+    /// Optional beneficiary-consent gate on Path 1 (founders-now).
+    /// When set, every "normal" spend needs both the trustee quorum
+    /// AND a beneficiary quorum to sign. Recovery / inheritance /
+    /// protector paths are unaffected -- those exist precisely to
+    /// rescue funds when a beneficiary won't or can't cosign.
+    #[serde(default)]
+    pub consent_keys: Vec<PublicKey>,
+    #[serde(default)]
+    pub consent_quorum: Option<usize>,
+}
+
+impl DynastyPolicy {
+    pub fn is_plain(&self) -> bool {
+        self.heir_keys.is_empty()
+            && self.recovery_after == 0
+            && self.inheritance_after == 0
+            && self.protector_keys.is_empty()
+    }
+
+    pub fn has_protector(&self) -> bool {
+        !self.protector_keys.is_empty()
+            && self.protector_quorum.is_some()
+            && self.protector_after.is_some()
+    }
+
+    pub fn has_consent(&self) -> bool {
+        !self.consent_keys.is_empty() && self.consent_quorum.is_some()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -74,11 +124,7 @@ pub fn compile_dynasty_policy(
         .parse()
         .map_err(|e| PolicyError::Miniscript(format!("{e:?}")))?;
 
-    let semantic = concrete
-        .lift()
-        .map_err(|e| PolicyError::Miniscript(format!("{e:?}")))?;
-
-    let ms: Miniscript<PublicKey, miniscript::Segwitv0> = semantic
+    let ms: Miniscript<PublicKey, miniscript::Segwitv0> = concrete
         .compile()
         .map_err(|e| PolicyError::Miniscript(format!("{e:?}")))?;
 
@@ -111,11 +157,7 @@ pub fn compile_dynasty_policy_tr(
         .parse()
         .map_err(|e| PolicyError::Miniscript(format!("{e:?}")))?;
 
-    let semantic = concrete
-        .lift()
-        .map_err(|e| PolicyError::Miniscript(format!("{e:?}")))?;
-
-    let ms: Miniscript<PublicKey, miniscript::Tap> = semantic
+    let ms: Miniscript<PublicKey, miniscript::Tap> = concrete
         .compile()
         .map_err(|e| PolicyError::Miniscript(format!("{e:?}")))?;
 
@@ -167,20 +209,26 @@ pub fn compile_dynasty_policy_tr_multileaf(
         .map(|k| format!("pk({k})"))
         .collect();
 
-    let heirs: Vec<String> = policy
-        .heir_keys
-        .iter()
-        .map(|k| format!("pk({k})"))
-        .collect();
-
-    let founder_thresh = format!("thresh({},{})", policy.founder_quorum, founders.join(","));
-    let recovery_branch = format!("and(after({}),{})", policy.recovery_after, founder_thresh);
-    let inheritance_branch = format!(
-        "and(after({}),thresh({},{}))",
-        policy.inheritance_after,
-        policy.heir_quorum,
-        heirs.join(",")
-    );
+    let trustee_thresh = format!("thresh({},{})", policy.founder_quorum, founders.join(","));
+    // Path 1: trustees alone, or trustees + beneficiary consent.
+    // The consent gate only applies to the day-to-day trustee path;
+    // the timelocked recovery/inheritance/protector branches are
+    // intentionally unreachable if a beneficiary refuses to cosign.
+    let founder_thresh = if policy.has_consent() {
+        let consenters: Vec<String> = policy
+            .consent_keys
+            .iter()
+            .map(|k| format!("pk({k})"))
+            .collect();
+        let consent_thresh = format!(
+            "thresh({},{})",
+            policy.consent_quorum.unwrap(),
+            consenters.join(","),
+        );
+        format!("and({},{})", trustee_thresh, consent_thresh)
+    } else {
+        trustee_thresh.clone()
+    };
 
     let compile_leaf =
         |policy_str: &str| -> Result<Miniscript<PublicKey, miniscript::Tap>, PolicyError> {
@@ -188,42 +236,193 @@ pub fn compile_dynasty_policy_tr_multileaf(
                 .parse::<Concrete<PublicKey>>()
                 .map_err(|e| PolicyError::Miniscript(format!("parse {policy_str}: {e:?}")))?;
 
-            let semantic = concrete
-                .lift()
-                .map_err(|e| PolicyError::Miniscript(format!("lift {policy_str}: {e:?}")))?;
-
-            semantic
+            concrete
                 .compile()
                 .map_err(|e| PolicyError::Miniscript(format!("compile {policy_str}: {e:?}")))
         };
+
+    // Plain mode: single leaf, no recovery or inheritance branch.
+    if policy.is_plain() {
+        let ms_founder = compile_leaf(&founder_thresh)?;
+
+        let builder = TaprootBuilder::new()
+            .add_leaf(0, ms_founder.encode())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?;
+
+        let spend_info = builder
+            .finalize(&secp, internal_key)
+            .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
+
+        let addr = Address::p2tr_tweaked(spend_info.output_key(), network);
+        let descriptor = format!("tr({},{{{}}})", internal_key, ms_founder);
+
+        return Ok(CompiledVault {
+            miniscript_policy: founder_thresh,
+            descriptor,
+            address: addr,
+            address_type: AddressType::TrMultileaf,
+        });
+    }
+
+    let heirs: Vec<String> = policy
+        .heir_keys
+        .iter()
+        .map(|k| format!("pk({k})"))
+        .collect();
+
+    let recovery_quorum = policy.recovery_quorum.unwrap_or(policy.founder_quorum);
+    let recovery_thresh = format!("thresh({},{})", recovery_quorum, founders.join(","));
+    let recovery_branch = format!("and(after({}),{})", policy.recovery_after, recovery_thresh);
+    let inheritance_branch = format!(
+        "and(after({}),thresh({},{}))",
+        policy.inheritance_after,
+        policy.heir_quorum,
+        heirs.join(",")
+    );
 
     let ms_founder = compile_leaf(&founder_thresh)?;
     let ms_recovery = compile_leaf(&recovery_branch)?;
     let ms_inheritance = compile_leaf(&inheritance_branch)?;
 
+    // Tree layout depends on whether a protector branch is present.
+    // 3 leaves: depths 1/2/2. 4 leaves: depths 1/2/3/3 -- keeps the
+    // common founder path cheapest; the rare inheritance and
+    // protector branches pay a tiny extra witness cost.
+    let (addr, descriptor, miniscript_policy) = if policy.has_protector() {
+        let protectors: Vec<String> = policy
+            .protector_keys
+            .iter()
+            .map(|k| format!("pk({k})"))
+            .collect();
+        let protector_branch = format!(
+            "and(after({}),thresh({},{}))",
+            policy.protector_after.unwrap(),
+            policy.protector_quorum.unwrap(),
+            protectors.join(",")
+        );
+        let ms_protector = compile_leaf(&protector_branch)?;
+
+        let builder = TaprootBuilder::new()
+            .add_leaf(1, ms_founder.encode())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?
+            .add_leaf(2, ms_recovery.encode())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf recovery: {e:?}")))?
+            .add_leaf(3, ms_inheritance.encode())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf inheritance: {e:?}")))?
+            .add_leaf(3, ms_protector.encode())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf protector: {e:?}")))?;
+
+        let spend_info = builder
+            .finalize(&secp, internal_key)
+            .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
+
+        let addr = Address::p2tr_tweaked(spend_info.output_key(), network);
+        let descriptor = format!(
+            "tr({},{{{},{{{},{{{},{}}}}}}})",
+            internal_key, ms_founder, ms_recovery, ms_inheritance, ms_protector
+        );
+        let miniscript_policy = format!(
+            "or({},or({},or({},{})))",
+            founder_thresh, recovery_branch, inheritance_branch, protector_branch
+        );
+        (addr, descriptor, miniscript_policy)
+    } else {
+        let builder = TaprootBuilder::new()
+            .add_leaf(1, ms_founder.encode())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?
+            .add_leaf(2, ms_recovery.encode())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf recovery: {e:?}")))?
+            .add_leaf(2, ms_inheritance.encode())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf inheritance: {e:?}")))?;
+
+        let spend_info = builder
+            .finalize(&secp, internal_key)
+            .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
+
+        let addr = Address::p2tr_tweaked(spend_info.output_key(), network);
+        let descriptor = format!(
+            "tr({},{{{},{{{},{}}}}})",
+            internal_key, ms_founder, ms_recovery, ms_inheritance
+        );
+        let miniscript_policy = format!(
+            "or({},or({},{}))",
+            founder_thresh, recovery_branch, inheritance_branch
+        );
+        (addr, descriptor, miniscript_policy)
+    };
+
+    Ok(CompiledVault {
+        miniscript_policy,
+        descriptor,
+        address: addr,
+        address_type: AddressType::TrMultileaf,
+    })
+}
+
+// // -- Tranche vault (T-vesting)
+// A child "distribution wallet" address that unlocks a single
+// tranche at an absolute block height. Beneficiary can claim alone
+// after the timelock; trustees retain an escape hatch any time so
+// unclaimed funds aren't stranded.
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TranchePolicy {
+    pub beneficiary_key: PublicKey,
+    pub trustee_keys: Vec<PublicKey>,
+    pub trustee_quorum: usize,
+    /// Absolute block height at which the beneficiary path unlocks.
+    pub unlock_block: u32,
+}
+
+pub fn compile_tranche_tr_multileaf(
+    policy: TranchePolicy,
+    network: Network,
+) -> Result<CompiledVault, PolicyError> {
+    if policy.trustee_quorum == 0 || policy.trustee_quorum > policy.trustee_keys.len() {
+        return Err(PolicyError::InvalidQuorum);
+    }
+
+    let secp = Secp256k1::verification_only();
+
+    let nums_bytes = hex::decode(NUMS_HEX)
+        .map_err(|e| PolicyError::Descriptor(format!("NUMS decode: {e}")))?;
+    let internal_key = XOnlyPublicKey::from_slice(&nums_bytes)
+        .map_err(|e| PolicyError::Descriptor(format!("NUMS xonly: {e}")))?;
+
+    let trustees: Vec<String> = policy
+        .trustee_keys
+        .iter()
+        .map(|k| format!("pk({k})"))
+        .collect();
+    let trustee_thresh = format!("thresh({},{})", policy.trustee_quorum, trustees.join(","));
+    let beneficiary_branch = format!(
+        "and(after({}),pk({}))",
+        policy.unlock_block, policy.beneficiary_key,
+    );
+
+    let compile_leaf = |s: &str| -> Result<Miniscript<PublicKey, miniscript::Tap>, PolicyError> {
+        s.parse::<Concrete<PublicKey>>()
+            .map_err(|e| PolicyError::Miniscript(format!("parse {s}: {e:?}")))?
+            .compile()
+            .map_err(|e| PolicyError::Miniscript(format!("compile {s}: {e:?}")))
+    };
+
+    let ms_beneficiary = compile_leaf(&beneficiary_branch)?;
+    let ms_trustees = compile_leaf(&trustee_thresh)?;
+
     let builder = TaprootBuilder::new()
-        .add_leaf(1, ms_founder.encode())
-        .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?
-        .add_leaf(2, ms_recovery.encode())
-        .map_err(|e| PolicyError::Descriptor(format!("leaf recovery: {e:?}")))?
-        .add_leaf(2, ms_inheritance.encode())
-        .map_err(|e| PolicyError::Descriptor(format!("leaf inheritance: {e:?}")))?;
+        .add_leaf(1, ms_beneficiary.encode())
+        .map_err(|e| PolicyError::Descriptor(format!("leaf beneficiary: {e:?}")))?
+        .add_leaf(1, ms_trustees.encode())
+        .map_err(|e| PolicyError::Descriptor(format!("leaf trustees: {e:?}")))?;
 
     let spend_info = builder
         .finalize(&secp, internal_key)
         .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
 
     let addr = Address::p2tr_tweaked(spend_info.output_key(), network);
-
-    let descriptor = format!(
-        "tr({},{{{},{{{},{}}}}})",
-        internal_key, ms_founder, ms_recovery, ms_inheritance
-    );
-
-    let miniscript_policy = format!(
-        "or({},or({},{}))",
-        founder_thresh, recovery_branch, inheritance_branch
-    );
+    let descriptor = format!("tr({},{{{},{}}})", internal_key, ms_beneficiary, ms_trustees);
+    let miniscript_policy = format!("or({},{})", beneficiary_branch, trustee_thresh);
 
     Ok(CompiledVault {
         miniscript_policy,
@@ -240,14 +439,38 @@ fn build_policy_string(policy: &DynastyPolicy) -> String {
         .map(|k| format!("pk({k})"))
         .collect();
 
+    let trustee_thresh = format!("thresh({},{})", policy.founder_quorum, founders.join(","));
+    let founder_thresh = if policy.has_consent() {
+        let consenters: Vec<String> = policy
+            .consent_keys
+            .iter()
+            .map(|k| format!("pk({k})"))
+            .collect();
+        let consent_thresh = format!(
+            "thresh({},{})",
+            policy.consent_quorum.unwrap(),
+            consenters.join(","),
+        );
+        format!("and({},{})", trustee_thresh, consent_thresh)
+    } else {
+        trustee_thresh
+    };
+
+    if policy.is_plain() {
+        return founder_thresh;
+    }
+
     let heirs: Vec<String> = policy
         .heir_keys
         .iter()
         .map(|k| format!("pk({k})"))
         .collect();
 
-    let founder_thresh = format!("thresh({},{})", policy.founder_quorum, founders.join(","));
-    let recovery_branch = format!("and(after({}),{})", policy.recovery_after, founder_thresh);
+    // Recovery branch uses its own quorum when the trust asked for
+    // one; otherwise falls back to founder_quorum (legacy rows).
+    let recovery_quorum = policy.recovery_quorum.unwrap_or(policy.founder_quorum);
+    let recovery_thresh = format!("thresh({},{})", recovery_quorum, founders.join(","));
+    let recovery_branch = format!("and(after({}),{})", policy.recovery_after, recovery_thresh);
     let inheritance_branch = format!(
         "and(after({}),thresh({},{}))",
         policy.inheritance_after,
@@ -255,15 +478,57 @@ fn build_policy_string(policy: &DynastyPolicy) -> String {
         heirs.join(",")
     );
 
-    format!(
+    let base = format!(
         "or({},or({},{}))",
         founder_thresh, recovery_branch, inheritance_branch
-    )
+    );
+
+    if policy.has_protector() {
+        let protectors: Vec<String> = policy
+            .protector_keys
+            .iter()
+            .map(|k| format!("pk({k})"))
+            .collect();
+        let protector_branch = format!(
+            "and(after({}),thresh({},{}))",
+            policy.protector_after.unwrap(),
+            policy.protector_quorum.unwrap(),
+            protectors.join(",")
+        );
+        format!("or({},{})", base, protector_branch)
+    } else {
+        base
+    }
 }
 
 fn verify(policy: &DynastyPolicy) -> Result<(), PolicyError> {
     if policy.founder_quorum == 0 || policy.founder_quorum > policy.founder_keys.len() {
         return Err(PolicyError::InvalidQuorum);
+    }
+
+    if let Some(rq) = policy.recovery_quorum {
+        if rq == 0 || rq > policy.founder_keys.len() {
+            return Err(PolicyError::InvalidQuorum);
+        }
+    }
+
+    if policy.has_protector() {
+        let pq = policy.protector_quorum.unwrap();
+        if pq == 0 || pq > policy.protector_keys.len() {
+            return Err(PolicyError::InvalidQuorum);
+        }
+    }
+
+    if policy.has_consent() {
+        let cq = policy.consent_quorum.unwrap();
+        if cq == 0 || cq > policy.consent_keys.len() {
+            return Err(PolicyError::InvalidQuorum);
+        }
+    }
+
+    if policy.is_plain() {
+        // Plain mode: only the founder threshold matters.
+        return Ok(());
     }
 
     if policy.heir_quorum == 0 || policy.heir_quorum > policy.heir_keys.len() {

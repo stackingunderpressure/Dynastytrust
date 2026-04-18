@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["protocol", "backend", "cli", "compiler"]
+members = ["protocol", "compiler"]
 
 [profile.release]
 # Catch integer overflow in release builds (important for PSBT arithmetic)

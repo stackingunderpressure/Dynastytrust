@@ -8,7 +8,16 @@ import {
   type VaultMember,
   type VaultInvite,
   type VaultRole,
+  type TrustDoc,
+  type DistributionRule,
+  type VaultRequest,
+  type VaultRequestStatus,
+  type ScheduledStipend,
+  type StipendInterval,
+  type DistributionWallet,
+  type DistributionTranche,
 } from "../lib/api";
+import { supabase } from "../lib/supabase";
 import { listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
 import { signPsbtWithMnemonic, countSignatures, mergePsbts } from "../lib/psbt-signer";
 import { APP_NAME, broadcastTxUrl, explorerTxUrl } from "../config";
@@ -20,10 +29,27 @@ import { useRealtimeRefresh } from "../lib/realtime";
 import { normalizePsbt } from "../lib/psbt-format";
 import { downloadVault } from "../lib/descriptor-backup";
 import { pubkeyFromXpub, fingerprintFromXpub } from "../lib/xpub";
+import { tipHeight, blocksToApproxLabel, approxWallclockDate } from "../lib/chain";
 
 
 function satsToBtc(sats: number): string {
   return (sats / 1e8).toFixed(8).replace(/\.?0+$/, "") || "0";
+}
+
+// Step a date forward by a stipend interval. Month/quarter/year
+// arithmetic uses calendar-anchored addition so "monthly" stays on
+// the same day-of-month, not 30d intervals that drift.
+function advanceDueDate(from: Date, interval: StipendInterval): Date {
+  const d = new Date(from.getTime());
+  if (interval === "weekly") d.setUTCDate(d.getUTCDate() + 7);
+  else if (interval === "monthly") d.setUTCMonth(d.getUTCMonth() + 1);
+  else if (interval === "quarterly") d.setUTCMonth(d.getUTCMonth() + 3);
+  else if (interval === "annually") d.setUTCFullYear(d.getUTCFullYear() + 1);
+  return d;
+}
+
+function intervalLabel(k: StipendInterval): string {
+  return k.charAt(0).toUpperCase() + k.slice(1);
 }
 
 function blocksToLabel(blocks: number): string {
@@ -39,6 +65,33 @@ function statusColor(s: string): string {
   if (s === "signed") return colors.gold;
   if (s === "cancelled") return colors.muted;
   return colors.blue;
+}
+
+// Map schema role to trust-deed wording shown across the UI.
+// owner, founder -> trustee; heir -> successor trustee; viewer ->
+// observer. Keeping the schema names stable keeps DB queries and
+// RLS policies unchanged.
+function roleLabel(role: string): string {
+  switch (role) {
+    case "owner":
+      return "Primary trustee";
+    case "founder":
+      return "Trustee";
+    case "heir":
+      return "Successor trustee";
+    case "protector":
+      return "Protector";
+    case "viewer":
+      return "Observer";
+    case "beneficiary":
+      return "Beneficiary";
+    default:
+      return role;
+  }
+}
+
+function isTrusteeRole(role: string): boolean {
+  return role === "owner" || role === "founder";
 }
 
 export default function VaultDetail() {
@@ -70,9 +123,15 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
   const toast = useToast();
   const [balance, setBalance] = useState<BalanceResult | null>(null);
   const [proposals, setProposals] = useState<Proposal[]>([]);
-  const [tab, setTab] = useState<"overview" | "send" | "history" | "members" | "activity">("overview");
+  const [tab, setTab] = useState<"overview" | "send" | "history" | "members" | "activity" | "requests">("overview");
   const [archiving, setArchiving] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [sendPrefill, setSendPrefill] = useState<SendPrefill | null>(null);
+
+  function prefillSend(p: SendPrefill) {
+    setSendPrefill(p);
+    setTab("send");
+  }
 
   const load = useCallback(async () => {
     const [balRes, propRes] = await Promise.allSettled([
@@ -283,6 +342,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
             : [
                 { id: "overview", label: "Overview" },
                 { id: "send", label: "Send" },
+                { id: "requests", label: "Requests" },
                 { id: "history", label: "History", count: pendingCount },
                 { id: "members", label: "Members" },
                 { id: "activity", label: "Activity" },
@@ -326,13 +386,14 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
         </div>
 
         {tab === "overview" && (
-          <OverviewTab vault={vault} copy={copy} copied={copied} />
+          <OverviewTab vault={vault} copy={copy} copied={copied} onSendPrefill={prefillSend} />
         )}
         {tab === "send" && (
           <SendTab
             vault={vault}
             balance={balance}
-            onDone={() => { void load(); setTab("history"); }}
+            prefill={sendPrefill}
+            onDone={() => { setSendPrefill(null); void load(); setTab("history"); }}
           />
         )}
         {tab === "history" && (
@@ -340,6 +401,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
         )}
         {tab === "members" && <MembersTab vault={vault} />}
         {tab === "activity" && <ActivityTab vault={vault} />}
+        {tab === "requests" && <RequestsTab vault={vault} />}
       </main>
     </div>
   );
@@ -351,34 +413,74 @@ function OverviewTab({
   vault,
   copy,
   copied,
+  onSendPrefill,
 }: {
   vault: Vault;
   copy: (text: string, id: string) => void;
   copied: string | null;
+  onSendPrefill: (p: SendPrefill) => void;
 }) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      {/* Spending paths */}
-      {[
+  // Inheritance vaults get all three spending paths; plain vaults
+  // (no heirs, no timelocks) get only the trustee-now path.
+  const plain =
+    (vault.heir_keys?.length ?? 0) === 0 &&
+    vault.recovery_after === 0 &&
+    vault.inheritance_after === 0;
+
+  const paths = plain
+    ? [
         {
           num: 1,
           color: colors.gold,
-          title: "Founders - Now",
-          body: `${vault.founder_quorum} of ${vault.founder_keys.length} founder signatures required. Available at any time.`,
+          title: "Trustees - Now",
+          body: `${vault.founder_quorum} of ${vault.founder_keys.length} trustee signatures required. Available at any time.`,
+        },
+      ]
+    : [
+        {
+          num: 1,
+          color: colors.gold,
+          title: "Trustees - Now",
+          body: `${vault.founder_quorum} of ${vault.founder_keys.length} trustee signatures required. Available at any time.`,
         },
         {
           num: 2,
           color: colors.blue,
           title: "Recovery - " + blocksToLabel(vault.recovery_after),
-          body: `Founders can recover after ${vault.recovery_after.toLocaleString()} blocks using a separate path.`,
+          body:
+            vault.recovery_quorum != null && vault.recovery_quorum !== vault.founder_quorum
+              ? `${vault.recovery_quorum} of ${vault.founder_keys.length} trustee signatures after ${vault.recovery_after.toLocaleString()} blocks. Insurance against a lost device: quorum drops below the normal ${vault.founder_quorum}-of-${vault.founder_keys.length} so trustees can still spend if one key is gone.`
+              : `Trustees can recover after ${vault.recovery_after.toLocaleString()} blocks. Note: the recovery quorum matches the normal quorum, so this path grants no extra capability.`,
         },
         {
           num: 3,
           color: colors.green,
           title: "Inheritance - " + blocksToLabel(vault.inheritance_after),
-          body: `${vault.heir_quorum} of ${vault.heir_keys.length} heir signatures after ${vault.inheritance_after.toLocaleString()} blocks.`,
+          body: `${vault.heir_quorum} of ${vault.heir_keys.length} successor signatures after ${vault.inheritance_after.toLocaleString()} blocks. Triggered only if the trustees are unreachable for the full window.`,
         },
-      ].map(p => (
+        ...(vault.protector_keys.length > 0 &&
+        vault.protector_quorum != null &&
+        vault.protector_after != null
+          ? [
+              {
+                num: 4,
+                color: colors.blue,
+                title: "Protector - " + blocksToLabel(vault.protector_after),
+                body: `${vault.protector_quorum} of ${vault.protector_keys.length} protector signatures after ${vault.protector_after.toLocaleString()} blocks. An independent watchdog who can rescue funds if trustees go rogue before inheritance triggers.`,
+              },
+            ]
+          : []),
+      ];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {!plain && <TimelockCountdown vault={vault} />}
+      <TrustDocSection vault={vault} />
+      <StipendsSection vault={vault} onSendPrefill={onSendPrefill} />
+      <DistributionWalletsSection vault={vault} onSendPrefill={onSendPrefill} />
+
+      {/* Spending paths */}
+      {paths.map(p => (
         <div
           key={p.num}
           style={{
@@ -418,8 +520,8 @@ function OverviewTab({
       >
         {[
           ["Address type", vault.address_type.toUpperCase()],
-          ["Founder quorum", `${vault.founder_quorum} of ${vault.founder_keys.length}`],
-          ["Heir quorum", `${vault.heir_quorum} of ${vault.heir_keys.length}`],
+          ["Trustee quorum", `${vault.founder_quorum} of ${vault.founder_keys.length}`],
+          ["Successor quorum", `${vault.heir_quorum} of ${vault.heir_keys.length}`],
           ["Recovery", `${vault.recovery_after.toLocaleString()} blocks`],
           ["Inheritance", `${vault.inheritance_after.toLocaleString()} blocks`],
         ].map(([k, v]) => (
@@ -499,6 +601,19 @@ function OverviewTab({
 
 type SendStep = "form" | "signing" | "done";
 
+// Optional pre-filled fields pushed from a scheduled stipend row.
+// When `stipend_id` is set, successful broadcast bumps the stipend's
+// next_due_at by its interval.
+interface SendPrefill {
+  stipend_id?: string;
+  stipend_interval?: StipendInterval;
+  destination?: string;
+  amount_sats?: number;
+  rule_id?: string | null;
+  memo?: string;
+  name?: string;
+}
+
 interface SigningState {
   psbt_hex: string;
   psbt_b64: string;
@@ -516,16 +631,20 @@ interface SigningState {
   txid?: string;
 }
 
-function SendTab({ vault, balance, onDone }: {
+function SendTab({ vault, balance, onDone, prefill }: {
   vault: Vault;
   balance: BalanceResult | null;
   onDone: () => void;
+  prefill?: SendPrefill | null;
 }) {
   const [step, setStep] = useState<SendStep>("form");
-  const [dest, setDest] = useState("");
-  const [amountBtc, setAmountBtc] = useState("");
+  const [dest, setDest] = useState(prefill?.destination ?? "");
+  const [amountBtc, setAmountBtc] = useState(
+    prefill?.amount_sats ? satsToBtc(prefill.amount_sats) : "",
+  );
   const [feeRate, setFeeRate] = useState("");
-  const [memo, setMemo] = useState("");
+  const [memo, setMemo] = useState(prefill?.memo ?? "");
+  const [ruleId, setRuleId] = useState<string>(prefill?.rule_id ?? "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [signing, setSigning] = useState<SigningState | null>(null);
@@ -534,11 +653,30 @@ function SendTab({ vault, balance, onDone }: {
 
   const confirmedSats = balance?.confirmed_sats ?? 0;
   const amountSats = Math.round(parseFloat(amountBtc || "0") * 1e8);
+  const rules = vault.trust_doc?.rules ?? [];
+  const selectedRule = rules.find(r => r.id === ruleId);
 
   async function buildAndSign(e: React.FormEvent) {
     e.preventDefault();
     if (amountSats < 546) { setErr("Minimum 546 sats (dust limit)"); return; }
     if (amountSats > confirmedSats) { setErr("Insufficient confirmed balance"); return; }
+    // Enforce the structured trust rule if one is picked or if the
+    // trust has rules defined at all (in which case every spend
+    // should be categorised).
+    if (rules.length > 0 && !selectedRule) {
+      setErr("Pick a distribution rule. Every spend on this trust must be categorised.");
+      return;
+    }
+    if (selectedRule?.max_sats && amountSats > selectedRule.max_sats) {
+      setErr(
+        `Amount exceeds the cap on rule "${selectedRule.name}" (max ${satsToBtc(selectedRule.max_sats)} BTC per spend).`,
+      );
+      return;
+    }
+    if (selectedRule?.requires_comment && !memo.trim()) {
+      setErr(`Rule "${selectedRule.name}" requires a reason. Fill in the memo field.`);
+      return;
+    }
     setBusy(true); setErr(null); setSlowHint(false);
     const slowTimer = window.setTimeout(() => setSlowHint(true), 1500);
 
@@ -577,7 +715,9 @@ function SendTab({ vault, balance, onDone }: {
         destination: dest.trim(),
         amount_sats: amountSats,
         path: "founders_now",
-        memo: memo || undefined,
+        memo: selectedRule
+          ? `Rule: ${selectedRule.name}${memo.trim() ? ` -- ${memo.trim()}` : ""}`
+          : memo || undefined,
         psbt_hex: psbtRes.psbt_hex,
         psbt_b64: psbtRes.psbt_b64,
         fee_sats: psbtRes.summary.fee_sats,
@@ -733,6 +873,21 @@ function SendTab({ vault, balance, onDone }: {
       // Update proposal
       if (signing.proposal_id) {
         await api.proposals.update(signing.proposal_id, { status: "broadcast", txid });
+      }
+
+      // Advance the stipend's next_due_at by its interval so the
+      // schedule ticks forward without manual bookkeeping.
+      if (prefill?.stipend_id && prefill.stipend_interval) {
+        const next = advanceDueDate(new Date(), prefill.stipend_interval).toISOString();
+        try {
+          await api.stipends.update(prefill.stipend_id, {
+            next_due_at: next,
+            last_proposed_at: new Date().toISOString(),
+            last_proposal_id: signing.proposal_id ?? null,
+          });
+        } catch {
+          /* non-fatal: broadcast already happened */
+        }
       }
 
       setSigning(prev => prev ? { ...prev, txid } : prev);
@@ -1090,9 +1245,55 @@ function SendTab({ vault, balance, onDone }: {
         </div>
       </div>
 
+      {rules.length > 0 && (
+        <div>
+          <Label>Distribution rule</Label>
+          <select
+            value={ruleId}
+            onChange={e => setRuleId(e.target.value)}
+            style={{
+              width: "100%",
+              padding: "11px 13px",
+              background: colors.input,
+              border: `1px solid ${colors.border}`,
+              borderRadius: radii.md,
+              color: colors.text,
+              fontSize: 14,
+              fontFamily: fonts.sans,
+              boxSizing: "border-box",
+            }}
+          >
+            <option value="">-- pick a rule --</option>
+            {rules.map(r => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+                {r.max_sats ? ` (max ${satsToBtc(r.max_sats)} BTC)` : ""}
+              </option>
+            ))}
+          </select>
+          {selectedRule?.notes && (
+            <div style={{ fontSize: 11, color: colors.muted, marginTop: 6 }}>
+              {selectedRule.notes}
+            </div>
+          )}
+        </div>
+      )}
+
       <div>
-        <Label>Memo (optional)</Label>
-        <Input value={memo} onChange={e => setMemo(e.target.value)} placeholder="Note" />
+        <Label>
+          {selectedRule?.requires_comment
+            ? "Reason (required by this rule)"
+            : "Memo (optional)"}
+        </Label>
+        <Input
+          value={memo}
+          onChange={e => setMemo(e.target.value)}
+          placeholder={
+            selectedRule?.requires_comment
+              ? "Why this spend? Which clause of the trust does it satisfy?"
+              : "Note"
+          }
+        />
       </div>
 
       {err && <p style={{ color: colors.red, fontSize: 13, margin: 0 }}>{err}</p>}
@@ -1507,12 +1708,12 @@ function MemberRow({ member: m, onRemove }: { member: VaultMember; onRemove: () 
                 letterSpacing: "0.06em",
               }}
             >
-              OWNER
+              PRIMARY TRUSTEE
             </span>
           )}
         </div>
         <div style={{ fontSize: 11, color: colors.muted }}>
-          {m.role}
+          {roleLabel(m.role)}
           {m.fingerprint ? ` / ${m.fingerprint}` : " / no key yet"}
         </div>
       </div>
@@ -1547,7 +1748,7 @@ function InviteRow({
     >
       <div>
         <div style={{ fontSize: 14, color: colors.text }}>
-          {invite.invited_label ?? "Unnamed"} ({invite.invited_role})
+          {invite.invited_label ?? "Unnamed"} ({roleLabel(invite.invited_role)})
         </div>
         <div style={{ fontSize: 11, color: colors.muted }}>
           Expires {expires.toLocaleDateString()}
@@ -1653,9 +1854,11 @@ function InviteModal({
                 boxSizing: "border-box",
               }}
             >
-              <option value="founder">Founder (can sign immediately)</option>
-              <option value="heir">Heir (inheritance path only)</option>
-              <option value="viewer">Viewer (read-only)</option>
+              <option value="founder">Trustee (can sign immediately)</option>
+              <option value="heir">Successor trustee (inheritance path)</option>
+              <option value="protector">Protector (can intervene if trustees go rogue)</option>
+              <option value="beneficiary">Beneficiary (receives distributions, files requests)</option>
+              <option value="viewer">Observer (read-only)</option>
             </select>
           </div>
           <div>
@@ -1790,6 +1993,28 @@ function describeEvent(e: VaultEvent): { icon: string; title: string; color: str
       };
     case "cancelled":
       return { icon: "x", title: `Proposal cancelled`, color: colors.muted };
+    case "commented":
+      return { icon: "c", title: `Discussion comment`, color: colors.sub };
+    case "voted_approve":
+      return { icon: "+", title: `Vote: approve`, color: colors.green };
+    case "voted_abstain":
+      return { icon: "o", title: `Vote: abstain`, color: colors.muted };
+    case "voted_decline":
+      return { icon: "-", title: `Vote: decline`, color: colors.red };
+    case "request_created":
+      return {
+        icon: "R",
+        title: `Distribution request${meta.rule_name ? ` (${String(meta.rule_name)})` : ""}${meta.amount_sats ? ` -- ${(Number(meta.amount_sats) / 1e8).toFixed(8).replace(/\.?0+$/, "")} BTC` : ""}`,
+        color: colors.orange,
+      };
+    case "request_approved":
+      return { icon: "+", title: "Request approved", color: colors.green };
+    case "request_declined":
+      return { icon: "x", title: "Request declined", color: colors.red };
+    case "request_fulfilled":
+      return { icon: "!", title: "Request fulfilled", color: colors.green };
+    case "request_cancelled":
+      return { icon: "o", title: "Request cancelled", color: colors.muted };
     default:
       return { icon: "*", title: e.event_type, color: colors.sub };
   }
@@ -1853,5 +2078,1861 @@ function DraftCompileButton({ vault }: { vault: Vault }) {
           ? "Compile vault"
           : `Waiting on ${plannedF - foundersReady} founder${plannedF - foundersReady === 1 ? "" : "s"}${plannedH > 0 ? `, ${plannedH - heirsReady} heir${plannedH - heirsReady === 1 ? "" : "s"}` : ""}`}
     </Button>
+  );
+}
+
+// // -- Timelock countdown
+// Fetches the mempool.space tip block height and renders a live
+// countdown for the recovery and inheritance branches. Refreshes
+// every minute silently.
+
+function TimelockCountdown({ vault }: { vault: Vault }) {
+  const [tip, setTip] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchTip() {
+      try {
+        const h = await tipHeight(vault.network);
+        if (!cancelled) setTip(h);
+      } catch {
+        /* mempool.space is best-effort */
+      }
+    }
+    void fetchTip();
+    const iv = window.setInterval(() => void fetchTip(), 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(iv);
+    };
+  }, [vault.network]);
+
+  const rows = [
+    { label: "Recovery", blocks: vault.recovery_after, color: colors.blue },
+    { label: "Inheritance", blocks: vault.inheritance_after, color: colors.green },
+  ];
+
+  return (
+    <div
+      style={{
+        background: colors.surface,
+        border: `1px solid ${colors.border}`,
+        borderRadius: 12,
+        padding: "14px 16px",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: "0.1em",
+          color: colors.muted,
+          marginBottom: 10,
+          textTransform: "uppercase",
+        }}
+      >
+        Timelocks
+      </div>
+      {rows.map(r => {
+        const unlocksAt = approxWallclockDate(r.blocks);
+        const unlocksLabel = blocksToApproxLabel(r.blocks);
+        return (
+          <div
+            key={r.label}
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              padding: "6px 0",
+              borderTop: `1px solid ${colors.border}`,
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 13, color: colors.text }}>{r.label}</div>
+              <div style={{ fontSize: 11, color: colors.muted }}>
+                {tip != null
+                  ? `Tip ${tip.toLocaleString()} / locked for ${r.blocks.toLocaleString()} blocks`
+                  : `${r.blocks.toLocaleString()} blocks`}
+              </div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 13, color: r.color, fontWeight: 600 }}>
+                {unlocksLabel}
+              </div>
+              <div style={{ fontSize: 11, color: colors.muted }}>
+                {unlocksAt.toLocaleDateString()}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// // -- Trust document
+// Purpose, beneficiaries, distribution rules, succession notes.
+// Every member sees it; only the vault owner can edit.
+
+function TrustDocSection({ vault }: { vault: Vault }) {
+  const toast = useToast();
+  const [editing, setEditing] = useState(false);
+  const [doc, setDoc] = useState<TrustDoc>(vault.trust_doc ?? {});
+  const [session, setSession] = useState<{ user: { id: string } } | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    // Lightweight: we only need to compare user_id to decide if
+    // the edit button should appear. Session comes from Supabase.
+    import("../lib/supabase").then(({ supabase }) => {
+      supabase.auth.getSession().then(({ data }) => {
+        setSession(data.session as unknown as { user: { id: string } });
+      });
+    });
+  }, []);
+
+  const isOwner = session?.user.id === vault.user_id;
+  const empty =
+    !doc.purpose && !doc.distribution_rules && !doc.succession_notes && !(doc.beneficiaries ?? []).length;
+
+  async function save() {
+    setSaving(true);
+    try {
+      await api.vaults.updateTrustDoc(vault.id, doc);
+      toast.success("Trust document saved");
+      setEditing(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!editing) {
+    return (
+      <div
+        style={{
+          background: colors.surface,
+          border: `1px solid ${colors.border}`,
+          borderRadius: 12,
+          padding: "14px 16px",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: empty ? 0 : 10,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: "0.1em",
+              color: colors.muted,
+              textTransform: "uppercase",
+            }}
+          >
+            Trust document
+          </div>
+          {isOwner && (
+            <Button
+              variant="ghost"
+              size="sm"
+              style={{ fontSize: 11, padding: "3px 9px" }}
+              onClick={() => setEditing(true)}
+            >
+              {empty ? "Add" : "Edit"}
+            </Button>
+          )}
+        </div>
+        {empty ? (
+          <div style={{ fontSize: 12, color: colors.muted, marginTop: 8 }}>
+            No trust document yet. {isOwner ? "Describe the purpose, beneficiaries, and distribution rules so every member signs with context." : "The trustee hasn't filled this in yet."}
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {doc.purpose && (
+              <TrustField label="Purpose" value={doc.purpose} />
+            )}
+            {(doc.beneficiaries ?? []).length > 0 && (
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: colors.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>
+                  Beneficiaries
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  {(doc.beneficiaries ?? []).map((b, i) => (
+                    <div key={i} style={{ fontSize: 13, color: colors.text }}>
+                      {b.name}
+                      {b.relation ? (
+                        <span style={{ color: colors.muted }}> -- {b.relation}</span>
+                      ) : null}
+                      {b.notes ? (
+                        <div style={{ fontSize: 11, color: colors.muted }}>
+                          {b.notes}
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {doc.distribution_rules && (
+              <TrustField label="Distribution rules" value={doc.distribution_rules} />
+            )}
+            {(doc.rules ?? []).length > 0 && (
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: colors.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>
+                  Enforced rules
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {(doc.rules ?? []).map(r => (
+                    <div key={r.id} style={{ fontSize: 13, color: colors.text }}>
+                      {r.name}
+                      {r.max_sats ? (
+                        <span style={{ color: colors.muted }}>
+                          {" "} / max {satsToBtc(r.max_sats)} BTC per spend
+                        </span>
+                      ) : null}
+                      {r.requires_comment && (
+                        <span style={{ color: colors.orange, marginLeft: 6, fontSize: 11 }}>
+                          requires reason
+                        </span>
+                      )}
+                      {r.notes && (
+                        <div style={{ fontSize: 11, color: colors.muted }}>
+                          {r.notes}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {doc.succession_notes && (
+              <TrustField label="Succession" value={doc.succession_notes} />
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Edit mode
+  return (
+    <div
+      style={{
+        background: colors.surface,
+        border: `1px solid ${colors.gold}44`,
+        borderRadius: 12,
+        padding: "14px 16px",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: "0.1em",
+          color: colors.gold,
+          marginBottom: 12,
+          textTransform: "uppercase",
+        }}
+      >
+        Edit trust document
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div>
+          <Label>Purpose</Label>
+          <Textarea
+            rows={2}
+            value={doc.purpose ?? ""}
+            onChange={e => setDoc({ ...doc, purpose: e.target.value })}
+            placeholder="Why this trust exists. One or two sentences."
+          />
+        </div>
+        <div>
+          <Label>Beneficiaries (one per line: Name, Relation, Notes)</Label>
+          <Textarea
+            rows={3}
+            mono
+            value={(doc.beneficiaries ?? [])
+              .map(b => [b.name, b.relation ?? "", b.notes ?? ""].join(" | "))
+              .join("\n")}
+            onChange={e => {
+              const list = e.target.value
+                .split("\n")
+                .map(l => l.split("|").map(s => s.trim()))
+                .filter(cols => cols[0])
+                .map(cols => ({
+                  name: cols[0],
+                  relation: cols[1] || undefined,
+                  notes: cols[2] || undefined,
+                }));
+              setDoc({ ...doc, beneficiaries: list });
+            }}
+            placeholder="Sarah Smith | daughter | receives educational distributions"
+          />
+        </div>
+        <div>
+          <Label>Distribution rules</Label>
+          <Textarea
+            rows={3}
+            value={doc.distribution_rules ?? ""}
+            onChange={e => setDoc({ ...doc, distribution_rules: e.target.value })}
+            placeholder="When and why the trust spends. E.g. 'Up to 0.1 BTC quarterly for education; medical emergencies up to 0.5 BTC with 2-trustee approval.'"
+          />
+        </div>
+        <div>
+          <Label>Succession notes</Label>
+          <Textarea
+            rows={2}
+            value={doc.succession_notes ?? ""}
+            onChange={e => setDoc({ ...doc, succession_notes: e.target.value })}
+            placeholder="Who takes over if the primary trustee is incapacitated. Refers to the inheritance timelock path."
+          />
+        </div>
+        <TrustRulesEditor
+          rules={doc.rules ?? []}
+          onChange={rules => setDoc({ ...doc, rules })}
+        />
+        <div style={{ display: "flex", gap: 10 }}>
+          <Button variant="ghost" onClick={() => { setDoc(vault.trust_doc ?? {}); setEditing(false); }}>
+            Cancel
+          </Button>
+          <Button disabled={saving} onClick={() => void save()}>
+            {saving ? "Saving..." : "Save trust document"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// // -- Scheduled stipends (T-stipend mode)
+// UX schedule layer over the existing proposal/signing pipeline.
+// Not Bitcoin-enforced vesting -- every spend still requires real
+// trustee signatures. This just surfaces what's due and prefills
+// the Send form so nobody has to remember dates.
+
+const INTERVAL_OPTIONS: StipendInterval[] = ["weekly", "monthly", "quarterly", "annually"];
+
+function StipendsSection({
+  vault,
+  onSendPrefill,
+}: {
+  vault: Vault;
+  onSendPrefill: (p: SendPrefill) => void;
+}) {
+  const toast = useToast();
+  const [list, setList] = useState<ScheduledStipend[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [session, setSession] = useState<{ user: { id: string } } | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session as unknown as { user: { id: string } });
+    });
+  }, []);
+
+  const isOwner = session?.user.id === vault.user_id;
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api.stipends.list(vault.id);
+      setList(res.stipends);
+    } catch {
+      /* empty state is fine */
+    } finally {
+      setLoading(false);
+    }
+  }, [vault.id]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  useRealtimeRefresh(
+    { table: "scheduled_stipends", filter: `vault_id=eq.${vault.id}` },
+    () => void load(),
+  );
+
+  const now = Date.now();
+  const overdueCount = list.filter(
+    s => s.active && new Date(s.next_due_at).getTime() <= now,
+  ).length;
+
+  async function remove(id: string) {
+    if (!confirm("Remove this stipend?")) return;
+    try {
+      await api.stipends.remove(id);
+      toast.success("Stipend removed");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    }
+  }
+
+  async function toggleActive(s: ScheduledStipend) {
+    try {
+      await api.stipends.update(s.id, { active: !s.active });
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    }
+  }
+
+  function sendFrom(s: ScheduledStipend) {
+    onSendPrefill({
+      stipend_id: s.id,
+      stipend_interval: s.interval_kind,
+      destination: s.destination ?? undefined,
+      amount_sats: s.amount_sats,
+      rule_id: s.rule_id,
+      memo: `Stipend: ${s.name}`,
+      name: s.name,
+    });
+  }
+
+  if (loading) return null;
+  if (!isOwner && list.length === 0) return null;
+
+  return (
+    <div
+      style={{
+        background: colors.surface,
+        border: `1px solid ${colors.border}`,
+        borderRadius: 12,
+        padding: "14px 16px",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: list.length === 0 && !adding ? 0 : 10,
+          gap: 8,
+        }}
+      >
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: "0.1em",
+            color: colors.muted,
+            textTransform: "uppercase",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          Scheduled stipends
+          {overdueCount > 0 && (
+            <span
+              style={{
+                background: colors.orange,
+                color: colors.bg,
+                fontSize: 10,
+                fontWeight: 700,
+                borderRadius: 10,
+                padding: "1px 6px",
+              }}
+            >
+              {overdueCount} due
+            </span>
+          )}
+        </div>
+        {isOwner && !adding && (
+          <Button
+            variant="ghost"
+            size="sm"
+            style={{ fontSize: 11, padding: "3px 9px" }}
+            onClick={() => setAdding(true)}
+          >
+            Add
+          </Button>
+        )}
+      </div>
+
+      {list.length === 0 && !adding && isOwner && (
+        <div style={{ fontSize: 12, color: colors.muted, marginTop: 8 }}>
+          No stipends yet. Add a recurring distribution (monthly living expenses, quarterly tuition, annual charitable grants) so trustees see what's due without tracking dates manually. Every spend still needs real trustee signatures.
+        </div>
+      )}
+
+      {list.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {list.map(s => (
+            <StipendRow
+              key={s.id}
+              stipend={s}
+              isOwner={isOwner}
+              editing={editing === s.id}
+              onEdit={() => setEditing(s.id)}
+              onCancelEdit={() => setEditing(null)}
+              onSaved={() => { setEditing(null); void load(); }}
+              onRemove={() => remove(s.id)}
+              onToggle={() => toggleActive(s)}
+              onSend={() => sendFrom(s)}
+            />
+          ))}
+        </div>
+      )}
+
+      {adding && (
+        <div style={{ marginTop: 10 }}>
+          <StipendEditor
+            vault={vault}
+            onCancel={() => setAdding(false)}
+            onSaved={() => { setAdding(false); void load(); }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StipendRow({
+  stipend: s,
+  isOwner,
+  editing,
+  onEdit,
+  onCancelEdit,
+  onSaved,
+  onRemove,
+  onToggle,
+  onSend,
+}: {
+  stipend: ScheduledStipend;
+  isOwner: boolean;
+  editing: boolean;
+  onEdit: () => void;
+  onCancelEdit: () => void;
+  onSaved: () => void;
+  onRemove: () => void;
+  onToggle: () => void;
+  onSend: () => void;
+}) {
+  // editing branch renders the editor inline
+  if (editing) {
+    return (
+      <StipendEditor
+        vault={null}
+        stipend={s}
+        onCancel={onCancelEdit}
+        onSaved={onSaved}
+      />
+    );
+  }
+
+  const due = new Date(s.next_due_at).getTime();
+  const overdue = s.active && due <= Date.now();
+  const dueLabel = new Date(s.next_due_at).toLocaleDateString();
+
+  return (
+    <div
+      style={{
+        border: `1px solid ${overdue ? colors.orange + "66" : colors.border}`,
+        background: overdue ? colors.orange + "11" : "transparent",
+        borderRadius: 10,
+        padding: "10px 12px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: colors.text }}>
+          {s.name}
+          {!s.active && (
+            <span style={{ color: colors.muted, fontSize: 11, marginLeft: 6 }}>paused</span>
+          )}
+        </div>
+        <div style={{ fontSize: 12, color: overdue ? colors.orange : colors.sub }}>
+          {overdue ? "Due " : "Next "} {dueLabel}
+        </div>
+      </div>
+      <div style={{ fontSize: 12, color: colors.muted, display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <span>{satsToBtc(s.amount_sats)} BTC</span>
+        <span>{intervalLabel(s.interval_kind)}</span>
+        {s.recipient_name && <span>{s.recipient_name}</span>}
+      </div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+        {s.active && (
+          <Button size="sm" style={{ fontSize: 11 }} onClick={onSend}>
+            {overdue ? "Send now" : "Prefill send"}
+          </Button>
+        )}
+        {isOwner && (
+          <>
+            <Button variant="ghost" size="sm" style={{ fontSize: 11 }} onClick={onEdit}>
+              Edit
+            </Button>
+            <Button variant="ghost" size="sm" style={{ fontSize: 11 }} onClick={onToggle}>
+              {s.active ? "Pause" : "Resume"}
+            </Button>
+            <Button variant="danger" size="sm" style={{ fontSize: 11 }} onClick={onRemove}>
+              Remove
+            </Button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StipendEditor({
+  vault,
+  stipend,
+  onCancel,
+  onSaved,
+}: {
+  vault: Vault | null;
+  stipend?: ScheduledStipend;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const toast = useToast();
+  const existing = !!stipend;
+  const [name, setName] = useState(stipend?.name ?? "");
+  const [recipient, setRecipient] = useState(stipend?.recipient_name ?? "");
+  const [destination, setDestination] = useState(stipend?.destination ?? "");
+  const [amountBtc, setAmountBtc] = useState(
+    stipend ? satsToBtc(stipend.amount_sats) : "",
+  );
+  const [interval, setInterval] = useState<StipendInterval>(stipend?.interval_kind ?? "monthly");
+  const [ruleId, setRuleId] = useState<string>(stipend?.rule_id ?? "");
+  const [startsAt, setStartsAt] = useState<string>(
+    stipend
+      ? new Date(stipend.next_due_at).toISOString().slice(0, 10)
+      : new Date().toISOString().slice(0, 10),
+  );
+  const [saving, setSaving] = useState(false);
+
+  const rules: DistributionRule[] = vault?.trust_doc?.rules ?? [];
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    const amountSats = Math.round(parseFloat(amountBtc || "0") * 1e8);
+    if (!name.trim()) return toast.error("Name required");
+    if (amountSats < 546) return toast.error("Amount must be at least 546 sats");
+    setSaving(true);
+    try {
+      if (existing && stipend) {
+        await api.stipends.update(stipend.id, {
+          name: name.trim(),
+          recipient_name: recipient.trim() || null,
+          destination: destination.trim() || null,
+          rule_id: ruleId || null,
+          amount_sats: amountSats,
+          interval_kind: interval,
+          next_due_at: new Date(startsAt + "T00:00:00Z").toISOString(),
+        });
+        toast.success("Stipend updated");
+      } else if (vault) {
+        await api.stipends.create({
+          vault_id: vault.id,
+          name: name.trim(),
+          recipient_name: recipient.trim() || undefined,
+          destination: destination.trim() || undefined,
+          rule_id: ruleId || undefined,
+          amount_sats: amountSats,
+          interval_kind: interval,
+          starts_at: new Date(startsAt + "T00:00:00Z").toISOString(),
+        });
+        toast.success("Stipend created");
+      }
+      onSaved();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form
+      onSubmit={save}
+      style={{
+        border: `1px solid ${colors.gold}44`,
+        borderRadius: 10,
+        padding: 12,
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+      }}
+    >
+      <div>
+        <Label>Name</Label>
+        <Input
+          value={name}
+          onChange={e => setName(e.target.value)}
+          placeholder="Monthly living expenses"
+        />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div>
+          <Label>Recipient (optional)</Label>
+          <Input
+            value={recipient}
+            onChange={e => setRecipient(e.target.value)}
+            placeholder="Sarah"
+          />
+        </div>
+        <div>
+          <Label>Amount (BTC)</Label>
+          <Input
+            mono
+            value={amountBtc}
+            onChange={e => setAmountBtc(e.target.value)}
+            placeholder="0.01"
+          />
+        </div>
+      </div>
+      <div>
+        <Label>Destination address (optional)</Label>
+        <Input
+          mono
+          value={destination}
+          onChange={e => setDestination(e.target.value)}
+          placeholder="bc1q..."
+        />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div>
+          <Label>Interval</Label>
+          <select
+            value={interval}
+            onChange={e => setInterval(e.target.value as StipendInterval)}
+            style={{
+              width: "100%",
+              padding: "8px 10px",
+              background: colors.bg,
+              border: `1px solid ${colors.border}`,
+              borderRadius: radii.md,
+              color: colors.text,
+              fontFamily: fonts.sans,
+              fontSize: 13,
+            }}
+          >
+            {INTERVAL_OPTIONS.map(k => (
+              <option key={k} value={k}>{intervalLabel(k)}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <Label>Next due</Label>
+          <Input
+            type="date"
+            value={startsAt}
+            onChange={e => setStartsAt(e.target.value)}
+          />
+        </div>
+      </div>
+      {rules.length > 0 && (
+        <div>
+          <Label>Trust rule (optional)</Label>
+          <select
+            value={ruleId}
+            onChange={e => setRuleId(e.target.value)}
+            style={{
+              width: "100%",
+              padding: "8px 10px",
+              background: colors.bg,
+              border: `1px solid ${colors.border}`,
+              borderRadius: radii.md,
+              color: colors.text,
+              fontFamily: fonts.sans,
+              fontSize: 13,
+            }}
+          >
+            <option value="">No rule</option>
+            {rules.map(r => (
+              <option key={r.id} value={r.id}>{r.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+        <Button variant="ghost" size="sm" style={{ fontSize: 12 }} type="button" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button size="sm" style={{ fontSize: 12 }} disabled={saving} type="submit">
+          {saving ? "Saving..." : existing ? "Save" : "Create"}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function TrustField({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 600,
+          color: colors.muted,
+          textTransform: "uppercase",
+          letterSpacing: "0.08em",
+          marginBottom: 4,
+        }}
+      >
+        {label}
+      </div>
+      <div style={{ fontSize: 13, color: colors.text, whiteSpace: "pre-wrap" }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+// // -- Trust rules editor
+// Structured distribution-rules list. Used inside the trust doc
+// editor; the resulting rules gate the Send form client-side.
+
+function TrustRulesEditor({
+  rules,
+  onChange,
+}: {
+  rules: DistributionRule[];
+  onChange: (next: DistributionRule[]) => void;
+}) {
+  function update(i: number, patch: Partial<DistributionRule>) {
+    const next = rules.slice();
+    next[i] = { ...next[i], ...patch };
+    onChange(next);
+  }
+  function remove(i: number) {
+    onChange(rules.filter((_, j) => j !== i));
+  }
+  function add() {
+    onChange([
+      ...rules,
+      { id: crypto.randomUUID(), name: "", requires_comment: false },
+    ]);
+  }
+
+  return (
+    <div>
+      <Label>Enforced distribution rules</Label>
+      <div style={{ fontSize: 12, color: colors.muted, marginBottom: 10 }}>
+        Each rule gives the Send form a named category trustees must pick
+        from. Optional amount cap; optional required reason. These are
+        soft-enforced client-side, not on-chain.
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {rules.map((r, i) => (
+          <div
+            key={r.id}
+            style={{
+              background: "#0A0A14",
+              border: `1px solid ${colors.border}`,
+              borderRadius: radii.md,
+              padding: 10,
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+            }}
+          >
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <Input
+                value={r.name}
+                onChange={e => update(i, { name: e.target.value })}
+                placeholder="Rule name (e.g. Quarterly educational distribution)"
+                style={{ flex: 2 }}
+              />
+              <Input
+                type="number"
+                min="0"
+                step="0.00000001"
+                value={r.max_sats != null ? (r.max_sats / 1e8).toString() : ""}
+                onChange={e => {
+                  const parsed = parseFloat(e.target.value);
+                  update(i, {
+                    max_sats: Number.isFinite(parsed) && parsed > 0
+                      ? Math.round(parsed * 1e8)
+                      : null,
+                  });
+                }}
+                placeholder="Max BTC"
+                style={{ flex: 1 }}
+              />
+            </div>
+            <Input
+              value={r.notes ?? ""}
+              onChange={e => update(i, { notes: e.target.value })}
+              placeholder="Notes (tax category, trust clause reference...)"
+            />
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <label
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "center",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  color: colors.sub,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={!!r.requires_comment}
+                  onChange={e => update(i, { requires_comment: e.target.checked })}
+                />
+                Requires a reason note
+              </label>
+              <Button variant="ghost" size="sm" style={{ fontSize: 11 }} onClick={() => remove(i)}>
+                Remove
+              </Button>
+            </div>
+          </div>
+        ))}
+        <Button variant="ghost" size="sm" onClick={add}>
+          + Add rule
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// // -- Requests tab
+// Distribution request queue. Beneficiaries (or any member) file
+// a request; trustees approve -> creates a draft proposal
+// pre-filled with the amount + rule, or decline with a note.
+
+function RequestsTab({ vault }: { vault: Vault }) {
+  const toast = useToast();
+  const navigate = useNavigate();
+  const [requests, setRequests] = useState<VaultRequest[]>([]);
+  const [members, setMembers] = useState<VaultMember[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const [r, m] = await Promise.all([
+        api.vaultRequests.list(vault.id),
+        api.members.list(vault.id),
+      ]);
+      setRequests(r.requests);
+      setMembers(m.members);
+    } catch {
+      /* silent */
+    } finally {
+      setLoading(false);
+    }
+  }, [vault.id]);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setCurrentUserId(data.session?.user.id ?? null);
+    });
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useRealtimeRefresh(
+    { table: "vault_requests", filter: `vault_id=eq.${vault.id}` },
+    () => void load(),
+  );
+
+  const me = members.find(m => m.user_id === currentUserId);
+  const iAmTrustee = me ? isTrusteeRole(me.role) : false;
+
+  async function resolve(r: VaultRequest, status: VaultRequestStatus, note?: string) {
+    try {
+      await api.vaultRequests.update(r.id, {
+        status,
+        resolution_note: note,
+      });
+      toast.success(`Request ${status}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    }
+  }
+
+  function startProposalFromRequest(r: VaultRequest) {
+    // The Send tab reads state via form inputs; we can't prefill
+    // directly without a refactor, so we just navigate there and
+    // let the trustee paste the amount. Future improvement:
+    // pass amount + rule + reason via location state.
+    navigate(`/vaults/${vault.id}`, { state: { vault, sendPrefill: r } });
+    toast.info("Create the proposal in the Send tab with this request's details");
+  }
+
+  if (loading) return <p style={{ color: colors.muted, fontSize: 14 }}>Loading...</p>;
+
+  const pending = requests.filter(r => r.status === "pending");
+  const resolved = requests.filter(r => r.status !== "pending");
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        <div style={{ fontSize: 14, color: colors.muted }}>
+          {pending.length} pending, {resolved.length} resolved
+        </div>
+        <Button size="sm" onClick={() => setShowCreate(true)}>
+          + New request
+        </Button>
+      </div>
+
+      {pending.length > 0 ? (
+        <div
+          style={{
+            background: colors.surface,
+            border: `1px solid ${colors.border}`,
+            borderRadius: 12,
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              padding: "10px 16px",
+              borderBottom: `1px solid ${colors.border}`,
+              fontSize: 13,
+              fontWeight: 600,
+              color: colors.text,
+            }}
+          >
+            Pending
+          </div>
+          {pending.map(r => (
+            <RequestRow
+              key={r.id}
+              request={r}
+              requesterLabel={members.find(m => m.user_id === r.requested_by)?.label ?? "Member"}
+              iAmTrustee={iAmTrustee}
+              iAmRequester={r.requested_by === currentUserId}
+              onApprove={() => {
+                void resolve(r, "approved", "Create the proposal in Send.");
+                startProposalFromRequest(r);
+              }}
+              onDecline={() => {
+                const note = prompt("Reason for declining? (optional)") ?? undefined;
+                void resolve(r, "declined", note);
+              }}
+              onCancel={() => void resolve(r, "cancelled")}
+            />
+          ))}
+        </div>
+      ) : (
+        <p style={{ color: colors.muted, fontSize: 13 }}>
+          No pending requests. {iAmTrustee ? "Beneficiaries file here." : "Tap + New request to ask for a distribution."}
+        </p>
+      )}
+
+      {resolved.length > 0 && (
+        <div
+          style={{
+            background: colors.surface,
+            border: `1px solid ${colors.border}`,
+            borderRadius: 12,
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              padding: "10px 16px",
+              borderBottom: `1px solid ${colors.border}`,
+              fontSize: 13,
+              fontWeight: 600,
+              color: colors.muted,
+            }}
+          >
+            History
+          </div>
+          {resolved.map(r => (
+            <RequestRow
+              key={r.id}
+              request={r}
+              requesterLabel={members.find(m => m.user_id === r.requested_by)?.label ?? "Member"}
+              iAmTrustee={false}
+              iAmRequester={false}
+            />
+          ))}
+        </div>
+      )}
+
+      {showCreate && (
+        <NewRequestModal
+          vault={vault}
+          onClose={() => setShowCreate(false)}
+          onCreated={() => {
+            setShowCreate(false);
+            void load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function RequestRow({
+  request: r,
+  requesterLabel,
+  iAmTrustee,
+  iAmRequester,
+  onApprove,
+  onDecline,
+  onCancel,
+}: {
+  request: VaultRequest;
+  requesterLabel: string;
+  iAmTrustee: boolean;
+  iAmRequester: boolean;
+  onApprove?: () => void;
+  onDecline?: () => void;
+  onCancel?: () => void;
+}) {
+  const color =
+    r.status === "approved" || r.status === "fulfilled"
+      ? colors.green
+      : r.status === "declined" || r.status === "cancelled"
+        ? colors.red
+        : colors.orange;
+
+  return (
+    <div
+      style={{
+        padding: "12px 16px",
+        borderBottom: `1px solid ${colors.border}`,
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+        <div>
+          <span style={{ fontSize: 14, fontWeight: 600, color: colors.text, fontFamily: fonts.display }}>
+            {(r.amount_sats / 1e8).toFixed(8).replace(/\.?0+$/, "") || "0"} BTC
+          </span>
+          {r.rule_name && (
+            <span style={{ color: colors.muted, fontSize: 12, marginLeft: 8 }}>
+              via {r.rule_name}
+            </span>
+          )}
+        </div>
+        <span
+          style={{
+            fontSize: 10,
+            fontWeight: 700,
+            padding: "2px 7px",
+            borderRadius: 4,
+            background: color + "22",
+            color,
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+          }}
+        >
+          {r.status}
+        </span>
+      </div>
+      <div style={{ fontSize: 12, color: colors.muted }}>
+        Requested by {requesterLabel}
+        {r.recipient_name ? ` for ${r.recipient_name}` : ""}
+        {" / "}
+        {new Date(r.created_at).toLocaleDateString()}
+      </div>
+      {r.reason && (
+        <div style={{ fontSize: 13, color: colors.sub, whiteSpace: "pre-wrap" }}>{r.reason}</div>
+      )}
+      {r.resolution_note && (
+        <div style={{ fontSize: 12, color: colors.muted, fontStyle: "italic" }}>
+          Note: {r.resolution_note}
+        </div>
+      )}
+      {r.status === "pending" && (iAmTrustee || iAmRequester) && (
+        <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+          {iAmTrustee && onApprove && (
+            <Button size="sm" style={{ fontSize: 12 }} onClick={onApprove}>
+              Approve + create proposal
+            </Button>
+          )}
+          {iAmTrustee && onDecline && (
+            <Button variant="danger" size="sm" style={{ fontSize: 12 }} onClick={onDecline}>
+              Decline
+            </Button>
+          )}
+          {iAmRequester && onCancel && (
+            <Button variant="ghost" size="sm" style={{ fontSize: 12 }} onClick={onCancel}>
+              Cancel
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NewRequestModal({
+  vault,
+  onClose,
+  onCreated,
+}: {
+  vault: Vault;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const toast = useToast();
+  const rules = vault.trust_doc?.rules ?? [];
+  const [ruleId, setRuleId] = useState<string>(rules[0]?.id ?? "");
+  const [amountBtc, setAmountBtc] = useState("");
+  const [recipient, setRecipient] = useState("");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const selectedRule = rules.find(r => r.id === ruleId);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const sats = Math.round(parseFloat(amountBtc || "0") * 1e8);
+    if (sats < 546) {
+      setErr("Minimum 546 sats");
+      return;
+    }
+    if (selectedRule?.max_sats && sats > selectedRule.max_sats) {
+      setErr(
+        `Exceeds "${selectedRule.name}" cap of ${satsToBtc(selectedRule.max_sats)} BTC per request.`,
+      );
+      return;
+    }
+    if (selectedRule?.requires_comment && !reason.trim()) {
+      setErr(`"${selectedRule.name}" requires a reason.`);
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.vaultRequests.create({
+        vault_id: vault.id,
+        rule_id: selectedRule?.id,
+        rule_name: selectedRule?.name,
+        amount_sats: sats,
+        recipient_name: recipient.trim() || undefined,
+        reason: reason.trim() || undefined,
+      });
+      toast.success("Request filed");
+      onCreated();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.75)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 200,
+        padding: space[4],
+      }}
+      onClick={e => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        style={{
+          background: colors.surface,
+          border: `1px solid ${colors.border}`,
+          borderRadius: 16,
+          padding: "28px 32px",
+          width: "100%",
+          maxWidth: 460,
+        }}
+      >
+        <h2
+          style={{
+            fontSize: 18,
+            fontWeight: 600,
+            color: colors.text,
+            fontFamily: fonts.display,
+            margin: 0,
+            marginBottom: 20,
+          }}
+        >
+          File a distribution request
+        </h2>
+        <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {rules.length > 0 && (
+            <div>
+              <Label>Distribution rule</Label>
+              <select
+                value={ruleId}
+                onChange={e => setRuleId(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "11px 13px",
+                  background: colors.input,
+                  border: `1px solid ${colors.border}`,
+                  borderRadius: radii.md,
+                  color: colors.text,
+                  fontSize: 14,
+                  fontFamily: fonts.sans,
+                  boxSizing: "border-box",
+                }}
+              >
+                <option value="">-- pick a rule --</option>
+                {rules.map(r => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                    {r.max_sats ? ` (max ${satsToBtc(r.max_sats)} BTC)` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div>
+            <Label>Amount (BTC)</Label>
+            <Input
+              type="number"
+              step="0.00000001"
+              min="0.00000546"
+              value={amountBtc}
+              onChange={e => setAmountBtc(e.target.value)}
+              required
+              placeholder="0.01"
+            />
+          </div>
+          <div>
+            <Label>Recipient (optional)</Label>
+            <Input
+              value={recipient}
+              onChange={e => setRecipient(e.target.value)}
+              placeholder="e.g. Emma (daughter), University of X"
+            />
+          </div>
+          <div>
+            <Label>
+              Reason{selectedRule?.requires_comment ? " (required)" : " (optional)"}
+            </Label>
+            <Textarea
+              rows={3}
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+              placeholder="Why this distribution? Which clause of the trust does it satisfy?"
+            />
+          </div>
+          {err && <p style={{ color: colors.red, fontSize: 13, margin: 0 }}>{err}</p>}
+          <div style={{ display: "flex", gap: 10 }}>
+            <Button type="button" variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy}>
+              {busy ? "Filing..." : "File request"}
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// // -- Distribution wallets (T-vesting)
+// Each wallet splits a lump sum into N tranches, each gated by
+// CLTV at an absolute block height. Beneficiary claims alone after
+// the unlock; trustees always retain an escape hatch on every
+// tranche so unclaimed funds aren't stranded. The creation
+// ceremony calls api.distributionWallets.compileTranche once per
+// tranche (via Fly.io), collects the addresses, then POSTs the
+// whole plan in one shot.
+
+function DistributionWalletsSection({
+  vault,
+  onSendPrefill,
+}: {
+  vault: Vault;
+  onSendPrefill: (p: SendPrefill) => void;
+}) {
+  const toast = useToast();
+  const [wallets, setWallets] = useState<DistributionWallet[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [session, setSession] = useState<{ user: { id: string } } | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session as unknown as { user: { id: string } });
+    });
+  }, []);
+
+  const isOwner = session?.user.id === vault.user_id;
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api.distributionWallets.list(vault.id);
+      setWallets(res.wallets);
+    } catch {
+      /* empty state is fine */
+    } finally {
+      setLoading(false);
+    }
+  }, [vault.id]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  useRealtimeRefresh(
+    { table: "distribution_wallets", filter: `vault_id=eq.${vault.id}` },
+    () => void load(),
+  );
+
+  if (loading) return null;
+  if (!isOwner && wallets.length === 0) return null;
+  // Distribution wallets only make sense once a vault is compiled
+  // (the ceremony needs the vault's trustee pubkeys).
+  if (vault.status === "draft") return null;
+
+  return (
+    <div
+      style={{
+        background: colors.surface,
+        border: `1px solid ${colors.border}`,
+        borderRadius: 12,
+        padding: "14px 16px",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: wallets.length === 0 && !creating ? 0 : 10,
+          gap: 8,
+        }}
+      >
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: "0.1em",
+            color: colors.muted,
+            textTransform: "uppercase",
+          }}
+        >
+          Distribution wallets
+        </div>
+        {isOwner && !creating && (
+          <Button
+            variant="ghost"
+            size="sm"
+            style={{ fontSize: 11, padding: "3px 9px" }}
+            onClick={() => setCreating(true)}
+          >
+            New plan
+          </Button>
+        )}
+      </div>
+
+      {wallets.length === 0 && !creating && isOwner && (
+        <div style={{ fontSize: 12, color: colors.muted, marginTop: 8 }}>
+          No distribution wallets yet. Create one to split a lump sum
+          into N tranches that unlock on a schedule (annual, quarterly,
+          monthly). Each tranche is claimable by the beneficiary alone
+          once its block height is reached; trustees always retain an
+          escape hatch on every tranche.
+        </div>
+      )}
+
+      {wallets.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {wallets.map(w => (
+            <DistributionWalletRow
+              key={w.id}
+              wallet={w}
+              vault={vault}
+              onSendPrefill={onSendPrefill}
+            />
+          ))}
+        </div>
+      )}
+
+      {creating && (
+        <div style={{ marginTop: 10 }}>
+          <DistributionWalletCreator
+            vault={vault}
+            onCancel={() => setCreating(false)}
+            onSaved={() => { setCreating(false); void load(); toast.success("Distribution wallet created"); }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DistributionWalletRow({
+  wallet,
+  vault,
+  onSendPrefill,
+}: {
+  wallet: DistributionWallet;
+  vault: Vault;
+  onSendPrefill: (p: SendPrefill) => void;
+}) {
+  const [tip, setTip] = useState<number | null>(null);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    tipHeight(vault.network).then(setTip).catch(() => {});
+  }, [vault.network]);
+
+  const total = wallet.tranches.reduce((n, t) => n + t.amount_sats, 0);
+  const claimed = wallet.tranches.filter(t => t.claimed_txid).length;
+  const funded = wallet.tranches.filter(t => t.funded_txid).length;
+
+  return (
+    <div
+      style={{
+        border: `1px solid ${colors.border}`,
+        borderRadius: 10,
+        padding: "10px 12px",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: colors.text }}>
+            {wallet.name}
+            {wallet.beneficiary_name && (
+              <span style={{ color: colors.muted, fontWeight: 400, marginLeft: 6 }}>
+                -- {wallet.beneficiary_name}
+              </span>
+            )}
+          </div>
+          <div style={{ fontSize: 12, color: colors.muted }}>
+            {wallet.tranches.length} tranches . {satsToBtc(total)} BTC total
+            {funded > 0 && <> . {funded} funded</>}
+            {claimed > 0 && <> . {claimed} claimed</>}
+          </div>
+        </div>
+        <Button variant="ghost" size="sm" style={{ fontSize: 11 }} onClick={() => setExpanded(e => !e)}>
+          {expanded ? "Hide" : "Show"}
+        </Button>
+      </div>
+      {expanded && (
+        <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+          {wallet.tranches.map(t => (
+            <TrancheRow
+              key={t.index}
+              tranche={t}
+              tip={tip}
+              onFund={() =>
+                onSendPrefill({
+                  destination: t.address,
+                  amount_sats: t.amount_sats,
+                  memo: `Fund ${wallet.name} tranche ${t.index + 1}`,
+                })
+              }
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TrancheRow({
+  tranche: t,
+  tip,
+  onFund,
+}: {
+  tranche: DistributionTranche;
+  tip: number | null;
+  onFund: () => void;
+}) {
+  const isClaimed = !!t.claimed_txid;
+  const isFunded = !!t.funded_txid;
+  const blocksLeft = tip != null ? Math.max(0, t.unlock_block - tip) : null;
+  const unlocked = tip != null && tip >= t.unlock_block;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: 8,
+        fontSize: 12,
+        padding: "6px 8px",
+        borderRadius: 6,
+        background: isClaimed
+          ? colors.green + "11"
+          : unlocked
+            ? colors.gold + "11"
+            : "transparent",
+        border: `1px solid ${isClaimed ? colors.green + "44" : colors.border}`,
+      }}
+    >
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ color: colors.text }}>
+          Tranche {t.index + 1} . {satsToBtc(t.amount_sats)} BTC
+        </div>
+        <div style={{ fontSize: 11, color: colors.muted, fontFamily: fonts.mono, wordBreak: "break-all" }}>
+          {t.address}
+        </div>
+      </div>
+      <div style={{ textAlign: "right", fontSize: 11, color: colors.sub }}>
+        <div>Unlock block {t.unlock_block.toLocaleString()}</div>
+        {blocksLeft != null && blocksLeft > 0 && (
+          <div style={{ color: colors.muted }}>{blocksLeft.toLocaleString()} blocks left</div>
+        )}
+        {isClaimed && <div style={{ color: colors.green }}>claimed</div>}
+        {!isClaimed && !isFunded && (
+          <Button size="sm" style={{ fontSize: 10, padding: "2px 6px", marginTop: 3 }} onClick={onFund}>
+            Fund
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DistributionWalletCreator({
+  vault,
+  onCancel,
+  onSaved,
+}: {
+  vault: Vault;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const toast = useToast();
+  const [name, setName] = useState("");
+  const [beneficiaryName, setBeneficiaryName] = useState("");
+  const [beneficiaryXpub, setBeneficiaryXpub] = useState("");
+  const [beneficiaryKeyId, setBeneficiaryKeyId] = useState("");
+  const [trancheCount, setTrancheCount] = useState(12);
+  const [amountPerTrancheBtc, setAmountPerTrancheBtc] = useState("0.01");
+  const [intervalBlocks, setIntervalBlocks] = useState(4380); // ~1 month
+  const [firstUnlockBlock, setFirstUnlockBlock] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const localKeys = listKeys().filter(k =>
+    k.status === "active" && k.network === vault.network,
+  );
+
+  useEffect(() => {
+    // Default first unlock = current tip + one interval
+    tipHeight(vault.network)
+      .then(h => setFirstUnlockBlock(h + 4380))
+      .catch(() => setFirstUnlockBlock(100_000));
+  }, [vault.network]);
+
+  // Derive trustee pubkeys from vault.founder_keys. Each entry is an
+  // xpub; the compiler needs pubkey hex at xpub/0/0 (Nunchuk parity).
+  async function deriveTrusteePubkeys(): Promise<string[]> {
+    return vault.founder_keys.map(x => pubkeyFromXpub(x));
+  }
+
+  async function create(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) { setErr("Name required"); return; }
+    const amountSats = Math.round(parseFloat(amountPerTrancheBtc || "0") * 1e8);
+    if (amountSats < 546) { setErr("Amount per tranche must be at least 546 sats"); return; }
+    if (trancheCount < 1 || trancheCount > 60) { setErr("Tranche count must be 1-60"); return; }
+    if (!firstUnlockBlock || firstUnlockBlock < 1) { setErr("First unlock block required"); return; }
+
+    let beneficiaryPubkey = "";
+    let beneficiaryXpubEffective = beneficiaryXpub.trim();
+
+    if (beneficiaryKeyId) {
+      const k = localKeys.find(k => k.keyId === beneficiaryKeyId);
+      if (!k) { setErr("Pick a beneficiary key"); return; }
+      beneficiaryXpubEffective = k.xpub;
+      beneficiaryPubkey = pubkeyFromXpub(k.xpub);
+    } else if (beneficiaryXpubEffective) {
+      try {
+        beneficiaryPubkey = pubkeyFromXpub(beneficiaryXpubEffective);
+      } catch {
+        setErr("Invalid beneficiary xpub");
+        return;
+      }
+    } else {
+      setErr("Pick a local beneficiary key or paste an xpub");
+      return;
+    }
+
+    setBusy(true);
+    setErr(null);
+    try {
+      const trusteeKeys = await deriveTrusteePubkeys();
+      const tranches: DistributionTranche[] = [];
+      for (let i = 0; i < trancheCount; i++) {
+        const unlock = firstUnlockBlock + i * intervalBlocks;
+        const compiled = await api.distributionWallets.compileTranche({
+          network: vault.network,
+          beneficiary_key: beneficiaryPubkey,
+          trustee_keys: trusteeKeys,
+          trustee_quorum: vault.founder_quorum,
+          unlock_block: unlock,
+        });
+        tranches.push({
+          index: i,
+          unlock_block: unlock,
+          amount_sats: amountSats,
+          address: compiled.address,
+          descriptor: compiled.descriptor,
+        });
+      }
+      await api.distributionWallets.create({
+        vault_id: vault.id,
+        name: name.trim(),
+        beneficiary_name: beneficiaryName.trim() || undefined,
+        beneficiary_xpub: beneficiaryXpubEffective,
+        beneficiary_pubkey: beneficiaryPubkey,
+        trustee_keys: trusteeKeys,
+        trustee_quorum: vault.founder_quorum,
+        network: vault.network,
+        tranches,
+      });
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed");
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form
+      onSubmit={create}
+      style={{
+        border: `1px solid ${colors.gold}44`,
+        borderRadius: 10,
+        padding: 12,
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+      }}
+    >
+      <div>
+        <Label>Plan name</Label>
+        <Input
+          value={name}
+          onChange={e => setName(e.target.value)}
+          placeholder="Sarah 2026 annual"
+        />
+      </div>
+      <div>
+        <Label>Beneficiary name (optional)</Label>
+        <Input
+          value={beneficiaryName}
+          onChange={e => setBeneficiaryName(e.target.value)}
+          placeholder="Sarah"
+        />
+      </div>
+      <div>
+        <Label>Beneficiary key</Label>
+        {localKeys.length > 0 && (
+          <select
+            value={beneficiaryKeyId}
+            onChange={e => { setBeneficiaryKeyId(e.target.value); setBeneficiaryXpub(""); }}
+            style={{
+              width: "100%",
+              padding: "8px 10px",
+              background: colors.bg,
+              border: `1px solid ${colors.border}`,
+              borderRadius: radii.md,
+              color: colors.text,
+              fontFamily: fonts.sans,
+              fontSize: 13,
+              marginBottom: 6,
+            }}
+          >
+            <option value="">-- Pick a local key --</option>
+            {localKeys.map(k => (
+              <option key={k.keyId} value={k.keyId}>
+                {k.label} ({k.persona})
+              </option>
+            ))}
+          </select>
+        )}
+        <Input
+          mono
+          value={beneficiaryXpub}
+          onChange={e => { setBeneficiaryXpub(e.target.value); setBeneficiaryKeyId(""); }}
+          placeholder="...or paste a beneficiary xpub"
+          disabled={!!beneficiaryKeyId}
+        />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div>
+          <Label>Tranche count</Label>
+          <Input
+            type="number"
+            min={1}
+            max={60}
+            value={trancheCount}
+            onChange={e => setTrancheCount(parseInt(e.target.value) || 1)}
+          />
+        </div>
+        <div>
+          <Label>BTC per tranche</Label>
+          <Input
+            mono
+            value={amountPerTrancheBtc}
+            onChange={e => setAmountPerTrancheBtc(e.target.value)}
+          />
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div>
+          <Label>Interval (blocks)</Label>
+          <Input
+            type="number"
+            min={144}
+            value={intervalBlocks}
+            onChange={e => setIntervalBlocks(parseInt(e.target.value) || 4380)}
+          />
+          <div style={{ fontSize: 11, color: colors.muted, marginTop: 4 }}>
+            {blocksToLabel(intervalBlocks)} . 4380 =~ 1 month, 13140 =~ 3 months, 52560 =~ 1 year
+          </div>
+        </div>
+        <div>
+          <Label>First unlock block</Label>
+          <Input
+            type="number"
+            value={firstUnlockBlock ?? ""}
+            onChange={e => setFirstUnlockBlock(parseInt(e.target.value) || 0)}
+          />
+          <div style={{ fontSize: 11, color: colors.muted, marginTop: 4 }}>
+            Absolute height where the first tranche unlocks.
+          </div>
+        </div>
+      </div>
+      {err && <div style={{ color: colors.orange, fontSize: 12 }}>{err}</div>}
+      <div style={{ fontSize: 11, color: colors.muted }}>
+        Compiles one Taproot address per tranche via the Fly.io
+        compiler. Each tranche: beneficiary alone after its unlock
+        block, or trustees any time (escape hatch).
+      </div>
+      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+        <Button variant="ghost" size="sm" style={{ fontSize: 12 }} type="button" onClick={onCancel} disabled={busy}>
+          Cancel
+        </Button>
+        <Button size="sm" style={{ fontSize: 12 }} type="submit" disabled={busy}>
+          {busy ? `Compiling ${trancheCount} tranches...` : `Create (${trancheCount} tranches)`}
+        </Button>
+      </div>
+    </form>
   );
 }

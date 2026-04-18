@@ -1,6 +1,8 @@
 node_modules/
 apps/*/dist/
 packages/*/dist/
+target/
+Cargo.lock.bak
 .env
 .env.*
 !.env.example

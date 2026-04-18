@@ -56,16 +56,146 @@ export interface Vault {
   address_type: 'wsh' | 'tr' | 'tr_multileaf';
   founder_quorum: number;
   heir_quorum: number;
+  /** Quorum for the timelocked recovery branch. Null = legacy
+   *  (same as founder_quorum); set explicitly on new vaults so
+   *  Path 2 unlocks a different capability than Path 1. */
+  recovery_quorum: number | null;
   recovery_after: number;
   inheritance_after: number;
   founder_keys: string[];
   heir_keys: string[];
+  /** Protector branch: optional fourth path in the Taproot tree.
+   *  Empty = not configured. */
+  protector_keys: string[];
+  protector_quorum: number | null;
+  protector_after: number | null;
+  /** Beneficiary-consent gate on Path 1. Every normal spend requires
+   *  trustees AND this many beneficiary signatures. The timelocked
+   *  paths ignore consent -- they exist to rescue funds when a
+   *  beneficiary can't or won't cosign. Empty = not configured. */
+  consent_keys: string[];
+  consent_quorum: number | null;
   archived: boolean;
   status: VaultStatus;
   // Draft-only: how many signing slots the vault will have when
   // compiled. Null on legacy compiled rows.
   planned_founder_count: number | null;
   planned_heir_count: number | null;
+  // Trust document: human-readable purpose, beneficiaries, and
+  // distribution rules. The schema is flexible; the UI reads the
+  // fields it knows about and round-trips the rest.
+  trust_doc: TrustDoc;
+}
+
+export interface TrustDoc {
+  /** One or two sentences: why does this trust exist? */
+  purpose?: string;
+  /** Named beneficiaries -- not necessarily signers. Receive
+   *  distributions or inherit per the trust terms. */
+  beneficiaries?: TrustBeneficiary[];
+  /** Free-form distribution rules (human-readable, not enforced). */
+  distribution_rules?: string;
+  /** Successor trustee notes: who takes over, under what conditions. */
+  succession_notes?: string;
+  /** Structured distribution rules that gate the Send flow
+   *  client-side. Each proposal can cite a rule and the Send form
+   *  enforces its limits. */
+  rules?: DistributionRule[];
+}
+
+export interface DistributionRule {
+  /** Stable client-generated id so proposals reference a specific
+   *  rule even if the trustee later renames it. */
+  id: string;
+  name: string;
+  /** Max BTC amount per proposal in sats. undefined/null = no cap. */
+  max_sats?: number | null;
+  /** Free-text legal/tax context, shown on the proposal. */
+  notes?: string;
+  /** If true, the Send form refuses to build without a reason note. */
+  requires_comment?: boolean;
+}
+
+export interface TrustBeneficiary {
+  name: string;
+  relation?: string;
+  notes?: string;
+}
+
+export type ProposalVote = 'approve' | 'abstain' | 'decline';
+
+export type VaultRequestStatus = 'pending' | 'approved' | 'declined' | 'fulfilled' | 'cancelled';
+
+export type StipendInterval = 'weekly' | 'monthly' | 'quarterly' | 'annually';
+
+export interface DistributionTranche {
+  index: number;
+  unlock_block: number;
+  amount_sats: number;
+  address: string;
+  descriptor: string;
+  funded_txid?: string | null;
+  claimed_txid?: string | null;
+  label?: string | null;
+}
+
+export interface DistributionWallet {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  vault_id: string;
+  name: string;
+  beneficiary_name: string | null;
+  beneficiary_xpub: string;
+  beneficiary_pubkey: string;
+  trustee_keys: string[];
+  trustee_quorum: number;
+  tranches: DistributionTranche[];
+  network: 'testnet' | 'bitcoin';
+}
+
+export interface ScheduledStipend {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  vault_id: string;
+  name: string;
+  recipient_name: string | null;
+  destination: string | null;
+  rule_id: string | null;
+  amount_sats: number;
+  interval_kind: StipendInterval;
+  next_due_at: string;
+  last_proposed_at: string | null;
+  last_proposal_id: string | null;
+  active: boolean;
+}
+
+export interface VaultRequest {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  vault_id: string;
+  requested_by: string;
+  rule_id: string | null;
+  rule_name: string | null;
+  amount_sats: number;
+  recipient_name: string | null;
+  reason: string | null;
+  status: VaultRequestStatus;
+  linked_proposal_id: string | null;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  resolution_note: string | null;
+}
+
+export interface ProposalComment {
+  id: string;
+  created_at: string;
+  proposal_id: string;
+  user_id: string;
+  body: string | null;
+  vote: ProposalVote | null;
 }
 
 export interface Proposal {
@@ -104,7 +234,7 @@ export interface BalanceResult {
 // Endpoints land in B2; these types let the UI start consuming them
 // without a round-trip.
 
-export type VaultRole = 'owner' | 'founder' | 'heir' | 'viewer';
+export type VaultRole = 'owner' | 'founder' | 'heir' | 'protector' | 'viewer' | 'beneficiary';
 export type VaultMemberStatus = 'active' | 'pending' | 'removed';
 
 export interface VaultMember {
@@ -152,10 +282,16 @@ export const api = {
       address_type?: string;
       founder_quorum?: number;
       heir_quorum?: number;
+      recovery_quorum?: number | null;
       recovery_after?: number;
       inheritance_after?: number;
       founder_keys?: string[];
       heir_keys?: string[];
+      protector_keys?: string[];
+      protector_quorum?: number | null;
+      protector_after?: number | null;
+      consent_keys?: string[];
+      consent_quorum?: number | null;
     }) => req<{ ok: true; vault: Vault }>('/vaults', { method: 'POST', body: JSON.stringify(body) }),
 
     // Draft vault: no descriptor yet. Members bring their xpubs via
@@ -168,8 +304,12 @@ export const api = {
       planned_heir_count: number;
       founder_quorum?: number;
       heir_quorum?: number;
+      recovery_quorum?: number | null;
       recovery_after?: number;
       inheritance_after?: number;
+      protector_quorum?: number | null;
+      protector_after?: number | null;
+      consent_quorum?: number | null;
     }) =>
       req<{ ok: true; vault: Vault }>('/vaults', {
         method: 'POST',
@@ -193,6 +333,12 @@ export const api = {
         method: 'PATCH',
         body: JSON.stringify({ name }),
       }),
+
+    updateTrustDoc: (id: string, trust_doc: TrustDoc) =>
+      req<{ ok: true; vault: Vault }>(`/vaults?id=${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ trust_doc }),
+      }),
   },
 
   balance: (address: string, network: 'testnet' | 'bitcoin') =>
@@ -204,10 +350,16 @@ export const api = {
     address_type?: string;
     founder_keys: string[];
     founder_quorum: number;
+    recovery_quorum?: number | null;
     heir_keys: string[];
     heir_quorum: number;
     recovery_after: number;
     inheritance_after: number;
+    protector_keys?: string[];
+    protector_quorum?: number | null;
+    protector_after?: number | null;
+    consent_keys?: string[];
+    consent_quorum?: number | null;
     save?: boolean;
   }) => req<{ ok: true; compiled: unknown; saved: boolean; vault?: Vault }>('/compile', {
     method: 'POST',
@@ -317,6 +469,85 @@ export const api = {
     return `/api/vault-pdf?id=${vault_id}&token=${token}`;
   },
 
+  distributionWallets: {
+    list: (vault_id: string) =>
+      req<{ ok: true; wallets: DistributionWallet[] }>(`/distribution-wallets?vault_id=${vault_id}`),
+
+    create: (body: {
+      vault_id: string;
+      name: string;
+      beneficiary_name?: string;
+      beneficiary_xpub: string;
+      beneficiary_pubkey: string;
+      trustee_keys: string[];
+      trustee_quorum: number;
+      network: 'testnet' | 'bitcoin';
+      tranches: DistributionTranche[];
+    }) =>
+      req<{ ok: true; wallet: DistributionWallet }>(`/distribution-wallets`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+
+    update: (id: string, body: Partial<Pick<DistributionWallet, 'name' | 'beneficiary_name' | 'tranches'>>) =>
+      req<{ ok: true; wallet: DistributionWallet }>(`/distribution-wallets?id=${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
+
+    remove: (id: string) =>
+      req<{ ok: true }>(`/distribution-wallets?id=${id}`, { method: 'DELETE' }),
+
+    compileTranche: (body: {
+      network: 'testnet' | 'bitcoin';
+      beneficiary_key: string;
+      trustee_keys: string[];
+      trustee_quorum: number;
+      unlock_block: number;
+    }) =>
+      req<{
+        ok: true;
+        network: string;
+        miniscript_policy: string;
+        descriptor: string;
+        address: string;
+        unlock_block: number;
+      }>(`/compile-tranche`, { method: 'POST', body: JSON.stringify(body) }),
+  },
+
+  stipends: {
+    list: (vault_id: string) =>
+      req<{ ok: true; stipends: ScheduledStipend[] }>(`/stipends?vault_id=${vault_id}`),
+
+    create: (body: {
+      vault_id: string;
+      name: string;
+      recipient_name?: string;
+      destination?: string;
+      rule_id?: string;
+      amount_sats: number;
+      interval_kind: StipendInterval;
+      starts_at?: string;
+    }) =>
+      req<{ ok: true; stipend: ScheduledStipend }>(`/stipends`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+
+    update: (id: string, body: Partial<Pick<ScheduledStipend,
+      'name' | 'recipient_name' | 'destination' | 'rule_id' |
+      'amount_sats' | 'interval_kind' | 'next_due_at' |
+      'last_proposed_at' | 'last_proposal_id' | 'active'
+    >>) =>
+      req<{ ok: true; stipend: ScheduledStipend }>(`/stipends?id=${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
+
+    remove: (id: string) =>
+      req<{ ok: true }>(`/stipends?id=${id}`, { method: 'DELETE' }),
+  },
+
   vaultEvents: {
     list: (vault_id: string, limit = 50) =>
       req<{
@@ -330,6 +561,51 @@ export const api = {
           metadata: Record<string, unknown>;
         }[];
       }>(`/vault-events?vault_id=${vault_id}&limit=${limit}`),
+  },
+
+  vaultRequests: {
+    list: (vault_id: string) =>
+      req<{ ok: true; requests: VaultRequest[] }>(`/vault-requests?vault_id=${vault_id}`),
+
+    create: (body: {
+      vault_id: string;
+      rule_id?: string;
+      rule_name?: string;
+      amount_sats: number;
+      recipient_name?: string;
+      reason?: string;
+    }) =>
+      req<{ ok: true; request: VaultRequest }>(`/vault-requests`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+
+    update: (
+      id: string,
+      body: {
+        status?: VaultRequestStatus;
+        resolution_note?: string;
+        linked_proposal_id?: string;
+      },
+    ) =>
+      req<{ ok: true; request: VaultRequest }>(`/vault-requests?id=${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
+  },
+
+  proposalComments: {
+    list: (proposal_id: string) =>
+      req<{ ok: true; comments: ProposalComment[] }>(`/proposal-comments?proposal_id=${proposal_id}`),
+
+    create: (body: { proposal_id: string; body?: string; vote?: ProposalVote }) =>
+      req<{ ok: true; comment: ProposalComment }>(`/proposal-comments`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+
+    remove: (id: string) =>
+      req<{ ok: true }>(`/proposal-comments?id=${id}`, { method: 'DELETE' }),
   },
 
   signerSessions: {

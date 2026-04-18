@@ -47,20 +47,32 @@ export async function handler(event) {
     address_type = "tr",
     founder_keys = [],
     founder_quorum,
+    recovery_quorum = null,
     heir_keys = [],
-    heir_quorum,
-    recovery_after,
-    inheritance_after,
+    heir_quorum = 1,
+    recovery_after = 0,
+    inheritance_after = 0,
+    protector_keys = [],
+    protector_quorum = null,
+    protector_after = null,
+    consent_keys = [],
+    consent_quorum = null,
     save = true,   // if true, auto-save compiled vault to DB
   } = body;
 
-  // 3. Validate required fields
+  // 3. Validate required fields. Heirs + timelocks are optional --
+  // omitting them compiles a plain multisig / single-sig vault with
+  // no recovery or inheritance paths.
   if (!founder_keys.length) return json(400, { error: "Missing: founder_keys" });
-  if (!heir_keys.length)    return json(400, { error: "Missing: heir_keys" });
   if (!founder_quorum)      return json(400, { error: "Missing: founder_quorum" });
-  if (!heir_quorum)         return json(400, { error: "Missing: heir_quorum" });
-  if (!recovery_after)      return json(400, { error: "Missing: recovery_after" });
-  if (!inheritance_after)   return json(400, { error: "Missing: inheritance_after" });
+  const hasHeirsOrTimelocks =
+    heir_keys.length > 0 || recovery_after > 0 || inheritance_after > 0;
+  if (hasHeirsOrTimelocks) {
+    if (!heir_keys.length)      return json(400, { error: "Missing: heir_keys" });
+    if (!heir_quorum)           return json(400, { error: "Missing: heir_quorum" });
+    if (!recovery_after)        return json(400, { error: "Missing: recovery_after" });
+    if (!inheritance_after)     return json(400, { error: "Missing: inheritance_after" });
+  }
 
   if (!COMPILER_URL) {
     return json(503, {
@@ -86,8 +98,15 @@ export async function handler(event) {
         body: JSON.stringify({
           name, network, address_type,
           founder_keys, founder_quorum,
+          recovery_quorum,
           heir_keys, heir_quorum,
           recovery_after, inheritance_after,
+          ...(protector_keys.length > 0 && protector_quorum != null && protector_after != null
+            ? { protector_keys, protector_quorum, protector_after }
+            : {}),
+          ...(consent_keys.length > 0 && consent_quorum != null
+            ? { consent_keys, consent_quorum }
+            : {}),
         }),
       });
       clearTimeout(timeout);
@@ -146,11 +165,17 @@ export async function handler(event) {
           descriptor:        compiled.descriptor,
           miniscript_policy: compiled.miniscript_policy,
           founder_quorum,
+          recovery_quorum,
           heir_quorum,
           recovery_after,
           inheritance_after,
           founder_keys,
           heir_keys,
+          protector_keys,
+          protector_quorum,
+          protector_after,
+          consent_keys,
+          consent_quorum,
         })
         .select("id, created_at, name, network, address_type, address, descriptor, miniscript_policy, founder_quorum, heir_quorum, recovery_after, inheritance_after, founder_keys, heir_keys")
         .single();

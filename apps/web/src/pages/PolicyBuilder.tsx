@@ -80,7 +80,10 @@ interface SelectedKey {
   network: string;
 }
 
+type VaultMode = 'plain' | 'inheritance';
+
 function validate(
+  mode: VaultMode,
   fk: SelectedKey[],
   hk: SelectedKey[],
   fq: number,
@@ -90,18 +93,22 @@ function validate(
 ) {
   const errors: string[] = [];
   const warnings: string[] = [];
-  if (!fk.length) errors.push('At least one founder key is required.');
-  if (fq < 1) errors.push('Founder quorum must be >= 1.');
-  if (fq > fk.length) errors.push(`Founder quorum (${fq}) exceeds founder key count (${fk.length}).`);
-  if (!hk.length) warnings.push('No heir keys -- inheritance path will not be compiled.');
-  if (hk.length && hq > hk.length)
-    errors.push(`Heir quorum (${hq}) exceeds heir key count (${hk.length}).`);
-  if (ra < 26_000)
-    errors.push(`Recovery timelock must be >= 26,000 blocks (~6 months). Got ${ra.toLocaleString()}.`);
-  if (ia <= ra) errors.push('Inheritance timelock must be greater than recovery timelock.');
+  if (!fk.length) errors.push('At least one signing key is required.');
+  if (fq < 1) errors.push('Signing quorum must be >= 1.');
+  if (fq > fk.length) errors.push(`Signing quorum (${fq}) exceeds key count (${fk.length}).`);
+
+  if (mode === 'inheritance') {
+    if (!hk.length) warnings.push('No heir keys -- inheritance path will not be compiled.');
+    if (hk.length && hq > hk.length)
+      errors.push(`Heir quorum (${hq}) exceeds heir key count (${hk.length}).`);
+    if (ra < 26_000)
+      errors.push(`Recovery timelock must be >= 26,000 blocks (~6 months). Got ${ra.toLocaleString()}.`);
+    if (ia <= ra) errors.push('Inheritance timelock must be greater than recovery timelock.');
+  }
+
   const nets = new Set([...fk, ...hk].map(k => k.network));
   if (nets.size > 1) errors.push('All selected keys must be on the same network.');
-  if (fk.length === 1 && fq === 1) warnings.push('1-of-1 founder path -- single point of failure.');
+  if (fk.length === 1 && fq === 1) warnings.push('1-of-1 -- single point of failure. Back up the seed on metal.');
   return { errors, warnings };
 }
 
@@ -330,7 +337,21 @@ export default function PolicyBuilder() {
   const [founderKeys, setFK] = useState<SelectedKey[]>([]);
   const [heirKeys, setHK] = useState<SelectedKey[]>([]);
   const [founderQ, setFQ] = useState(1);
+  // Recovery path's quorum after the timelock. Defaults to
+  // founderQ - 1 (floor 1) so Path 2 actually grants a new
+  // capability: e.g. 3-of-3 now, 2-of-3 after a 3-month timelock
+  // protects against a single lost device.
+  const [recoveryQ, setRecoveryQ] = useState(1);
   const [heirQ, setHQ] = useState(1);
+  // Protector: independent party who can rescue funds after a
+  // medium timelock between recovery and inheritance.
+  const [protectorKeys, setProtectorKeys] = useState<SelectedKey[]>([]);
+  const [protectorQ, setProtectorQ] = useState(1);
+  const [protectorAfter, setProtectorAfter] = useState(26_280); // ~6 months default
+  // Beneficiary consent (T-consent): gates Path 1 only, leaving the
+  // timelocked recovery / inheritance / protector paths untouched.
+  const [consentKeys, setConsentKeys] = useState<SelectedKey[]>([]);
+  const [consentQ, setConsentQ] = useState(1);
   const [recovery, setRecovery] = useState(26_280);
   const [inherit, setInherit] = useState(52_560);
   const [compiled, setCompiled] = useState<CompiledVault | null>(null);
@@ -341,11 +362,15 @@ export default function PolicyBuilder() {
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const [savedVault, setSavedVault] = useState<Vault | null>(null);
 
+  // Vault type: plain (single-sig or multisig, no timelocks) vs
+  // inheritance (founders + heirs + recovery + inheritance).
+  const [mode, setMode] = useState<VaultMode>('plain');
+
   // Draft mode -- the target shape of the vault when compiled.
   // Defaults track the currently-selected counts so the existing
   // "compile immediately" flow still feels the same.
-  const [plannedFounders, setPlannedFounders] = useState(3);
-  const [plannedHeirs, setPlannedHeirs] = useState(1);
+  const [plannedFounders, setPlannedFounders] = useState(1);
+  const [plannedHeirs, setPlannedHeirs] = useState(0);
   const [draftSaving, setDraftSaving] = useState(false);
   const [draftErr, setDraftErr] = useState<string | null>(null);
 
@@ -353,11 +378,20 @@ export default function PolicyBuilder() {
     setAllKeys(listKeys().filter(k => k.status === 'active'));
   }, []);
 
+  // Keep recoveryQ one below founderQ by default so Path 2 is
+  // meaningful. Users can override manually.
+  useEffect(() => {
+    setRecoveryQ(prev => {
+      const suggested = Math.max(1, founderQ - 1);
+      return prev > founderQ || prev === 0 ? suggested : prev;
+    });
+  }, [founderQ]);
+
   const network = [...founderKeys, ...heirKeys][0]?.network ?? 'testnet';
-  const { errors, warnings } = validate(founderKeys, heirKeys, founderQ, heirQ, recovery, inherit);
+  const { errors, warnings } = validate(mode, founderKeys, heirKeys, founderQ, heirQ, recovery, inherit);
   const canCompile = errors.length === 0 && founderKeys.length > 0;
 
-  function addKey(keyId: string, role: 'founder' | 'heir') {
+  function addKey(keyId: string, role: 'founder' | 'heir' | 'protector' | 'consent') {
     const k = allKeys.find(k => k.keyId === keyId);
     if (!k) return;
     const sk: SelectedKey = {
@@ -377,35 +411,79 @@ export default function PolicyBuilder() {
         setFQ(q => Math.min(q, n.length));
         return n;
       });
-    } else {
+    } else if (role === 'heir') {
       setHK(prev => {
         const n = [...prev, sk];
         setHQ(q => Math.min(q, n.length));
+        return n;
+      });
+    } else if (role === 'protector') {
+      setProtectorKeys(prev => {
+        const n = [...prev, sk];
+        setProtectorQ(q => Math.min(q, n.length));
+        return n;
+      });
+    } else {
+      setConsentKeys(prev => {
+        const n = [...prev, sk];
+        setConsentQ(q => Math.min(q, n.length));
         return n;
       });
     }
     setCompiled(null);
   }
 
-  function removeKey(keyId: string, role: 'founder' | 'heir') {
+  function removeKey(keyId: string, role: 'founder' | 'heir' | 'protector' | 'consent') {
     if (role === 'founder') {
       setFK(prev => {
         const n = prev.filter(k => k.keyId !== keyId);
         setFQ(q => Math.min(q, n.length || 1));
         return n;
       });
-    } else {
+    } else if (role === 'heir') {
       setHK(prev => {
         const n = prev.filter(k => k.keyId !== keyId);
         setHQ(q => Math.min(q, n.length || 1));
+        return n;
+      });
+    } else if (role === 'protector') {
+      setProtectorKeys(prev => {
+        const n = prev.filter(k => k.keyId !== keyId);
+        setProtectorQ(q => Math.min(q, n.length || 1));
+        return n;
+      });
+    } else {
+      setConsentKeys(prev => {
+        const n = prev.filter(k => k.keyId !== keyId);
+        setConsentQ(q => Math.min(q, n.length || 1));
         return n;
       });
     }
     setCompiled(null);
   }
 
-  const availForFounder = allKeys.filter(k => !founderKeys.some(fk => fk.keyId === k.keyId));
-  const availForHeir = allKeys.filter(k => !heirKeys.some(hk => hk.keyId === k.keyId));
+  const availForFounder = allKeys.filter(k =>
+    !founderKeys.some(fk => fk.keyId === k.keyId) &&
+    !protectorKeys.some(pk => pk.keyId === k.keyId) &&
+    !consentKeys.some(ck => ck.keyId === k.keyId),
+  );
+  const availForHeir = allKeys.filter(k =>
+    !heirKeys.some(hk => hk.keyId === k.keyId) &&
+    !protectorKeys.some(pk => pk.keyId === k.keyId) &&
+    !consentKeys.some(ck => ck.keyId === k.keyId),
+  );
+  const availForProtector = allKeys.filter(k =>
+    !founderKeys.some(fk => fk.keyId === k.keyId) &&
+    !heirKeys.some(hk => hk.keyId === k.keyId) &&
+    !protectorKeys.some(pk => pk.keyId === k.keyId) &&
+    !consentKeys.some(ck => ck.keyId === k.keyId),
+  );
+  const availForConsent = allKeys.filter(k =>
+    !founderKeys.some(fk => fk.keyId === k.keyId) &&
+    !heirKeys.some(hk => hk.keyId === k.keyId) &&
+    !protectorKeys.some(pk => pk.keyId === k.keyId) &&
+    !consentKeys.some(ck => ck.keyId === k.keyId),
+  );
 
   async function compile() {
     setCompiling(true);
@@ -414,20 +492,41 @@ export default function PolicyBuilder() {
     setSlowHint(false);
     const slowTimer = window.setTimeout(() => setSlowHint(true), 1500);
     try {
+      const plain = mode === 'plain';
+      const hasProtector = !plain && protectorKeys.length > 0;
+      const hasConsent = consentKeys.length > 0;
       const res = await api.compile({
         name,
         network: network as 'testnet' | 'bitcoin',
         address_type: addrType,
         founder_keys: founderKeys.map(toPubkeyHex),
         founder_quorum: founderQ,
-        heir_keys: heirKeys.map(toPubkeyHex),
-        heir_quorum: heirQ,
-        recovery_after: recovery,
-        inheritance_after: inherit,
+        recovery_quorum: plain ? undefined : recoveryQ,
+        heir_keys: plain ? [] : heirKeys.map(toPubkeyHex),
+        heir_quorum: plain ? 1 : heirQ,
+        recovery_after: plain ? 0 : recovery,
+        inheritance_after: plain ? 0 : inherit,
+        ...(hasProtector
+          ? {
+              protector_keys: protectorKeys.map(toPubkeyHex),
+              protector_quorum: protectorQ,
+              protector_after: protectorAfter,
+            }
+          : {}),
+        ...(hasConsent
+          ? {
+              consent_keys: consentKeys.map(toPubkeyHex),
+              consent_quorum: consentQ,
+            }
+          : {}),
         save: false,
       });
       const raw = res.compiled as CompiledVault;
-      const origins = buildKeyOrigins([...founderKeys, ...heirKeys]);
+      const origins = buildKeyOrigins(
+        plain
+          ? [...founderKeys, ...consentKeys]
+          : [...founderKeys, ...heirKeys, ...protectorKeys, ...consentKeys],
+      );
       setCompiled({ ...raw, descriptor: upgradeDescriptor(raw.descriptor, origins) });
     } catch (e) {
       setCompErr(e instanceof Error ? e.message : 'Compilation failed');
@@ -442,17 +541,24 @@ export default function PolicyBuilder() {
     setDraftSaving(true);
     setDraftErr(null);
     try {
+      const plain = mode === 'plain';
       const draftNet = founderKeys[0]?.network ?? heirKeys[0]?.network ?? 'testnet';
+      const effectivePlannedHeirs = plain ? 0 : plannedHeirs;
+      const effectiveFounderQ = Math.min(founderQ, plannedFounders);
       const res = await api.vaults.createDraft({
         name,
         network: draftNet as 'testnet' | 'bitcoin',
         address_type: addrType,
         planned_founder_count: plannedFounders,
-        planned_heir_count: plannedHeirs,
-        founder_quorum: Math.min(founderQ, plannedFounders),
-        heir_quorum: plannedHeirs > 0 ? Math.min(heirQ, plannedHeirs) : 1,
-        recovery_after: recovery,
-        inheritance_after: inherit,
+        planned_heir_count: effectivePlannedHeirs,
+        founder_quorum: effectiveFounderQ,
+        heir_quorum: effectivePlannedHeirs > 0 ? Math.min(heirQ, effectivePlannedHeirs) : 1,
+        recovery_quorum: plain
+          ? null
+          : Math.min(recoveryQ, Math.max(1, effectiveFounderQ)),
+        recovery_after: plain ? 0 : recovery,
+        inheritance_after: plain ? 0 : inherit,
+        ...(consentKeys.length > 0 ? { consent_quorum: consentQ } : {}),
       });
 
       // If the owner already picked a founder key of their own, seed
@@ -490,6 +596,7 @@ export default function PolicyBuilder() {
     setSaving(true);
     setSaveErr(null);
     try {
+      const plain = mode === 'plain';
       const res = await api.vaults.create({
         name,
         network: compiled.network as 'testnet' | 'bitcoin',
@@ -498,11 +605,25 @@ export default function PolicyBuilder() {
         miniscript_policy: compiled.miniscript_policy,
         address_type: compiled.address_type,
         founder_quorum: founderQ,
-        heir_quorum: heirQ,
-        recovery_after: recovery,
-        inheritance_after: inherit,
+        heir_quorum: plain ? 1 : heirQ,
+        recovery_quorum: plain ? null : recoveryQ,
+        recovery_after: plain ? 0 : recovery,
+        inheritance_after: plain ? 0 : inherit,
         founder_keys: founderKeys.map(k => k.xpub),
-        heir_keys: heirKeys.map(k => k.xpub),
+        heir_keys: plain ? [] : heirKeys.map(k => k.xpub),
+        ...(protectorKeys.length > 0 && !plain
+          ? {
+              protector_keys: protectorKeys.map(k => k.xpub),
+              protector_quorum: protectorQ,
+              protector_after: protectorAfter,
+            }
+          : {}),
+        ...(consentKeys.length > 0
+          ? {
+              consent_keys: consentKeys.map(k => k.xpub),
+              consent_quorum: consentQ,
+            }
+          : {}),
       });
       setSavedVault(res.vault);
     } catch (e) {
@@ -529,6 +650,45 @@ export default function PolicyBuilder() {
           and generate keys first, then return here.
         </div>
       )}
+
+      <Section
+        title="Vault type"
+        sub="Plain is a normal wallet -- single-sig or multisig, spendable any time. Inheritance adds a timelocked recovery path for founders and a later inheritance path for heirs."
+      >
+        <div
+          style={{
+            display: 'flex',
+            gap: 4,
+            background: colors.input,
+            borderRadius: radii.md,
+            padding: 4,
+          }}
+        >
+          {(['plain', 'inheritance'] as const).map(m => {
+            const active = mode === m;
+            return (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMode(m)}
+                style={{
+                  flex: 1,
+                  padding: '10px 0',
+                  border: 'none',
+                  borderRadius: radii.sm,
+                  background: active ? colors.border : 'transparent',
+                  color: active ? colors.text : colors.muted,
+                  fontSize: 13,
+                  fontFamily: fonts.sans,
+                  cursor: 'pointer',
+                }}
+              >
+                {m === 'plain' ? 'Plain (no timelocks)' : 'Inheritance vault'}
+              </button>
+            );
+          })}
+        </div>
+      </Section>
 
       <Section title="Vault settings">
         <div style={{ display: 'flex', gap: 14 }}>
@@ -560,7 +720,14 @@ export default function PolicyBuilder() {
         </div>
       </Section>
 
-      <Section title="Founder keys" sub="Day-to-day spending -- available immediately">
+      <Section
+        title={mode === 'plain' ? 'Signing keys' : 'Founder keys'}
+        sub={
+          mode === 'plain'
+            ? 'Day-to-day spending. Quorum below determines how many signatures are needed.'
+            : 'Day-to-day spending -- available immediately'
+        }
+      >
         <KeyPicker
           selected={founderKeys}
           available={availForFounder}
@@ -580,30 +747,149 @@ export default function PolicyBuilder() {
             color={colors.gold}
           />
         )}
-      </Section>
-
-      <Section title="Heir keys" sub="Inheritance path -- unlocks after timelock">
-        <KeyPicker
-          selected={heirKeys}
-          available={availForHeir}
-          onAdd={id => addKey(id, 'heir')}
-          onRemove={id => removeKey(id, 'heir')}
-          role="heir"
-          accentColor={colors.green}
-        />
-        {heirKeys.length > 0 && (
-          <QuorumPicker
-            max={heirKeys.length}
-            value={heirQ}
-            onChange={q => {
-              setHQ(q);
-              setCompiled(null);
-            }}
-            color={colors.green}
-          />
+        {mode === 'inheritance' && founderKeys.length > 0 && (
+          <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${colors.border}` }}>
+            <div style={{ fontSize: 13, fontWeight: 500, color: colors.text, marginBottom: 4 }}>
+              Recovery quorum after timelock
+            </div>
+            <div style={{ fontSize: 12, color: colors.muted, marginBottom: 10 }}>
+              How many trustees are needed to spend via the recovery path once the timelock
+              elapses. Set below the normal quorum so Path 2 actually unlocks something (e.g.
+              3-of-3 normally, 2-of-3 after 3 months as insurance against a lost device).
+            </div>
+            <QuorumPicker
+              max={founderKeys.length}
+              value={recoveryQ}
+              onChange={q => {
+                setRecoveryQ(q);
+                setCompiled(null);
+              }}
+              color={colors.blue}
+            />
+            {recoveryQ >= founderQ && (
+              <div style={{ fontSize: 11, color: colors.orange, marginTop: 8 }}>
+                Warning: recovery quorum equals the normal quorum, so Path 2 grants no new
+                capability -- anyone who could sign Path 2 could already sign Path 1 today.
+              </div>
+            )}
+          </div>
         )}
       </Section>
 
+      {mode === 'inheritance' && (
+        <Section title="Heir keys" sub="Inheritance path -- unlocks after timelock">
+          <KeyPicker
+            selected={heirKeys}
+            available={availForHeir}
+            onAdd={id => addKey(id, 'heir')}
+            onRemove={id => removeKey(id, 'heir')}
+            role="heir"
+            accentColor={colors.green}
+          />
+          {heirKeys.length > 0 && (
+            <QuorumPicker
+              max={heirKeys.length}
+              value={heirQ}
+              onChange={q => {
+                setHQ(q);
+                setCompiled(null);
+              }}
+              color={colors.green}
+            />
+          )}
+        </Section>
+      )}
+
+      {mode === 'inheritance' && (
+        <Section
+          title="Protector (optional)"
+          sub="An independent party -- typically an estate attorney or family advisor -- who can spend after their own timelock if the trustees go rogue. Longer than the recovery timelock so trustees recover first; shorter than the inheritance timelock so the protector can intervene before succession."
+        >
+          <KeyPicker
+            selected={protectorKeys}
+            available={availForProtector}
+            onAdd={id => addKey(id, 'protector')}
+            onRemove={id => removeKey(id, 'protector')}
+            role="protector"
+            accentColor={colors.blue}
+          />
+          {protectorKeys.length > 0 && (
+            <>
+              <QuorumPicker
+                max={protectorKeys.length}
+                value={protectorQ}
+                onChange={q => {
+                  setProtectorQ(q);
+                  setCompiled(null);
+                }}
+                color={colors.blue}
+              />
+              <div style={{ marginTop: 14 }}>
+                <Label>Protector timelock (blocks)</Label>
+                <div style={{ fontSize: 12, color: colors.muted, marginBottom: 6 }}>
+                  Should sit between the recovery timelock and the inheritance
+                  timelock. ~26,280 blocks = 6 months.
+                </div>
+                <Input
+                  type="number"
+                  min={recovery + 1}
+                  value={protectorAfter}
+                  onChange={e => {
+                    setProtectorAfter(Math.max(recovery + 1, parseInt(e.target.value) || recovery + 1));
+                    setCompiled(null);
+                  }}
+                />
+                {protectorAfter <= recovery && (
+                  <div style={{ fontSize: 11, color: colors.orange, marginTop: 6 }}>
+                    Protector timelock must exceed recovery ({recovery.toLocaleString()}).
+                  </div>
+                )}
+                {protectorAfter >= inherit && (
+                  <div style={{ fontSize: 11, color: colors.orange, marginTop: 6 }}>
+                    Warning: protector path unlocks after or with inheritance -- it may be redundant.
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </Section>
+      )}
+
+      {mode === 'inheritance' && (
+        <Section
+          title="Beneficiary consent (optional)"
+          sub="Adds a beneficiary-cosign gate on the trustees-now path. Every normal spend then requires trustees AND this many beneficiary signatures. The timelocked recovery / inheritance / protector paths are intentionally unaffected -- they exist so funds can still move when a beneficiary refuses to cosign. Use when a beneficiary should have veto power over day-to-day spends without being responsible for custody."
+        >
+          <KeyPicker
+            selected={consentKeys}
+            available={availForConsent}
+            onAdd={id => addKey(id, 'consent')}
+            onRemove={id => removeKey(id, 'consent')}
+            role="consent"
+            accentColor={colors.gold}
+          />
+          {consentKeys.length > 0 && (
+            <>
+              <QuorumPicker
+                max={consentKeys.length}
+                value={consentQ}
+                onChange={q => {
+                  setConsentQ(q);
+                  setCompiled(null);
+                }}
+                color={colors.gold}
+              />
+              <div style={{ fontSize: 11, color: colors.orange, marginTop: 10 }}>
+                Every spend on Path 1 will need trustees + {consentQ} beneficiary
+                signature{consentQ === 1 ? '' : 's'}. If a beneficiary won't cosign,
+                trustees must wait for the recovery timelock to spend.
+              </div>
+            </>
+          )}
+        </Section>
+      )}
+
+      {mode === 'inheritance' && (
       <Section title="Timelocks">
         {[
           {
@@ -679,6 +965,7 @@ export default function PolicyBuilder() {
           </div>
         ))}
       </Section>
+      )}
 
       {(errors.length > 0 || warnings.length > 0) && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -728,7 +1015,7 @@ export default function PolicyBuilder() {
       >
         <div style={{ display: 'flex', gap: 14, marginBottom: 14 }}>
           <div style={{ flex: 1 }}>
-            <Label>Planned founder count</Label>
+            <Label>{mode === 'plain' ? 'Planned signer count' : 'Planned founder count'}</Label>
             <Input
               type="number"
               min={1}
@@ -736,6 +1023,7 @@ export default function PolicyBuilder() {
               onChange={e => setPlannedFounders(Math.max(1, parseInt(e.target.value) || 1))}
             />
           </div>
+          {mode === 'inheritance' && (
           <div style={{ flex: 1 }}>
             <Label>Planned heir count</Label>
             <Input
@@ -745,6 +1033,7 @@ export default function PolicyBuilder() {
               onChange={e => setPlannedHeirs(Math.max(0, parseInt(e.target.value) || 0))}
             />
           </div>
+          )}
         </div>
         {draftErr && <p style={{ color: colors.red, fontSize: 13, margin: 0, marginBottom: 10 }}>{draftErr}</p>}
         <Button disabled={draftSaving} onClick={saveDraft}>

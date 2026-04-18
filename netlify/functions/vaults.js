@@ -2,7 +2,7 @@ import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 
 const VAULT_FIELDS =
-  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, archived, status, planned_founder_count, planned_heir_count";
+  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc";
 
 export async function handler(event) {
   const u = await requireUser(event);
@@ -91,8 +91,14 @@ export async function handler(event) {
         miniscript_policy: null,
         founder_quorum: body.founder_quorum ?? planned_founder_count,
         heir_quorum: body.heir_quorum ?? Math.max(1, planned_heir_count),
+        recovery_quorum: body.recovery_quorum ?? null,
         recovery_after: body.recovery_after ?? 26000,
         inheritance_after: body.inheritance_after ?? 52560,
+        protector_keys: [],
+        protector_quorum: body.protector_quorum ?? null,
+        protector_after: body.protector_after ?? null,
+        consent_keys: [],
+        consent_quorum: body.consent_quorum ?? null,
         founder_keys: [],
         heir_keys: [],
         status: "draft",
@@ -115,8 +121,14 @@ export async function handler(event) {
         address_type,
         founder_quorum: body.founder_quorum ?? 2,
         heir_quorum: body.heir_quorum ?? 2,
+        recovery_quorum: body.recovery_quorum ?? null,
         recovery_after: body.recovery_after ?? 26000,
         inheritance_after: body.inheritance_after ?? 52560,
+        protector_keys: body.protector_keys ?? [],
+        protector_quorum: body.protector_quorum ?? null,
+        protector_after: body.protector_after ?? null,
+        consent_keys: body.consent_keys ?? [],
+        consent_quorum: body.consent_quorum ?? null,
         founder_keys: body.founder_keys ?? [],
         heir_keys: body.heir_keys ?? [],
         status: "compiled",
@@ -160,7 +172,7 @@ export async function handler(event) {
       return json(400, { error: "Invalid JSON body" });
     }
 
-    const allowed = ["name", "archived"];
+    const allowed = ["name", "archived", "trust_doc"];
     const updates = Object.fromEntries(
       Object.entries(body).filter(([k]) => allowed.includes(k))
     );
