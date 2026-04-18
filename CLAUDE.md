@@ -334,6 +334,19 @@ See `Stack` above for the layout.
   `pk([fp/path]xpub/0/*)`. Uses `masterFingerprint` when the keystore has
   it (software keys) and falls back to the child `fingerprint` otherwise.
 
+- **Nunchuk key-material parity**: every pubkey sent to the compiler is
+  `xpub/0/0` (first receive-chain child), not the account-level pubkey.
+  Without this fix, the compiler's address and the upgraded wildcard
+  descriptor's first address disagree -- Nunchuk import would see an
+  empty balance at the address our app funded. The fingerprint is also
+  now BIP32 standard (`HASH160(pub)[0..4]`) instead of the non-standard
+  raw-first-4-bytes shape. `psbt-signer.ts` signs with the `/0/0` child
+  private key to match the leaf-script pubkey. `repairPubkeys()` on
+  boot, plus a self-heal pass in VaultDetail, migrate local keys and
+  `vault_members` rows automatically. **Any vault compiled before this
+  fix is permanently broken vs. Nunchuk -- the descriptor + address
+  pair was wrong and is immutable. Recompile from a fresh draft.**
+
 **Pre-existing issues that survived the restructure:**
 
 - `lib/keystore.ts`: strict TS errors around `Uint8Array<ArrayBufferLike>`

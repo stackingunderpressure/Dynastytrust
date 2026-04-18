@@ -19,6 +19,7 @@ import { Button, Input, Label, Textarea } from "../components/ui";
 import { useRealtimeRefresh } from "../lib/realtime";
 import { normalizePsbt } from "../lib/psbt-format";
 import { downloadVault } from "../lib/descriptor-backup";
+import { pubkeyFromXpub, fingerprintFromXpub } from "../lib/xpub";
 
 
 function satsToBtc(sats: number): string {
@@ -75,14 +76,42 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
 
   const load = useCallback(async () => {
     const [balRes, propRes] = await Promise.allSettled([
-      api.balance(vault.address, vault.network),
+      vault.address
+        ? api.balance(vault.address, vault.network)
+        : Promise.resolve(null),
       api.proposals.list(vault.id),
     ]);
-    if (balRes.status === "fulfilled") setBalance(balRes.value);
+    if (balRes.status === "fulfilled" && balRes.value) setBalance(balRes.value);
     if (propRes.status === "fulfilled") setProposals(propRes.value.proposals);
   }, [vault]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Self-heal: if the caller's vault_members row still has the
+  // pre-audit pubkey + fingerprint convention (account-level pubkey,
+  // non-BIP32 fingerprint), re-derive from the stored xpub and PATCH
+  // so the next compile produces a Nunchuk-compatible descriptor.
+  // Runs silently on every vault load. No-op once corrected.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { members } = await api.members.list(vault.id);
+        const me = members.find(m => m.xpub && (m.pubkey || m.fingerprint));
+        if (!me || cancelled) return;
+        const correctPubkey = pubkeyFromXpub(me.xpub!);
+        const correctFp = fingerprintFromXpub(me.xpub!);
+        if (me.pubkey === correctPubkey && me.fingerprint === correctFp) return;
+        await api.members.update(me.id, {
+          pubkey: correctPubkey,
+          fingerprint: correctFp,
+        });
+      } catch {
+        /* best-effort; the member tab will surface real errors */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [vault.id]);
 
   // Live proposal + signature updates for the current vault.
   useRealtimeRefresh(
@@ -209,10 +238,20 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
           )}
 
           <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-            <Button style={{ flex: 1, padding: "12px" }} onClick={() => setTab("send")}>
-              Send
-            </Button>
-            <Button variant="ghost" size="sm" style={{ fontSize: 12 }} onClick={() => copy(vault.address, "addr")}>
+            {vault.status === "draft" ? (
+              <DraftCompileButton vault={vault} />
+            ) : (
+              <Button style={{ flex: 1, padding: "12px" }} onClick={() => setTab("send")}>
+                Send
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              style={{ fontSize: 12 }}
+              disabled={!vault.address}
+              onClick={() => vault.address && copy(vault.address, "addr")}
+            >
               {copied === "addr" ? "Copied!" : "Copy address"}
             </Button>
             {balance && (
@@ -248,13 +287,20 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
             marginBottom: 20,
           }}
         >
-          {[
-            { id: "overview", label: "Overview" },
-            { id: "send", label: "Send" },
-            { id: "history", label: "History", count: pendingCount },
-            { id: "members", label: "Members" },
-            { id: "activity", label: "Activity" },
-          ].map(t => (
+          {(vault.status === 'draft'
+            ? [
+                { id: "overview", label: "Overview" },
+                { id: "members", label: "Members" },
+                { id: "activity", label: "Activity" },
+              ]
+            : [
+                { id: "overview", label: "Overview" },
+                { id: "send", label: "Send" },
+                { id: "history", label: "History", count: pendingCount },
+                { id: "members", label: "Members" },
+                { id: "activity", label: "Activity" },
+              ]
+          ).map(t => (
             <button
               key={t.id}
               onClick={() => setTab(t.id as typeof tab)}
@@ -430,7 +476,8 @@ function OverviewTab({
               variant="ghost"
               size="sm"
               style={{ padding: "3px 9px", fontSize: 11 }}
-              onClick={() => copy(vault.descriptor, "desc")}
+              disabled={!vault.descriptor}
+              onClick={() => vault.descriptor && copy(vault.descriptor, "desc")}
             >
               {copied === "desc" ? "Copied" : "Copy"}
             </Button>
@@ -1759,4 +1806,65 @@ function describeEvent(e: VaultEvent): { icon: string; title: string; color: str
     default:
       return { icon: "*", title: e.event_type, color: colors.sub };
   }
+}
+
+function DraftCompileButton({ vault }: { vault: Vault }) {
+  const toast = useToast();
+  const navigate = useNavigate();
+  const [members, setMembers] = useState<VaultMember[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await api.members.list(vault.id);
+      setMembers(res.members);
+    } catch {
+      /* the Members tab will surface errors; keep this quiet */
+    }
+  }, [vault.id]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useRealtimeRefresh(
+    { table: "vault_members", filter: `vault_id=eq.${vault.id}` },
+    () => void load(),
+  );
+
+  const ready = members.filter(
+    m => m.xpub && m.fingerprint && m.pubkey && m.derivation_path,
+  );
+  const foundersReady = ready.filter(m => m.role === "founder" || m.role === "owner").length;
+  const heirsReady = ready.filter(m => m.role === "heir").length;
+  const plannedF = vault.planned_founder_count ?? 0;
+  const plannedH = vault.planned_heir_count ?? 0;
+  const slotsFilled = foundersReady >= plannedF && heirsReady >= plannedH;
+
+  async function compile() {
+    setBusy(true);
+    try {
+      const res = await api.vaults.compile(vault.id);
+      toast.success("Vault compiled -- ready to fund");
+      navigate(`/vaults/${res.vault.id}`, { state: { vault: res.vault } });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Compile failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Button
+      disabled={!slotsFilled || busy}
+      style={{ flex: 1, padding: "12px", background: slotsFilled ? colors.green : undefined }}
+      onClick={() => void compile()}
+    >
+      {busy
+        ? "Compiling..."
+        : slotsFilled
+          ? "Compile vault"
+          : `Waiting on ${plannedF - foundersReady} founder${plannedF - foundersReady === 1 ? "" : "s"}${plannedH > 0 ? `, ${plannedH - heirsReady} heir${plannedH - heirsReady === 1 ? "" : "s"}` : ""}`}
+    </Button>
+  );
 }

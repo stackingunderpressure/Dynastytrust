@@ -2,7 +2,7 @@ import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 
 const VAULT_FIELDS =
-  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, archived";
+  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, archived, status, planned_founder_count, planned_heir_count";
 
 export async function handler(event) {
   const u = await requireUser(event);
@@ -11,18 +11,28 @@ export async function handler(event) {
   const supabase = getSupabaseAdmin();
 
   // ── GET /api/vaults ──────────────────────────────────────────
+  // Returns every vault the caller is an active member of (owner
+  // rows are seeded by a trigger so creators are included too).
   if (event.httpMethod === "GET") {
     const showArchived = event.queryStringParameters?.archived === "true";
+
+    const { data: memberships, error: mErr } = await supabase
+      .from("vault_members")
+      .select("vault_id")
+      .eq("user_id", u.userId)
+      .eq("status", "active");
+    if (mErr) return json(500, { error: mErr.message });
+
+    const vaultIds = (memberships ?? []).map(m => m.vault_id);
+    if (vaultIds.length === 0) return json(200, { ok: true, vaults: [] });
 
     let query = supabase
       .from("vaults")
       .select(VAULT_FIELDS)
-      .eq("user_id", u.userId)
+      .in("id", vaultIds)
       .order("created_at", { ascending: false });
 
-    if (!showArchived) {
-      query = query.eq("archived", false);
-    }
+    if (!showArchived) query = query.eq("archived", false);
 
     const { data, error } = await query;
     if (error) return json(500, { error: error.message });
@@ -30,6 +40,16 @@ export async function handler(event) {
   }
 
   // ── POST /api/vaults ─────────────────────────────────────────
+  // Two modes:
+  //   { mode: "draft", name, network, address_type, founder_quorum,
+  //     heir_quorum, recovery_after, inheritance_after,
+  //     planned_founder_count, planned_heir_count }
+  //       -- creates a shape-only vault; address/descriptor null.
+  //       -- members fill slots via invites; owner compiles when
+  //          every slot has an xpub.
+  //   Legacy mode (no `mode` field, or mode: "compiled"):
+  //       -- the existing "I compiled this already, save it" path.
+  //       -- requires address, descriptor, miniscript_policy.
   if (event.httpMethod === "POST") {
     let body;
     try {
@@ -38,25 +58,54 @@ export async function handler(event) {
       return json(400, { error: "Invalid JSON body" });
     }
 
-    // Required fields
-    const { address, descriptor, miniscript_policy } = body;
-    if (!address) return json(400, { error: "Missing: address" });
-    if (!descriptor) return json(400, { error: "Missing: descriptor" });
-    if (!miniscript_policy) return json(400, { error: "Missing: miniscript_policy" });
-
     const network = body.network || "testnet";
     if (!["testnet", "bitcoin"].includes(network)) {
       return json(400, { error: "Invalid network. Use 'testnet' or 'bitcoin'" });
     }
 
-    const address_type = body.address_type || "tr";
+    const address_type = body.address_type || "tr_multileaf";
     if (!["wsh", "tr", "tr_multileaf"].includes(address_type)) {
       return json(400, { error: "Invalid address_type" });
     }
 
-    const { data, error } = await supabase
-      .from("vaults")
-      .insert({
+    const isDraft = body.mode === "draft";
+    let insertRow;
+
+    if (isDraft) {
+      const planned_founder_count = body.planned_founder_count;
+      const planned_heir_count = body.planned_heir_count ?? 0;
+      if (!planned_founder_count || planned_founder_count < 1) {
+        return json(400, { error: "planned_founder_count must be >= 1" });
+      }
+      if (planned_heir_count < 0) {
+        return json(400, { error: "planned_heir_count cannot be negative" });
+      }
+
+      insertRow = {
+        user_id: u.userId,
+        name: body.name || "Vault",
+        network,
+        address_type,
+        address: null,
+        descriptor: null,
+        miniscript_policy: null,
+        founder_quorum: body.founder_quorum ?? planned_founder_count,
+        heir_quorum: body.heir_quorum ?? Math.max(1, planned_heir_count),
+        recovery_after: body.recovery_after ?? 26000,
+        inheritance_after: body.inheritance_after ?? 52560,
+        founder_keys: [],
+        heir_keys: [],
+        status: "draft",
+        planned_founder_count,
+        planned_heir_count,
+      };
+    } else {
+      const { address, descriptor, miniscript_policy } = body;
+      if (!address) return json(400, { error: "Missing: address" });
+      if (!descriptor) return json(400, { error: "Missing: descriptor" });
+      if (!miniscript_policy) return json(400, { error: "Missing: miniscript_policy" });
+
+      insertRow = {
         user_id: u.userId,
         name: body.name || "Vault",
         network,
@@ -70,18 +119,30 @@ export async function handler(event) {
         inheritance_after: body.inheritance_after ?? 52560,
         founder_keys: body.founder_keys ?? [],
         heir_keys: body.heir_keys ?? [],
-      })
+        status: "compiled",
+      };
+    }
+
+    const { data, error } = await supabase
+      .from("vaults")
+      .insert(insertRow)
       .select(VAULT_FIELDS)
       .single();
 
     if (error) return json(500, { error: error.message });
 
-    // Log creation event
     await supabase.from("vault_events").insert({
       vault_id: data.id,
       user_id: u.userId,
-      event_type: "created",
-      metadata: { address_type, network },
+      event_type: isDraft ? "draft_created" : "created",
+      metadata: isDraft
+        ? {
+            address_type,
+            network,
+            planned_founder_count: insertRow.planned_founder_count,
+            planned_heir_count: insertRow.planned_heir_count,
+          }
+        : { address_type, network },
     });
 
     return json(201, { ok: true, vault: data });

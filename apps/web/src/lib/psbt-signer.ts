@@ -394,11 +394,16 @@ export async function signPsbtWithMnemonic(
 
   const seed = mnemonicToSeedSync(mnemonic);
   const root = HDKey.fromMasterSeed(seed, networkVersions);
+  // The keystore's `derivationPath` is the account path (xpub level).
+  // The pubkey embedded in the leaf script lives one step deeper at
+  // /0/0 (first receive-chain child). Sign with that private key so
+  // the signature matches the leaf's pubkey.
   const account = root.derive(derivationPath);
+  const child00 = account.derive('0/0');
 
-  if (!account.privateKey) throw new Error("Could not derive private key");
+  if (!child00.privateKey) throw new Error("Could not derive private key");
 
-  const privKey = account.privateKey;
+  const privKey = child00.privateKey;
   const pubKey = secp256k1.getPublicKey(privKey, true); // compressed
   const xOnlyPubKey = pubKey.slice(1); // x-only (32 bytes)
 

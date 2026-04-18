@@ -71,6 +71,8 @@ export async function handler(event) {
         label: body.label || invite.invited_label || null,
         xpub: body.xpub || null,
         fingerprint: body.fingerprint || null,
+        pubkey: body.pubkey || null,
+        derivation_path: body.derivation_path || null,
         key_label: body.key_label || null,
         status: "active",
       })
