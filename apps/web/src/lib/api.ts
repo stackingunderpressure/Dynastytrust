@@ -86,6 +86,23 @@ export interface TrustDoc {
   distribution_rules?: string;
   /** Successor trustee notes: who takes over, under what conditions. */
   succession_notes?: string;
+  /** Structured distribution rules that gate the Send flow
+   *  client-side. Each proposal can cite a rule and the Send form
+   *  enforces its limits. */
+  rules?: DistributionRule[];
+}
+
+export interface DistributionRule {
+  /** Stable client-generated id so proposals reference a specific
+   *  rule even if the trustee later renames it. */
+  id: string;
+  name: string;
+  /** Max BTC amount per proposal in sats. undefined/null = no cap. */
+  max_sats?: number | null;
+  /** Free-text legal/tax context, shown on the proposal. */
+  notes?: string;
+  /** If true, the Send form refuses to build without a reason note. */
+  requires_comment?: boolean;
 }
 
 export interface TrustBeneficiary {

@@ -9,6 +9,7 @@ import {
   type VaultInvite,
   type VaultRole,
   type TrustDoc,
+  type DistributionRule,
 } from "../lib/api";
 import { listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
 import { signPsbtWithMnemonic, countSignatures, mergePsbts } from "../lib/psbt-signer";
@@ -571,6 +572,7 @@ function SendTab({ vault, balance, onDone }: {
   const [amountBtc, setAmountBtc] = useState("");
   const [feeRate, setFeeRate] = useState("");
   const [memo, setMemo] = useState("");
+  const [ruleId, setRuleId] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [signing, setSigning] = useState<SigningState | null>(null);
@@ -579,11 +581,30 @@ function SendTab({ vault, balance, onDone }: {
 
   const confirmedSats = balance?.confirmed_sats ?? 0;
   const amountSats = Math.round(parseFloat(amountBtc || "0") * 1e8);
+  const rules = vault.trust_doc?.rules ?? [];
+  const selectedRule = rules.find(r => r.id === ruleId);
 
   async function buildAndSign(e: React.FormEvent) {
     e.preventDefault();
     if (amountSats < 546) { setErr("Minimum 546 sats (dust limit)"); return; }
     if (amountSats > confirmedSats) { setErr("Insufficient confirmed balance"); return; }
+    // Enforce the structured trust rule if one is picked or if the
+    // trust has rules defined at all (in which case every spend
+    // should be categorised).
+    if (rules.length > 0 && !selectedRule) {
+      setErr("Pick a distribution rule. Every spend on this trust must be categorised.");
+      return;
+    }
+    if (selectedRule?.max_sats && amountSats > selectedRule.max_sats) {
+      setErr(
+        `Amount exceeds the cap on rule "${selectedRule.name}" (max ${satsToBtc(selectedRule.max_sats)} BTC per spend).`,
+      );
+      return;
+    }
+    if (selectedRule?.requires_comment && !memo.trim()) {
+      setErr(`Rule "${selectedRule.name}" requires a reason. Fill in the memo field.`);
+      return;
+    }
     setBusy(true); setErr(null); setSlowHint(false);
     const slowTimer = window.setTimeout(() => setSlowHint(true), 1500);
 
@@ -622,7 +643,9 @@ function SendTab({ vault, balance, onDone }: {
         destination: dest.trim(),
         amount_sats: amountSats,
         path: "founders_now",
-        memo: memo || undefined,
+        memo: selectedRule
+          ? `Rule: ${selectedRule.name}${memo.trim() ? ` -- ${memo.trim()}` : ""}`
+          : memo || undefined,
         psbt_hex: psbtRes.psbt_hex,
         psbt_b64: psbtRes.psbt_b64,
         fee_sats: psbtRes.summary.fee_sats,
@@ -1135,9 +1158,55 @@ function SendTab({ vault, balance, onDone }: {
         </div>
       </div>
 
+      {rules.length > 0 && (
+        <div>
+          <Label>Distribution rule</Label>
+          <select
+            value={ruleId}
+            onChange={e => setRuleId(e.target.value)}
+            style={{
+              width: "100%",
+              padding: "11px 13px",
+              background: colors.input,
+              border: `1px solid ${colors.border}`,
+              borderRadius: radii.md,
+              color: colors.text,
+              fontSize: 14,
+              fontFamily: fonts.sans,
+              boxSizing: "border-box",
+            }}
+          >
+            <option value="">-- pick a rule --</option>
+            {rules.map(r => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+                {r.max_sats ? ` (max ${satsToBtc(r.max_sats)} BTC)` : ""}
+              </option>
+            ))}
+          </select>
+          {selectedRule?.notes && (
+            <div style={{ fontSize: 11, color: colors.muted, marginTop: 6 }}>
+              {selectedRule.notes}
+            </div>
+          )}
+        </div>
+      )}
+
       <div>
-        <Label>Memo (optional)</Label>
-        <Input value={memo} onChange={e => setMemo(e.target.value)} placeholder="Note" />
+        <Label>
+          {selectedRule?.requires_comment
+            ? "Reason (required by this rule)"
+            : "Memo (optional)"}
+        </Label>
+        <Input
+          value={memo}
+          onChange={e => setMemo(e.target.value)}
+          placeholder={
+            selectedRule?.requires_comment
+              ? "Why this spend? Which clause of the trust does it satisfy?"
+              : "Note"
+          }
+        />
       </div>
 
       {err && <p style={{ color: colors.red, fontSize: 13, margin: 0 }}>{err}</p>}
@@ -2110,6 +2179,35 @@ function TrustDocSection({ vault }: { vault: Vault }) {
             {doc.distribution_rules && (
               <TrustField label="Distribution rules" value={doc.distribution_rules} />
             )}
+            {(doc.rules ?? []).length > 0 && (
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: colors.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>
+                  Enforced rules
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {(doc.rules ?? []).map(r => (
+                    <div key={r.id} style={{ fontSize: 13, color: colors.text }}>
+                      {r.name}
+                      {r.max_sats ? (
+                        <span style={{ color: colors.muted }}>
+                          {" "} / max {satsToBtc(r.max_sats)} BTC per spend
+                        </span>
+                      ) : null}
+                      {r.requires_comment && (
+                        <span style={{ color: colors.orange, marginLeft: 6, fontSize: 11 }}>
+                          requires reason
+                        </span>
+                      )}
+                      {r.notes && (
+                        <div style={{ fontSize: 11, color: colors.muted }}>
+                          {r.notes}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {doc.succession_notes && (
               <TrustField label="Succession" value={doc.succession_notes} />
             )}
@@ -2192,6 +2290,10 @@ function TrustDocSection({ vault }: { vault: Vault }) {
             placeholder="Who takes over if the primary trustee is incapacitated. Refers to the inheritance timelock path."
           />
         </div>
+        <TrustRulesEditor
+          rules={doc.rules ?? []}
+          onChange={rules => setDoc({ ...doc, rules })}
+        />
         <div style={{ display: "flex", gap: 10 }}>
           <Button variant="ghost" onClick={() => { setDoc(vault.trust_doc ?? {}); setEditing(false); }}>
             Cancel
@@ -2222,6 +2324,115 @@ function TrustField({ label, value }: { label: string; value: string }) {
       </div>
       <div style={{ fontSize: 13, color: colors.text, whiteSpace: "pre-wrap" }}>
         {value}
+      </div>
+    </div>
+  );
+}
+
+// // -- Trust rules editor
+// Structured distribution-rules list. Used inside the trust doc
+// editor; the resulting rules gate the Send form client-side.
+
+function TrustRulesEditor({
+  rules,
+  onChange,
+}: {
+  rules: DistributionRule[];
+  onChange: (next: DistributionRule[]) => void;
+}) {
+  function update(i: number, patch: Partial<DistributionRule>) {
+    const next = rules.slice();
+    next[i] = { ...next[i], ...patch };
+    onChange(next);
+  }
+  function remove(i: number) {
+    onChange(rules.filter((_, j) => j !== i));
+  }
+  function add() {
+    onChange([
+      ...rules,
+      { id: crypto.randomUUID(), name: "", requires_comment: false },
+    ]);
+  }
+
+  return (
+    <div>
+      <Label>Enforced distribution rules</Label>
+      <div style={{ fontSize: 12, color: colors.muted, marginBottom: 10 }}>
+        Each rule gives the Send form a named category trustees must pick
+        from. Optional amount cap; optional required reason. These are
+        soft-enforced client-side, not on-chain.
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {rules.map((r, i) => (
+          <div
+            key={r.id}
+            style={{
+              background: "#0A0A14",
+              border: `1px solid ${colors.border}`,
+              borderRadius: radii.md,
+              padding: 10,
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+            }}
+          >
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <Input
+                value={r.name}
+                onChange={e => update(i, { name: e.target.value })}
+                placeholder="Rule name (e.g. Quarterly educational distribution)"
+                style={{ flex: 2 }}
+              />
+              <Input
+                type="number"
+                min="0"
+                step="0.00000001"
+                value={r.max_sats != null ? (r.max_sats / 1e8).toString() : ""}
+                onChange={e => {
+                  const parsed = parseFloat(e.target.value);
+                  update(i, {
+                    max_sats: Number.isFinite(parsed) && parsed > 0
+                      ? Math.round(parsed * 1e8)
+                      : null,
+                  });
+                }}
+                placeholder="Max BTC"
+                style={{ flex: 1 }}
+              />
+            </div>
+            <Input
+              value={r.notes ?? ""}
+              onChange={e => update(i, { notes: e.target.value })}
+              placeholder="Notes (tax category, trust clause reference...)"
+            />
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <label
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "center",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  color: colors.sub,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={!!r.requires_comment}
+                  onChange={e => update(i, { requires_comment: e.target.checked })}
+                />
+                Requires a reason note
+              </label>
+              <Button variant="ghost" size="sm" style={{ fontSize: 11 }} onClick={() => remove(i)}>
+                Remove
+              </Button>
+            </div>
+          </div>
+        ))}
+        <Button variant="ghost" size="sm" onClick={add}>
+          + Add rule
+        </Button>
       </div>
     </div>
   );
