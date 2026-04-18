@@ -61,7 +61,17 @@ export async function handler(event) {
       .neq("status", "removed")
       .order("created_at", { ascending: true });
     if (error) return json(500, { error: error.message });
-    return json(200, { ok: true, members: data });
+
+    // Xpub privacy: every member sees labels and fingerprints so they
+    // can coordinate, but full xpubs are only returned to the vault
+    // owner and to the member themselves. Other members see xpub:null.
+    const callerIsOwner = await isOwner(supabase, vaultId, u.userId);
+    const redacted = data.map(m => {
+      const visible = callerIsOwner || m.user_id === u.userId;
+      return visible ? m : { ...m, xpub: null };
+    });
+
+    return json(200, { ok: true, members: redacted });
   }
 
   // ── PATCH /api/members?id=<uuid> ──────────────────────────────
