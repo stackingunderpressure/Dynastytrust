@@ -314,21 +314,25 @@ See `Stack` above for the layout.
 
 **Open gaps (prioritized):**
 
-1. **Descriptor format for Nunchuk/Sparrow/Coldcard import.** The Rust compiler
-   returns raw-pubkey descriptors (`pk(03abcd...)`); the saved vault descriptor
-   is also raw-pubkey. Hardware wallet import expects the key-origin form
-   `pk([masterFP/48'/coin'/0'/2']xpub/0/*)`. A helper `upgradeDescriptor()`
-   was sketched out but never wired to a caller; it was deleted during the
-   restructure as dead code. Restoring it requires:
-   - Bring back `upgradeDescriptor(descriptor, KeyOriginMap)` in PolicyBuilder
-   - Build the `KeyOriginMap` from the selected founder/heir keys at `save()`
-     time using each `LocalKey.fingerprint`, `derivationPath`, `xpub`
-   - Run the descriptor through it before persisting + before showing the
-     "Output descriptor" copy field
-2. **End-to-end testnet spend** verified with real signers
-3. **Hardware wallet signing flow** (Coldcard PSBT export/import)
-4. **Governance panel** showing real block height from mempool.space
-5. **PDF vault backup** download (function exists, no UI button)
+1. **Multi-member vault flow (Nunchuk-style command center).** Each vault is
+   currently owned by a single Supabase user (`vaults.user_id`). The target
+   flow is each co-signer having their own account, proposals surfacing in
+   their dashboard, in-browser signing against stored partial sigs, quorum
+   tracking, and Supabase Realtime for the activity feed. Schema work will
+   add `vault_members`, `vault_invites`, and extend `proposals` with
+   per-signer state. See Phase B plan in the session notes.
+2. **End-to-end testnet spend** verified with real signers.
+3. **Hardware wallet signing flow** (Coldcard PSBT export/import).
+4. **Governance panel** showing real block height from mempool.space.
+5. **PDF vault backup** download (function exists, no UI button).
+
+**Recently closed:**
+
+- Descriptor upgrade to Nunchuk/Sparrow key-origin form. `upgradeDescriptor`
+  and `buildKeyOrigins` now run right after `api.compile()` returns, so the
+  descriptor shown in the copy field and stored in Supabase is
+  `pk([fp/path]xpub/0/*)`. Uses `masterFingerprint` when the keystore has
+  it (software keys) and falls back to the child `fingerprint` otherwise.
 
 **Pre-existing issues that survived the restructure:**
 

@@ -5,6 +5,44 @@ import { api } from '../lib/api';
 import { colors, fonts, radii } from '../theme';
 import { Button, Input, Label } from '../components/ui';
 
+/**
+ * Post-process the compiler's raw-pubkey descriptor into the Nunchuk /
+ * Sparrow / Coldcard key-origin form: `pk([fp/path]xpub/0/*)`. The Rust
+ * compiler returns `pk(03abcd...)` because it only sees public keys; the
+ * browser has the xpub, fingerprint, and derivation path needed to
+ * reconstruct the key origin expression.
+ *
+ * If a key is missing BOTH masterFingerprint and fingerprint it is left
+ * as a raw pubkey; hardware wallets will reject that key specifically,
+ * but the rest of the descriptor is still upgraded.
+ */
+interface KeyOrigin {
+  fingerprint: string;
+  derivationPath: string;
+  xpub: string;
+}
+
+function upgradeDescriptor(descriptor: string, origins: Record<string, KeyOrigin>): string {
+  let result = descriptor;
+  for (const [pubkeyHex, origin] of Object.entries(origins)) {
+    const cleanPath = origin.derivationPath.replace(/^m\//, '');
+    const keyExpr = `[${origin.fingerprint}/${cleanPath}]${origin.xpub}/0/*`;
+    result = result.split(pubkeyHex).join(keyExpr);
+  }
+  return result;
+}
+
+function buildKeyOrigins(keys: SelectedKey[]): Record<string, KeyOrigin> {
+  const map: Record<string, KeyOrigin> = {};
+  for (const k of keys) {
+    const pubkeyHex = toPubkeyHex(k);
+    const fp = k.masterFingerprint ?? k.fingerprint;
+    if (!fp || !k.xpub || !k.derivationPath) continue;
+    map[pubkeyHex] = { fingerprint: fp, derivationPath: k.derivationPath, xpub: k.xpub };
+  }
+  return map;
+}
+
 // Compressed pubkey hex is stored on each key at generation time.
 function toPubkeyHex(k: SelectedKey): string {
   if (k.pubkey && k.pubkey.length === 66) return k.pubkey;
@@ -36,6 +74,8 @@ interface SelectedKey {
   persona: string;
   xpub: string;
   fingerprint: string;
+  masterFingerprint?: string;
+  derivationPath: string;
   network: string;
 }
 
@@ -316,6 +356,8 @@ export default function PolicyBuilder() {
       xpub: k.xpub,
       pubkey: k.pubkey,
       fingerprint: k.fingerprint,
+      masterFingerprint: k.masterFingerprint,
+      derivationPath: k.derivationPath,
       network: k.network,
     };
     if (role === 'founder') {
@@ -371,7 +413,9 @@ export default function PolicyBuilder() {
         inheritance_after: inherit,
         save: false,
       });
-      setCompiled(res.compiled as CompiledVault);
+      const raw = res.compiled as CompiledVault;
+      const origins = buildKeyOrigins([...founderKeys, ...heirKeys]);
+      setCompiled({ ...raw, descriptor: upgradeDescriptor(raw.descriptor, origins) });
     } catch (e) {
       setCompErr(e instanceof Error ? e.message : 'Compilation failed');
     } finally {
