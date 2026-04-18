@@ -8,6 +8,7 @@ import {
   type VaultMember,
   type VaultInvite,
   type VaultRole,
+  type TrustDoc,
 } from "../lib/api";
 import { listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
 import { signPsbtWithMnemonic, countSignatures, mergePsbts } from "../lib/psbt-signer";
@@ -20,6 +21,7 @@ import { useRealtimeRefresh } from "../lib/realtime";
 import { normalizePsbt } from "../lib/psbt-format";
 import { downloadVault } from "../lib/descriptor-backup";
 import { pubkeyFromXpub, fingerprintFromXpub } from "../lib/xpub";
+import { tipHeight, blocksToApproxLabel, approxWallclockDate } from "../lib/chain";
 
 
 function satsToBtc(sats: number): string {
@@ -39,6 +41,25 @@ function statusColor(s: string): string {
   if (s === "signed") return colors.gold;
   if (s === "cancelled") return colors.muted;
   return colors.blue;
+}
+
+// Map schema role to trust-deed wording shown across the UI.
+// owner, founder -> trustee; heir -> successor trustee; viewer ->
+// observer. Keeping the schema names stable keeps DB queries and
+// RLS policies unchanged.
+function roleLabel(role: string): string {
+  switch (role) {
+    case "owner":
+      return "Primary trustee";
+    case "founder":
+      return "Trustee";
+    case "heir":
+      return "Successor trustee";
+    case "viewer":
+      return "Observer";
+    default:
+      return role;
+  }
 }
 
 export default function VaultDetail() {
@@ -356,29 +377,50 @@ function OverviewTab({
   copy: (text: string, id: string) => void;
   copied: string | null;
 }) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      {/* Spending paths */}
-      {[
+  // Inheritance vaults get all three spending paths; plain vaults
+  // (no heirs, no timelocks) get only the trustee-now path.
+  const plain =
+    (vault.heir_keys?.length ?? 0) === 0 &&
+    vault.recovery_after === 0 &&
+    vault.inheritance_after === 0;
+
+  const paths = plain
+    ? [
         {
           num: 1,
           color: colors.gold,
-          title: "Founders - Now",
-          body: `${vault.founder_quorum} of ${vault.founder_keys.length} founder signatures required. Available at any time.`,
+          title: "Trustees - Now",
+          body: `${vault.founder_quorum} of ${vault.founder_keys.length} trustee signatures required. Available at any time.`,
+        },
+      ]
+    : [
+        {
+          num: 1,
+          color: colors.gold,
+          title: "Trustees - Now",
+          body: `${vault.founder_quorum} of ${vault.founder_keys.length} trustee signatures required. Available at any time.`,
         },
         {
           num: 2,
           color: colors.blue,
           title: "Recovery - " + blocksToLabel(vault.recovery_after),
-          body: `Founders can recover after ${vault.recovery_after.toLocaleString()} blocks using a separate path.`,
+          body: `Trustees can recover after ${vault.recovery_after.toLocaleString()} blocks on a separate path -- insurance against lost devices.`,
         },
         {
           num: 3,
           color: colors.green,
           title: "Inheritance - " + blocksToLabel(vault.inheritance_after),
-          body: `${vault.heir_quorum} of ${vault.heir_keys.length} heir signatures after ${vault.inheritance_after.toLocaleString()} blocks.`,
+          body: `${vault.heir_quorum} of ${vault.heir_keys.length} successor signatures after ${vault.inheritance_after.toLocaleString()} blocks. Triggered only if the trustees are unreachable for the full window.`,
         },
-      ].map(p => (
+      ];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {!plain && <TimelockCountdown vault={vault} />}
+      <TrustDocSection vault={vault} />
+
+      {/* Spending paths */}
+      {paths.map(p => (
         <div
           key={p.num}
           style={{
@@ -418,8 +460,8 @@ function OverviewTab({
       >
         {[
           ["Address type", vault.address_type.toUpperCase()],
-          ["Founder quorum", `${vault.founder_quorum} of ${vault.founder_keys.length}`],
-          ["Heir quorum", `${vault.heir_quorum} of ${vault.heir_keys.length}`],
+          ["Trustee quorum", `${vault.founder_quorum} of ${vault.founder_keys.length}`],
+          ["Successor quorum", `${vault.heir_quorum} of ${vault.heir_keys.length}`],
           ["Recovery", `${vault.recovery_after.toLocaleString()} blocks`],
           ["Inheritance", `${vault.inheritance_after.toLocaleString()} blocks`],
         ].map(([k, v]) => (
@@ -1507,12 +1549,12 @@ function MemberRow({ member: m, onRemove }: { member: VaultMember; onRemove: () 
                 letterSpacing: "0.06em",
               }}
             >
-              OWNER
+              PRIMARY TRUSTEE
             </span>
           )}
         </div>
         <div style={{ fontSize: 11, color: colors.muted }}>
-          {m.role}
+          {roleLabel(m.role)}
           {m.fingerprint ? ` / ${m.fingerprint}` : " / no key yet"}
         </div>
       </div>
@@ -1547,7 +1589,7 @@ function InviteRow({
     >
       <div>
         <div style={{ fontSize: 14, color: colors.text }}>
-          {invite.invited_label ?? "Unnamed"} ({invite.invited_role})
+          {invite.invited_label ?? "Unnamed"} ({roleLabel(invite.invited_role)})
         </div>
         <div style={{ fontSize: 11, color: colors.muted }}>
           Expires {expires.toLocaleDateString()}
@@ -1653,9 +1695,9 @@ function InviteModal({
                 boxSizing: "border-box",
               }}
             >
-              <option value="founder">Founder (can sign immediately)</option>
-              <option value="heir">Heir (inheritance path only)</option>
-              <option value="viewer">Viewer (read-only)</option>
+              <option value="founder">Trustee (can sign immediately)</option>
+              <option value="heir">Successor trustee (inheritance path)</option>
+              <option value="viewer">Observer (read-only)</option>
             </select>
           </div>
           <div>
@@ -1853,5 +1895,323 @@ function DraftCompileButton({ vault }: { vault: Vault }) {
           ? "Compile vault"
           : `Waiting on ${plannedF - foundersReady} founder${plannedF - foundersReady === 1 ? "" : "s"}${plannedH > 0 ? `, ${plannedH - heirsReady} heir${plannedH - heirsReady === 1 ? "" : "s"}` : ""}`}
     </Button>
+  );
+}
+
+// // -- Timelock countdown
+// Fetches the mempool.space tip block height and renders a live
+// countdown for the recovery and inheritance branches. Refreshes
+// every minute silently.
+
+function TimelockCountdown({ vault }: { vault: Vault }) {
+  const [tip, setTip] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchTip() {
+      try {
+        const h = await tipHeight(vault.network);
+        if (!cancelled) setTip(h);
+      } catch {
+        /* mempool.space is best-effort */
+      }
+    }
+    void fetchTip();
+    const iv = window.setInterval(() => void fetchTip(), 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(iv);
+    };
+  }, [vault.network]);
+
+  const rows = [
+    { label: "Recovery", blocks: vault.recovery_after, color: colors.blue },
+    { label: "Inheritance", blocks: vault.inheritance_after, color: colors.green },
+  ];
+
+  return (
+    <div
+      style={{
+        background: colors.surface,
+        border: `1px solid ${colors.border}`,
+        borderRadius: 12,
+        padding: "14px 16px",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: "0.1em",
+          color: colors.muted,
+          marginBottom: 10,
+          textTransform: "uppercase",
+        }}
+      >
+        Timelocks
+      </div>
+      {rows.map(r => {
+        const unlocksAt = approxWallclockDate(r.blocks);
+        const unlocksLabel = blocksToApproxLabel(r.blocks);
+        return (
+          <div
+            key={r.label}
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              padding: "6px 0",
+              borderTop: `1px solid ${colors.border}`,
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 13, color: colors.text }}>{r.label}</div>
+              <div style={{ fontSize: 11, color: colors.muted }}>
+                {tip != null
+                  ? `Tip ${tip.toLocaleString()} / locked for ${r.blocks.toLocaleString()} blocks`
+                  : `${r.blocks.toLocaleString()} blocks`}
+              </div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 13, color: r.color, fontWeight: 600 }}>
+                {unlocksLabel}
+              </div>
+              <div style={{ fontSize: 11, color: colors.muted }}>
+                {unlocksAt.toLocaleDateString()}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// // -- Trust document
+// Purpose, beneficiaries, distribution rules, succession notes.
+// Every member sees it; only the vault owner can edit.
+
+function TrustDocSection({ vault }: { vault: Vault }) {
+  const toast = useToast();
+  const [editing, setEditing] = useState(false);
+  const [doc, setDoc] = useState<TrustDoc>(vault.trust_doc ?? {});
+  const [session, setSession] = useState<{ user: { id: string } } | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    // Lightweight: we only need to compare user_id to decide if
+    // the edit button should appear. Session comes from Supabase.
+    import("../lib/supabase").then(({ supabase }) => {
+      supabase.auth.getSession().then(({ data }) => {
+        setSession(data.session as unknown as { user: { id: string } });
+      });
+    });
+  }, []);
+
+  const isOwner = session?.user.id === vault.user_id;
+  const empty =
+    !doc.purpose && !doc.distribution_rules && !doc.succession_notes && !(doc.beneficiaries ?? []).length;
+
+  async function save() {
+    setSaving(true);
+    try {
+      await api.vaults.updateTrustDoc(vault.id, doc);
+      toast.success("Trust document saved");
+      setEditing(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!editing) {
+    return (
+      <div
+        style={{
+          background: colors.surface,
+          border: `1px solid ${colors.border}`,
+          borderRadius: 12,
+          padding: "14px 16px",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: empty ? 0 : 10,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: "0.1em",
+              color: colors.muted,
+              textTransform: "uppercase",
+            }}
+          >
+            Trust document
+          </div>
+          {isOwner && (
+            <Button
+              variant="ghost"
+              size="sm"
+              style={{ fontSize: 11, padding: "3px 9px" }}
+              onClick={() => setEditing(true)}
+            >
+              {empty ? "Add" : "Edit"}
+            </Button>
+          )}
+        </div>
+        {empty ? (
+          <div style={{ fontSize: 12, color: colors.muted, marginTop: 8 }}>
+            No trust document yet. {isOwner ? "Describe the purpose, beneficiaries, and distribution rules so every member signs with context." : "The trustee hasn't filled this in yet."}
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {doc.purpose && (
+              <TrustField label="Purpose" value={doc.purpose} />
+            )}
+            {(doc.beneficiaries ?? []).length > 0 && (
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: colors.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>
+                  Beneficiaries
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  {(doc.beneficiaries ?? []).map((b, i) => (
+                    <div key={i} style={{ fontSize: 13, color: colors.text }}>
+                      {b.name}
+                      {b.relation ? (
+                        <span style={{ color: colors.muted }}> -- {b.relation}</span>
+                      ) : null}
+                      {b.notes ? (
+                        <div style={{ fontSize: 11, color: colors.muted }}>
+                          {b.notes}
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {doc.distribution_rules && (
+              <TrustField label="Distribution rules" value={doc.distribution_rules} />
+            )}
+            {doc.succession_notes && (
+              <TrustField label="Succession" value={doc.succession_notes} />
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Edit mode
+  return (
+    <div
+      style={{
+        background: colors.surface,
+        border: `1px solid ${colors.gold}44`,
+        borderRadius: 12,
+        padding: "14px 16px",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: "0.1em",
+          color: colors.gold,
+          marginBottom: 12,
+          textTransform: "uppercase",
+        }}
+      >
+        Edit trust document
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div>
+          <Label>Purpose</Label>
+          <Textarea
+            rows={2}
+            value={doc.purpose ?? ""}
+            onChange={e => setDoc({ ...doc, purpose: e.target.value })}
+            placeholder="Why this trust exists. One or two sentences."
+          />
+        </div>
+        <div>
+          <Label>Beneficiaries (one per line: Name, Relation, Notes)</Label>
+          <Textarea
+            rows={3}
+            mono
+            value={(doc.beneficiaries ?? [])
+              .map(b => [b.name, b.relation ?? "", b.notes ?? ""].join(" | "))
+              .join("\n")}
+            onChange={e => {
+              const list = e.target.value
+                .split("\n")
+                .map(l => l.split("|").map(s => s.trim()))
+                .filter(cols => cols[0])
+                .map(cols => ({
+                  name: cols[0],
+                  relation: cols[1] || undefined,
+                  notes: cols[2] || undefined,
+                }));
+              setDoc({ ...doc, beneficiaries: list });
+            }}
+            placeholder="Sarah Smith | daughter | receives educational distributions"
+          />
+        </div>
+        <div>
+          <Label>Distribution rules</Label>
+          <Textarea
+            rows={3}
+            value={doc.distribution_rules ?? ""}
+            onChange={e => setDoc({ ...doc, distribution_rules: e.target.value })}
+            placeholder="When and why the trust spends. E.g. 'Up to 0.1 BTC quarterly for education; medical emergencies up to 0.5 BTC with 2-trustee approval.'"
+          />
+        </div>
+        <div>
+          <Label>Succession notes</Label>
+          <Textarea
+            rows={2}
+            value={doc.succession_notes ?? ""}
+            onChange={e => setDoc({ ...doc, succession_notes: e.target.value })}
+            placeholder="Who takes over if the primary trustee is incapacitated. Refers to the inheritance timelock path."
+          />
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <Button variant="ghost" onClick={() => { setDoc(vault.trust_doc ?? {}); setEditing(false); }}>
+            Cancel
+          </Button>
+          <Button disabled={saving} onClick={() => void save()}>
+            {saving ? "Saving..." : "Save trust document"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TrustField({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 600,
+          color: colors.muted,
+          textTransform: "uppercase",
+          letterSpacing: "0.08em",
+          marginBottom: 4,
+        }}
+      >
+        {label}
+      </div>
+      <div style={{ fontSize: 13, color: colors.text, whiteSpace: "pre-wrap" }}>
+        {value}
+      </div>
+    </div>
   );
 }

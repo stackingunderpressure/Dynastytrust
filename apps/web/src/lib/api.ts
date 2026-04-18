@@ -66,6 +66,28 @@ export interface Vault {
   // compiled. Null on legacy compiled rows.
   planned_founder_count: number | null;
   planned_heir_count: number | null;
+  // Trust document: human-readable purpose, beneficiaries, and
+  // distribution rules. The schema is flexible; the UI reads the
+  // fields it knows about and round-trips the rest.
+  trust_doc: TrustDoc;
+}
+
+export interface TrustDoc {
+  /** One or two sentences: why does this trust exist? */
+  purpose?: string;
+  /** Named beneficiaries -- not necessarily signers. Receive
+   *  distributions or inherit per the trust terms. */
+  beneficiaries?: TrustBeneficiary[];
+  /** Free-form distribution rules (human-readable, not enforced). */
+  distribution_rules?: string;
+  /** Successor trustee notes: who takes over, under what conditions. */
+  succession_notes?: string;
+}
+
+export interface TrustBeneficiary {
+  name: string;
+  relation?: string;
+  notes?: string;
 }
 
 export interface Proposal {
@@ -192,6 +214,12 @@ export const api = {
       req<{ ok: true; vault: Vault }>(`/vaults?id=${id}`, {
         method: 'PATCH',
         body: JSON.stringify({ name }),
+      }),
+
+    updateTrustDoc: (id: string, trust_doc: TrustDoc) =>
+      req<{ ok: true; vault: Vault }>(`/vaults?id=${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ trust_doc }),
       }),
   },
 

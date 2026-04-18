@@ -1,0 +1,56 @@
+import { EXPLORER, type Network } from '../config';
+
+/**
+ * Current tip block height on the requested network, fetched from
+ * mempool.space. Used by the trust overview to render real-time
+ * countdowns ("Recovery path unlocks in 17,432 blocks, ~4 months").
+ *
+ * Cached in-memory per network for 60s so a page that renders
+ * multiple countdowns doesn't hammer the endpoint.
+ */
+
+interface CacheEntry {
+  height: number;
+  fetchedAt: number;
+}
+
+const cache = new Map<Network, CacheEntry>();
+const TTL_MS = 60_000;
+
+export async function tipHeight(network: Network): Promise<number> {
+  const cached = cache.get(network);
+  if (cached && Date.now() - cached.fetchedAt < TTL_MS) return cached.height;
+
+  const res = await fetch(`${EXPLORER[network].api}/blocks/tip/height`);
+  if (!res.ok) throw new Error(`Block height fetch failed: ${res.status}`);
+  const text = await res.text();
+  const height = Number.parseInt(text.trim(), 10);
+  if (!Number.isFinite(height)) throw new Error(`Invalid height: ${text}`);
+
+  cache.set(network, { height, fetchedAt: Date.now() });
+  return height;
+}
+
+/**
+ * Convert a BIP65/BIP68-style "after(N)" block count into a
+ * human-readable countdown relative to the current tip.
+ * `afterBlocks` here is the absolute block height the policy uses
+ * (in our schema recovery_after / inheritance_after are stored as
+ * block counts measured from the vault's first confirmed spend,
+ * but the UI treats them as countdowns-from-now for simplicity).
+ */
+export function blocksToApproxLabel(blocks: number): string {
+  if (blocks <= 0) return 'Available now';
+  const minutes = blocks * 10;
+  const days = minutes / 60 / 24;
+  if (days < 1) return `~${Math.round(minutes / 60)} hours`;
+  if (days < 60) return `~${Math.round(days)} days`;
+  if (days < 365) return `~${Math.round(days / 30)} months`;
+  const years = days / 365;
+  return `~${years.toFixed(1)} years`;
+}
+
+export function approxWallclockDate(blocksFromNow: number): Date {
+  const ms = blocksFromNow * 10 * 60 * 1000;
+  return new Date(Date.now() + ms);
+}
