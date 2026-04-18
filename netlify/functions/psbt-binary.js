@@ -12,6 +12,7 @@
 
 import { requireUser, json } from './_auth.js';
 import { getSupabaseAdmin } from './_supabase.js';
+import { pubkeyFromXpub } from './_xpub.js';
 
 const COMPILER_URL    = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -63,12 +64,27 @@ export async function handler(event) {
   const supabase = getSupabaseAdmin();
   const { data: vault, error } = await supabase
     .from('vaults')
-    .select('id, name, address, network, descriptor, address_type, recovery_after, inheritance_after, founder_quorum, heir_quorum, founder_keys, heir_keys')
+    .select('id, name, address, network, descriptor, address_type, recovery_after, inheritance_after, founder_quorum, heir_quorum, founder_keys, heir_keys, consent_keys, consent_quorum')
     .eq('id', vault_id)
     .eq('user_id', u.userId)
     .single();
 
   if (error || !vault) return json(404, { error: 'Vault not found' });
+
+  // vault.founder_keys / heir_keys / consent_keys are stored as
+  // xpubs; the Fly.io /psbt-binary leaf-script rebuilder expects
+  // 33-byte compressed pubkey hex (parse_pubkeys). Derive the /0/0
+  // child pubkey here so tap_scripts matches what the browser signs
+  // against. Legacy rows may already hold pubkey hex (66 chars) --
+  // those pass through unchanged.
+  const toPubkeyHex = (k) => {
+    if (typeof k !== 'string') return k;
+    if (k.length === 66) return k; // already pubkey hex
+    try { return pubkeyFromXpub(k); } catch { return k; }
+  };
+  const founderPubkeys = (vault.founder_keys || []).map(toPubkeyHex);
+  const heirPubkeys = (vault.heir_keys || []).map(toPubkeyHex);
+  const consentPubkeys = (vault.consent_keys || []).map(toPubkeyHex);
 
   const network = vault.network || 'testnet';
   const base    = MEMPOOL[network] || MEMPOOL.testnet;
@@ -159,12 +175,15 @@ export async function handler(event) {
         // Pass vault policy params so compiler can attach tap_leaf_script
         // This is required for Coldcard/Passport/Keystone to sign correctly
         address_type:      vault.address_type || 'tr',
-        founder_keys:      vault.founder_keys  || [],
+        founder_keys:      founderPubkeys,
         founder_quorum:    vault.founder_quorum,
-        heir_keys:         vault.heir_keys     || [],
+        heir_keys:         heirPubkeys,
         heir_quorum:       vault.heir_quorum,
         recovery_after:    vault.recovery_after,
         inheritance_after: vault.inheritance_after,
+        ...(consentPubkeys.length > 0 && vault.consent_quorum != null
+          ? { consent_keys: consentPubkeys, consent_quorum: vault.consent_quorum }
+          : {}),
       }),
     });
 
