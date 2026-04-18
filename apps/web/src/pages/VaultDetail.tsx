@@ -18,6 +18,7 @@ import { colors, fonts, radii, space } from "../theme";
 import { Button, Input, Label, Textarea } from "../components/ui";
 import { useRealtimeRefresh } from "../lib/realtime";
 import { normalizePsbt } from "../lib/psbt-format";
+import { downloadVault } from "../lib/descriptor-backup";
 
 
 function satsToBtc(sats: number): string {
@@ -413,7 +414,7 @@ function OverviewTab({
           padding: 16,
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, gap: 8 }}>
           <span
             style={{
               fontSize: 11,
@@ -424,14 +425,24 @@ function OverviewTab({
           >
             DESCRIPTOR
           </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            style={{ padding: "3px 9px", fontSize: 11 }}
-            onClick={() => copy(vault.descriptor, "desc")}
-          >
-            {copied === "desc" ? "Copied" : "Copy"}
-          </Button>
+          <div style={{ display: "flex", gap: 6 }}>
+            <Button
+              variant="ghost"
+              size="sm"
+              style={{ padding: "3px 9px", fontSize: 11 }}
+              onClick={() => copy(vault.descriptor, "desc")}
+            >
+              {copied === "desc" ? "Copied" : "Copy"}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              style={{ padding: "3px 9px", fontSize: 11 }}
+              onClick={() => downloadVault(vault)}
+            >
+              Download backup
+            </Button>
+          </div>
         </div>
         <div
           style={{

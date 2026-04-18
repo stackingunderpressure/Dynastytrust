@@ -1,9 +1,10 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listKeys, type LocalKey } from '../lib/keystore';
-import { api } from '../lib/api';
-import { colors, fonts, radii } from '../theme';
+import { api, type Vault } from '../lib/api';
+import { colors, fonts, radii, space } from '../theme';
 import { Button, Input, Label } from '../components/ui';
+import { downloadVaultBackup } from '../lib/descriptor-backup';
 
 /**
  * Post-process the compiler's raw-pubkey descriptor into the Nunchuk /
@@ -338,6 +339,7 @@ export default function PolicyBuilder() {
   const [slowHint, setSlowHint] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState<string | null>(null);
+  const [savedVault, setSavedVault] = useState<Vault | null>(null);
 
   useEffect(() => {
     setAllKeys(listKeys().filter(k => k.status === 'active'));
@@ -447,7 +449,7 @@ export default function PolicyBuilder() {
         founder_keys: founderKeys.map(k => k.xpub),
         heir_keys: heirKeys.map(k => k.xpub),
       });
-      navigate(`/vaults/${res.vault.id}`, { state: { vault: res.vault } });
+      setSavedVault(res.vault);
     } catch (e) {
       setSaveErr(e instanceof Error ? e.message : 'Save failed');
     } finally {
@@ -732,6 +734,146 @@ export default function PolicyBuilder() {
             </Button>
           </div>
         )}
+      </div>
+
+      {savedVault && (
+        <BackupNudgeModal
+          vault={savedVault}
+          onDone={() =>
+            navigate(`/vaults/${savedVault.id}`, { state: { vault: savedVault } })
+          }
+        />
+      )}
+    </div>
+  );
+}
+
+function BackupNudgeModal({ vault, onDone }: { vault: Vault; onDone: () => void }) {
+  const [downloaded, setDownloaded] = useState(false);
+  const [metal, setMetal] = useState(false);
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.85)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 300,
+        padding: space[4],
+      }}
+    >
+      <div
+        style={{
+          background: colors.surface,
+          border: `1px solid ${colors.gold}44`,
+          borderRadius: 16,
+          padding: '32px 28px',
+          width: '100%',
+          maxWidth: 480,
+        }}
+      >
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: '0.12em',
+            color: colors.gold,
+            marginBottom: 6,
+          }}
+        >
+          BACKUP NOW
+        </div>
+        <h2
+          style={{
+            fontSize: 22,
+            fontWeight: 700,
+            color: colors.text,
+            fontFamily: fonts.display,
+            margin: 0,
+            marginBottom: 10,
+          }}
+        >
+          Your vault is compiled.
+        </h2>
+        <p style={{ fontSize: 14, color: colors.sub, lineHeight: 1.5, marginBottom: 20 }}>
+          Do these two things before funding. If you lose either piece, the
+          vault may be unrecoverable.
+        </p>
+
+        <div
+          style={{
+            background: '#0A0A14',
+            border: `1px solid ${colors.border}`,
+            borderRadius: radii.md,
+            padding: '14px 16px',
+            marginBottom: 12,
+          }}
+        >
+          <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 6 }}>
+            1. Download the descriptor file
+          </div>
+          <div style={{ fontSize: 12, color: colors.muted, lineHeight: 1.5, marginBottom: 10 }}>
+            A plaintext file with everything needed to rebuild the vault in
+            Nunchuk, Sparrow, or Coldcard. Every member should have a copy.
+          </div>
+          <Button
+            variant={downloaded ? 'ghost' : 'primary'}
+            size="sm"
+            onClick={() => {
+              downloadVaultBackup(vault);
+              setDownloaded(true);
+            }}
+          >
+            {downloaded ? 'Downloaded -- save to cold storage' : 'Download backup file'}
+          </Button>
+        </div>
+
+        <div
+          style={{
+            background: '#0A0A14',
+            border: `1px solid ${colors.border}`,
+            borderRadius: radii.md,
+            padding: '14px 16px',
+            marginBottom: 20,
+          }}
+        >
+          <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 6 }}>
+            2. Back up each signing mnemonic on metal
+          </div>
+          <div style={{ fontSize: 12, color: colors.muted, lineHeight: 1.5, marginBottom: 10 }}>
+            Paper burns, SSDs die, browsers get wiped. Stamp all 24 words on a
+            steel plate for every founder and heir key. Do the verify-words
+            flow on the Keys page.
+          </div>
+          <label
+            style={{
+              display: 'flex',
+              gap: 10,
+              alignItems: 'center',
+              cursor: 'pointer',
+              fontSize: 13,
+              color: colors.sub,
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={metal}
+              onChange={e => setMetal(e.target.checked)}
+            />
+            I have a metal backup for every signing key on this vault.
+          </label>
+        </div>
+
+        <Button
+          disabled={!downloaded || !metal}
+          style={{ width: '100%' }}
+          onClick={onDone}
+        >
+          Open vault
+        </Button>
       </div>
     </div>
   );
