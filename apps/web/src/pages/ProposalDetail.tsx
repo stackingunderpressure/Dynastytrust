@@ -15,7 +15,7 @@ import {
 } from "../lib/psbt-signer";
 import { LoadingScreen } from "../components/LoadingScreen";
 import { useToast } from "../components/toast";
-import { Button } from "../components/ui";
+import { Button, Textarea } from "../components/ui";
 import { useRealtimeRefresh } from "../lib/realtime";
 import { colors, fonts, radii, space } from "../theme";
 
@@ -232,6 +232,21 @@ export default function ProposalDetail() {
               </Button>
             ))}
           </div>
+        </ActionCard>
+      )}
+
+      {!terminal && (
+        <ActionCard>
+          <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+            Sign with hardware wallet
+          </div>
+          <div style={{ fontSize: 12, color: colors.muted, marginBottom: 12 }}>
+            Export to Sparrow / Nunchuk / Coldcard, sign, paste the signed PSBT hex here.
+          </div>
+          <ExternalPsbt
+            proposalId={proposal.id}
+            onImported={() => void load()}
+          />
         </ActionCard>
       )}
 
@@ -462,5 +477,64 @@ function ActionCard({ children }: { children: React.ReactNode }) {
     >
       {children}
     </div>
+  );
+}
+
+function ExternalPsbt({
+  proposalId,
+  onImported,
+}: {
+  proposalId: string;
+  onImported: () => void;
+}) {
+  const toast = useToast();
+  const [hex, setHex] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    const clean = hex.trim();
+    if (!clean.toLowerCase().startsWith("70736274ff")) {
+      setErr("Not a valid PSBT (should start with 70736274ff)");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.signerSessions.submit({
+        proposal_id: proposalId,
+        psbt_partial_hex: clean,
+        label: "Hardware wallet",
+      });
+      setHex("");
+      toast.success("Signature added");
+      onImported();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed to add signature");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit}>
+      <Textarea
+        mono
+        rows={3}
+        value={hex}
+        onChange={e => setHex(e.target.value)}
+        placeholder="70736274ff... (paste signed PSBT hex)"
+      />
+      {err && <p style={{ color: colors.red, fontSize: 12, margin: "4px 0" }}>{err}</p>}
+      <Button
+        type="submit"
+        variant="ghost"
+        disabled={!hex || busy}
+        style={{ marginTop: 8 }}
+      >
+        {busy ? "Adding..." : "Add signature"}
+      </Button>
+    </form>
   );
 }
