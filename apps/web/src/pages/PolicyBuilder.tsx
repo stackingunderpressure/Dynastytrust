@@ -348,6 +348,10 @@ export default function PolicyBuilder() {
   const [protectorKeys, setProtectorKeys] = useState<SelectedKey[]>([]);
   const [protectorQ, setProtectorQ] = useState(1);
   const [protectorAfter, setProtectorAfter] = useState(26_280); // ~6 months default
+  // Beneficiary consent (T-consent): gates Path 1 only, leaving the
+  // timelocked recovery / inheritance / protector paths untouched.
+  const [consentKeys, setConsentKeys] = useState<SelectedKey[]>([]);
+  const [consentQ, setConsentQ] = useState(1);
   const [recovery, setRecovery] = useState(26_280);
   const [inherit, setInherit] = useState(52_560);
   const [compiled, setCompiled] = useState<CompiledVault | null>(null);
@@ -387,7 +391,7 @@ export default function PolicyBuilder() {
   const { errors, warnings } = validate(mode, founderKeys, heirKeys, founderQ, heirQ, recovery, inherit);
   const canCompile = errors.length === 0 && founderKeys.length > 0;
 
-  function addKey(keyId: string, role: 'founder' | 'heir' | 'protector') {
+  function addKey(keyId: string, role: 'founder' | 'heir' | 'protector' | 'consent') {
     const k = allKeys.find(k => k.keyId === keyId);
     if (!k) return;
     const sk: SelectedKey = {
@@ -413,17 +417,23 @@ export default function PolicyBuilder() {
         setHQ(q => Math.min(q, n.length));
         return n;
       });
-    } else {
+    } else if (role === 'protector') {
       setProtectorKeys(prev => {
         const n = [...prev, sk];
         setProtectorQ(q => Math.min(q, n.length));
+        return n;
+      });
+    } else {
+      setConsentKeys(prev => {
+        const n = [...prev, sk];
+        setConsentQ(q => Math.min(q, n.length));
         return n;
       });
     }
     setCompiled(null);
   }
 
-  function removeKey(keyId: string, role: 'founder' | 'heir' | 'protector') {
+  function removeKey(keyId: string, role: 'founder' | 'heir' | 'protector' | 'consent') {
     if (role === 'founder') {
       setFK(prev => {
         const n = prev.filter(k => k.keyId !== keyId);
@@ -436,10 +446,16 @@ export default function PolicyBuilder() {
         setHQ(q => Math.min(q, n.length || 1));
         return n;
       });
-    } else {
+    } else if (role === 'protector') {
       setProtectorKeys(prev => {
         const n = prev.filter(k => k.keyId !== keyId);
         setProtectorQ(q => Math.min(q, n.length || 1));
+        return n;
+      });
+    } else {
+      setConsentKeys(prev => {
+        const n = prev.filter(k => k.keyId !== keyId);
+        setConsentQ(q => Math.min(q, n.length || 1));
         return n;
       });
     }
@@ -448,16 +464,25 @@ export default function PolicyBuilder() {
 
   const availForFounder = allKeys.filter(k =>
     !founderKeys.some(fk => fk.keyId === k.keyId) &&
-    !protectorKeys.some(pk => pk.keyId === k.keyId),
+    !protectorKeys.some(pk => pk.keyId === k.keyId) &&
+    !consentKeys.some(ck => ck.keyId === k.keyId),
   );
   const availForHeir = allKeys.filter(k =>
     !heirKeys.some(hk => hk.keyId === k.keyId) &&
-    !protectorKeys.some(pk => pk.keyId === k.keyId),
+    !protectorKeys.some(pk => pk.keyId === k.keyId) &&
+    !consentKeys.some(ck => ck.keyId === k.keyId),
   );
   const availForProtector = allKeys.filter(k =>
     !founderKeys.some(fk => fk.keyId === k.keyId) &&
     !heirKeys.some(hk => hk.keyId === k.keyId) &&
-    !protectorKeys.some(pk => pk.keyId === k.keyId),
+    !protectorKeys.some(pk => pk.keyId === k.keyId) &&
+    !consentKeys.some(ck => ck.keyId === k.keyId),
+  );
+  const availForConsent = allKeys.filter(k =>
+    !founderKeys.some(fk => fk.keyId === k.keyId) &&
+    !heirKeys.some(hk => hk.keyId === k.keyId) &&
+    !protectorKeys.some(pk => pk.keyId === k.keyId) &&
+    !consentKeys.some(ck => ck.keyId === k.keyId),
   );
 
   async function compile() {
@@ -469,6 +494,7 @@ export default function PolicyBuilder() {
     try {
       const plain = mode === 'plain';
       const hasProtector = !plain && protectorKeys.length > 0;
+      const hasConsent = consentKeys.length > 0;
       const res = await api.compile({
         name,
         network: network as 'testnet' | 'bitcoin',
@@ -487,13 +513,19 @@ export default function PolicyBuilder() {
               protector_after: protectorAfter,
             }
           : {}),
+        ...(hasConsent
+          ? {
+              consent_keys: consentKeys.map(toPubkeyHex),
+              consent_quorum: consentQ,
+            }
+          : {}),
         save: false,
       });
       const raw = res.compiled as CompiledVault;
       const origins = buildKeyOrigins(
         plain
-          ? founderKeys
-          : [...founderKeys, ...heirKeys, ...protectorKeys],
+          ? [...founderKeys, ...consentKeys]
+          : [...founderKeys, ...heirKeys, ...protectorKeys, ...consentKeys],
       );
       setCompiled({ ...raw, descriptor: upgradeDescriptor(raw.descriptor, origins) });
     } catch (e) {
@@ -526,6 +558,7 @@ export default function PolicyBuilder() {
           : Math.min(recoveryQ, Math.max(1, effectiveFounderQ)),
         recovery_after: plain ? 0 : recovery,
         inheritance_after: plain ? 0 : inherit,
+        ...(consentKeys.length > 0 ? { consent_quorum: consentQ } : {}),
       });
 
       // If the owner already picked a founder key of their own, seed
@@ -583,6 +616,12 @@ export default function PolicyBuilder() {
               protector_keys: protectorKeys.map(k => k.xpub),
               protector_quorum: protectorQ,
               protector_after: protectorAfter,
+            }
+          : {}),
+        ...(consentKeys.length > 0
+          ? {
+              consent_keys: consentKeys.map(k => k.xpub),
+              consent_quorum: consentQ,
             }
           : {}),
       });
@@ -810,6 +849,40 @@ export default function PolicyBuilder() {
                     Warning: protector path unlocks after or with inheritance -- it may be redundant.
                   </div>
                 )}
+              </div>
+            </>
+          )}
+        </Section>
+      )}
+
+      {mode === 'inheritance' && (
+        <Section
+          title="Beneficiary consent (optional)"
+          sub="Adds a beneficiary-cosign gate on the trustees-now path. Every normal spend then requires trustees AND this many beneficiary signatures. The timelocked recovery / inheritance / protector paths are intentionally unaffected -- they exist so funds can still move when a beneficiary refuses to cosign. Use when a beneficiary should have veto power over day-to-day spends without being responsible for custody."
+        >
+          <KeyPicker
+            selected={consentKeys}
+            available={availForConsent}
+            onAdd={id => addKey(id, 'consent')}
+            onRemove={id => removeKey(id, 'consent')}
+            role="consent"
+            accentColor={colors.gold}
+          />
+          {consentKeys.length > 0 && (
+            <>
+              <QuorumPicker
+                max={consentKeys.length}
+                value={consentQ}
+                onChange={q => {
+                  setConsentQ(q);
+                  setCompiled(null);
+                }}
+                color={colors.gold}
+              />
+              <div style={{ fontSize: 11, color: colors.orange, marginTop: 10 }}>
+                Every spend on Path 1 will need trustees + {consentQ} beneficiary
+                signature{consentQ === 1 ? '' : 's'}. If a beneficiary won't cosign,
+                trustees must wait for the recovery timelock to spend.
               </div>
             </>
           )}

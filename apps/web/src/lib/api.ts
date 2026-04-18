@@ -69,6 +69,12 @@ export interface Vault {
   protector_keys: string[];
   protector_quorum: number | null;
   protector_after: number | null;
+  /** Beneficiary-consent gate on Path 1. Every normal spend requires
+   *  trustees AND this many beneficiary signatures. The timelocked
+   *  paths ignore consent -- they exist to rescue funds when a
+   *  beneficiary can't or won't cosign. Empty = not configured. */
+  consent_keys: string[];
+  consent_quorum: number | null;
   archived: boolean;
   status: VaultStatus;
   // Draft-only: how many signing slots the vault will have when
@@ -258,6 +264,8 @@ export const api = {
       protector_keys?: string[];
       protector_quorum?: number | null;
       protector_after?: number | null;
+      consent_keys?: string[];
+      consent_quorum?: number | null;
     }) => req<{ ok: true; vault: Vault }>('/vaults', { method: 'POST', body: JSON.stringify(body) }),
 
     // Draft vault: no descriptor yet. Members bring their xpubs via
@@ -275,6 +283,7 @@ export const api = {
       inheritance_after?: number;
       protector_quorum?: number | null;
       protector_after?: number | null;
+      consent_quorum?: number | null;
     }) =>
       req<{ ok: true; vault: Vault }>('/vaults', {
         method: 'POST',
@@ -323,6 +332,8 @@ export const api = {
     protector_keys?: string[];
     protector_quorum?: number | null;
     protector_after?: number | null;
+    consent_keys?: string[];
+    consent_quorum?: number | null;
     save?: boolean;
   }) => req<{ ok: true; compiled: unknown; saved: boolean; vault?: Vault }>('/compile', {
     method: 'POST',

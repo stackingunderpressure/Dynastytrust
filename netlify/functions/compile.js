@@ -52,6 +52,11 @@ export async function handler(event) {
     heir_quorum = 1,
     recovery_after = 0,
     inheritance_after = 0,
+    protector_keys = [],
+    protector_quorum = null,
+    protector_after = null,
+    consent_keys = [],
+    consent_quorum = null,
     save = true,   // if true, auto-save compiled vault to DB
   } = body;
 
@@ -96,6 +101,12 @@ export async function handler(event) {
           recovery_quorum,
           heir_keys, heir_quorum,
           recovery_after, inheritance_after,
+          ...(protector_keys.length > 0 && protector_quorum != null && protector_after != null
+            ? { protector_keys, protector_quorum, protector_after }
+            : {}),
+          ...(consent_keys.length > 0 && consent_quorum != null
+            ? { consent_keys, consent_quorum }
+            : {}),
         }),
       });
       clearTimeout(timeout);
@@ -160,6 +171,11 @@ export async function handler(event) {
           inheritance_after,
           founder_keys,
           heir_keys,
+          protector_keys,
+          protector_quorum,
+          protector_after,
+          consent_keys,
+          consent_quorum,
         })
         .select("id, created_at, name, network, address_type, address, descriptor, miniscript_policy, founder_quorum, heir_quorum, recovery_after, inheritance_after, founder_keys, heir_keys")
         .single();

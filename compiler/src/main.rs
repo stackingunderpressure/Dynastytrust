@@ -107,6 +107,8 @@ struct CompileRequest {
     #[serde(default)] protector_keys: Vec<String>,
     #[serde(default)] protector_quorum: Option<usize>,
     #[serde(default)] protector_after: Option<u32>,
+    #[serde(default)] consent_keys: Vec<String>,
+    #[serde(default)] consent_quorum: Option<usize>,
 }
 fn default_addr_type() -> String { "tr".to_string() }
 
@@ -126,6 +128,7 @@ async fn compile(
     let founders = parse_pubkeys(&req.founder_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
     let heirs    = parse_pubkeys(&req.heir_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
     let protectors = parse_pubkeys(&req.protector_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+    let consenters = parse_pubkeys(&req.consent_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
     let policy = DynastyPolicy {
         founder_keys: founders, founder_quorum: req.founder_quorum,
         recovery_quorum: req.recovery_quorum,
@@ -134,6 +137,8 @@ async fn compile(
         protector_keys: protectors,
         protector_quorum: req.protector_quorum,
         protector_after: req.protector_after,
+        consent_keys: consenters,
+        consent_quorum: req.consent_quorum,
     };
     let compiled = match req.address_type.as_str() {
         "wsh"          => compile_dynasty_policy(policy, network),
@@ -175,6 +180,8 @@ struct PsbtBinaryRequest {
     recovery_after:   Option<u32>,
     inheritance_after: Option<u32>,
     address_type:     Option<String>,
+    #[serde(default)] consent_keys:   Vec<String>,
+    #[serde(default)] consent_quorum: Option<usize>,
     // Fallback raw scripts (if policy params not provided)
     leaf_script_hex:    Option<String>,
     witness_script_hex: Option<String>,
@@ -262,6 +269,7 @@ async fn psbt_binary(
         let addr_type = req.address_type.as_deref().unwrap_or("tr");
         match (parse_pubkeys(fk), parse_pubkeys(hk)) {
             (Ok(founders), Ok(heirs)) => {
+                let consenters = parse_pubkeys(&req.consent_keys).unwrap_or_default();
                 let pol = DynastyPolicy {
                     founder_keys: founders, founder_quorum: fq,
                     recovery_quorum: None,
@@ -270,6 +278,8 @@ async fn psbt_binary(
                     protector_keys: vec![],
                     protector_quorum: None,
                     protector_after: None,
+                    consent_keys: consenters,
+                    consent_quorum: req.consent_quorum,
                 };
                 build_founders_leaf_script(&pol, addr_type).ok()
             }
@@ -335,7 +345,18 @@ async fn psbt_binary(
 
 fn build_founders_leaf_script(policy: &DynastyPolicy, addr_type: &str) -> Result<ScriptBuf> {
     let founders: Vec<String> = policy.founder_keys.iter().map(|k| format!("pk({k})")).collect();
-    let founder_thresh = format!("thresh({},{})", policy.founder_quorum, founders.join(","));
+    let trustee_thresh = format!("thresh({},{})", policy.founder_quorum, founders.join(","));
+    let founder_thresh = if policy.has_consent() {
+        let consenters: Vec<String> = policy.consent_keys.iter().map(|k| format!("pk({k})")).collect();
+        let consent_thresh = format!(
+            "thresh({},{})",
+            policy.consent_quorum.unwrap(),
+            consenters.join(","),
+        );
+        format!("and({},{})", trustee_thresh, consent_thresh)
+    } else {
+        trustee_thresh
+    };
 
     if addr_type == "wsh" {
         let heirs: Vec<String> = policy.heir_keys.iter().map(|k| format!("pk({k})")).collect();

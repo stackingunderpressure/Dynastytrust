@@ -41,6 +41,16 @@ pub struct DynastyPolicy {
     pub protector_quorum: Option<usize>,
     #[serde(default)]
     pub protector_after: Option<u32>,
+
+    /// Optional beneficiary-consent gate on Path 1 (founders-now).
+    /// When set, every "normal" spend needs both the trustee quorum
+    /// AND a beneficiary quorum to sign. Recovery / inheritance /
+    /// protector paths are unaffected -- those exist precisely to
+    /// rescue funds when a beneficiary won't or can't cosign.
+    #[serde(default)]
+    pub consent_keys: Vec<PublicKey>,
+    #[serde(default)]
+    pub consent_quorum: Option<usize>,
 }
 
 impl DynastyPolicy {
@@ -55,6 +65,10 @@ impl DynastyPolicy {
         !self.protector_keys.is_empty()
             && self.protector_quorum.is_some()
             && self.protector_after.is_some()
+    }
+
+    pub fn has_consent(&self) -> bool {
+        !self.consent_keys.is_empty() && self.consent_quorum.is_some()
     }
 }
 
@@ -195,7 +209,26 @@ pub fn compile_dynasty_policy_tr_multileaf(
         .map(|k| format!("pk({k})"))
         .collect();
 
-    let founder_thresh = format!("thresh({},{})", policy.founder_quorum, founders.join(","));
+    let trustee_thresh = format!("thresh({},{})", policy.founder_quorum, founders.join(","));
+    // Path 1: trustees alone, or trustees + beneficiary consent.
+    // The consent gate only applies to the day-to-day trustee path;
+    // the timelocked recovery/inheritance/protector branches are
+    // intentionally unreachable if a beneficiary refuses to cosign.
+    let founder_thresh = if policy.has_consent() {
+        let consenters: Vec<String> = policy
+            .consent_keys
+            .iter()
+            .map(|k| format!("pk({k})"))
+            .collect();
+        let consent_thresh = format!(
+            "thresh({},{})",
+            policy.consent_quorum.unwrap(),
+            consenters.join(","),
+        );
+        format!("and({},{})", trustee_thresh, consent_thresh)
+    } else {
+        trustee_thresh.clone()
+    };
 
     let compile_leaf =
         |policy_str: &str| -> Result<Miniscript<PublicKey, miniscript::Tap>, PolicyError> {
@@ -333,7 +366,22 @@ fn build_policy_string(policy: &DynastyPolicy) -> String {
         .map(|k| format!("pk({k})"))
         .collect();
 
-    let founder_thresh = format!("thresh({},{})", policy.founder_quorum, founders.join(","));
+    let trustee_thresh = format!("thresh({},{})", policy.founder_quorum, founders.join(","));
+    let founder_thresh = if policy.has_consent() {
+        let consenters: Vec<String> = policy
+            .consent_keys
+            .iter()
+            .map(|k| format!("pk({k})"))
+            .collect();
+        let consent_thresh = format!(
+            "thresh({},{})",
+            policy.consent_quorum.unwrap(),
+            consenters.join(","),
+        );
+        format!("and({},{})", trustee_thresh, consent_thresh)
+    } else {
+        trustee_thresh
+    };
 
     if policy.is_plain() {
         return founder_thresh;
@@ -394,6 +442,13 @@ fn verify(policy: &DynastyPolicy) -> Result<(), PolicyError> {
     if policy.has_protector() {
         let pq = policy.protector_quorum.unwrap();
         if pq == 0 || pq > policy.protector_keys.len() {
+            return Err(PolicyError::InvalidQuorum);
+        }
+    }
+
+    if policy.has_consent() {
+        let cq = policy.consent_quorum.unwrap();
+        if cq == 0 || cq > policy.consent_keys.len() {
             return Err(PolicyError::InvalidQuorum);
         }
     }
