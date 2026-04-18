@@ -19,6 +19,7 @@ import { Button, Input, Label, Textarea } from "../components/ui";
 import { useRealtimeRefresh } from "../lib/realtime";
 import { normalizePsbt } from "../lib/psbt-format";
 import { downloadVault } from "../lib/descriptor-backup";
+import { pubkeyFromXpub, fingerprintFromXpub } from "../lib/xpub";
 
 
 function satsToBtc(sats: number): string {
@@ -85,6 +86,32 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
   }, [vault]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Self-heal: if the caller's vault_members row still has the
+  // pre-audit pubkey + fingerprint convention (account-level pubkey,
+  // non-BIP32 fingerprint), re-derive from the stored xpub and PATCH
+  // so the next compile produces a Nunchuk-compatible descriptor.
+  // Runs silently on every vault load. No-op once corrected.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { members } = await api.members.list(vault.id);
+        const me = members.find(m => m.xpub && (m.pubkey || m.fingerprint));
+        if (!me || cancelled) return;
+        const correctPubkey = pubkeyFromXpub(me.xpub!);
+        const correctFp = fingerprintFromXpub(me.xpub!);
+        if (me.pubkey === correctPubkey && me.fingerprint === correctFp) return;
+        await api.members.update(me.id, {
+          pubkey: correctPubkey,
+          fingerprint: correctFp,
+        });
+      } catch {
+        /* best-effort; the member tab will surface real errors */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [vault.id]);
 
   // Live proposal + signature updates for the current vault.
   useRealtimeRefresh(

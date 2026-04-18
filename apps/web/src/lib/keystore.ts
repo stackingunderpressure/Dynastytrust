@@ -21,6 +21,8 @@
 import { generateMnemonic, mnemonicToSeedSync, validateMnemonic } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english';
 import { HDKey } from '@scure/bip32';
+import { sha256 } from '@noble/hashes/sha256';
+import { ripemd160 } from '@noble/hashes/ripemd160';
 
 const STORE_KEY = 'dynastytrust:keyring:v1';
 
@@ -132,14 +134,18 @@ function multisigPath(network: Network): string {
   return `m/48'/${coin}'/0'/2'`;
 }
 
+// BIP32 fingerprint = first 4 bytes of HASH160(pubkey). Nunchuk and
+// every hardware wallet use this exact definition; matching them is
+// required for the key-origin form `[fingerprint/path]xpub/0/*` to
+// route signing requests to the right device.
+function bip32Fingerprint(pub: Uint8Array): string {
+  return toHex(ripemd160(sha256(pub)).subarray(0, 4));
+}
+
 function networkVersions(network: Network) {
   return network === 'mainnet'
     ? { private: 0x0488_ade4, public: 0x0488_b21e }
     : { private: 0x0435_8394, public: 0x0435_87cf };
-}
-
-function fingerprint(pub: Uint8Array): string {
-  return toHex(pub.subarray(0, 4));
 }
 
 function deriveAccount(mnemonic: string, network: Network) {
@@ -147,12 +153,24 @@ function deriveAccount(mnemonic: string, network: Network) {
   const root    = HDKey.fromMasterSeed(seed, networkVersions(network));
   const path    = multisigPath(network);
   const account = root.derive(path);
-  if (!account.privateKey || !account.publicKey || !account.publicExtendedKey) {
+  // First receive-chain child: xpub/0/0. This is the pubkey that
+  // appears in the miniscript leaf at index 0, so the compiler's
+  // address and the upgraded `[fp/path]xpub/0/*` descriptor's first
+  // address coincide. Without this, Nunchuk import would show an
+  // empty balance at the address our app just funded.
+  const child00 = account.derive('0/0');
+  if (
+    !account.privateKey ||
+    !account.publicKey ||
+    !account.publicExtendedKey ||
+    !child00.publicKey ||
+    !root.publicKey
+  ) {
     throw new Error('Key derivation failed');
   }
-  // Master fingerprint = first 4 bytes of root public key (used in descriptors)
-  const masterFingerprint = root.publicKey ? toHex(root.publicKey.subarray(0, 4)) : undefined;
-  return { account, path, masterFingerprint };
+  // Standard BIP32 fingerprint over the root pubkey.
+  const masterFingerprint = bip32Fingerprint(root.publicKey);
+  return { account, child00, path, masterFingerprint };
 }
 
 //
@@ -177,7 +195,7 @@ export function generateTestKey(opts: {
   persona: string;
 }): KeyCreateResult {
   const mnemonic = generateMnemonic(wordlist, 256);
-  const { account, path, masterFingerprint } = deriveAccount(mnemonic, opts.network);
+  const { account, child00, path, masterFingerprint } = deriveAccount(mnemonic, opts.network);
 
   const key: LocalKey = {
     keyId:             crypto.randomUUID(),
@@ -185,11 +203,11 @@ export function generateTestKey(opts: {
     persona:           opts.persona,
     origin:            'software',
     network:           opts.network,
-    fingerprint:       fingerprint(account.publicKey),
+    fingerprint:       bip32Fingerprint(account.publicKey!),
     masterFingerprint,
     derivationPath:    path,
     xpub:              account.publicExtendedKey,
-    pubkey:            toHex(account.publicKey),
+    pubkey:            toHex(child00.publicKey!),
     status:            'active',
     createdAt:         new Date().toISOString(),
     testMnemonic:      mnemonic,
@@ -213,7 +231,7 @@ export async function generateSoftwareKey(opts: {
   persona: string;
 }): Promise<KeyCreateResult> {
   const mnemonic = generateMnemonic(wordlist, 256);
-  const { account, path, masterFingerprint } = deriveAccount(mnemonic, opts.network);
+  const { account, child00, path, masterFingerprint } = deriveAccount(mnemonic, opts.network);
   const encryptedMnemonic = await encryptText(mnemonic, opts.password);
 
   const key: LocalKey = {
@@ -222,11 +240,11 @@ export async function generateSoftwareKey(opts: {
     persona:           opts.persona,
     origin:            'software',
     network:           opts.network,
-    fingerprint:       fingerprint(account.publicKey),
+    fingerprint:       bip32Fingerprint(account.publicKey!),
     masterFingerprint,
     derivationPath:    path,
     xpub:              account.publicExtendedKey,
-    pubkey:            toHex(account.publicKey),
+    pubkey:            toHex(child00.publicKey!),
     status:            'active',
     createdAt:         new Date().toISOString(),
     encryptedMnemonic,
@@ -257,7 +275,13 @@ export function importXpub(opts: {
   let pubkey = '';
   try {
     const hd = HDKey.fromExtendedKey(opts.xpub);
-    if (hd.publicKey) { fp = fingerprint(hd.publicKey); pubkey = toHex(hd.publicKey); }
+    // For descriptor compilation, we need the pubkey that appears in
+    // the miniscript leaf at receive index 0: xpub/0/0. The xpub's
+    // own fingerprint also needs to be the BIP32 standard so
+    // hardware-wallet compat works.
+    const child00 = hd.derive('0/0');
+    if (hd.publicKey) fp = bip32Fingerprint(hd.publicKey);
+    if (child00.publicKey) pubkey = toHex(child00.publicKey);
   } catch { /* non-standard version bytes */ }
 
   const coin = opts.network === 'mainnet' ? '0' : '1';
@@ -354,24 +378,42 @@ export function checkMnemonic(words: string): boolean {
 }
 
 /**
- * Re-derives pubkeys for any stored keys that have a missing or wrong-length pubkey.
- * Call once on app startup to fix keys generated before the pubkey fix.
+ * Normalize stored pubkeys + fingerprints to the Nunchuk-compatible
+ * convention.
+ *
+ * Older versions of this file stored:
+ *   - pubkey = compressed pubkey at the ACCOUNT level
+ *     (m/48'/coin'/0'/2')
+ *   - fingerprint = first 4 bytes of the raw account pubkey
+ * Both were wrong for descriptor compilation + hardware wallet
+ * interop. Correct values:
+ *   - pubkey = compressed pubkey at xpub/0/0 (the first receive-
+ *     chain child, which is the key that actually appears in the
+ *     miniscript leaf at address index 0)
+ *   - fingerprint = BIP32 standard: HASH160(pub)[0..4]
+ *
+ * This runs on boot (RequireAuth) and quietly re-derives both
+ * values from the stored xpub. Safe to re-run.
  */
 export function repairPubkeys(): number {
   const all = loadAll();
   let fixed = 0;
   const repaired = all.map(key => {
     if (key.origin !== 'software' && key.origin !== 'imported_xpub') return key;
-    if (key.pubkey && key.pubkey.length === 66) return key;
     try {
       const hd = HDKey.fromExtendedKey(key.xpub);
-      if (hd.publicKey) {
-        const pubkey = toHex(hd.publicKey);
-        fixed++;
-        return { ...key, pubkey };
+      const child00 = hd.derive('0/0');
+      if (!hd.publicKey || !child00.publicKey) return key;
+      const correctPubkey = toHex(child00.publicKey);
+      const correctFingerprint = bip32Fingerprint(hd.publicKey);
+      if (key.pubkey === correctPubkey && key.fingerprint === correctFingerprint) {
+        return key;
       }
-    } catch { /* ignore */ }
-    return key;
+      fixed++;
+      return { ...key, pubkey: correctPubkey, fingerprint: correctFingerprint };
+    } catch {
+      return key;
+    }
   });
   if (fixed > 0) saveAll(repaired);
   return fixed;
