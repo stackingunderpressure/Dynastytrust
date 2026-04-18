@@ -1,10 +1,17 @@
 {
   "name": "dynastytrust-phase1",
   "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "build": "npm run build -ws",
-    "test:policy": "node scripts/test-policy.mjs",
-    "test:api": "node scripts/test-api.mjs",
-    "test": "npm run test:policy && npm run test:api"
+    "build": "npm run build -ws --if-present",
+    "dev": "npm run dev --workspace @dynastytrust/web",
+    "test": "node scripts/test-policy.mjs",
+    "lint": "npm run lint --workspace @dynastytrust/web",
+    "format": "npm run format --workspace @dynastytrust/web",
+    "format:check": "npm run format:check --workspace @dynastytrust/web",
+    "typecheck": "npm run typecheck --workspace @dynastytrust/web"
   }
 }

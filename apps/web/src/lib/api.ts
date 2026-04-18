@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { broadcastTxUrl, type Network } from '../config';
 
 // In production, /api/* is redirected to /.netlify/functions/* by netlify.toml.
 // In local dev with `netlify dev`, the same redirect applies automatically.
@@ -89,6 +90,40 @@ export interface BalanceResult {
   confirmed_utxos: number;
   mempool_url: string;
   tx_count: number;
+}
+
+// Multi-member vault types (B1 schema in db/migrations/003_members.sql).
+// Endpoints land in B2; these types let the UI start consuming them
+// without a round-trip.
+
+export type VaultRole = 'owner' | 'founder' | 'heir' | 'viewer';
+export type VaultMemberStatus = 'active' | 'pending' | 'removed';
+
+export interface VaultMember {
+  id: string;
+  created_at: string;
+  vault_id: string;
+  user_id: string;
+  role: VaultRole;
+  label: string | null;
+  xpub: string | null;
+  fingerprint: string | null;
+  key_label: string | null;
+  status: VaultMemberStatus;
+}
+
+export interface VaultInvite {
+  id: string;
+  created_at: string;
+  vault_id: string;
+  invited_by: string;
+  invited_role: Exclude<VaultRole, 'owner'>;
+  invited_label: string | null;
+  invited_email: string | null;
+  token: string;
+  expires_at: string;
+  claimed_at: string | null;
+  claimed_by: string | null;
 }
 
 //
@@ -209,9 +244,12 @@ export const api = {
     }) => req<{ ok: true; result: unknown }>('/governance', { method: 'POST', body: JSON.stringify({ action: 'audit', ...body }) }),
   },
 
-  broadcast: (raw_tx_hex: string, network: 'testnet' | 'bitcoin') => {
-    const base = network === 'bitcoin' ? 'https://mempool.space/api/tx' : 'https://mempool.space/testnet/api/tx';
-    return fetch(base, { method: 'POST', body: raw_tx_hex, headers: { 'Content-Type': 'text/plain' } }).then(r => r.text());
+  broadcast: (raw_tx_hex: string, network: Network) => {
+    return fetch(broadcastTxUrl(network), {
+      method: 'POST',
+      body: raw_tx_hex,
+      headers: { 'Content-Type': 'text/plain' },
+    }).then(r => r.text());
   },
 
   proposals: {
@@ -243,6 +281,143 @@ export const api = {
   pdfUrl: async (vault_id: string): Promise<string> => {
     const token = await getToken();
     return `/api/vault-pdf?id=${vault_id}&token=${token}`;
+  },
+
+  vaultEvents: {
+    list: (vault_id: string, limit = 50) =>
+      req<{
+        ok: true;
+        events: {
+          id: string;
+          created_at: string;
+          vault_id: string;
+          user_id: string;
+          event_type: string;
+          metadata: Record<string, unknown>;
+        }[];
+      }>(`/vault-events?vault_id=${vault_id}&limit=${limit}`),
+  },
+
+  signerSessions: {
+    list: (proposal_id: string) =>
+      req<{
+        ok: true;
+        sessions: {
+          id: string;
+          created_at: string;
+          proposal_id: string;
+          signer_index: number;
+          signer_role: 'founder' | 'heir';
+          label: string | null;
+          signed: boolean;
+          signed_at: string | null;
+          fingerprint: string | null;
+          member_id: string | null;
+          psbt_partial_hex: string | null;
+        }[];
+      }>(`/signer-sessions?proposal_id=${proposal_id}`),
+
+    submit: (body: {
+      proposal_id: string;
+      psbt_partial_hex: string;
+      fingerprint?: string;
+      label?: string;
+    }) =>
+      req<{
+        ok: true;
+        session: {
+          id: string;
+          member_id: string | null;
+          fingerprint: string | null;
+          signed: boolean;
+          signed_at: string | null;
+          psbt_partial_hex: string | null;
+        };
+      }>(`/signer-sessions`, { method: 'POST', body: JSON.stringify(body) }),
+  },
+
+  // Cross-vault pending proposals for the current member. Each row
+  // includes a joined `vault` so the Dashboard can render labels
+  // without a second fetch.
+  proposalsMine: () =>
+    req<{
+      ok: true;
+      proposals: (Proposal & {
+        vault: {
+          id: string;
+          name: string;
+          network: 'testnet' | 'bitcoin';
+          founder_quorum: number;
+          heir_quorum: number;
+        };
+      })[];
+    }>(`/proposals-mine`),
+
+  members: {
+    list: (vault_id: string) =>
+      req<{ ok: true; members: VaultMember[] }>(`/members?vault_id=${vault_id}`),
+
+    update: (
+      id: string,
+      body: Partial<Pick<VaultMember, 'label' | 'xpub' | 'fingerprint' | 'key_label'>>,
+    ) =>
+      req<{ ok: true; member: VaultMember }>(`/members?id=${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
+
+    remove: (id: string) =>
+      req<{ ok: true }>(`/members?id=${id}`, { method: 'DELETE' }),
+  },
+
+  invites: {
+    list: (vault_id: string) =>
+      req<{ ok: true; invites: VaultInvite[] }>(`/invites?vault_id=${vault_id}`),
+
+    create: (body: {
+      vault_id: string;
+      invited_role: Exclude<VaultRole, 'owner'>;
+      invited_label?: string;
+      invited_email?: string;
+    }) =>
+      req<{ ok: true; invite: VaultInvite }>(`/invites`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+
+    revoke: (id: string) =>
+      req<{ ok: true }>(`/invites?id=${id}`, { method: 'DELETE' }),
+
+    // Public lookup (no auth). Returns only the fields the claim page needs.
+    lookup: (token: string) =>
+      fetch(`/api/invites-lookup?token=${encodeURIComponent(token)}`).then(async r => {
+        const body = (await r.json()) as {
+          ok?: boolean;
+          error?: string;
+          invite?: {
+            id: string;
+            vault_id: string;
+            invited_role: Exclude<VaultRole, 'owner'>;
+            invited_label: string | null;
+            expires_at: string;
+          } | null;
+          vault?: { id: string; name: string; network: 'testnet' | 'bitcoin' } | null;
+        };
+        if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+        return body as { ok: true; invite: NonNullable<typeof body.invite>; vault: typeof body.vault };
+      }),
+
+    claim: (body: {
+      token: string;
+      label?: string;
+      xpub?: string;
+      fingerprint?: string;
+      key_label?: string;
+    }) =>
+      req<{ ok: true; member_id: string; vault_id: string }>(`/invites-claim`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
   },
 
   health: () => fetch('/api/health').then(r => r.json()),

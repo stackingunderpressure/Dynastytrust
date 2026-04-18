@@ -1,51 +1,45 @@
-# Dynastytrust Phase 1 Deploy Notes
+# Dynastytrust Deploy Notes
 
 ## What is included
-- `apps/web` - Vite React frontend
-- `apps/api` - Express API
-- `packages/policy-engine` - shared policy validation package
-- `db/migrations` - next-step database wiring
+- `apps/web` — Vite React frontend
+- `netlify/functions` — serverless backend (vaults, PSBTs, governance, balance, compile)
+- `packages/policy-engine` — shared policy validation package
+- `compiler` — optional Rust policy compiler (deploy to Fly.io)
+- `db/migrations` — Supabase/Postgres schema
 
-## Important
-This package intentionally does **not** include `node_modules/`.
-Install dependencies fresh after upload:
-
+## Local development
 ```bash
 npm install
-```
-
-## Local test
-```bash
-npm install
-cp apps/api/.env.example apps/api/.env
 cp apps/web/.env.example apps/web/.env
-# put a real APP_MASTER_KEY into apps/api/.env
-npm test
-npm run build
+# fill in VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY
+npm install -g netlify-cli
+netlify dev
 ```
 
-## Netlify web deploy
-Repository root should contain the `dynastytrust-phase1` folder from this zip.
-Use:
-- Base directory: `dynastytrust-phase1`
-- Build command: `npm install && npm run build --workspace @dynastytrust/web`
+Set backend env vars (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`) in a root
+`.env` or via `netlify env:set` before running `netlify dev`.
+
+## Tests
+```bash
+npm test
+```
+
+Runs policy-engine validation tests. Netlify function integration tests are
+out of scope here — exercise them via `netlify dev` and the web app.
+
+## Netlify deploy
+Config lives in `netlify.toml`. Build settings:
+- Build command: `cd apps/web && npm install && npm run build`
 - Publish directory: `apps/web/dist`
+- Functions directory: `netlify/functions`
 - Node version: `20`
 
-Set web environment variable only if you are not using a redirect:
-- `VITE_API_BASE=https://your-api-host/api`
+Environment variables required in the Netlify dashboard:
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `COMPILER_URL` (optional, for Rust compiler)
+- `COMPILER_SECRET` (optional)
 
-If you want the frontend to call the API through the same Netlify domain,
-edit `netlify.toml` and replace `https://YOUR-API-HOST` with your deployed API host.
-
-## API deploy
-The API needs:
-- `APP_MASTER_KEY` as a 64-character hex string
-- `PORT` is optional and defaults to `8080`
-
-Build and run:
-```bash
-npm install
-npm run build --workspace @dynastytrust/api
-node apps/api/dist/server.js
-```
+And, for the frontend build:
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`

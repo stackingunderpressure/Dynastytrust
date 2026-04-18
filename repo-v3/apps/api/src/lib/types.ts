@@ -1,3 +1,0 @@
-export type Network = 'testnet' | 'mainnet';
-export interface KeyRecord { keyId: string; userId: string; label: string; origin: 'software' | 'hardware' | 'imported_xpub'; network: Network; curve: 'secp256k1'; fingerprint?: string; derivationPath?: string; xpub?: string; pubkey: string; encryptedPrivateBlob?: { version: 1; cipher: 'aes-256-gcm'; nonceB64: string; ciphertextB64: string; authTagB64: string; }; status: 'active' | 'archived' | 'compromised'; createdAt: string; canBackendSign: boolean; }
-export interface AuditRecord { keyId: string; userId: string; action: string; metadata?: Record<string, unknown>; createdAt: string; }

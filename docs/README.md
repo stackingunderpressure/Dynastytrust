@@ -1,26 +1,30 @@
-# Dynastytrust Phase 1
+# Dynastytrust
 
-Tested starter package for:
-
-- software key generation
-- encrypted private-key blobs at rest
-- Keyring first-load page
-- policy validation endpoint
+Bitcoin multisig inheritance vaults with founder/heir key policies,
+timelocked recovery paths, PSBT signing, and Supabase-backed governance.
 
 ## Local run
 
 ```bash
 npm install
-export APP_MASTER_KEY=$(openssl rand -hex 32)
-npm test
-cd apps/api && npm run dev
-cd apps/web && npm run dev
+cp apps/web/.env.example apps/web/.env
+# fill in VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY
+
+npm install -g netlify-cli
+netlify dev
 ```
 
-This package uses an in-memory store for immediate local testing. The SQL migration is included for the next Postgres wiring step.
+`netlify dev` serves the React frontend and the functions in
+`netlify/functions/` together on one port.
+
+## Tests
+
+```bash
+npm test
+```
 
 ## Deployment
 
-- Web: Netlify using `apps/web` build output
-- API: deploy separately with `APP_MASTER_KEY` set
-- Do not upload or commit `node_modules/`
+- Web + functions: Netlify (see `DEPLOY-README.md`)
+- Policy compiler: Fly.io (see `compiler/fly.toml`)
+- Database: Supabase (migrations in `db/migrations/`)
