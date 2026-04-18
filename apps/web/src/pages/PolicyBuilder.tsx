@@ -341,6 +341,14 @@ export default function PolicyBuilder() {
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const [savedVault, setSavedVault] = useState<Vault | null>(null);
 
+  // Draft mode -- the target shape of the vault when compiled.
+  // Defaults track the currently-selected counts so the existing
+  // "compile immediately" flow still feels the same.
+  const [plannedFounders, setPlannedFounders] = useState(3);
+  const [plannedHeirs, setPlannedHeirs] = useState(1);
+  const [draftSaving, setDraftSaving] = useState(false);
+  const [draftErr, setDraftErr] = useState<string | null>(null);
+
   useEffect(() => {
     setAllKeys(listKeys().filter(k => k.status === 'active'));
   }, []);
@@ -427,6 +435,53 @@ export default function PolicyBuilder() {
       window.clearTimeout(slowTimer);
       setCompiling(false);
       setSlowHint(false);
+    }
+  }
+
+  async function saveDraft() {
+    setDraftSaving(true);
+    setDraftErr(null);
+    try {
+      const draftNet = founderKeys[0]?.network ?? heirKeys[0]?.network ?? 'testnet';
+      const res = await api.vaults.createDraft({
+        name,
+        network: draftNet as 'testnet' | 'bitcoin',
+        address_type: addrType,
+        planned_founder_count: plannedFounders,
+        planned_heir_count: plannedHeirs,
+        founder_quorum: Math.min(founderQ, plannedFounders),
+        heir_quorum: plannedHeirs > 0 ? Math.min(heirQ, plannedHeirs) : 1,
+        recovery_after: recovery,
+        inheritance_after: inherit,
+      });
+
+      // If the owner already picked a founder key of their own, seed
+      // their member row with the key material right away. The
+      // auto-seed trigger created an empty owner row at insert time.
+      const ownKey = founderKeys[0];
+      if (ownKey) {
+        try {
+          const { members } = await api.members.list(res.vault.id);
+          const ownerMember = members.find(m => m.role === 'owner');
+          if (ownerMember) {
+            await api.members.update(ownerMember.id, {
+              xpub: ownKey.xpub,
+              fingerprint: ownKey.masterFingerprint ?? ownKey.fingerprint,
+              pubkey: ownKey.pubkey,
+              derivation_path: ownKey.derivationPath,
+              key_label: ownKey.label,
+            });
+          }
+        } catch {
+          /* best-effort; owner can fill their slot later on the members tab */
+        }
+      }
+
+      navigate(`/vaults/${res.vault.id}`, { state: { vault: res.vault } });
+    } catch (e) {
+      setDraftErr(e instanceof Error ? e.message : 'Failed to save draft');
+    } finally {
+      setDraftSaving(false);
     }
   }
 
@@ -666,6 +721,38 @@ export default function PolicyBuilder() {
         </div>
       )}
 
+      {/* Save as draft -- collect xpubs via invites, compile later */}
+      <Section
+        title="Save as draft"
+        sub="Creates the vault shape now. Invite co-signers from the Members tab; they provide their own xpubs. You press Compile once every slot is filled."
+      >
+        <div style={{ display: 'flex', gap: 14, marginBottom: 14 }}>
+          <div style={{ flex: 1 }}>
+            <Label>Planned founder count</Label>
+            <Input
+              type="number"
+              min={1}
+              value={plannedFounders}
+              onChange={e => setPlannedFounders(Math.max(1, parseInt(e.target.value) || 1))}
+            />
+          </div>
+          <div style={{ flex: 1 }}>
+            <Label>Planned heir count</Label>
+            <Input
+              type="number"
+              min={0}
+              value={plannedHeirs}
+              onChange={e => setPlannedHeirs(Math.max(0, parseInt(e.target.value) || 0))}
+            />
+          </div>
+        </div>
+        {draftErr && <p style={{ color: colors.red, fontSize: 13, margin: 0, marginBottom: 10 }}>{draftErr}</p>}
+        <Button disabled={draftSaving} onClick={saveDraft}>
+          {draftSaving ? 'Saving draft...' : 'Save draft vault'}
+        </Button>
+      </Section>
+
+      {/* Advanced: compile immediately with all keys selected above */}
       <div
         style={{
           background: colors.surface,
@@ -676,9 +763,9 @@ export default function PolicyBuilder() {
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>Compile vault</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>Compile immediately</div>
             <div style={{ fontSize: 13, color: colors.muted, marginTop: 2 }}>
-              Sends xpubs to your Fly.io Rust compiler -- returns address, descriptor, Miniscript
+              Have every xpub in your browser already? Sends all keys to the Fly.io compiler and returns the finished descriptor.
             </div>
           </div>
           <Button disabled={!canCompile || compiling} onClick={compile}>

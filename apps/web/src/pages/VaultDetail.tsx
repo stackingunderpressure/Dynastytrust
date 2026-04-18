@@ -211,9 +211,13 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
           )}
 
           <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-            <Button style={{ flex: 1, padding: "12px" }} onClick={() => setTab("send")}>
-              Send
-            </Button>
+            {vault.status === "draft" ? (
+              <DraftCompileButton vault={vault} />
+            ) : (
+              <Button style={{ flex: 1, padding: "12px" }} onClick={() => setTab("send")}>
+                Send
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="sm"
@@ -256,13 +260,20 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
             marginBottom: 20,
           }}
         >
-          {[
-            { id: "overview", label: "Overview" },
-            { id: "send", label: "Send" },
-            { id: "history", label: "History", count: pendingCount },
-            { id: "members", label: "Members" },
-            { id: "activity", label: "Activity" },
-          ].map(t => (
+          {(vault.status === 'draft'
+            ? [
+                { id: "overview", label: "Overview" },
+                { id: "members", label: "Members" },
+                { id: "activity", label: "Activity" },
+              ]
+            : [
+                { id: "overview", label: "Overview" },
+                { id: "send", label: "Send" },
+                { id: "history", label: "History", count: pendingCount },
+                { id: "members", label: "Members" },
+                { id: "activity", label: "Activity" },
+              ]
+          ).map(t => (
             <button
               key={t.id}
               onClick={() => setTab(t.id as typeof tab)}
@@ -1768,4 +1779,65 @@ function describeEvent(e: VaultEvent): { icon: string; title: string; color: str
     default:
       return { icon: "*", title: e.event_type, color: colors.sub };
   }
+}
+
+function DraftCompileButton({ vault }: { vault: Vault }) {
+  const toast = useToast();
+  const navigate = useNavigate();
+  const [members, setMembers] = useState<VaultMember[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await api.members.list(vault.id);
+      setMembers(res.members);
+    } catch {
+      /* the Members tab will surface errors; keep this quiet */
+    }
+  }, [vault.id]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useRealtimeRefresh(
+    { table: "vault_members", filter: `vault_id=eq.${vault.id}` },
+    () => void load(),
+  );
+
+  const ready = members.filter(
+    m => m.xpub && m.fingerprint && m.pubkey && m.derivation_path,
+  );
+  const foundersReady = ready.filter(m => m.role === "founder" || m.role === "owner").length;
+  const heirsReady = ready.filter(m => m.role === "heir").length;
+  const plannedF = vault.planned_founder_count ?? 0;
+  const plannedH = vault.planned_heir_count ?? 0;
+  const slotsFilled = foundersReady >= plannedF && heirsReady >= plannedH;
+
+  async function compile() {
+    setBusy(true);
+    try {
+      const res = await api.vaults.compile(vault.id);
+      toast.success("Vault compiled -- ready to fund");
+      navigate(`/vaults/${res.vault.id}`, { state: { vault: res.vault } });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Compile failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Button
+      disabled={!slotsFilled || busy}
+      style={{ flex: 1, padding: "12px", background: slotsFilled ? colors.green : undefined }}
+      onClick={() => void compile()}
+    >
+      {busy
+        ? "Compiling..."
+        : slotsFilled
+          ? "Compile vault"
+          : `Waiting on ${plannedF - foundersReady} founder${plannedF - foundersReady === 1 ? "" : "s"}${plannedH > 0 ? `, ${plannedH - heirsReady} heir${plannedH - heirsReady === 1 ? "" : "s"}` : ""}`}
+    </Button>
+  );
 }
