@@ -92,6 +92,40 @@ export interface BalanceResult {
   tx_count: number;
 }
 
+// Multi-member vault types (B1 schema in db/migrations/003_members.sql).
+// Endpoints land in B2; these types let the UI start consuming them
+// without a round-trip.
+
+export type VaultRole = 'owner' | 'founder' | 'heir' | 'viewer';
+export type VaultMemberStatus = 'active' | 'pending' | 'removed';
+
+export interface VaultMember {
+  id: string;
+  created_at: string;
+  vault_id: string;
+  user_id: string;
+  role: VaultRole;
+  label: string | null;
+  xpub: string | null;
+  fingerprint: string | null;
+  key_label: string | null;
+  status: VaultMemberStatus;
+}
+
+export interface VaultInvite {
+  id: string;
+  created_at: string;
+  vault_id: string;
+  invited_by: string;
+  invited_role: Exclude<VaultRole, 'owner'>;
+  invited_label: string | null;
+  invited_email: string | null;
+  token: string;
+  expires_at: string;
+  claimed_at: string | null;
+  claimed_by: string | null;
+}
+
 //
 
 export const api = {
