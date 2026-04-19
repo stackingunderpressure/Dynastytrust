@@ -93,7 +93,7 @@ export async function handler(event) {
       return json(400, { error: "Missing: trustee_keys" });
     }
     if (!trustee_quorum) return json(400, { error: "Missing: trustee_quorum" });
-    if (!["testnet", "bitcoin"].includes(network)) {
+    if (!["testnet", "signet", "bitcoin"].includes(network)) {
       return json(400, { error: "Invalid network" });
     }
     if (!Array.isArray(tranches) || tranches.length === 0) {

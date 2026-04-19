@@ -266,7 +266,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
               marginBottom: 4,
             }}
           >
-            {vault.name.toUpperCase()} / {vault.network === "bitcoin" ? "MAINNET" : "TESTNET"}
+            {vault.name.toUpperCase()} / {vault.network === "bitcoin" ? "MAINNET" : vault.network.toUpperCase()}
           </div>
           <div
             style={{

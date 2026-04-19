@@ -23,7 +23,7 @@ interface InviteInfo {
 interface VaultInfo {
   id: string;
   name: string;
-  network: 'testnet' | 'bitcoin';
+  network: 'testnet' | 'signet' | 'bitcoin';
 }
 
 // // -- Claim page
@@ -395,7 +395,7 @@ function HardwareKeyInput({
   value,
   onChange,
 }: {
-  network: 'testnet' | 'bitcoin';
+  network: 'testnet' | 'signet' | 'bitcoin';
   value: HwKeyDraft | null;
   onChange: (v: HwKeyDraft | null) => void;
 }) {

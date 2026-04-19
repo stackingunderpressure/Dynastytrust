@@ -13,7 +13,7 @@ import type { Vault } from './api';
 
 export interface VaultBackupLike {
   name: string;
-  network: 'testnet' | 'bitcoin';
+  network: 'testnet' | 'signet' | 'bitcoin';
   address: string | null;
   descriptor: string | null;
   miniscript_policy: string | null;

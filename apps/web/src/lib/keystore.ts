@@ -28,7 +28,12 @@ const STORE_KEY = 'dynastytrust:keyring:v1';
 
 //
 
-export type Network   = 'testnet' | 'mainnet';
+// Bitcoin Core treats signet and testnet as the same coin_type (1)
+// with identical xpub/xprv version bytes. Only the chain genesis
+// and peer network differ. For addresses + keys they're equivalent
+// on our side; the signet/testnet distinction is only meaningful
+// when talking to mempool.space or broadcasting.
+export type Network   = 'testnet' | 'signet' | 'mainnet';
 export type KeyOrigin = 'software' | 'imported_xpub';
 export type KeyStatus = 'active' | 'archived' | 'compromised';
 

@@ -142,7 +142,7 @@ export default function Dashboard() {
                       color: v.network === "bitcoin" ? colors.gold : colors.green,
                     }}
                   >
-                    {v.network === "bitcoin" ? "MAINNET" : "TESTNET"}
+                    {v.network.toUpperCase()}
                   </span>
                 </div>
               </div>
@@ -362,6 +362,7 @@ function CreateVaultModal({
               }}
             >
               <option value="testnet">Testnet</option>
+            <option value="signet">Signet</option>
               <option value="bitcoin">Mainnet</option>
             </select>
           </div>
@@ -554,7 +555,7 @@ function PendingRow({ item, onOpen }: { item: PendingProposal; onOpen: () => voi
           {signed} / {quorum} signed
         </div>
         <div style={{ fontSize: 11, color: colors.muted, marginTop: 2 }}>
-          {item.vault.network === "bitcoin" ? "MAINNET" : "TESTNET"}
+          {item.vault.network.toUpperCase()}
         </div>
       </div>
     </div>
@@ -612,7 +613,7 @@ function DraftsSection({ drafts }: { drafts: Vault[] }) {
                   ? ` / ${v.planned_heir_count} heir${(v.planned_heir_count ?? 0) === 1 ? "" : "s"}`
                   : ""}
                 {" / "}
-                {v.network === "bitcoin" ? "MAINNET" : "TESTNET"}
+                {v.network.toUpperCase()}
               </div>
             </div>
             <div style={{ fontSize: 11, color: colors.gold, fontWeight: 600 }}>

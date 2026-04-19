@@ -17,7 +17,7 @@ export const NAV_LINKS: readonly NavLink[] = [
   { id: 'vaults', label: 'Vaults', icon: '🏦', path: '/vaults' },
 ] as const;
 
-export type Network = 'bitcoin' | 'testnet';
+export type Network = 'bitcoin' | 'testnet' | 'signet';
 
 // mempool.space endpoints for each network. Used for broadcasting, tx lookup,
 // and UI links. Swap these if we ever move off mempool.space.
@@ -29,6 +29,10 @@ export const EXPLORER = {
   testnet: {
     api: 'https://mempool.space/testnet/api',
     web: 'https://mempool.space/testnet',
+  },
+  signet: {
+    api: 'https://mempool.space/signet/api',
+    web: 'https://mempool.space/signet',
   },
 } as const;
 

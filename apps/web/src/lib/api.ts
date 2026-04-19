@@ -48,7 +48,7 @@ export interface Vault {
   updated_at: string;
   user_id: string;
   name: string;
-  network: 'testnet' | 'bitcoin';
+  network: 'testnet' | 'signet' | 'bitcoin';
   // Null for drafts, set after compile.
   address: string | null;
   descriptor: string | null;
@@ -151,7 +151,7 @@ export interface DistributionWallet {
   trustee_keys: string[];
   trustee_quorum: number;
   tranches: DistributionTranche[];
-  network: 'testnet' | 'bitcoin';
+  network: 'testnet' | 'signet' | 'bitcoin';
 }
 
 export interface ScheduledStipend {
@@ -275,7 +275,7 @@ export const api = {
 
     create: (body: {
       name: string;
-      network: 'testnet' | 'bitcoin';
+      network: 'testnet' | 'signet' | 'bitcoin';
       address: string;
       descriptor: string;
       miniscript_policy: string;
@@ -298,7 +298,7 @@ export const api = {
     // invites; owner calls compile() once every slot is full.
     createDraft: (body: {
       name: string;
-      network: 'testnet' | 'bitcoin';
+      network: 'testnet' | 'signet' | 'bitcoin';
       address_type?: 'wsh' | 'tr' | 'tr_multileaf';
       planned_founder_count: number;
       planned_heir_count: number;
@@ -344,14 +344,14 @@ export const api = {
       }),
   },
 
-  balance: (address: string, network: 'testnet' | 'bitcoin') =>
+  balance: (address: string, network: 'testnet' | 'signet' | 'bitcoin') =>
     req<BalanceResult>(`/balance?address=${encodeURIComponent(address)}&network=${network}`),
 
   utxos: (vault_id: string) =>
     req<{
       ok: true;
       vault_address: string;
-      network: 'testnet' | 'bitcoin';
+      network: 'testnet' | 'signet' | 'bitcoin';
       tip: number | null;
       utxos: {
         txid: string;
@@ -366,7 +366,7 @@ export const api = {
 
   compile: (body: {
     name: string;
-    network: 'testnet' | 'bitcoin';
+    network: 'testnet' | 'signet' | 'bitcoin';
     address_type?: string;
     founder_keys: string[];
     founder_quorum: number;
@@ -502,7 +502,7 @@ export const api = {
       beneficiary_pubkey: string;
       trustee_keys: string[];
       trustee_quorum: number;
-      network: 'testnet' | 'bitcoin';
+      network: 'testnet' | 'signet' | 'bitcoin';
       tranches: DistributionTranche[];
     }) =>
       req<{ ok: true; wallet: DistributionWallet }>(`/distribution-wallets`, {
@@ -520,7 +520,7 @@ export const api = {
       req<{ ok: true }>(`/distribution-wallets?id=${id}`, { method: 'DELETE' }),
 
     compileTranche: (body: {
-      network: 'testnet' | 'bitcoin';
+      network: 'testnet' | 'signet' | 'bitcoin';
       beneficiary_key: string;
       trustee_keys: string[];
       trustee_quorum: number;
@@ -677,7 +677,7 @@ export const api = {
         vault: {
           id: string;
           name: string;
-          network: 'testnet' | 'bitcoin';
+          network: 'testnet' | 'signet' | 'bitcoin';
           founder_quorum: number;
           heir_quorum: number;
         };
@@ -742,7 +742,7 @@ export const api = {
             invited_label: string | null;
             expires_at: string;
           } | null;
-          vault?: { id: string; name: string; network: 'testnet' | 'bitcoin' } | null;
+          vault?: { id: string; name: string; network: 'testnet' | 'signet' | 'bitcoin' } | null;
         };
         if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
         return body as { ok: true; invite: NonNullable<typeof body.invite>; vault: typeof body.vault };
