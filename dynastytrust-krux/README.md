@@ -55,6 +55,38 @@ pip install pytest
 pytest
 ```
 
+## Quickstart: launch the simulator (no hardware needed)
+
+```
+# from the dynastytrust-krux/ directory
+bash firmware/setup-simulator.sh
+```
+
+The script:
+
+  1. Clones [selfcustody/krux](https://github.com/selfcustody/krux) at
+     `v26.03.0` to `../dynastytrust-krux-fw`
+  2. Symlinks this package into the Krux source tree
+  3. Applies the trust-mode patches via an idempotent anchor-based
+     Python patcher (drops in two files, edits two more)
+  4. Prints the next two commands for launching the Pygame simulator
+
+Then:
+
+```
+cd ../dynastytrust-krux-fw
+poetry install                  # one-time, installs Krux deps
+poetry run poe simulator        # opens the Pygame window
+```
+
+In the simulator: load a 12 / 24-word seed -> Wallet > Provision Dynasty
+Vault -> paste a DynastyTrust descriptor QR -> confirm digest + role.
+After provisioning, load any PSBT and watch the trust-mode flow.
+
+If the patcher fails (upstream Krux drift since v26.03.0), apply the
+patches manually per [`firmware/INTEGRATION.md`](firmware/INTEGRATION.md).
+Patches are minimal (4 small file edits) so a manual rebase is cheap.
+
 ## Why not SeedSigner?
 
 Audit rejected it -- tapscript signing is blocked in SeedSigner with an explicit `NotImplementedError` and the lift PR has sat unreviewed since June 2025. Krux has tapscript signing + NUMS internal key handling + multi-leaf change verification shipped since Feb 2025. We build on working infrastructure.
