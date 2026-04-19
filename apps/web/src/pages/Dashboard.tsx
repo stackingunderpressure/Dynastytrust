@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type Vault, type BalanceResult } from "../lib/api";
-import { useToast } from "../components/toast";
 import { useRealtimeRefresh } from "../lib/realtime";
 import { colors, fonts, radii, space } from "../theme";
 import { Button, Input, Label, Textarea } from "../components/ui";
@@ -19,7 +18,6 @@ function blocksToLabel(blocks: number): string {
 }
 
 export default function Dashboard() {
-  const toast = useToast();
   const navigate = useNavigate();
   const openVault = (v: Vault) => navigate(`/vaults/${v.id}`, { state: { vault: v } });
 
@@ -28,14 +26,15 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [showArchived, setShowArchived] = useState(false);
   const [search, setSearch] = useState("");
   const [renaming, setRenaming] = useState<Vault | null>(null);
 
   const load = useCallback(async () => {
     try {
       setError(null);
-      const { vaults } = await api.vaults.list(showArchived);
+      // Always list every vault the user is a member of -- archiving
+      // was removed in favor of explicit delete.
+      const { vaults } = await api.vaults.list(true);
       setVaults(vaults);
       for (const v of vaults) {
         if (!v.address) continue; // drafts have no address yet
@@ -51,34 +50,13 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, [showArchived]);
+  }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  async function archive(v: Vault, e: React.MouseEvent) {
-    e.stopPropagation();
-    if (!confirm("Archive " + v.name + "?")) return;
-    try {
-      await api.vaults.archive(v.id);
-      void load();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to archive vault");
-    }
-  }
-
-  async function unarchive(v: Vault, e: React.MouseEvent) {
-    e.stopPropagation();
-    try {
-      await (api.vaults as unknown as { unarchive: (id: string) => Promise<unknown> }).unarchive?.(v.id);
-    } catch {
-      /* unarchive is best-effort; refresh the list regardless */
-    }
-    void load();
-  }
-
-  const drafts = vaults.filter(v => v.status === 'draft' && !v.archived);
+  const drafts = vaults.filter(v => v.status === 'draft');
   const liveVaults = vaults.filter(v => v.status !== 'draft');
 
   const visible = liveVaults.filter(
@@ -100,9 +78,6 @@ export default function Dashboard() {
           onChange={e => setSearch(e.target.value)}
           style={{ flex: 1, minWidth: 180, padding: "8px 12px" }}
         />
-        <Button variant="ghost" size="sm" onClick={() => setShowArchived(s => !s)}>
-          {showArchived ? "Hide archived" : "Show archived"}
-        </Button>
         <Button size="sm" onClick={() => setShowCreate(true)}>
           + Add vault
         </Button>
@@ -150,27 +125,9 @@ export default function Dashboard() {
                 padding: 20,
                 cursor: "pointer",
                 position: "relative",
-                opacity: v.archived ? 0.6 : 1,
               }}
               onClick={() => openVault(v)}
             >
-              {v.archived && (
-                <div
-                  style={{
-                    position: "absolute",
-                    top: 12,
-                    right: 12,
-                    fontSize: 10,
-                    fontWeight: 700,
-                    padding: "2px 7px",
-                    borderRadius: 4,
-                    background: "#5A557022",
-                    color: colors.muted,
-                  }}
-                >
-                  ARCHIVED
-                </div>
-              )}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
                 <div>
                   <div style={{ fontSize: 16, fontWeight: 600, color: colors.text, marginBottom: 3 }}>{v.name}</div>
@@ -231,25 +188,6 @@ export default function Dashboard() {
                 >
                   Rename
                 </Button>
-                {v.archived ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    style={{ fontSize: 12, padding: "5px 10px" }}
-                    onClick={e => void unarchive(v, e)}
-                  >
-                    Restore
-                  </Button>
-                ) : (
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    style={{ fontSize: 12, padding: "5px 10px" }}
-                    onClick={e => void archive(v, e)}
-                  >
-                    Archive
-                  </Button>
-                )}
               </div>
             </div>
           );

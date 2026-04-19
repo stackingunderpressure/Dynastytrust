@@ -188,14 +188,6 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
     setTimeout(() => setCopied(null), 1600);
   }
 
-  async function archive() {
-    if (!confirm("Archive " + vault.name + "?")) return;
-    setArchiving(true);
-    try { await api.vaults.archive(vault.id); onBack(); }
-    catch (e) { toast.error(e instanceof Error ? e.message : "Failed to archive vault"); }
-    finally { setArchiving(false); }
-  }
-
   async function deleteVault() {
     const expected = vault.name;
     const typed = prompt(
@@ -243,26 +235,15 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
         >
           {APP_NAME}
         </span>
-        <div style={{ display: "flex", gap: 6 }}>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={archiving}
-            style={{ fontSize: 12 }}
-            onClick={archive}
-          >
-            Archive
-          </Button>
-          <Button
-            variant="danger"
-            size="sm"
-            disabled={archiving}
-            style={{ fontSize: 12 }}
-            onClick={deleteVault}
-          >
-            Delete
-          </Button>
-        </div>
+        <Button
+          variant="danger"
+          size="sm"
+          disabled={archiving}
+          style={{ fontSize: 12 }}
+          onClick={deleteVault}
+        >
+          Delete
+        </Button>
       </header>
 
       <main className="dt-page-main dt-page-main--narrow">
