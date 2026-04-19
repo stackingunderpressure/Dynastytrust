@@ -341,11 +341,33 @@ function serializePsbt(parsed: ParsedPsbt): string {
   const globalSection = readRawKVSection();
   sections.push(globalSection.rawBytes);
 
+  // Strip entries of the given key-type from a raw PSBT KV section
+  // (without the trailing 0x00 separator). Used to scrub existing
+  // tap_script_sig (0x14) entries so our tapScriptSigs array can be
+  // the single source of truth; otherwise raw bytes + array entries
+  // both get written and rust-bitcoin rejects duplicate keys.
+  function stripKeyType(raw: Uint8Array, type: number): Uint8Array {
+    const out: Uint8Array[] = [];
+    let p = 0;
+    while (p < raw.length) {
+      const [keyLen, afterKeyLen] = readVarInt(raw, p);
+      const keyStart = afterKeyLen;
+      const keyEnd = keyStart + keyLen;
+      const [valLen, afterValLen] = readVarInt(raw, keyEnd);
+      const valEnd = afterValLen + valLen;
+      const keyType = keyLen > 0 ? raw[keyStart] : -1;
+      if (keyType !== type) out.push(raw.slice(p, valEnd));
+      p = valEnd;
+    }
+    return concat(...out);
+  }
+
   // Input sections - inject tap_script_sigs
   for (let i = 0; i < parsed.inputs.length; i++) {
     const start = pos;
     const inputSectionRaw = readRawKVSection();
-    const existing = inputSectionRaw.rawBytes.slice(0, inputSectionRaw.rawBytes.length - 1); // strip separator
+    const rawNoSep = inputSectionRaw.rawBytes.slice(0, inputSectionRaw.rawBytes.length - 1); // strip separator
+    const existing = stripKeyType(rawNoSep, 0x14);
 
     const extra: Uint8Array[] = [];
     const inp = parsed.inputs[i];
