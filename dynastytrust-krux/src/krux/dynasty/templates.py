@@ -384,6 +384,21 @@ def descriptor_hash(template: TemplateMatch) -> str:
 def classify(descriptor: Descriptor) -> TemplateMatch:
     """Classify a DynastyTrust taproot descriptor or raise.
 
+    See :func:`classify_with_scripts` for the variant that also returns
+    a leaf-script lookup table; ``classify`` is the simple-API form.
+    """
+    match, _ = classify_with_scripts(descriptor)
+    return match
+
+
+def classify_with_scripts(descriptor: Descriptor):
+    """Classify and also return ``(template, leaf_to_match)``.
+
+    The second value maps each leaf's compiled script-bytes hex to its
+    classified :class:`LeafMatch` -- exactly what the policy guard's
+    :func:`policy_guard.check` needs. Computing it together with the
+    classification avoids a second walk of the taptree.
+
     The descriptor must be ``tr(NUMS, { ... })`` with every leaf matching
     one of the five approved shapes. Timelocked leaves (Recovery,
     Inheritance, Protector) are disambiguated by their locktime value:
@@ -392,13 +407,8 @@ def classify(descriptor: Descriptor) -> TemplateMatch:
         middle   -> Inheritance
         largest  -> Protector
 
-    This matches the DynastyTrust compiler's convention where recovery
-    < inheritance < protector. If fewer than three timelocks exist we
-    take them in order, first -> Recovery. A vault with only a Normal
-    leaf is accepted (the degenerate 1-leaf case).
-
-    Duplicate roles (two Recovery leaves, two Consent leaves, etc.)
-    raise :class:`UnsupportedError`.
+    A vault with only a Normal leaf is accepted (the degenerate 1-leaf
+    case). Duplicate roles raise :class:`UnsupportedError`.
     """
     # 1. Internal key must be NUMS.
     internal = descriptor.key
@@ -416,16 +426,22 @@ def classify(descriptor: Descriptor) -> TemplateMatch:
     if taptree is None or getattr(taptree, "tree", None) is None:
         raise UnsupportedError("tr() has no script tree; key-path-only not allowed")
 
-    # 3. Walk and classify each leaf.
+    # 3. Walk and classify each leaf, keeping per-leaf script bytes for
+    #    the script->leaf lookup.
     raw_leaves = _iter_leaves(taptree)
     if not raw_leaves:
         raise UnsupportedError("empty taptree")
     if len(raw_leaves) > 5:
         raise UnsupportedError(f"too many leaves ({len(raw_leaves)}); max 5")
 
-    classified: List[LeafMatch] = [
-        _classify_leaf(tl.miniscript) for tl in raw_leaves
-    ]
+    classified: List[LeafMatch] = []
+    leaf_scripts_hex: List[str] = []
+    for tl in raw_leaves:
+        leaf = _classify_leaf(tl.miniscript)
+        classified.append(leaf)
+        # Compile the miniscript to script bytes; this is what BIP 371's
+        # PSBT_IN_TAP_LEAF_SCRIPT carries (after the leaf-version byte).
+        leaf_scripts_hex.append(tl.miniscript.compile().hex().lower())
 
     # 4. Disambiguate the three provisional RECOVERY leaves by locktime
     #    order. Sort timelocked-leaves by locktime ascending and assign
@@ -442,9 +458,7 @@ def classify(descriptor: Descriptor) -> TemplateMatch:
     for leaf, role in zip(timelocked, role_order):
         leaf.kind = role
 
-    # 5. Normal and Consent can each appear at most once. Timelocked
-    #    roles are unique by construction (we assigned them distinct
-    #    kinds).
+    # 5. Normal and Consent can each appear at most once.
     normal_count = sum(1 for l in other if l.kind is TemplateKind.NORMAL)
     consent_count = sum(1 for l in other if l.kind is TemplateKind.CONSENT)
     if normal_count > 1:
@@ -452,7 +466,11 @@ def classify(descriptor: Descriptor) -> TemplateMatch:
     if consent_count > 1:
         raise UnsupportedError("duplicate Consent leaf")
 
-    # 6. Return in declaration order for UI predictability.
+    # 6. Build the script -> leaf lookup BEFORE reordering so we keep
+    #    parity with the tree-order walk.
+    leaf_to_match = dict(zip(leaf_scripts_hex, classified))
+
+    # 7. Return template in declaration order for UI predictability.
     match = TemplateMatch()
     kind_order = [
         TemplateKind.NORMAL,
@@ -466,4 +484,5 @@ def classify(descriptor: Descriptor) -> TemplateMatch:
             if leaf.kind is kind:
                 match.leaves.append(leaf)
                 break
-    return match
+
+    return match, leaf_to_match

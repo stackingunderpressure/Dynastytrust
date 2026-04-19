@@ -2,7 +2,7 @@
 
 Narrow-scope Taproot trust-policy signing extension for the [Krux](https://selfcustody.github.io/krux/) air-gapped hardware signer.
 
-**Status.** Phase 1 -- policy template module + canonicalizer + tests. No UI, no signing wired. The Krux firmware integration happens in later phases.
+**Status.** Phases 1-3 complete -- templates, policy guard, allowlist, descriptor hash, PSBT adapter, timelock formatter, on-device UI screens, and firmware integration patches. 90/90 tests passing. The remaining work is fork-side: clone Krux v26.03.0, apply `firmware/INTEGRATION.md`, build, run on real K210 hardware.
 
 **Goal.** Turn a general-purpose signer into a safety-first template-driven signer. A Krux running this extension refuses to sign any PSBT whose tap-script tree is not one of five approved DynastyTrust templates.
 
@@ -22,16 +22,30 @@ Every other shape is rejected by design. Miniscript is powerful; this is deliber
 
 ```
 src/krux/dynasty/
-  templates.py        Template definitions + AST canonicalizer + classifier
-  allowlist.py        (Phase 2) Per-wallet persistent trust-mode state
-  policy_guard.py     (Phase 2) Pre-sign validator hook
-  timelock.py         (Phase 3) Absolute-block -> "unlocks in N months"
-  ui.py               (Phase 3) Screens: approval prompt, path display, toggle
+  templates.py        Template definitions + canonicalizer + classifier
+                      + descriptor_hash + classify_with_scripts
+  policy_guard.py     Pre-sign validator (signature-shape-agnostic)
+  psbt_adapter.py     embit PSBT  ->  GuardInput / GuardOutput
+  allowlist.py        Persistent provisioning state (one role per device,
+                      JSON on the SD card, atomic writes)
+  timelock.py         Absolute block height  ->  "unlocks in ~N months"
+  ui.py               On-device screens: ProvisionScreen, PathChooserScreen,
+                      ConfirmScreen + run_signing_flow composition
 tests/
-  test_templates.py   Canonicalize + classify + reject cases
+  test_templates.py        16 tests: classifier happy + rejection paths
+  test_policy_guard.py     18 tests: validator happy + adversarial corpus
+  test_psbt_adapter.py      7 tests: PSBT field extraction edge cases
+  test_allowlist.py        25 tests: hashing + provisioning + persistence
+  test_timelock.py         12 tests: every duration bucket + 3 unlock modes
+  test_ui.py               12 tests: confirm + chooser + flow composition
+firmware/
+  README.md                Why this is patches not a vendor fork
+  INTEGRATION.md           Step-by-step on top of selfcustody/krux v26.03.0
+  krux_psbt_patch.py       Drop into src/krux/dynasty_signing_hook.py
+  dynasty_pages_skeleton.py  Provisioning Page subclass for the menu
 ```
 
-Upstream Krux lives at [selfcustody/krux](https://github.com/selfcustody/krux). This is a separate package that will integrate as a submodule or vendored extension when we reach Phase 3 firmware wiring.
+Upstream Krux lives at [selfcustody/krux](https://github.com/selfcustody/krux). When you fork Krux to apply this trust mode, vendor this package as a submodule (instructions in `firmware/INTEGRATION.md`).
 
 ## Running the tests
 
