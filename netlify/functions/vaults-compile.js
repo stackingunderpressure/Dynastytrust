@@ -24,6 +24,7 @@
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
+import { pubkeyFromXpub } from "./_xpub.js";
 
 const COMPILER_URL = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -120,23 +121,23 @@ export async function handler(event) {
     name: vault.name,
     network: vault.network,
     address_type: vault.address_type,
-    founder_keys: founders.map(m => m.pubkey),
+    founder_keys: founders.map(m => pubkeyFromXpub(m.xpub)),
     founder_quorum: vault.founder_quorum,
     recovery_quorum: vault.recovery_quorum,
-    heir_keys: heirs.map(m => m.pubkey),
+    heir_keys: heirs.map(m => pubkeyFromXpub(m.xpub)),
     heir_quorum: vault.heir_quorum,
     recovery_after: vault.recovery_after,
     inheritance_after: vault.inheritance_after,
     ...(hasProtector
       ? {
-          protector_keys: protectors.map(m => m.pubkey),
+          protector_keys: protectors.map(m => pubkeyFromXpub(m.xpub)),
           protector_quorum: vault.protector_quorum,
           protector_after: vault.protector_after,
         }
       : {}),
     ...(vault.consent_quorum != null && consenters.length >= (vault.consent_quorum ?? 0)
       ? {
-          consent_keys: consenters.map(m => m.pubkey),
+          consent_keys: consenters.map(m => pubkeyFromXpub(m.xpub)),
           consent_quorum: vault.consent_quorum,
         }
       : {}),

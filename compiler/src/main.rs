@@ -275,16 +275,19 @@ async fn psbt_binary(
     let change_value = total_in - total_need;
     let has_change   = change_value >= 546;
 
+    // Bail on any malformed txid rather than silently substituting
+    // a zero-hash placeholder (which would produce an unspendable
+    // tx that looks fine until broadcast).
     let tx_inputs: Vec<TxIn> = req.inputs.iter().map(|u| {
-        let txid = Txid::from_str(&u.txid).unwrap_or_else(|_|
-            "0000000000000000000000000000000000000000000000000000000000000000".parse().unwrap());
-        TxIn {
+        let txid = Txid::from_str(&u.txid)
+            .map_err(|e| api_err(StatusCode::BAD_REQUEST, format!("bad txid {}: {e}", u.txid)))?;
+        Ok(TxIn {
             previous_output: OutPoint { txid, vout: u.vout },
             script_sig: ScriptBuf::new(),
             sequence: bitcoin::Sequence::ENABLE_RBF_NO_LOCKTIME,
             witness: Witness::default(),
-        }
-    }).collect();
+        })
+    }).collect::<Result<Vec<_>, ApiError>>()?;
 
     let dest_addr = req.destination.parse::<bitcoin::Address<_>>()
         .map_err(|e| api_err(StatusCode::BAD_REQUEST, format!("bad destination: {e}")))?
@@ -479,14 +482,34 @@ async fn psbt_finalize(
             "PSBT has no signatures. Sign it with your hardware wallet first, then finalize."));
     }
 
-    // miniscript::psbt::finalize fills final_script_witness from tap_script_sigs
-    // It understands the Miniscript spending conditions and assembles the correct witness stack.
+    // miniscript::psbt::finalize fills final_script_witness from tap_script_sigs.
+    // Split the error list by cause so the client knows whether to
+    // collect more signatures or to rebuild the PSBT from a fresh
+    // tree.
     let secp = Secp256k1::verification_only();
     psbt.finalize_mut(&secp)
         .map_err(|errors| {
             let msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
+            let joined = msgs.join("; ");
+            let lower = joined.to_lowercase();
+            let hint = if lower.contains("control block") {
+                // Merkle root mismatch between the PSBT's tap_scripts
+                // and the vault's actual tree -- the spend can never
+                // finalize, rebuild the PSBT.
+                "Control block mismatch: the PSBT's Taproot tree does not match the vault's address. \
+                 Cancel this proposal and build a new one; the old PSBT cannot be recovered."
+            } else if lower.contains("could not satisfy") || lower.contains("miniscript") {
+                // Script-level satisfaction failure -- usually a real
+                // miniscript logic issue (threshold not met even after
+                // every signer). Distinct from "wrong merkle root".
+                "Miniscript could not satisfy the script. Likely a timelock hasn't elapsed \
+                 or a required signer (heir / protector / beneficiary) has not signed yet."
+            } else {
+                // Generic "not enough sigs" case: quorum unmet.
+                "Not enough signatures. Collect more signers for this proposal and retry finalize."
+            };
             api_err(StatusCode::BAD_REQUEST,
-                format!("Finalization failed: {}. Ensure all required signatures are present.", msgs.join("; ")))
+                format!("Finalization failed: {joined}. {hint}"))
         })?;
 
     // Extract the raw transaction (strips PSBT wrapper)
