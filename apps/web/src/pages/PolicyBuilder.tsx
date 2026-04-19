@@ -74,6 +74,18 @@ const PRESETS = [
 // (mode, quorums, timelocks, protector/consent) is pre-set so a new
 // user can pick a fit and hit Compile.
 
+// A concrete what-if playbook item tied to a specific template.
+// Keeping trigger / outcome / actions distinct so trustees can
+// quickly read the situation and see the steps that actually move
+// money or unlock a path.
+interface Scenario {
+  title: string;
+  trigger: string;
+  outcome: string;
+  actions?: string[];
+  severity?: "info" | "warn" | "danger";
+}
+
 type VaultTemplate = {
   id: string;
   title: string;
@@ -95,6 +107,7 @@ type VaultTemplate = {
     consentQ?: number;
     plannedConsenters?: number;
   };
+  scenarios: Scenario[];
 };
 
 const VAULT_TEMPLATES: VaultTemplate[] = [
@@ -113,6 +126,29 @@ const VAULT_TEMPLATES: VaultTemplate[] = [
       recoveryAfter: 0,
       inheritanceAfter: 0,
     },
+    scenarios: [
+      {
+        title: 'You lose your seed',
+        trigger: 'Device fails and you never wrote the seed words down.',
+        outcome: 'Funds are gone. There is no recovery path in this template.',
+        actions: [
+          'Keep at least two metal backups of the seed before you fund the vault.',
+          'If you only have plaintext backups, move to a Lost-Device Insurance vault instead.',
+        ],
+        severity: 'danger',
+      },
+      {
+        title: 'You die',
+        trigger: 'You pass away without your heirs knowing where the seed is.',
+        outcome:
+          'Bitcoin has no inheritance path in this template. Heirs need the seed words to recover.',
+        actions: [
+          'Leave the seed location in your legal will (not the words themselves).',
+          'Consider upgrading to a Family Inheritance template for on-chain inheritance.',
+        ],
+        severity: 'warn',
+      },
+    ],
   },
   {
     id: 'couples',
@@ -129,6 +165,41 @@ const VAULT_TEMPLATES: VaultTemplate[] = [
       recoveryAfter: 0,
       inheritanceAfter: 0,
     },
+    scenarios: [
+      {
+        title: 'One spouse loses their key',
+        trigger: "A device fails, a seed card is lost, or a key gets corrupted.",
+        outcome:
+          "You cannot spend without restoring the lost key. Assets are safe but immobile until recovery.",
+        actions: [
+          "Restore the lost key from its metal / paper backup into a new device.",
+          "If no backup exists, sweep what you have after recovery and move to a Lost-Device Insurance template.",
+        ],
+        severity: 'warn',
+      },
+      {
+        title: 'Divorce or serious disagreement',
+        trigger: "One spouse refuses to cooperate on any spend.",
+        outcome:
+          "Funds are frozen. 2-of-2 cannot spend unless both agree; there is no timelock override.",
+        actions: [
+          "Negotiate or mediate; on-chain there is no way to bypass.",
+          "For futures with possible disputes, use a Family Inheritance or Generational Trust template so neutral trustees / timelocks exist.",
+        ],
+        severity: 'danger',
+      },
+      {
+        title: 'One spouse dies',
+        trigger: "Surviving spouse holds their key but the deceased's is inaccessible.",
+        outcome:
+          "Bitcoin has no inheritance path here. Survivor needs the deceased's seed words.",
+        actions: [
+          "Before funding, exchange sealed seed backups stored where the survivor can find them (lawyer, safe-deposit, executor).",
+          "For on-chain-enforced inheritance, use a Family Inheritance template.",
+        ],
+        severity: 'warn',
+      },
+    ],
   },
   {
     id: 'family-inheritance',
@@ -145,6 +216,63 @@ const VAULT_TEMPLATES: VaultTemplate[] = [
       recoveryAfter: 26_280, // ~6 months
       inheritanceAfter: 105_120, // ~2 years
     },
+    scenarios: [
+      {
+        title: 'One trustee dies',
+        trigger: "One of the three trustees passes away.",
+        outcome:
+          "The remaining two trustees can still sign normally on Path 1 (2-of-3 is still met). No timelock needed.",
+        actions: [
+          "The two remaining trustees sign the next spend as usual.",
+          "Consider recompiling the vault with a new third trustee added, rotating in a successor.",
+        ],
+        severity: 'info',
+      },
+      {
+        title: 'A trustee loses their key',
+        trigger: "A trustee's device fails or seed is lost.",
+        outcome:
+          "Path 1 still works (the other two sign). Path 2 recovery after 6mo lets trustees spend with a reduced quorum if a second key is also lost.",
+        actions: [
+          "Spend normally using the other two trustees.",
+          "Replace the lost key by recompiling into a new vault and sweeping funds.",
+        ],
+        severity: 'warn',
+      },
+      {
+        title: 'Beneficiary needs urgent funds',
+        trigger: "A family member asks for a distribution.",
+        outcome:
+          "Any 2 of 3 trustees can sign immediately on Path 1 -- no waiting, no timelock.",
+        actions: [
+          "Open the vault, tap Send, fill the distribution, and get two trustee signatures.",
+          "Log the reason in the proposal memo so the audit trail captures it.",
+        ],
+        severity: 'info',
+      },
+      {
+        title: 'All trustees go silent for 2 years',
+        trigger: "No trustee has acted (or can be reached) for 2 years.",
+        outcome:
+          "The inheritance path unlocks: 2 of 3 heirs can move funds to a fresh vault under their control.",
+        actions: [
+          "Any two heirs sign on the inheritance path to sweep the vault.",
+          "Recompile a new vault with the heirs as new trustees.",
+        ],
+        severity: 'info',
+      },
+      {
+        title: 'Two trustees collude to steal',
+        trigger: "Two of three trustees decide to take the funds for themselves.",
+        outcome:
+          "They can spend on Path 1 (quorum met). This template has no protector or beneficiary consent to block them.",
+        actions: [
+          "For significant estates, use the Generational Trust template instead -- it adds a protector path and optional beneficiary consent.",
+          "At minimum, pick three trustees who don't all trust each other and who don't share a social circle.",
+        ],
+        severity: 'danger',
+      },
+    ],
   },
   {
     id: 'generational-trust',
@@ -168,6 +296,64 @@ const VAULT_TEMPLATES: VaultTemplate[] = [
       consentQ: 1,
       plannedConsenters: 1,
     },
+    scenarios: [
+      {
+        title: 'Beneficiary refuses to cosign a spend',
+        trigger: "A trustee proposes a distribution; the beneficiary does not add their signature.",
+        outcome:
+          "Path 1 is frozen -- the consent gate blocks it. Trustees must wait for recovery (1yr) or protector (9mo) to unlock an alternate path.",
+        actions: [
+          "Talk to the beneficiary, understand the objection, amend the proposal.",
+          "If the beneficiary is incapacitated or missing, the protector can rescue funds at 9 months.",
+          "If nothing is resolved, recovery at 1 year lets trustees spend without consent.",
+        ],
+        severity: 'warn',
+      },
+      {
+        title: 'Trustees try to collude and steal',
+        trigger: "3 trustees agree to take funds for themselves.",
+        outcome:
+          "Path 1 is blocked by beneficiary consent. They must wait for recovery (1yr) or try the protector path (9mo, but the protector holds that key).",
+        actions: [
+          "The beneficiary refuses to cosign -- the consent gate is doing its job.",
+          "Alert the protector; at 9 months they sweep funds to a new vault.",
+          "File any off-chain legal action; Bitcoin has already bought you time.",
+        ],
+        severity: 'danger',
+      },
+      {
+        title: 'Protector steps in at 9 months',
+        trigger: "Trustees have gone rogue or are unreachable; 9 months have elapsed.",
+        outcome:
+          "The protector path unlocks. The protector alone can move funds to a fresh vault with new trustees.",
+        actions: [
+          "Protector compiles a replacement vault first (new trustees, same heirs).",
+          "Open the original vault, use the protector path to sweep to the new address.",
+          "Record the reason in the audit trail for the attorney review.",
+        ],
+        severity: 'info',
+      },
+      {
+        title: 'Trustee dies',
+        trigger: "One of the 5 trustees passes away.",
+        outcome:
+          "3-of-5 is still achievable (4 remain). Spending continues normally.",
+        actions: [
+          "Replace by recompiling with a new fifth trustee; sweep to new vault.",
+        ],
+        severity: 'info',
+      },
+      {
+        title: 'All silent for 3 years',
+        trigger: "No trustee, protector, or beneficiary activity for 3 years.",
+        outcome:
+          "Inheritance path unlocks. Successor heirs (2 of 3) take over.",
+        actions: [
+          "Heirs sweep to a fresh vault that they control as the new trustees.",
+        ],
+        severity: 'info',
+      },
+    ],
   },
   {
     id: 'business-treasury',
@@ -184,6 +370,39 @@ const VAULT_TEMPLATES: VaultTemplate[] = [
       recoveryAfter: 0,
       inheritanceAfter: 0,
     },
+    scenarios: [
+      {
+        title: 'One director leaves',
+        trigger: "A key-holder resigns or is replaced.",
+        outcome: "4 directors remain; 3-of-5 still achievable.",
+        actions: [
+          "Recompile into a new vault with a replacement director.",
+          "Sweep funds from old vault to new before the departing director can collude (they still hold 1 of the 3 needed keys).",
+        ],
+        severity: 'warn',
+      },
+      {
+        title: 'Director dispute',
+        trigger: "A minority bloc (1 or 2 directors) disagrees with a spend.",
+        outcome: "Any 3 of 5 can sign -- dissenters cannot block.",
+        actions: [
+          "Document the dispute in the proposal memo for corporate records.",
+          "Run signing ceremony with any three willing directors.",
+        ],
+        severity: 'info',
+      },
+      {
+        title: 'All keys lost',
+        trigger: "A catastrophic loss of seed backups across multiple directors.",
+        outcome: "Funds permanently unrecoverable. No timelock path in this template.",
+        actions: [
+          "Run regular signing drills (quarterly) to surface dead keys.",
+          "Keep metal backups off-site and test restores yearly.",
+          "For high-value treasuries, consider upgrading to Generational Trust shape with a recovery path.",
+        ],
+        severity: 'danger',
+      },
+    ],
   },
   {
     id: 'emergency-backup',
@@ -200,6 +419,52 @@ const VAULT_TEMPLATES: VaultTemplate[] = [
       recoveryAfter: 26_280, // ~6 months
       inheritanceAfter: 52_560, // ~1 year
     },
+    scenarios: [
+      {
+        title: 'Lose one device',
+        trigger: "One of three devices fails or is lost.",
+        outcome: "Other two devices still sign 2-of-3 on Path 1. No disruption.",
+        actions: [
+          "Spend normally with the remaining two.",
+          "Buy a replacement device, recompile a fresh vault, sweep funds to it.",
+        ],
+        severity: 'info',
+      },
+      {
+        title: 'Lose two devices',
+        trigger: "Two of three devices lost simultaneously (house fire, theft, shipwreck).",
+        outcome:
+          "Path 1 is blocked (only 1 key left). Wait 6 months -> recovery path opens so the remaining 1 key can spend.",
+        actions: [
+          "Do not panic: funds are safe, just immobile for 6 months.",
+          "After the timelock, sign with the surviving device on the recovery path.",
+          "Sweep to a new Lost-Device Insurance vault you build fresh.",
+        ],
+        severity: 'warn',
+      },
+      {
+        title: 'Seed stolen',
+        trigger: "An attacker obtains one of your three seed backups.",
+        outcome:
+          "They have 1-of-3, which is not enough for Path 1. You have 6 months to act before the recovery path makes their 1 key sufficient.",
+        actions: [
+          "Immediately: build a new vault with fresh keys on new devices.",
+          "Sign with your two remaining keys on Path 1, sweep funds to the new vault.",
+          "Destroy any remaining old seeds (the compromised one is worthless once funds are moved).",
+        ],
+        severity: 'danger',
+      },
+      {
+        title: 'Lose all three',
+        trigger: "All three devices and backups destroyed.",
+        outcome: "Funds permanently stuck.",
+        actions: [
+          "Always keep at least one metal backup of each seed off-site.",
+          "Test the restore on each device quarterly.",
+        ],
+        severity: 'danger',
+      },
+    ],
   },
 ];
 
@@ -330,6 +595,125 @@ function SlotHint({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// // -- Template card + scenario playbook
+// Each template exposes "Use this template" (applies the config
+// and scrolls to the key picker) and "What if..." (expands a list
+// of concrete failure-mode scenarios so the user can read what
+// happens in each case before picking).
+
+function severityAccent(s: Scenario['severity']): string {
+  switch (s) {
+    case 'danger': return colors.red;
+    case 'warn': return colors.orange;
+    default: return colors.blue;
+  }
+}
+
+function TemplateCard({
+  template,
+  onApply,
+}: {
+  template: VaultTemplate;
+  onApply: () => void;
+}) {
+  const [openScenarios, setOpenScenarios] = useState(false);
+
+  return (
+    <div
+      style={{
+        textAlign: 'left',
+        padding: '12px 14px',
+        background: colors.input,
+        border: `1px solid ${colors.border}`,
+        borderRadius: radii.md,
+        color: colors.text,
+        fontFamily: fonts.sans,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+      }}
+    >
+      <span
+        style={{
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: '0.1em',
+          color: colors.gold,
+          textTransform: 'uppercase',
+        }}
+      >
+        {template.tagline}
+      </span>
+      <span style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>
+        {template.title}
+      </span>
+      <span style={{ fontSize: 12, color: colors.muted, lineHeight: 1.4 }}>
+        {template.useCase}
+      </span>
+      <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+        <Button
+          size="sm"
+          type="button"
+          style={{ fontSize: 11, padding: '4px 10px' }}
+          onClick={onApply}
+        >
+          Use this template
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          type="button"
+          style={{ fontSize: 11, padding: '4px 10px' }}
+          onClick={() => setOpenScenarios(o => !o)}
+        >
+          {openScenarios ? 'Hide' : `What if... (${template.scenarios.length})`}
+        </Button>
+      </div>
+      {openScenarios && <ScenarioList scenarios={template.scenarios} />}
+    </div>
+  );
+}
+
+function ScenarioList({ scenarios }: { scenarios: Scenario[] }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+      {scenarios.map((s, i) => {
+        const accent = severityAccent(s.severity);
+        return (
+          <div
+            key={i}
+            style={{
+              background: colors.surface,
+              border: `1px solid ${colors.border}`,
+              borderLeft: `3px solid ${accent}`,
+              borderRadius: radii.sm,
+              padding: '8px 10px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 4,
+            }}
+          >
+            <div style={{ fontSize: 12, fontWeight: 600, color: accent }}>
+              {s.title}
+            </div>
+            <div style={{ fontSize: 11, color: colors.muted, lineHeight: 1.4 }}>
+              <strong style={{ color: colors.sub }}>Trigger:</strong> {s.trigger}
+            </div>
+            <div style={{ fontSize: 11, color: colors.sub, lineHeight: 1.4 }}>
+              {s.outcome}
+            </div>
+            {s.actions && s.actions.length > 0 && (
+              <ul style={{ margin: '2px 0 0 14px', padding: 0, fontSize: 11, color: colors.muted, lineHeight: 1.4 }}>
+                {s.actions.map((a, j) => <li key={j} style={{ marginBottom: 2 }}>{a}</li>)}
+              </ul>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -906,42 +1290,7 @@ export default function PolicyBuilder() {
           }}
         >
           {VAULT_TEMPLATES.map(t => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => applyTemplate(t)}
-              style={{
-                textAlign: 'left',
-                padding: '12px 14px',
-                background: colors.input,
-                border: `1px solid ${colors.border}`,
-                borderRadius: radii.md,
-                color: colors.text,
-                cursor: 'pointer',
-                fontFamily: fonts.sans,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 6,
-              }}
-            >
-              <span
-                style={{
-                  fontSize: 10,
-                  fontWeight: 700,
-                  letterSpacing: '0.1em',
-                  color: colors.gold,
-                  textTransform: 'uppercase',
-                }}
-              >
-                {t.tagline}
-              </span>
-              <span style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>
-                {t.title}
-              </span>
-              <span style={{ fontSize: 12, color: colors.muted, lineHeight: 1.4 }}>
-                {t.useCase}
-              </span>
-            </button>
+            <TemplateCard key={t.id} template={t} onApply={() => applyTemplate(t)} />
           ))}
         </div>
       </Section>
