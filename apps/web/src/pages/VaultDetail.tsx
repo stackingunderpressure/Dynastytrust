@@ -123,10 +123,12 @@ export default function VaultDetail() {
 
 function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void }) {
   const toast = useToast();
+  const navigate = useNavigate();
   const [balance, setBalance] = useState<BalanceResult | null>(null);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [tab, setTab] = useState<"overview" | "send" | "history" | "members" | "activity" | "requests">("overview");
   const [archiving, setArchiving] = useState(false);
+  const [showRotate, setShowRotate] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [sendPrefill, setSendPrefill] = useState<SendPrefill | null>(null);
 
@@ -237,16 +239,39 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
         >
           {APP_NAME}
         </span>
-        <Button
-          variant="danger"
-          size="sm"
-          disabled={archiving}
-          style={{ fontSize: 12 }}
-          onClick={deleteVault}
-        >
-          Delete
-        </Button>
+        <div style={{ display: "flex", gap: 6 }}>
+          {vault.status === "compiled" && (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={archiving}
+              style={{ fontSize: 12 }}
+              onClick={() => setShowRotate(true)}
+            >
+              Rotate
+            </Button>
+          )}
+          <Button
+            variant="danger"
+            size="sm"
+            disabled={archiving}
+            style={{ fontSize: 12 }}
+            onClick={deleteVault}
+          >
+            Delete
+          </Button>
+        </div>
       </header>
+      {showRotate && (
+        <RotateVaultModal
+          vault={vault}
+          onClose={() => setShowRotate(false)}
+          onRotated={v => {
+            setShowRotate(false);
+            navigate(`/vaults/${v.id}`, { state: { vault: v } });
+          }}
+        />
+      )}
 
       <main className="dt-page-main dt-page-main--narrow">
         {/* Balance hero */}
@@ -527,6 +552,7 @@ function OverviewTab({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <SuccessionBanner vault={vault} onSendPrefill={onSendPrefill} />
       <ActionGuide
         vault={vault}
         proposals={proposals}
@@ -2176,6 +2202,316 @@ function describeEvent(e: VaultEvent): { icon: string; title: string; color: str
 // slot's status (claimed / pending) with copy-invite-link for
 // outstanding slots. Compiles are blocked (server-side too)
 // until every slot has a key.
+
+// // -- SuccessionBanner
+// Links a rotated vault to its predecessor and (if any) successor.
+// Shows the forward chain so members understand they're looking at
+// one link in an evolving trust, not a dead end. The "Sweep to
+// successor" CTA on the predecessor prefills the Send flow with
+// the new vault's address so the migration of funds is one click.
+
+function SuccessionBanner({
+  vault,
+  onSendPrefill,
+}: {
+  vault: Vault;
+  onSendPrefill: (p: SendPrefill) => void;
+}) {
+  const [predecessor, setPredecessor] = useState<Vault | null>(null);
+  const [successor, setSuccessor] = useState<Vault | null>(null);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { vaults } = await api.vaults.list(true);
+        if (cancelled) return;
+        if (vault.predecessor_id) {
+          const p = vaults.find(v => v.id === vault.predecessor_id);
+          if (p) setPredecessor(p);
+        }
+        const s = vaults.find(v => v.predecessor_id === vault.id);
+        if (s) setSuccessor(s);
+      } catch {
+        /* best-effort */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [vault.id, vault.predecessor_id]);
+
+  if (!predecessor && !successor) return null;
+
+  return (
+    <div
+      style={{
+        background: colors.surface,
+        border: `1px solid ${colors.border}`,
+        borderLeft: `3px solid ${colors.blue}`,
+        borderRadius: 12,
+        padding: "12px 16px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: "0.1em",
+          color: colors.blue,
+          textTransform: "uppercase",
+        }}
+      >
+        Succession chain
+      </div>
+      {predecessor && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 12, color: colors.sub }}>
+            Rotated from <strong style={{ color: colors.text }}>{predecessor.name}</strong>
+            {predecessor.address && (
+              <span style={{ color: colors.muted, marginLeft: 6, fontFamily: fonts.mono, fontSize: 11 }}>
+                {predecessor.address.slice(0, 10)}...{predecessor.address.slice(-6)}
+              </span>
+            )}
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            style={{ fontSize: 11 }}
+            onClick={() => navigate(`/vaults/${predecessor.id}`, { state: { vault: predecessor } })}
+          >
+            Open predecessor
+          </Button>
+        </div>
+      )}
+      {successor && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 12, color: colors.sub }}>
+            Rotated to <strong style={{ color: colors.text }}>{successor.name}</strong>
+            {successor.address
+              ? (
+                  <span style={{ color: colors.muted, marginLeft: 6, fontFamily: fonts.mono, fontSize: 11 }}>
+                    {successor.address.slice(0, 10)}...{successor.address.slice(-6)}
+                  </span>
+                )
+              : (
+                  <span style={{ color: colors.orange, marginLeft: 6, fontSize: 11 }}>
+                    draft -- awaiting compile
+                  </span>
+                )}
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            {successor.address && (
+              <Button
+                size="sm"
+                style={{ fontSize: 11 }}
+                onClick={() =>
+                  onSendPrefill({
+                    destination: successor.address!,
+                    memo: `Sweep to successor ${successor.name}`,
+                  })
+                }
+              >
+                Sweep to successor
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              style={{ fontSize: 11 }}
+              onClick={() => navigate(`/vaults/${successor.id}`, { state: { vault: successor } })}
+            >
+              Open successor
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// // -- RotateVaultModal
+// Create a successor draft vault that inherits the current vault's
+// trust doc, member roster, quorums, and address type. Owner picks
+// new timelocks (defaults to the current intent in blocks, or the
+// same absolute heights translated to "blocks from now" via the
+// chain tip). Members carry forward with their existing keys so
+// the new vault is ready to compile immediately -- perfect for
+// key rotation or for evolving the shape without losing history.
+// For membership changes, open the Members tab on the successor
+// draft AFTER rotation to add / remove members before compiling.
+
+function RotateVaultModal({
+  vault,
+  onClose,
+  onRotated,
+}: {
+  vault: Vault;
+  onClose: () => void;
+  onRotated: (v: Vault) => void;
+}) {
+  const toast = useToast();
+  const [tip, setTip] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    tipHeight(vault.network).then(setTip).catch(() => {});
+  }, [vault.network]);
+
+  // Convert the source vault's ABSOLUTE heights back to block
+  // offsets so the rotation modal defaults to the same intent.
+  const offsetFromAbs = (abs: number | null | undefined) => {
+    if (!abs || abs <= 0) return 0;
+    if (tip == null) return abs;
+    return Math.max(0, abs - tip);
+  };
+
+  const [name, setName] = useState(`${vault.name} v2`);
+  const [recoveryOffset, setRecoveryOffset] = useState<number | null>(null);
+  const [inheritanceOffset, setInheritanceOffset] = useState<number | null>(null);
+  const [protectorOffset, setProtectorOffset] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (tip == null) return;
+    if (recoveryOffset == null) setRecoveryOffset(offsetFromAbs(vault.recovery_after));
+    if (inheritanceOffset == null) setInheritanceOffset(offsetFromAbs(vault.inheritance_after));
+    if (protectorOffset == null) setProtectorOffset(offsetFromAbs(vault.protector_after));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tip]);
+
+  const hasInheritance = vault.inheritance_after > 0 || vault.recovery_after > 0;
+  const hasProtector = (vault.protector_after ?? 0) > 0;
+
+  async function rotate() {
+    setBusy(true);
+    try {
+      const res = await api.vaults.rotate({
+        vault_id: vault.id,
+        overrides: {
+          name: name.trim() || undefined,
+          recovery_after: hasInheritance ? (recoveryOffset ?? 0) : 0,
+          inheritance_after: hasInheritance ? (inheritanceOffset ?? 0) : 0,
+          protector_after: hasProtector ? (protectorOffset ?? 0) : 0,
+        },
+      });
+      toast.success("Successor draft created. Compile when ready.");
+      onRotated(res.vault);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Rotation failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.75)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 100,
+        padding: space[4],
+      }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        style={{
+          background: colors.surface,
+          border: `1px solid ${colors.border}`,
+          borderRadius: 16,
+          padding: "24px 28px",
+          width: "100%",
+          maxWidth: 520,
+          maxHeight: "92vh",
+          overflowY: "auto",
+        }}
+      >
+        <div style={{ fontSize: 20, fontWeight: 600, fontFamily: fonts.display, color: colors.text, marginBottom: 6 }}>
+          Rotate vault
+        </div>
+        <div style={{ fontSize: 13, color: colors.muted, lineHeight: 1.5, marginBottom: 16 }}>
+          Creates a successor draft that inherits this vault's trust document, members, and shape. Adjust timelocks below if desired. After compiling the successor, sweep funds from this vault to the new address; old and new stay linked in the audit trail.
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div>
+            <Label>New vault name</Label>
+            <Input value={name} onChange={e => setName(e.target.value)} />
+          </div>
+          {hasInheritance && (
+            <>
+              <div>
+                <Label>Recovery timelock (blocks from compile)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={recoveryOffset ?? 0}
+                  onChange={e => setRecoveryOffset(parseInt(e.target.value) || 0)}
+                />
+                <div style={{ fontSize: 11, color: colors.muted, marginTop: 3 }}>
+                  ~{blocksToLabel(recoveryOffset ?? 0)} at 10-min blocks
+                </div>
+              </div>
+              <div>
+                <Label>Inheritance timelock (blocks from compile)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={inheritanceOffset ?? 0}
+                  onChange={e => setInheritanceOffset(parseInt(e.target.value) || 0)}
+                />
+                <div style={{ fontSize: 11, color: colors.muted, marginTop: 3 }}>
+                  ~{blocksToLabel(inheritanceOffset ?? 0)} at 10-min blocks
+                </div>
+              </div>
+            </>
+          )}
+          {hasProtector && (
+            <div>
+              <Label>Protector timelock (blocks from compile)</Label>
+              <Input
+                type="number"
+                min={0}
+                value={protectorOffset ?? 0}
+                onChange={e => setProtectorOffset(parseInt(e.target.value) || 0)}
+              />
+              <div style={{ fontSize: 11, color: colors.muted, marginTop: 3 }}>
+                ~{blocksToLabel(protectorOffset ?? 0)} at 10-min blocks
+              </div>
+            </div>
+          )}
+
+          <div
+            style={{
+              padding: "10px 12px",
+              background: colors.gold + "0C",
+              border: `1px solid ${colors.gold}33`,
+              borderRadius: radii.sm,
+              fontSize: 12,
+              color: colors.sub,
+              lineHeight: 1.5,
+              marginTop: 4,
+            }}
+          >
+            Members and trust document carry forward. If you need to rotate keys or change membership, open the Members tab on the successor draft before compiling.
+          </div>
+
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
+            <Button variant="ghost" type="button" onClick={onClose} disabled={busy}>Cancel</Button>
+            <Button onClick={() => void rotate()} disabled={busy}>
+              {busy ? "Rotating..." : "Create successor draft"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function DraftReadinessCard({
   vault,
