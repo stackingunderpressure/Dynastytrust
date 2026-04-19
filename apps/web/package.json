@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@gandlaf21/bc-ur": "^1.1.12",
     "@noble/curves": "^1.9.7",
     "@noble/hashes": "^1.7.2",
     "@scure/bip32": "^1.7.0",

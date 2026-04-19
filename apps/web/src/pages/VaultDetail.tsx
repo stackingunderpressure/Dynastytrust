@@ -25,6 +25,8 @@ import { useToast } from "../components/toast";
 import { LoadingScreen } from "../components/LoadingScreen";
 import { colors, fonts, radii, space } from "../theme";
 import { Button, Input, Label, Textarea } from "../components/ui";
+import { PsbtQrDisplay } from "../components/PsbtQrDisplay";
+import { PsbtQrScanner } from "../components/PsbtQrScanner";
 import { useRealtimeRefresh } from "../lib/realtime";
 import { normalizePsbt } from "../lib/psbt-format";
 import { downloadVault } from "../lib/descriptor-backup";
@@ -711,6 +713,8 @@ function SendTab({ vault, balance, onDone, prefill }: {
   const [signing, setSigning] = useState<SigningState | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [slowHint, setSlowHint] = useState(false);
+  const [showQrDisplay, setShowQrDisplay] = useState(false);
+  const [showQrScanner, setShowQrScanner] = useState(false);
 
   const confirmedSats = balance?.confirmed_sats ?? 0;
   const amountSats = Math.round(parseFloat(amountBtc || "0") * 1e8);
@@ -912,6 +916,29 @@ function SendTab({ vault, balance, onDone, prefill }: {
         return { ...prev, signers };
       });
     }
+  }
+
+  // Shared "an external signer just gave us a PSBT" handler. Used
+  // by both the textarea paste flow and the QR scanner so the
+  // merge + signer-session logging only lives in one place.
+  function externalImport(importedHex: string) {
+    if (!signing) return;
+    const merged = mergePsbts([signing.psbt_hex, importedHex]);
+    const totalSigs = countSignatures(merged);
+    if (signing.proposal_id) {
+      api.signerSessions
+        .submit({
+          proposal_id: signing.proposal_id,
+          psbt_partial_hex: importedHex,
+          label: "Hardware wallet",
+        })
+        .catch(() => {
+          /* best-effort; local merge is authoritative for this browser */
+        });
+    }
+    setSigning(prev =>
+      prev ? { ...prev, psbt_hex: merged, signaturesCollected: totalSigs } : prev,
+    );
   }
 
   async function broadcast() {
@@ -1168,9 +1195,9 @@ function SendTab({ vault, balance, onDone, prefill }: {
             Sign with hardware wallet
           </div>
           <div style={{ fontSize: 12, color: colors.muted, marginBottom: 14 }}>
-            Export to Sparrow, Nunchuk, or Coldcard. Paste the signed PSBT back here.
+            Export to Sparrow, Nunchuk, or Coldcard. Paste / scan the signed PSBT back here.
           </div>
-          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
             <Button
               variant="ghost"
               size="sm"
@@ -1187,27 +1214,45 @@ function SendTab({ vault, balance, onDone, prefill }: {
             >
               {copied === "b64" ? "Copied!" : "Copy base64"}
             </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              style={{ fontSize: 12 }}
+              onClick={() => setShowQrDisplay(s => !s)}
+            >
+              {showQrDisplay ? "Hide QR" : "Show QR (Jade / Coldcard Q)"}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              style={{ fontSize: 12 }}
+              onClick={() => setShowQrScanner(s => !s)}
+            >
+              {showQrScanner ? "Hide scanner" : "Scan signed QR"}
+            </Button>
           </div>
-          <ExternalPsbtInput
-            onImport={importedHex => {
-              const merged = mergePsbts([signing.psbt_hex, importedHex]);
-              const totalSigs = countSignatures(merged);
-              if (signing.proposal_id) {
-                api.signerSessions
-                  .submit({
-                    proposal_id: signing.proposal_id,
-                    psbt_partial_hex: importedHex,
-                    label: "Hardware wallet",
-                  })
-                  .catch(() => {
-                    /* best-effort; local merge is authoritative for this browser */
-                  });
-              }
-              setSigning(prev =>
-                prev ? { ...prev, psbt_hex: merged, signaturesCollected: totalSigs } : prev,
-              );
-            }}
-          />
+          {showQrDisplay && (
+            <div style={{ marginBottom: 14 }}>
+              <PsbtQrDisplay psbtHex={signing.psbt_hex} />
+              <div style={{ fontSize: 11, color: colors.muted, marginTop: 6, textAlign: "center" }}>
+                UR `crypto-psbt` animated. Stateless -- no pairing needed. Point your air-gapped signer at the screen.
+              </div>
+            </div>
+          )}
+          {showQrScanner && (
+            <div style={{ marginBottom: 14 }}>
+              <PsbtQrScanner
+                onResult={hex => {
+                  setShowQrScanner(false);
+                  // Reuse the existing import path so signer-sessions
+                  // logging + state-set logic stays in one place.
+                  externalImport(hex);
+                }}
+                onCancel={() => setShowQrScanner(false)}
+              />
+            </div>
+          )}
+          <ExternalPsbtInput onImport={externalImport} />
         </div>
 
         {/* Action buttons */}
