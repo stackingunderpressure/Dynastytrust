@@ -773,8 +773,19 @@ function validate(
     if (!hk.length) warnings.push('No heir keys -- inheritance path will not be compiled.');
     if (hk.length && hq > hk.length)
       errors.push(`Heir quorum (${hq}) exceeds heir key count (${hk.length}).`);
-    if (ra < 26_000)
-      errors.push(`Recovery timelock must be >= 26,000 blocks (~6 months). Got ${ra.toLocaleString()}.`);
+    // Minimum recovery timelock: a real 6-month safety rail on
+    // mainnet, a warning-only on signet / testnet so the test-mode
+    // templates that use 10-45 blocks still compile for quick
+    // end-to-end round-trips.
+    const network = fk[0]?.network ?? hk[0]?.network;
+    const isMainnet = network === 'bitcoin' || network === 'mainnet';
+    if (ra < 26_000) {
+      if (isMainnet) {
+        errors.push(`Recovery timelock must be >= 26,000 blocks (~6 months) on mainnet. Got ${ra.toLocaleString()}.`);
+      } else {
+        warnings.push(`Recovery timelock ${ra.toLocaleString()} blocks is below the 26,000-block (~6mo) production minimum. Fine for test-mode vaults on ${network}.`);
+      }
+    }
     if (ia <= ra) errors.push('Inheritance timelock must be greater than recovery timelock.');
   }
 
