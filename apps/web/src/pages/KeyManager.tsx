@@ -19,7 +19,7 @@ const selectStyle: React.CSSProperties = {
   border: `1px solid ${colors.border}`,
   borderRadius: radii.md,
   color: colors.text,
-  fontSize: 14,
+  fontSize: 16, // iOS Safari zooms on focus below 16px
   fontFamily: fonts.sans,
   boxSizing: "border-box",
 };

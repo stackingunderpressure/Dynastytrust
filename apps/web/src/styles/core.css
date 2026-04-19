@@ -166,6 +166,19 @@ textarea {
   max-width: 100%;
 }
 
+/* iOS Safari auto-zooms on any focused form control whose computed
+   font-size is < 16px, and does not zoom back out. Force a 16px
+   floor on every input/select/textarea so tapping a field never
+   kicks the viewport. Use !important to beat inline styles set by
+   older form components. */
+@media (max-width: 768px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 a {
   color: var(--color-gold);
 }
