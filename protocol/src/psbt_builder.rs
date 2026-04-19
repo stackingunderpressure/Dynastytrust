@@ -83,7 +83,10 @@ pub fn build_spend_psbt(spend: SpendRequest) -> Result<Psbt, PsbtError> {
         inputs.push(TxIn {
             previous_output: OutPoint { txid, vout: u.vout },
             script_sig: ScriptBuf::new(),
-            sequence: Sequence::MAX,
+            // Match compiler/src/main.rs: BIP 125 replaceable
+            // sequence so RBF stays enabled and miniscript's
+            // finalizer accepts the witness.
+            sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
             witness: bitcoin::Witness::default(),
         });
     }

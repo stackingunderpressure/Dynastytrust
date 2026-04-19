@@ -190,18 +190,23 @@ pub fn compile_dynasty_policy_tr(
     })
 }
 
-/// Build the full multileaf Taproot spend_info + return the
-/// founders-now leaf script. Used by both the compile handler and
-/// the PSBT builder so the control block attached to `tap_scripts`
-/// proves against the real address's merkle root.
-///
-/// The single-leaf rebuild in psbt_binary was producing a tree with
-/// a different merkle root than the actual compiled vault, so the
-/// finalizer rejected the spend with "Control block verification
-/// failed at index 0".
-pub fn build_multileaf_spend_info(
-    policy: &DynastyPolicy,
-) -> Result<(TaprootSpendInfo, bitcoin::ScriptBuf), PolicyError> {
+/// Everything downstream consumers need from a multileaf compile.
+/// Keeping this in one struct + one function (build_multileaf) is
+/// how we guarantee the spend_info that the PSBT builder uses for
+/// control blocks is the same spend_info the compile handler used
+/// for the address. If they ever drift, finalize explodes with
+/// "Control block verification failed at index 0".
+pub struct MultileafOutput {
+    pub spend_info: TaprootSpendInfo,
+    pub founder_leaf: bitcoin::ScriptBuf,
+    pub descriptor: String,
+    pub miniscript_policy: String,
+}
+
+/// Sole source of truth for multileaf tree construction. Used by
+/// both `compile_dynasty_policy_tr_multileaf` (for address +
+/// descriptor) and by the PSBT builder (for control blocks).
+pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, PolicyError> {
     verify(policy)?;
 
     let secp = Secp256k1::verification_only();
@@ -243,16 +248,26 @@ pub fn build_multileaf_spend_info(
         };
 
     let ms_founder = compile_leaf(&founder_thresh)?;
-    let founder_script = ms_founder.encode();
+    let founder_leaf = ms_founder.encode();
 
     if policy.is_plain() {
         let builder = TaprootBuilder::new()
-            .add_leaf(0, founder_script.clone())
+            .add_leaf(0, founder_leaf.clone())
             .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?;
         let spend_info = builder
             .finalize(&secp, internal_key)
             .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
-        return Ok((spend_info, founder_script));
+        // Single-leaf Taproot descriptor has no {} braces: those
+        // denote a tap_branch (internal node). rust-miniscript
+        // rejects tr(key,{leaf}) as "unknown format for script
+        // spending paths". Only use braces for 2+ leaf trees.
+        let descriptor = format!("tr({},{})", internal_key, ms_founder);
+        return Ok(MultileafOutput {
+            spend_info,
+            founder_leaf,
+            descriptor,
+            miniscript_policy: founder_thresh,
+        });
     }
 
     let heirs: Vec<String> = policy
@@ -272,7 +287,7 @@ pub fn build_multileaf_spend_info(
     let ms_recovery = compile_leaf(&recovery_branch)?;
     let ms_inheritance = compile_leaf(&inheritance_branch)?;
 
-    let spend_info = if policy.has_protector() {
+    if policy.has_protector() {
         let protectors: Vec<String> = policy
             .protector_keys
             .iter()
@@ -285,146 +300,9 @@ pub fn build_multileaf_spend_info(
             protectors.join(","),
         );
         let ms_protector = compile_leaf(&protector_branch)?;
-        TaprootBuilder::new()
-            .add_leaf(1, founder_script.clone())
-            .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?
-            .add_leaf(2, ms_recovery.encode())
-            .map_err(|e| PolicyError::Descriptor(format!("leaf recovery: {e:?}")))?
-            .add_leaf(3, ms_inheritance.encode())
-            .map_err(|e| PolicyError::Descriptor(format!("leaf inheritance: {e:?}")))?
-            .add_leaf(3, ms_protector.encode())
-            .map_err(|e| PolicyError::Descriptor(format!("leaf protector: {e:?}")))?
-            .finalize(&secp, internal_key)
-            .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?
-    } else {
-        TaprootBuilder::new()
-            .add_leaf(1, founder_script.clone())
-            .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?
-            .add_leaf(2, ms_recovery.encode())
-            .map_err(|e| PolicyError::Descriptor(format!("leaf recovery: {e:?}")))?
-            .add_leaf(2, ms_inheritance.encode())
-            .map_err(|e| PolicyError::Descriptor(format!("leaf inheritance: {e:?}")))?
-            .finalize(&secp, internal_key)
-            .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?
-    };
-
-    Ok((spend_info, founder_script))
-}
-
-pub fn compile_dynasty_policy_tr_multileaf(
-    policy: DynastyPolicy,
-    network: Network,
-) -> Result<CompiledVault, PolicyError> {
-    verify(&policy)?;
-
-    let secp = Secp256k1::verification_only();
-
-    let nums_bytes = hex::decode(NUMS_HEX)
-        .map_err(|e| PolicyError::Descriptor(format!("NUMS decode: {e}")))?;
-    let internal_key = XOnlyPublicKey::from_slice(&nums_bytes)
-        .map_err(|e| PolicyError::Descriptor(format!("NUMS xonly: {e}")))?;
-
-    let founders: Vec<String> = policy
-        .founder_keys
-        .iter()
-        .map(|k| format!("pk({k})"))
-        .collect();
-
-    let trustee_thresh = format!("thresh({},{})", policy.founder_quorum, founders.join(","));
-    // Path 1: trustees alone, or trustees + beneficiary consent.
-    // The consent gate only applies to the day-to-day trustee path;
-    // the timelocked recovery/inheritance/protector branches are
-    // intentionally unreachable if a beneficiary refuses to cosign.
-    let founder_thresh = if policy.has_consent() {
-        let consenters: Vec<String> = policy
-            .consent_keys
-            .iter()
-            .map(|k| format!("pk({k})"))
-            .collect();
-        let consent_thresh = format!(
-            "thresh({},{})",
-            policy.consent_quorum.unwrap(),
-            consenters.join(","),
-        );
-        format!("and({},{})", trustee_thresh, consent_thresh)
-    } else {
-        trustee_thresh.clone()
-    };
-
-    let compile_leaf =
-        |policy_str: &str| -> Result<Miniscript<PublicKey, miniscript::Tap>, PolicyError> {
-            let concrete = policy_str
-                .parse::<Concrete<PublicKey>>()
-                .map_err(|e| PolicyError::Miniscript(format!("parse {policy_str}: {e:?}")))?;
-
-            concrete
-                .compile()
-                .map_err(|e| PolicyError::Miniscript(format!("compile {policy_str}: {e:?}")))
-        };
-
-    // Plain mode: single leaf, no recovery or inheritance branch.
-    if policy.is_plain() {
-        let ms_founder = compile_leaf(&founder_thresh)?;
 
         let builder = TaprootBuilder::new()
-            .add_leaf(0, ms_founder.encode())
-            .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?;
-
-        let spend_info = builder
-            .finalize(&secp, internal_key)
-            .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
-
-        let addr = Address::p2tr_tweaked(spend_info.output_key(), network);
-        let descriptor = format!("tr({},{{{}}})", internal_key, ms_founder);
-
-        return Ok(CompiledVault {
-            miniscript_policy: founder_thresh,
-            descriptor,
-            address: addr,
-            address_type: AddressType::TrMultileaf,
-        });
-    }
-
-    let heirs: Vec<String> = policy
-        .heir_keys
-        .iter()
-        .map(|k| format!("pk({k})"))
-        .collect();
-
-    let recovery_quorum = policy.recovery_quorum.unwrap_or(policy.founder_quorum);
-    let recovery_thresh = format!("thresh({},{})", recovery_quorum, founders.join(","));
-    let recovery_branch = format!("and(after({}),{})", policy.recovery_after, recovery_thresh);
-    let inheritance_branch = format!(
-        "and(after({}),thresh({},{}))",
-        policy.inheritance_after,
-        policy.heir_quorum,
-        heirs.join(",")
-    );
-
-    let ms_founder = compile_leaf(&founder_thresh)?;
-    let ms_recovery = compile_leaf(&recovery_branch)?;
-    let ms_inheritance = compile_leaf(&inheritance_branch)?;
-
-    // Tree layout depends on whether a protector branch is present.
-    // 3 leaves: depths 1/2/2. 4 leaves: depths 1/2/3/3 -- keeps the
-    // common founder path cheapest; the rare inheritance and
-    // protector branches pay a tiny extra witness cost.
-    let (addr, descriptor, miniscript_policy) = if policy.has_protector() {
-        let protectors: Vec<String> = policy
-            .protector_keys
-            .iter()
-            .map(|k| format!("pk({k})"))
-            .collect();
-        let protector_branch = format!(
-            "and(after({}),thresh({},{}))",
-            policy.protector_after.unwrap(),
-            policy.protector_quorum.unwrap(),
-            protectors.join(",")
-        );
-        let ms_protector = compile_leaf(&protector_branch)?;
-
-        let builder = TaprootBuilder::new()
-            .add_leaf(1, ms_founder.encode())
+            .add_leaf(1, founder_leaf.clone())
             .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?
             .add_leaf(2, ms_recovery.encode())
             .map_err(|e| PolicyError::Descriptor(format!("leaf recovery: {e:?}")))?
@@ -432,12 +310,9 @@ pub fn compile_dynasty_policy_tr_multileaf(
             .map_err(|e| PolicyError::Descriptor(format!("leaf inheritance: {e:?}")))?
             .add_leaf(3, ms_protector.encode())
             .map_err(|e| PolicyError::Descriptor(format!("leaf protector: {e:?}")))?;
-
         let spend_info = builder
             .finalize(&secp, internal_key)
             .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
-
-        let addr = Address::p2tr_tweaked(spend_info.output_key(), network);
         let descriptor = format!(
             "tr({},{{{},{{{},{{{},{}}}}}}})",
             internal_key, ms_founder, ms_recovery, ms_inheritance, ms_protector
@@ -446,21 +321,23 @@ pub fn compile_dynasty_policy_tr_multileaf(
             "or({},or({},or({},{})))",
             founder_thresh, recovery_branch, inheritance_branch, protector_branch
         );
-        (addr, descriptor, miniscript_policy)
+        Ok(MultileafOutput {
+            spend_info,
+            founder_leaf,
+            descriptor,
+            miniscript_policy,
+        })
     } else {
         let builder = TaprootBuilder::new()
-            .add_leaf(1, ms_founder.encode())
+            .add_leaf(1, founder_leaf.clone())
             .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?
             .add_leaf(2, ms_recovery.encode())
             .map_err(|e| PolicyError::Descriptor(format!("leaf recovery: {e:?}")))?
             .add_leaf(2, ms_inheritance.encode())
             .map_err(|e| PolicyError::Descriptor(format!("leaf inheritance: {e:?}")))?;
-
         let spend_info = builder
             .finalize(&secp, internal_key)
             .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
-
-        let addr = Address::p2tr_tweaked(spend_info.output_key(), network);
         let descriptor = format!(
             "tr({},{{{},{{{},{}}}}})",
             internal_key, ms_founder, ms_recovery, ms_inheritance
@@ -469,12 +346,42 @@ pub fn compile_dynasty_policy_tr_multileaf(
             "or({},or({},{}))",
             founder_thresh, recovery_branch, inheritance_branch
         );
-        (addr, descriptor, miniscript_policy)
-    };
+        Ok(MultileafOutput {
+            spend_info,
+            founder_leaf,
+            descriptor,
+            miniscript_policy,
+        })
+    }
+}
 
+/// Back-compat shim: the previous helper returned just the
+/// spend_info + founder leaf. Keep it wired to `build_multileaf` so
+/// the PSBT builder path is unchanged.
+pub fn build_multileaf_spend_info(
+    policy: &DynastyPolicy,
+) -> Result<(TaprootSpendInfo, bitcoin::ScriptBuf), PolicyError> {
+    let out = build_multileaf(policy)?;
+    Ok((out.spend_info, out.founder_leaf))
+}
+
+pub fn compile_dynasty_policy_tr_multileaf(
+    policy: DynastyPolicy,
+    network: Network,
+) -> Result<CompiledVault, PolicyError> {
+    let out = build_multileaf(&policy)?;
+    let addr = Address::p2tr_tweaked(out.spend_info.output_key(), network);
+    // Round-trip the descriptor through rust-miniscript's parser so
+    // a malformed string (e.g. nested-brace mistake) fails here
+    // instead of producing an unspendable address. Use
+    // DescriptorPublicKey so the parser accepts the x-only internal
+    // key format used by `tr(...)` descriptors.
+    use miniscript::{Descriptor, DescriptorPublicKey};
+    let _: Descriptor<DescriptorPublicKey> = Descriptor::from_str(&out.descriptor)
+        .map_err(|e| PolicyError::Descriptor(format!("descriptor round-trip: {e:?}")))?;
     Ok(CompiledVault {
-        miniscript_policy,
-        descriptor,
+        miniscript_policy: out.miniscript_policy,
+        descriptor: out.descriptor,
         address: addr,
         address_type: AddressType::TrMultileaf,
     })
