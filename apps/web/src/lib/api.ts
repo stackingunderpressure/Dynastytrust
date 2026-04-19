@@ -256,6 +256,29 @@ export interface VaultMember {
   derivation_path: string | null;
   key_label: string | null;
   status: VaultMemberStatus;
+  /** X25519 public key for end-to-end encrypted messaging.
+   *  Published the first time the member opens a vault they
+   *  belong to; corresponds to a private key that never leaves
+   *  their browser. */
+  messaging_pubkey?: string | null;
+}
+
+export interface VaultMessage {
+  id: string;
+  vault_id: string;
+  sender_user_id: string;
+  sender_pubkey: string;
+  created_at: string;
+  subject: string | null;
+  thread_id: string | null;
+  nonce: string;
+  ciphertext: string;
+  recipients: {
+    user_id: string;
+    pubkey: string;
+    wrap_nonce: string;
+    wrapped_key: string;
+  }[];
 }
 
 export interface VaultInvite {
@@ -748,7 +771,7 @@ export const api = {
 
     update: (
       id: string,
-      body: Partial<Pick<VaultMember, 'label' | 'xpub' | 'fingerprint' | 'pubkey' | 'derivation_path' | 'key_label'>>,
+      body: Partial<Pick<VaultMember, 'label' | 'xpub' | 'fingerprint' | 'pubkey' | 'derivation_path' | 'key_label' | 'messaging_pubkey'>>,
     ) =>
       req<{ ok: true; member: VaultMember }>(`/members?id=${id}`, {
         method: 'PATCH',
@@ -806,6 +829,30 @@ export const api = {
       key_label?: string;
     }) =>
       req<{ ok: true; member_id: string; vault_id: string }>(`/invites-claim`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+  },
+
+  messages: {
+    list: (vault_id: string) =>
+      req<{ ok: true; messages: VaultMessage[] }>(`/vault-messages?vault_id=${vault_id}`),
+
+    send: (body: {
+      vault_id: string;
+      sender_pubkey: string;
+      nonce: string;
+      ciphertext: string;
+      recipients: {
+        user_id: string;
+        pubkey: string;
+        wrap_nonce: string;
+        wrapped_key: string;
+      }[];
+      subject?: string | null;
+      thread_id?: string | null;
+    }) =>
+      req<{ ok: true; message: VaultMessage }>(`/vault-messages`, {
         method: 'POST',
         body: JSON.stringify(body),
       }),

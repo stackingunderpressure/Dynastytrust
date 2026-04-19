@@ -16,7 +16,7 @@ import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 
 const MEMBER_FIELDS =
-  "id, created_at, vault_id, user_id, role, label, xpub, fingerprint, pubkey, derivation_path, key_label, status";
+  "id, created_at, vault_id, user_id, role, label, xpub, fingerprint, pubkey, derivation_path, key_label, status, messaging_pubkey";
 
 async function isMember(supabase, vaultId, userId) {
   const { data } = await supabase
@@ -100,7 +100,7 @@ export async function handler(event) {
     const ownerAccess = !isSelf && (await isOwner(supabase, member.vault_id, u.userId));
     if (!isSelf && !ownerAccess) return json(403, { error: "Cannot edit this member" });
 
-    const selfFields = ["label", "xpub", "fingerprint", "pubkey", "derivation_path", "key_label"];
+    const selfFields = ["label", "xpub", "fingerprint", "pubkey", "derivation_path", "key_label", "messaging_pubkey"];
     const ownerFields = ["label"];
     const allowed = isSelf ? selfFields : ownerFields;
 
