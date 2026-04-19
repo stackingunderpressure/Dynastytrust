@@ -80,11 +80,16 @@ export async function handler(event) {
   const toPubkeyHex = (k) => {
     if (typeof k !== 'string') return k;
     if (k.length === 66) return k; // already pubkey hex
-    try { return pubkeyFromXpub(k); } catch { return k; }
+    return pubkeyFromXpub(k); // throws "Version mismatch" etc.
   };
-  const founderPubkeys = (vault.founder_keys || []).map(toPubkeyHex);
-  const heirPubkeys = (vault.heir_keys || []).map(toPubkeyHex);
-  const consentPubkeys = (vault.consent_keys || []).map(toPubkeyHex);
+  let founderPubkeys, heirPubkeys, consentPubkeys;
+  try {
+    founderPubkeys = (vault.founder_keys || []).map(toPubkeyHex);
+    heirPubkeys = (vault.heir_keys || []).map(toPubkeyHex);
+    consentPubkeys = (vault.consent_keys || []).map(toPubkeyHex);
+  } catch (e) {
+    return json(500, { error: 'Could not derive /0/0 pubkey from vault xpubs: ' + e.message });
+  }
 
   const network = vault.network || 'testnet';
   const base    = MEMPOOL[network] || MEMPOOL.testnet;
