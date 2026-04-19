@@ -1,6 +1,10 @@
 # DynastyTrust — Compiler Service
-# Deploy: fly deploy --config compiler/fly.toml
-# First time: fly launch --config compiler/fly.toml (from repo root)
+# fly.toml lives at the REPO ROOT so the Docker build context is
+# the repo root (required for `COPY protocol/Cargo.toml ...` in
+# compiler/Dockerfile). The dockerfile path below is relative to
+# this file.
+# Deploy: fly deploy
+# First time: fly launch
 
 app            = "dynastytrust-compiler"
 primary_region = "mia"
@@ -13,7 +17,7 @@ primary_region = "mia"
   PORT = "8080"
 
 # COMPILER_SECRET must be set as a Fly secret:
-#   fly secrets set COMPILER_SECRET=<your-random-secret> --config compiler/fly.toml
+#   fly secrets set COMPILER_SECRET=<your-random-secret>
 # Generate one with: openssl rand -hex 32
 
 [http_service]
