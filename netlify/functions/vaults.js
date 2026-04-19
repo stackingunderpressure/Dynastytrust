@@ -195,5 +195,39 @@ export async function handler(event) {
     return json(200, { ok: true, vault: data });
   }
 
+  // -- DELETE /api/vaults?id=<uuid>
+  // Owner only. Cascades through vault_members, proposals, etc via
+  // ON DELETE CASCADE on the schema. Use archive for soft-delete;
+  // this is for drafts or genuinely abandoned vaults.
+  if (event.httpMethod === "DELETE") {
+    const id = event.queryStringParameters?.id;
+    if (!id) return json(400, { error: "Missing query param: id" });
+
+    const { data: existing } = await supabase
+      .from("vaults")
+      .select("id, user_id, name")
+      .eq("id", id)
+      .maybeSingle();
+    if (!existing) return json(404, { error: "Vault not found" });
+    if (existing.user_id !== u.userId) {
+      return json(403, { error: "Only the primary trustee can delete this vault" });
+    }
+
+    const { error: delErr } = await supabase
+      .from("vaults")
+      .delete()
+      .eq("id", id);
+    if (delErr) return json(500, { error: delErr.message });
+
+    await supabase.from("vault_events").insert({
+      vault_id: id,
+      user_id: u.userId,
+      event_type: "deleted",
+      metadata: { name: existing.name },
+    }).then(() => {}, () => { /* event table may cascade-delete too */ });
+
+    return json(200, { ok: true });
+  }
+
   return json(405, { error: "Method not allowed" });
 }

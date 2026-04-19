@@ -68,6 +68,141 @@ const PRESETS = [
   { label: '5 years', blocks: 262_800 },
 ];
 
+// // -- Vault templates
+// Professional presets that one-click-configure the entire vault
+// shape. User still picks keys from their keyring; everything else
+// (mode, quorums, timelocks, protector/consent) is pre-set so a new
+// user can pick a fit and hit Compile.
+
+type VaultTemplate = {
+  id: string;
+  title: string;
+  tagline: string;
+  useCase: string;
+  config: {
+    mode: VaultMode;
+    plannedFounders: number;
+    founderQ: number;
+    plannedHeirs: number;
+    heirQ: number;
+    recoveryAfter: number;
+    inheritanceAfter: number;
+    protectorEnabled?: boolean;
+    protectorAfter?: number;
+    protectorQ?: number;
+    plannedProtectors?: number;
+    consentEnabled?: boolean;
+    consentQ?: number;
+    plannedConsenters?: number;
+  };
+};
+
+const VAULT_TEMPLATES: VaultTemplate[] = [
+  {
+    id: 'solo-savings',
+    title: 'Solo Savings',
+    tagline: '1-of-1 . No timelocks',
+    useCase:
+      'One person, one seed. Simplest possible Bitcoin wallet. Back up the seed on metal; no inheritance path.',
+    config: {
+      mode: 'plain',
+      plannedFounders: 1,
+      founderQ: 1,
+      plannedHeirs: 0,
+      heirQ: 1,
+      recoveryAfter: 0,
+      inheritanceAfter: 0,
+    },
+  },
+  {
+    id: 'couples',
+    title: 'Couples',
+    tagline: '2-of-2 . Both spouses sign',
+    useCase:
+      'Two partners jointly custody the stack. Every spend needs both signatures. No timelocks -- if one loses their key, recovery requires restoring from backup.',
+    config: {
+      mode: 'plain',
+      plannedFounders: 2,
+      founderQ: 2,
+      plannedHeirs: 0,
+      heirQ: 1,
+      recoveryAfter: 0,
+      inheritanceAfter: 0,
+    },
+  },
+  {
+    id: 'family-inheritance',
+    title: 'Family Inheritance',
+    tagline: '2-of-3 trustees . 2-of-3 heirs . 6mo / 2yr',
+    useCase:
+      'Classic multi-generational setup. Three trustees share signing duty; after 6 months of trustee silence the same trustees can recover with a reduced quorum; after 2 years the heirs take over. Best starter shape for most families.',
+    config: {
+      mode: 'inheritance',
+      plannedFounders: 3,
+      founderQ: 2,
+      plannedHeirs: 3,
+      heirQ: 2,
+      recoveryAfter: 26_280, // ~6 months
+      inheritanceAfter: 105_120, // ~2 years
+    },
+  },
+  {
+    id: 'generational-trust',
+    title: 'Generational Trust',
+    tagline: '3-of-5 . protector . consent . 1yr / 3yr',
+    useCase:
+      'Institutional-grade: 5 independent trustees (3 needed), a protector who can rescue funds at 9 months, successors take over at 3 years. Every day-to-day spend also requires one beneficiary signature so the family has veto power without custody burden.',
+    config: {
+      mode: 'inheritance',
+      plannedFounders: 5,
+      founderQ: 3,
+      plannedHeirs: 3,
+      heirQ: 2,
+      recoveryAfter: 52_560, // ~1 year
+      inheritanceAfter: 157_680, // ~3 years
+      protectorEnabled: true,
+      protectorAfter: 39_420, // ~9 months
+      protectorQ: 1,
+      plannedProtectors: 1,
+      consentEnabled: true,
+      consentQ: 1,
+      plannedConsenters: 1,
+    },
+  },
+  {
+    id: 'business-treasury',
+    title: 'Business Treasury',
+    tagline: '3-of-5 . No heirs . No timelocks',
+    useCase:
+      'Corporate cold storage. Five directors hold keys; any three can authorize a spend. No inheritance path because the business persists. Add directors or rotate keys by recompiling when needed.',
+    config: {
+      mode: 'plain',
+      plannedFounders: 5,
+      founderQ: 3,
+      plannedHeirs: 0,
+      heirQ: 1,
+      recoveryAfter: 0,
+      inheritanceAfter: 0,
+    },
+  },
+  {
+    id: 'emergency-backup',
+    title: 'Lost-Device Insurance',
+    tagline: '2-of-3 . 6mo recovery',
+    useCase:
+      'Same-person multisig: you hold all three keys on three different devices. Need 2 to spend normally; after 6 months of silence you can spend with just 1. Saves the stack if one device is lost or destroyed.',
+    config: {
+      mode: 'inheritance',
+      plannedFounders: 3,
+      founderQ: 2,
+      plannedHeirs: 1,
+      heirQ: 1,
+      recoveryAfter: 26_280, // ~6 months
+      inheritanceAfter: 52_560, // ~1 year
+    },
+  },
+];
+
 interface SelectedKey {
   pubkey: string;
   keyId: string;
@@ -485,6 +620,32 @@ export default function PolicyBuilder() {
     !consentKeys.some(ck => ck.keyId === k.keyId),
   );
 
+  function applyTemplate(t: VaultTemplate) {
+    const c = t.config;
+    setMode(c.mode);
+    setPlannedFounders(c.plannedFounders);
+    setFQ(c.founderQ);
+    setPlannedHeirs(c.plannedHeirs);
+    setHQ(c.heirQ);
+    setRecovery(c.recoveryAfter);
+    setInherit(c.inheritanceAfter);
+    if (c.protectorEnabled) {
+      setProtectorAfter(c.protectorAfter ?? 26_280);
+      setProtectorQ(c.protectorQ ?? 1);
+    } else {
+      setProtectorKeys([]);
+      setProtectorQ(1);
+    }
+    if (c.consentEnabled) {
+      setConsentQ(c.consentQ ?? 1);
+    } else {
+      setConsentKeys([]);
+      setConsentQ(1);
+    }
+    setName(t.title);
+    setCompiled(null);
+  }
+
   async function compile() {
     setCompiling(true);
     setCompErr(null);
@@ -653,6 +814,58 @@ export default function PolicyBuilder() {
           and generate keys first, then return here.
         </div>
       )}
+
+      <Section
+        title="Start from a template"
+        sub="Pick a shape that fits, then pick keys and compile. You can add more signers than the template's minimum before compiling."
+      >
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+            gap: 10,
+          }}
+        >
+          {VAULT_TEMPLATES.map(t => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => applyTemplate(t)}
+              style={{
+                textAlign: 'left',
+                padding: '12px 14px',
+                background: colors.input,
+                border: `1px solid ${colors.border}`,
+                borderRadius: radii.md,
+                color: colors.text,
+                cursor: 'pointer',
+                fontFamily: fonts.sans,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: '0.1em',
+                  color: colors.gold,
+                  textTransform: 'uppercase',
+                }}
+              >
+                {t.tagline}
+              </span>
+              <span style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>
+                {t.title}
+              </span>
+              <span style={{ fontSize: 12, color: colors.muted, lineHeight: 1.4 }}>
+                {t.useCase}
+              </span>
+            </button>
+          ))}
+        </div>
+      </Section>
 
       <Section
         title="Vault type"
