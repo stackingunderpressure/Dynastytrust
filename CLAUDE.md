@@ -336,6 +336,39 @@ See `Stack` above for the layout.
    is needed, not on schedule. Cheapest path: browser libs first, then
    bitcoin 0.31 -> 0.32, then miniscript 11 -> 13.
 
+**Next roadmap (captured 2026-04-18, post audit-fix push):**
+
+Pipeline is locked in. Bitcoin path verified via rust-miniscript round-trip
+on descriptor compile + single-source tree builder. Next phase is the trust
+/ governance layer.
+
+1. **Scenario playbooks**. Per-template "what happens if..." docs baked
+   into the UI. For each vault template (Family Inheritance, Generational
+   Trust, Business Treasury, etc.): trustee dies, beneficiary refuses to
+   cosign, trustees go silent 6 months, protector steps in, inheritance
+   triggers. With step-by-step actions + which path unlocks when.
+
+2. **Trust doc templates** aligned to each vault template. Purpose,
+   beneficiaries, distribution rules pre-filled. Editable but real.
+
+3. **Role-aware dashboards**. Beneficiary sees "your distributions + timelock
+   countdowns". Trustee sees "pending requests + stipends due + signing
+   queue". Protector sees "any suspicious activity + when my path unlocks".
+   Successor sees "status + time-to-inheritance".
+
+4. **Event-to-action guides**. When a request is filed, the trustee UI
+   shows "here's what to do, here's what the trust doc says". When a
+   timelock approaches, the UI nudges the relevant party.
+
+5. **Audit trail export**. PDF in an attorney-review format: every event,
+   vote, comment, signature, spend, tied to the trust doc clause.
+
+6. **Wallet primitives deferred**. No Liana fork -- AGPL-3.0 kills
+   commercial flexibility. If we ever need BDK-grade features (Esplora
+   sync, fee bumping, CPFP, native HW via HWI), embed BDK (MIT/Apache)
+   via WASM. Don't rebuild a wallet core from scratch. Value-per-month
+   is higher in the trust layer.
+
 **Recently closed:**
 
 - Descriptor upgrade to Nunchuk/Sparrow key-origin form. `upgradeDescriptor`
