@@ -10,7 +10,14 @@ interface Options {
   filter?: string;
   /** Events to listen for. Defaults to all. */
   event?: Event;
-  /** Unique channel name; defaults to `<table>:<filter ?? 'all'>`. */
+  /**
+   * Optional channel-name prefix for debugging. A random suffix is
+   * always appended so two hook instances with the same options can
+   * coexist without Supabase rejecting the second with
+   * "cannot add postgres_changes callbacks after subscribe()" -- which
+   * fires when `supabase.channel(name)` returns an already-subscribed
+   * channel from a previous mount whose removeChannel hasn't finished.
+   */
   channel?: string;
 }
 
@@ -30,7 +37,14 @@ export function useRealtimeRefresh(opts: Options, onChange: () => void) {
   cb.current = onChange;
 
   useEffect(() => {
-    const name = opts.channel ?? `${opts.table}:${opts.filter ?? 'all'}`;
+    // Unique per mount. React 18 strict mode, route-level remounts,
+    // and fast-refresh all re-run this effect, and the new run can
+    // land before Supabase's async removeChannel finishes. Giving
+    // each run its own channel name makes the two lifecycles
+    // independent.
+    const suffix = Math.random().toString(36).slice(2, 10);
+    const base = opts.channel ?? `${opts.table}:${opts.filter ?? 'all'}`;
+    const name = `${base}:${suffix}`;
     const channel = supabase
       .channel(name)
       .on(
