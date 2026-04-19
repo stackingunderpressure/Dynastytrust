@@ -241,6 +241,11 @@ struct PsbtBinaryRequest {
     #[serde(default)] protector_keys: Vec<String>,
     #[serde(default)] protector_quorum: Option<usize>,
     #[serde(default)] protector_after: Option<u32>,
+    // Which leaf the caller intends to spend via. Needed so we can
+    // set tx.lock_time for CLTV-gated paths; founders_now leaves
+    // lock_time at 0. Values: "founders_now" | "recovery" |
+    // "inheritance" | "protector".
+    #[serde(default)] path: Option<String>,
     // Fallback raw scripts (if policy params not provided)
     leaf_script_hex:    Option<String>,
     witness_script_hex: Option<String>,
@@ -311,8 +316,27 @@ async fn psbt_binary(
         });
     }
 
+    // CLTV path selection: founders_now leaves lock_time at 0;
+    // recovery / inheritance / protector set it to the stored
+    // absolute block height so miniscript finalize can satisfy
+    // `after(N)` on the chosen leaf. Callers MUST already have
+    // baked current-tip + relative-offset into those values at
+    // compile time; Rust treats the number as absolute height.
+    let intended_path = req.path.as_deref().unwrap_or("founders_now");
+    let locktime_height: Option<u32> = match intended_path {
+        "recovery" => req.recovery_after,
+        "inheritance" => req.inheritance_after,
+        "protector" => req.protector_after,
+        _ => None,
+    };
+    let lock_time = match locktime_height {
+        Some(h) if h > 0 => LockTime::from_height(h)
+            .map_err(|e| api_err(StatusCode::BAD_REQUEST, format!("bad lock_time {h}: {e}")))?,
+        _ => LockTime::ZERO,
+    };
+
     let tx = Transaction {
-        version: Version::TWO, lock_time: LockTime::ZERO,
+        version: Version::TWO, lock_time,
         input: tx_inputs, output: tx_outputs,
     };
 

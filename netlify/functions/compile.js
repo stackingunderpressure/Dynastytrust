@@ -20,6 +20,7 @@
 
 import { requireUser, json } from "./_auth.js";
 import { getSupabaseAdmin } from "./_supabase.js";
+import { fetchTipHeight, relativeToAbsolute } from "./_chain.js";
 
 const COMPILER_URL    = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -88,6 +89,24 @@ export async function handler(event) {
     });
   }
 
+  // Convert the relative block offsets the caller passed ("6 months
+  // from now") into absolute CLTV heights (tip + offset). Miniscript
+  // `after(N)` compiles to OP_CLTV which is always absolute, so the
+  // leaf bakes in a specific block height at compile time. Without
+  // this step every timelock N < current tip would be unlocked.
+  let tipHeight = 0;
+  if (finalRecoveryAfter || finalInheritanceAfter ||
+      (protector_after && protector_keys.length > 0)) {
+    try {
+      tipHeight = await fetchTipHeight(network);
+    } catch (e) {
+      return json(502, { error: `Could not fetch chain tip for ${network}: ${e.message}` });
+    }
+  }
+  const absRecoveryAfter    = relativeToAbsolute(finalRecoveryAfter,    tipHeight);
+  const absInheritanceAfter = relativeToAbsolute(finalInheritanceAfter, tipHeight);
+  const absProtectorAfter   = relativeToAbsolute(protector_after,       tipHeight);
+
   // 4. Forward to Fly.io compiler — retry once in case machine is waking up
   let compiled;
   let lastErr;
@@ -108,10 +127,10 @@ export async function handler(event) {
           recovery_quorum,
           heir_keys,
           heir_quorum: finalHeirQuorum,
-          recovery_after: finalRecoveryAfter,
-          inheritance_after: finalInheritanceAfter,
-          ...(protector_keys.length > 0 && protector_quorum != null && protector_after != null
-            ? { protector_keys, protector_quorum, protector_after }
+          recovery_after: absRecoveryAfter,
+          inheritance_after: absInheritanceAfter,
+          ...(protector_keys.length > 0 && protector_quorum != null && absProtectorAfter > 0
+            ? { protector_keys, protector_quorum, protector_after: absProtectorAfter }
             : {}),
           ...(consent_keys.length > 0 && consent_quorum != null
             ? { consent_keys, consent_quorum }
@@ -176,13 +195,16 @@ export async function handler(event) {
           founder_quorum,
           recovery_quorum,
           heir_quorum,
-          recovery_after,
-          inheritance_after,
+          // Store absolute CLTV heights, not the relative offsets
+          // the caller sent. The UI subtracts current tip to render
+          // "unlocks in Y months".
+          recovery_after: absRecoveryAfter,
+          inheritance_after: absInheritanceAfter,
           founder_keys,
           heir_keys,
           protector_keys,
           protector_quorum,
-          protector_after,
+          protector_after: absProtectorAfter,
           consent_keys,
           consent_quorum,
         })
