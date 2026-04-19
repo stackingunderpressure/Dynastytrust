@@ -136,6 +136,7 @@ export default function Dashboard() {
 
   return (
     <div style={{ fontFamily: fonts.sans }}>
+      <RoleSummary vaults={vaults} />
       <PendingFeed />
       {drafts.length > 0 && <DraftsSection drafts={drafts} />}
 
@@ -558,6 +559,160 @@ function ModalShell({
 // // -- Pending proposals feed
 // Shows non-terminal proposals across every vault the user is a
 // member of. Lets members act without clicking through each vault.
+
+// // -- Role summary (cross-vault)
+// Rolls up "who am I across my portfolio" at the top of the
+// dashboard: count of vaults per role, soonest upcoming unlock
+// (recovery for trustees, protector for protectors, inheritance
+// for heirs), so the user sees what's coming without drilling
+// into each vault.
+
+function RoleSummary({ vaults }: { vaults: Vault[] }) {
+  if (vaults.length === 0) return null;
+
+  // Bucket vaults by caller's role (owners count as trustees).
+  const byRole: Record<string, Vault[]> = {
+    trustee: [],
+    heir: [],
+    protector: [],
+    beneficiary: [],
+    viewer: [],
+  };
+  for (const v of vaults) {
+    const r = v.my_role;
+    if (r === "owner" || r === "founder") byRole.trustee.push(v);
+    else if (r === "heir") byRole.heir.push(v);
+    else if (r === "protector") byRole.protector.push(v);
+    else if (r === "beneficiary") byRole.beneficiary.push(v);
+    else if (r === "viewer") byRole.viewer.push(v);
+  }
+
+  const cards: { label: string; count: number; detail: string; color: string }[] = [];
+
+  if (byRole.trustee.length) {
+    // Trustees can always spend on Path 1 -- no timelock countdown
+    // here; the PendingFeed component below shows the signing
+    // queue.
+    cards.push({
+      label: "Trustee",
+      count: byRole.trustee.length,
+      detail:
+        byRole.trustee.length === 1
+          ? "1 vault · you can sign now"
+          : `${byRole.trustee.length} vaults · you can sign now`,
+      color: colors.gold,
+    });
+  }
+  if (byRole.heir.length) {
+    const soonest = byRole.heir
+      .map(v => v.inheritance_after)
+      .filter(n => n > 0)
+      .sort((a, b) => a - b)[0];
+    cards.push({
+      label: "Successor",
+      count: byRole.heir.length,
+      detail: soonest
+        ? `soonest inheritance in ${blocksToLabel(soonest)}`
+        : `${byRole.heir.length} vault${byRole.heir.length === 1 ? "" : "s"}`,
+      color: colors.green,
+    });
+  }
+  if (byRole.protector.length) {
+    const soonest = byRole.protector
+      .map(v => v.protector_after ?? 0)
+      .filter(n => n > 0)
+      .sort((a, b) => a - b)[0];
+    cards.push({
+      label: "Protector",
+      count: byRole.protector.length,
+      detail: soonest
+        ? `soonest path unlocks in ${blocksToLabel(soonest)}`
+        : `${byRole.protector.length} vault${byRole.protector.length === 1 ? "" : "s"}`,
+      color: colors.blue,
+    });
+  }
+  if (byRole.beneficiary.length) {
+    const gated = byRole.beneficiary.filter(v => v.consent_quorum).length;
+    cards.push({
+      label: "Beneficiary",
+      count: byRole.beneficiary.length,
+      detail: gated
+        ? `${gated} vault${gated === 1 ? "" : "s"} require your consent`
+        : "passive beneficiary",
+      color: colors.orange,
+    });
+  }
+  if (byRole.viewer.length) {
+    cards.push({
+      label: "Observer",
+      count: byRole.viewer.length,
+      detail:
+        byRole.viewer.length === 1
+          ? "1 vault · read-only"
+          : `${byRole.viewer.length} vaults · read-only`,
+      color: colors.muted,
+    });
+  }
+
+  if (cards.length === 0) return null;
+
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: "0.1em",
+          color: colors.muted,
+          textTransform: "uppercase",
+          marginBottom: 8,
+        }}
+      >
+        Your portfolio
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(min(200px, 100%), 1fr))",
+          gap: 10,
+        }}
+      >
+        {cards.map(c => (
+          <div
+            key={c.label}
+            style={{
+              background: colors.surface,
+              border: `1px solid ${colors.border}`,
+              borderLeft: `3px solid ${c.color}`,
+              borderRadius: 10,
+              padding: "10px 14px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+              <span style={{ fontSize: 22, fontWeight: 700, color: colors.text, fontFamily: fonts.display }}>
+                {c.count}
+              </span>
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: "0.1em",
+                  color: c.color,
+                  textTransform: "uppercase",
+                }}
+              >
+                {c.label}
+              </span>
+            </div>
+            <div style={{ fontSize: 12, color: colors.muted, marginTop: 2 }}>
+              {c.detail}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 type PendingProposal = Awaited<ReturnType<typeof api.proposalsMine>>["proposals"][number];
 
