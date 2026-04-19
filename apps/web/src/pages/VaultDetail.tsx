@@ -519,6 +519,7 @@ function OverviewTab({
         onOpenTab={onOpenTab}
         onSendPrefill={onSendPrefill}
       />
+      {!plain && <VaultPhaseCard vault={vault} />}
       {!plain && <TimelockCountdown vault={vault} />}
       <TrustDocSection vault={vault} />
       <StipendsSection vault={vault} onSendPrefill={onSendPrefill} />
@@ -2416,6 +2417,142 @@ function ActionGuide({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// // -- VaultPhaseCard
+// Plain-English summary of what's spendable RIGHT NOW on the
+// vault. Complements TimelockCountdown (which shows per-path
+// countdowns) with a single "trust phase" banner that a
+// non-technical beneficiary can read. Refreshes every minute so
+// an imminent unlock flips the banner without a manual reload.
+
+type VaultPhase = {
+  label: string;
+  description: string;
+  accent: string;
+  paths: string[];
+};
+
+function computePhase(vault: Vault, tip: number | null): VaultPhase {
+  if (tip == null) {
+    return {
+      label: "Loading...",
+      description: "Waiting for chain tip.",
+      accent: colors.muted,
+      paths: [],
+    };
+  }
+  const paths: string[] = ["Trustees (Path 1) - anytime"];
+  let accent = colors.gold;
+  let label = "Normal operation";
+  let description =
+    `${vault.founder_quorum} of ${vault.founder_keys.length} trustees can sign at any time.`;
+
+  const inheritance = vault.inheritance_after ?? 0;
+  const recovery = vault.recovery_after ?? 0;
+  const protector = vault.protector_after ?? 0;
+
+  if (inheritance > 0 && tip >= inheritance) {
+    label = "Inheritance triggered";
+    description = `After block ${inheritance.toLocaleString()}, heirs can spend without the trustees.`;
+    accent = colors.green;
+    paths.push(`Heirs (Path 3) - ${vault.heir_quorum} of ${vault.heir_keys.length}`);
+  } else if (protector > 0 && tip >= protector) {
+    label = "Protector window open";
+    description = `After block ${protector.toLocaleString()}, the protector can rescue funds to a fresh vault.`;
+    accent = colors.blue;
+    paths.push(`Protector (Path 4) - ${vault.protector_quorum} of ${vault.protector_keys.length}`);
+  } else if (recovery > 0 && tip >= recovery) {
+    label = "Recovery window open";
+    description =
+      vault.recovery_quorum != null && vault.recovery_quorum !== vault.founder_quorum
+        ? `After block ${recovery.toLocaleString()}, trustees can spend with a reduced quorum of ${vault.recovery_quorum}.`
+        : `After block ${recovery.toLocaleString()}, the recovery path is available (same quorum as normal).`;
+    accent = colors.blue;
+    paths.push(`Recovery (Path 2) - ${vault.recovery_quorum ?? vault.founder_quorum} of ${vault.founder_keys.length}`);
+  }
+
+  // Always surface the next upcoming unlock so the phase card
+  // tells a forward-looking story, not just the current state.
+  const upcoming: { name: string; block: number }[] = [];
+  if (recovery > tip) upcoming.push({ name: "Recovery", block: recovery });
+  if (protector > tip && vault.protector_keys.length > 0) upcoming.push({ name: "Protector", block: protector });
+  if (inheritance > tip) upcoming.push({ name: "Inheritance", block: inheritance });
+  if (upcoming.length > 0) {
+    const next = upcoming.sort((a, b) => a.block - b.block)[0];
+    const blocksLeft = next.block - tip;
+    const approx = blocksToLabel(blocksLeft);
+    paths.push(`Next unlock: ${next.name} in ${approx} (block ${next.block.toLocaleString()})`);
+  }
+
+  return { label, description, accent, paths };
+}
+
+function VaultPhaseCard({ vault }: { vault: Vault }) {
+  const [tip, setTip] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const fetchTip = () => {
+      tipHeight(vault.network)
+        .then(h => !cancelled && setTip(h))
+        .catch(() => {});
+    };
+    fetchTip();
+    const iv = window.setInterval(fetchTip, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(iv);
+    };
+  }, [vault.network]);
+
+  const phase = computePhase(vault, tip);
+
+  return (
+    <div
+      style={{
+        background: colors.surface,
+        border: `1px solid ${colors.border}`,
+        borderLeft: `3px solid ${phase.accent}`,
+        borderRadius: 12,
+        padding: "14px 16px",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 10,
+          marginBottom: 6,
+        }}
+      >
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: "0.1em",
+            color: phase.accent,
+            textTransform: "uppercase",
+          }}
+        >
+          {phase.label}
+        </span>
+        {tip != null && (
+          <span style={{ fontSize: 11, color: colors.muted, fontFamily: fonts.mono }}>
+            tip {tip.toLocaleString()}
+          </span>
+        )}
+      </div>
+      <div style={{ fontSize: 13, color: colors.text, lineHeight: 1.5, marginBottom: 8 }}>
+        {phase.description}
+      </div>
+      {phase.paths.length > 0 && (
+        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: colors.sub, lineHeight: 1.7 }}>
+          {phase.paths.map((p, i) => <li key={i}>{p}</li>)}
+        </ul>
+      )}
     </div>
   );
 }
