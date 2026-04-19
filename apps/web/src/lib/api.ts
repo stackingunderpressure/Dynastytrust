@@ -281,6 +281,20 @@ export interface VaultMessage {
   }[];
 }
 
+export type AttestationType = 'trust_doc' | 'proof_of_life' | 'death_declaration';
+
+export interface VaultAttestation {
+  id: string;
+  vault_id: string;
+  user_id: string;
+  attestation_type: AttestationType;
+  target_hash: string;
+  target_data: Record<string, unknown>;
+  signature: string;
+  pubkey: string;
+  signed_at: string;
+}
+
 export interface VaultInvite {
   id: string;
   created_at: string;
@@ -856,6 +870,31 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(body),
       }),
+  },
+
+  attestations: {
+    list: (vault_id: string, type?: AttestationType) => {
+      const qs = type ? `&type=${type}` : '';
+      return req<{ ok: true; attestations: VaultAttestation[] }>(
+        `/vault-attestations?vault_id=${vault_id}${qs}`,
+      );
+    },
+
+    create: (body: {
+      vault_id: string;
+      attestation_type: AttestationType;
+      target_hash: string;
+      target_data?: Record<string, unknown>;
+      signature: string;
+      pubkey: string;
+    }) =>
+      req<{ ok: true; attestation: VaultAttestation }>(`/vault-attestations`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+
+    remove: (id: string) =>
+      req<{ ok: true }>(`/vault-attestations?id=${id}`, { method: 'DELETE' }),
   },
 
   health: () => fetch('/api/health').then(r => r.json()),

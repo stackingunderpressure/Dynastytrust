@@ -32,6 +32,7 @@ import { normalizePsbt } from "../lib/psbt-format";
 import { downloadVault } from "../lib/descriptor-backup";
 import { pubkeyFromXpub, fingerprintFromXpub } from "../lib/xpub";
 import { ensureMessagingKey, encryptMessage, decryptMessage, getMessagingPubkey } from "../lib/messaging";
+import { TrustTab } from "../components/TrustTab";
 import { tipHeight, blocksToApproxLabel, approxWallclockDate } from "../lib/chain";
 
 
@@ -127,7 +128,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
   const navigate = useNavigate();
   const [balance, setBalance] = useState<BalanceResult | null>(null);
   const [proposals, setProposals] = useState<Proposal[]>([]);
-  const [tab, setTab] = useState<"overview" | "send" | "history" | "members" | "activity" | "requests" | "messages">("overview");
+  const [tab, setTab] = useState<"overview" | "send" | "history" | "members" | "activity" | "requests" | "messages" | "trust">("overview");
   const [archiving, setArchiving] = useState(false);
   const [showRotate, setShowRotate] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
@@ -399,6 +400,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
                 { id: "overview", label: "Overview" },
                 { id: "members", label: "Members" },
                 { id: "messages", label: "Messages" },
+                { id: "trust", label: "Trust" },
                 { id: "activity", label: "Activity" },
               ]
             : [
@@ -408,6 +410,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
                 { id: "history", label: "History", count: pendingCount },
                 { id: "members", label: "Members" },
                 { id: "messages", label: "Messages" },
+                { id: "trust", label: "Trust" },
                 { id: "activity", label: "Activity" },
               ]
           ).map(t => (
@@ -479,6 +482,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
         {tab === "activity" && <ActivityTab vault={vault} />}
         {tab === "requests" && <RequestsTab vault={vault} />}
         {tab === "messages" && <MessagesTab vault={vault} />}
+        {tab === "trust" && <TrustTab vault={vault} />}
       </main>
     </div>
   );
