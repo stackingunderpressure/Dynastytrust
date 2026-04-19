@@ -174,8 +174,8 @@ function parsePsbt(hex: string): ParsedPsbt {
         const [scriptLen, scriptPos] = readVarInt(kv.value, 8);
         const scriptPubkey = kv.value.slice(scriptPos, scriptPos + scriptLen);
         inp.witnessUtxo = { amount, scriptPubkey };
-      } else if (keyType === 0x14) {
-        // PSBT_IN_TAP_INTERNAL_KEY
+      } else if (keyType === 0x17) {
+        // PSBT_IN_TAP_INTERNAL_KEY (BIP 371)
         inp.tapInternalKey = kv.value;
       } else if (keyType === 0x15) {
         // PSBT_IN_TAP_LEAF_SCRIPT
@@ -185,9 +185,9 @@ function parsePsbt(hex: string): ParsedPsbt {
         const script = kv.value.slice(0, kv.value.length - 1);
         if (!inp.tapLeafScript) inp.tapLeafScript = [];
         inp.tapLeafScript.push({ controlBlock, script, leafVersion });
-      } else if (keyType === 0x13) {
-        // PSBT_IN_TAP_SCRIPT_SIG
-        // key: [0x13, xonly_pubkey(32), leaf_hash(32)]
+      } else if (keyType === 0x14) {
+        // PSBT_IN_TAP_SCRIPT_SIG (BIP 371)
+        // key: [0x14, xonly_pubkey(32), leaf_hash(32)]
         const pubkey = kv.key.slice(1, 33);
         const leafHash = kv.key.slice(33, 65);
         if (!inp.tapScriptSigs) inp.tapScriptSigs = [];
@@ -351,8 +351,9 @@ function serializePsbt(parsed: ParsedPsbt): string {
     const inp = parsed.inputs[i];
     if (inp.tapScriptSigs) {
       for (const tss of inp.tapScriptSigs) {
-        // Key: [0x13, xonly_pubkey(32), leaf_hash(32)]
-        const key = concat(new Uint8Array([0x13]), tss.pubkey, tss.leafHash);
+        // PSBT_IN_TAP_SCRIPT_SIG (BIP 371)
+        // Key: [0x14, xonly_pubkey(32), leaf_hash(32)]
+        const key = concat(new Uint8Array([0x14]), tss.pubkey, tss.leafHash);
         const kv = concat(varint(key.length), key, varint(tss.sig.length), tss.sig);
         extra.push(kv);
       }
