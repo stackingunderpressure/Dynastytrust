@@ -16,18 +16,25 @@ RUN printf '[workspace]\nresolver = "2"\nmembers = ["protocol", "compiler"]\n\n[
 COPY protocol/Cargo.toml ./protocol/
 COPY compiler/Cargo.toml ./compiler/
 
+# Copy the root Cargo.lock so cargo resolves to the exact versions
+# we pinned locally. Without this, cargo fetch does a fresh resolve
+# and picks "latest compatible" for every transitive dep -- e.g.
+# bitcoin-internals bumped to 0.2.1 broke miniscript 11.2.3 because
+# the internals::hex module moved between releases.
+COPY Cargo.lock ./
+
 # Stub source files so cargo fetch succeeds
 RUN mkdir -p protocol/src compiler/src && \
     echo "" > protocol/src/lib.rs && \
     echo "fn main() {}" > compiler/src/main.rs
 
-RUN cargo fetch
+RUN cargo fetch --locked
 
 # Copy real source
 COPY protocol/src ./protocol/src
 COPY compiler/src ./compiler/src
 
-RUN cargo build -p dynastytrust_compiler --release
+RUN cargo build -p dynastytrust_compiler --release --locked
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
 FROM debian:bookworm-slim
