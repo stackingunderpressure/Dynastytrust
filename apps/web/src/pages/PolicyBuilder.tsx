@@ -5,6 +5,7 @@ import { api, type Vault, type TrustDoc } from '../lib/api';
 import { colors, fonts, radii, space } from '../theme';
 import { Button, Input, Label } from '../components/ui';
 import { downloadVaultBackup } from '../lib/descriptor-backup';
+import { DescriptorQr } from '../components/DescriptorQr';
 
 /**
  * Post-process the compiler's raw-pubkey descriptor into the Nunchuk /
@@ -2223,6 +2224,15 @@ function BackupNudgeModal({ vault, onDone }: { vault: Vault; onDone: () => void 
           >
             {downloaded ? 'Downloaded -- save to cold storage' : 'Download backup file'}
           </Button>
+          {vault.descriptor && (
+            <div style={{ marginTop: 14 }}>
+              <DescriptorQr
+                descriptor={vault.descriptor}
+                label="Sparrow-ready QR"
+                size={220}
+              />
+            </div>
+          )}
         </div>
 
         <div
