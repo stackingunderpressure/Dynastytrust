@@ -4,6 +4,7 @@ import { api, type Vault, type BalanceResult } from "../lib/api";
 import { useRealtimeRefresh } from "../lib/realtime";
 import { colors, fonts, radii, space } from "../theme";
 import { Button, Input, Label, Textarea } from "../components/ui";
+import { useToast } from "../components/toast";
 
 function satsToBtc(sats: number): string {
   return (sats / 1e8).toFixed(8).replace(/\.?0+$/, "") || "0";
@@ -83,6 +84,7 @@ function roleStatus(v: Vault): string {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const toast = useToast();
   const openVault = (v: Vault) => navigate(`/vaults/${v.id}`, { state: { vault: v } });
 
   const [vaults, setVaults] = useState<Vault[]>([]);
@@ -93,6 +95,27 @@ export default function Dashboard() {
   const [showTrustCode, setShowTrustCode] = useState(false);
   const [search, setSearch] = useState("");
   const [renaming, setRenaming] = useState<Vault | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  async function deleteVault(v: Vault) {
+    // Soft confirm on the Dashboard: fast path for clearing out test
+    // vaults. VaultDetail still has the name-match guard for vaults
+    // that actually hold funds.
+    const ok = window.confirm(
+      `Delete "${v.name}"? This removes the vault, its members, and all proposals. It cannot be undone.`,
+    );
+    if (!ok) return;
+    setDeletingId(v.id);
+    try {
+      await api.vaults.remove(v.id);
+      setVaults(prev => prev.filter(x => x.id !== v.id));
+      toast.success(`Deleted ${v.name}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete");
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   const load = useCallback(async () => {
     try {
@@ -288,6 +311,17 @@ export default function Dashboard() {
                 >
                   Rename
                 </Button>
+                {v.my_role === "owner" && (
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    style={{ fontSize: 12, padding: "5px 10px" }}
+                    disabled={deletingId === v.id}
+                    onClick={() => deleteVault(v)}
+                  >
+                    {deletingId === v.id ? "Deleting..." : "Delete"}
+                  </Button>
+                )}
               </div>
             </div>
           );
@@ -588,8 +622,13 @@ function ModalShell({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        zIndex: 100,
+        // Above the sticky header (z=100) and above any tab-strip
+        // stacking context. The modal was rendering behind the
+        // header's background on some mobile browsers, producing
+        // a "blackout" where only the overlay showed.
+        zIndex: 500,
         padding: space[4],
+        overscrollBehavior: "contain",
       }}
       onClick={e => {
         if (e.target === e.currentTarget) onClose();
@@ -603,7 +642,7 @@ function ModalShell({
           padding: "28px 32px",
           width: "100%",
           maxWidth,
-          maxHeight: "90vh",
+          maxHeight: "90dvh",
           overflowY: "auto",
         }}
       >
