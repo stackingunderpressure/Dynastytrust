@@ -31,6 +31,7 @@ import { useRealtimeRefresh } from "../lib/realtime";
 import { normalizePsbt } from "../lib/psbt-format";
 import { downloadVault } from "../lib/descriptor-backup";
 import { pubkeyFromXpub, fingerprintFromXpub } from "../lib/xpub";
+import { ensureMessagingKey, encryptMessage, decryptMessage, getMessagingPubkey } from "../lib/messaging";
 import { tipHeight, blocksToApproxLabel, approxWallclockDate } from "../lib/chain";
 
 
@@ -126,7 +127,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
   const navigate = useNavigate();
   const [balance, setBalance] = useState<BalanceResult | null>(null);
   const [proposals, setProposals] = useState<Proposal[]>([]);
-  const [tab, setTab] = useState<"overview" | "send" | "history" | "members" | "activity" | "requests">("overview");
+  const [tab, setTab] = useState<"overview" | "send" | "history" | "members" | "activity" | "requests" | "messages">("overview");
   const [archiving, setArchiving] = useState(false);
   const [showRotate, setShowRotate] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
@@ -149,6 +150,29 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
   }, [vault]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Publish this browser's X25519 messaging pubkey to the user's
+  // vault_members row on first visit so other members can send
+  // us E2E-encrypted messages. Private key stays in localStorage.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const myPub = getMessagingPubkey();
+        const { data } = await supabase.auth.getSession();
+        const myUserId = data.session?.user.id;
+        if (!myUserId) return;
+        const { members } = await api.members.list(vault.id);
+        const me = members.find(m => m.user_id === myUserId);
+        if (!me || cancelled) return;
+        if (me.messaging_pubkey === myPub) return;
+        await api.members.update(me.id, { messaging_pubkey: myPub });
+      } catch {
+        /* non-fatal; messaging will surface the gap in-UI */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [vault.id]);
 
   // Self-heal: if the caller's vault_members row still has the
   // pre-audit pubkey + fingerprint convention (account-level pubkey,
@@ -372,6 +396,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
             ? [
                 { id: "overview", label: "Overview" },
                 { id: "members", label: "Members" },
+                { id: "messages", label: "Messages" },
                 { id: "activity", label: "Activity" },
               ]
             : [
@@ -380,6 +405,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
                 { id: "requests", label: "Requests" },
                 { id: "history", label: "History", count: pendingCount },
                 { id: "members", label: "Members" },
+                { id: "messages", label: "Messages" },
                 { id: "activity", label: "Activity" },
               ]
           ).map(t => (
@@ -444,6 +470,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
         {tab === "members" && <MembersTab vault={vault} />}
         {tab === "activity" && <ActivityTab vault={vault} />}
         {tab === "requests" && <RequestsTab vault={vault} />}
+        {tab === "messages" && <MessagesTab vault={vault} />}
       </main>
     </div>
   );
@@ -2061,6 +2088,233 @@ function InviteModal({
 // // -- Activity tab
 
 type VaultEvent = Awaited<ReturnType<typeof api.vaultEvents.list>>["events"][number];
+
+// // -- MessagesTab
+// E2E encrypted thread per vault. Messages are encrypted client-
+// side with X25519 + ChaCha20-Poly1305 (see lib/messaging.ts).
+// Server only stores ciphertext + per-recipient wrapped keys.
+// Each member publishes their X25519 pubkey via the self-heal in
+// VaultDetailInner on first visit; members without a pubkey
+// published yet are listed so the sender knows who won't be
+// able to read the message until they come online.
+
+function MessagesTab({ vault }: { vault: Vault }) {
+  const toast = useToast();
+  const [members, setMembers] = useState<VaultMember[]>([]);
+  const [messages, setMessages] = useState<VaultMessage[]>([]);
+  const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [showKeyReset, setShowKeyReset] = useState(false);
+
+  useEffect(() => {
+    // Ensure local keypair exists before rendering.
+    ensureMessagingKey();
+    supabase.auth.getSession().then(({ data }) =>
+      setMyUserId(data.session?.user.id ?? null),
+    );
+  }, []);
+
+  const load = useCallback(async () => {
+    try {
+      const [m, msg] = await Promise.all([
+        api.members.list(vault.id),
+        api.messages.list(vault.id),
+      ]);
+      setMembers(m.members);
+      setMessages(msg.messages);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to load messages");
+    }
+  }, [vault.id, toast]);
+
+  useEffect(() => { void load(); }, [load]);
+  useRealtimeRefresh({ table: "vault_messages", filter: `vault_id=eq.${vault.id}` }, () => void load());
+
+  const keyedMembers = members.filter(
+    m => m.status === "active" && m.user_id && m.messaging_pubkey,
+  );
+  const pendingMembers = members.filter(
+    m => m.status === "active" && m.user_id && !m.messaging_pubkey,
+  );
+
+  async function send(e: React.FormEvent) {
+    e.preventDefault();
+    if (!draft.trim() || !myUserId) return;
+    setBusy(true);
+    try {
+      const recipients = keyedMembers
+        .filter(m => m.messaging_pubkey)
+        .map(m => ({ user_id: m.user_id, pubkey: m.messaging_pubkey! }));
+      if (recipients.length === 0) {
+        toast.error("No members have published a messaging key yet.");
+        return;
+      }
+      const enc = encryptMessage(draft.trim(), recipients);
+      await api.messages.send({
+        vault_id: vault.id,
+        sender_pubkey: enc.sender_pubkey,
+        nonce: enc.nonce,
+        ciphertext: enc.ciphertext,
+        recipients: enc.recipients,
+      });
+      setDraft("");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Send failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function rekey() {
+    if (!confirm("Regenerate your messaging key? You will lose access to messages sent with your current key.")) return;
+    localStorage.removeItem("dynastytrust:messaging:v1");
+    ensureMessagingKey();
+    setShowKeyReset(false);
+    void load();
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div
+        style={{
+          padding: "10px 12px",
+          background: colors.gold + "0C",
+          border: `1px solid ${colors.gold}33`,
+          borderRadius: radii.sm,
+          fontSize: 12,
+          color: colors.sub,
+          lineHeight: 1.5,
+        }}
+      >
+        <strong style={{ color: colors.gold }}>End-to-end encrypted.</strong> Messages are sealed to each recipient's X25519 key before they leave your browser. The server stores ciphertext only and cannot read them. Your private key lives in this browser's local storage -- clearing site data wipes your ability to read past messages.
+      </div>
+
+      {pendingMembers.length > 0 && (
+        <div
+          style={{
+            padding: "8px 12px",
+            background: colors.orange + "0C",
+            border: `1px solid ${colors.orange}33`,
+            borderRadius: radii.sm,
+            fontSize: 12,
+            color: colors.sub,
+          }}
+        >
+          Waiting for a messaging key from: {pendingMembers.map(m => m.label || "(unlabeled)").join(", ")}. They will be able to read your messages once they open the vault.
+        </div>
+      )}
+
+      <form
+        onSubmit={send}
+        style={{
+          background: colors.surface,
+          border: `1px solid ${colors.border}`,
+          borderRadius: 12,
+          padding: 14,
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+        }}
+      >
+        <Textarea
+          rows={3}
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          placeholder={`Message to ${keyedMembers.length} member${keyedMembers.length === 1 ? "" : "s"}...`}
+        />
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+          <div style={{ fontSize: 11, color: colors.muted }}>
+            {keyedMembers.length} recipient{keyedMembers.length === 1 ? "" : "s"}
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              style={{ fontSize: 11 }}
+              onClick={() => setShowKeyReset(s => !s)}
+            >
+              {showKeyReset ? "Cancel" : "Key settings"}
+            </Button>
+            <Button type="submit" disabled={busy || !draft.trim() || keyedMembers.length === 0}>
+              {busy ? "Sending..." : "Send"}
+            </Button>
+          </div>
+        </div>
+        {showKeyReset && (
+          <div
+            style={{
+              fontSize: 11,
+              color: colors.muted,
+              padding: "8px 10px",
+              background: colors.bg,
+              borderRadius: radii.sm,
+            }}
+          >
+            Your messaging pubkey: <span style={{ fontFamily: fonts.mono }}>{getMessagingPubkey().slice(0, 16)}...{getMessagingPubkey().slice(-8)}</span>
+            <div style={{ marginTop: 6 }}>
+              <Button
+                variant="danger"
+                size="sm"
+                type="button"
+                style={{ fontSize: 11 }}
+                onClick={rekey}
+              >
+                Regenerate key
+              </Button>
+              <span style={{ marginLeft: 8 }}>Deletes your local private key. Past messages become unreadable.</span>
+            </div>
+          </div>
+        )}
+      </form>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {messages.length === 0 && (
+          <div style={{ fontSize: 13, color: colors.muted, textAlign: "center", padding: "24px 0" }}>
+            No messages yet. Trustees + beneficiaries use this thread for off-chain coordination -- visible only to vault members.
+          </div>
+        )}
+        {messages.map(m => {
+          const plaintext = myUserId ? decryptMessage(m, myUserId) : null;
+          const sender = members.find(mem => mem.user_id === m.sender_user_id);
+          const senderLabel = sender?.label || "(unknown)";
+          const mine = m.sender_user_id === myUserId;
+          return (
+            <div
+              key={m.id}
+              style={{
+                padding: "10px 12px",
+                background: colors.surface,
+                border: `1px solid ${colors.border}`,
+                borderLeft: mine ? `3px solid ${colors.gold}` : `3px solid ${colors.blue}`,
+                borderRadius: radii.md,
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: colors.muted, marginBottom: 4 }}>
+                <span>
+                  <strong style={{ color: mine ? colors.gold : colors.text }}>{senderLabel}</strong>
+                  {sender?.role ? ` . ${sender.role}` : ""}
+                </span>
+                <span>{new Date(m.created_at).toLocaleString()}</span>
+              </div>
+              <div style={{ fontSize: 14, color: colors.text, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+                {plaintext !== null ? plaintext : (
+                  <span style={{ color: colors.muted, fontStyle: "italic" }}>
+                    {m.recipients.some(r => r.user_id === myUserId)
+                      ? "(cannot decrypt -- your messaging key may have changed)"
+                      : "(not encrypted to this browser)"}
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function ActivityTab({ vault }: { vault: Vault }) {
   const [events, setEvents] = useState<VaultEvent[]>([]);
