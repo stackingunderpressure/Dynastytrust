@@ -737,6 +737,27 @@ function OverviewTab({
               size="sm"
               style={{ padding: "3px 9px", fontSize: 11 }}
               onClick={async () => {
+                // Default to last completed tax year. The server
+                // accepts any year between 2020 and 2099.
+                const lastYear = new Date().getUTCFullYear() - 1;
+                const yearStr = prompt("Tax year to summarize:", String(lastYear));
+                if (!yearStr) return;
+                const year = Number(yearStr);
+                if (!Number.isInteger(year) || year < 2020 || year > 2099) {
+                  alert("Enter a valid 4-digit year between 2020 and 2099.");
+                  return;
+                }
+                const url = await api.taxSummaryUrl(vault.id, year);
+                window.open(url, "_blank");
+              }}
+            >
+              Tax summary
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              style={{ padding: "3px 9px", fontSize: 11 }}
+              onClick={async () => {
                 const url = await api.activityExportUrl(vault.id);
                 window.open(url, "_blank");
               }}

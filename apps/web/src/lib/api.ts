@@ -573,6 +573,11 @@ export const api = {
     return `/api/vault-activity-export?vault_id=${vault_id}&token=${token}`;
   },
 
+  taxSummaryUrl: async (vault_id: string, year: number): Promise<string> => {
+    const token = await getToken();
+    return `/api/vault-tax-summary?id=${vault_id}&year=${year}&token=${token}`;
+  },
+
   pdfUrl: async (vault_id: string): Promise<string> => {
     const token = await getToken();
     return `/api/vault-pdf?id=${vault_id}&token=${token}`;

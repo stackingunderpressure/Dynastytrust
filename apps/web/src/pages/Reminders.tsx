@@ -34,6 +34,73 @@ function setRemindersEnabled(enabled: boolean): void {
 
 // ---------------------------------------------------------------
 
+// IRS + FinCEN form references. Links go to the "About" page for
+// each form so users get the current PDF + the instructions + the
+// tax-topic writeup in one jump. We never deep-link to the raw
+// PDF because URLs change with form revisions; the About page is
+// stable across revisions.
+const FORMS = {
+  F709: {
+    name: 'Form 709',
+    desc: 'US gift (and GST) tax return',
+    url: 'https://www.irs.gov/forms-pubs/about-form-709',
+  },
+  F1041: {
+    name: 'Form 1041',
+    desc: 'US income tax return for estates and trusts',
+    url: 'https://www.irs.gov/forms-pubs/about-form-1041',
+  },
+  F1041K1: {
+    name: 'Schedule K-1 (Form 1041)',
+    desc: "Beneficiary's share of income, deductions, credits",
+    url: 'https://www.irs.gov/forms-pubs/about-schedule-k-1-form-1041',
+  },
+  F706: {
+    name: 'Form 706',
+    desc: 'US estate (and GST) tax return',
+    url: 'https://www.irs.gov/forms-pubs/about-form-706',
+  },
+  F3520: {
+    name: 'Form 3520',
+    desc: 'Annual return to report transactions with foreign trusts',
+    url: 'https://www.irs.gov/forms-pubs/about-form-3520',
+  },
+  F3520A: {
+    name: 'Form 3520-A',
+    desc: 'Annual info return of foreign trust with US owner',
+    url: 'https://www.irs.gov/forms-pubs/about-form-3520-a',
+  },
+  F8938: {
+    name: 'Form 8938',
+    desc: 'Statement of specified foreign financial assets',
+    url: 'https://www.irs.gov/forms-pubs/about-form-8938',
+  },
+  FBAR: {
+    name: 'FinCEN 114 (FBAR)',
+    desc: 'Report of foreign bank and financial accounts',
+    url: 'https://www.fincen.gov/report-foreign-bank-and-financial-accounts-fbar',
+  },
+  F8949: {
+    name: 'Form 8949',
+    desc: 'Sales and other dispositions of capital assets',
+    url: 'https://www.irs.gov/forms-pubs/about-form-8949',
+  },
+  F4868: {
+    name: 'Form 4868',
+    desc: 'Individual tax return extension (to October 15)',
+    url: 'https://www.irs.gov/forms-pubs/about-form-4868',
+  },
+  F7004: {
+    name: 'Form 7004',
+    desc: 'Business / trust tax extension (to September 30 for 1041)',
+    url: 'https://www.irs.gov/forms-pubs/about-form-7004',
+  },
+} as const;
+
+type FormKey = keyof typeof FORMS;
+
+// ---------------------------------------------------------------
+
 type Severity = 'info' | 'warn' | 'urgent';
 
 interface Reminder {
@@ -47,6 +114,7 @@ interface Reminder {
   dueAt?: Date;
   daysUntil?: number;
   filingReference?: string;
+  forms?: FormKey[];
 }
 
 const sevColor = (s: Severity) =>
@@ -109,6 +177,7 @@ function buildReminders(vaults: Vault[], tips: Record<string, number>): Reminder
         dueAt: apr,
         daysUntil: aprDays,
         filingReference: 'Form 709',
+        forms: ['F709', 'F4868'],
       });
     }
     out.push({
@@ -125,6 +194,7 @@ function buildReminders(vaults: Vault[], tips: Record<string, number>): Reminder
       dueAt: apr,
       daysUntil: aprDays,
       filingReference: 'Form 1041',
+      forms: ['F1041', 'F1041K1', 'F7004'],
     });
     if (octDays <= 180 && octDays >= 0 && aprDays < 0) {
       out.push({
@@ -151,10 +221,12 @@ function buildReminders(vaults: Vault[], tips: Record<string, number>): Reminder
         'Distributions from a non-grantor trust are reportable income. The trustee ' +
         'issues a Schedule K-1. Include it on your Form 1040. Distributions from a ' +
         'grantor trust are NOT separately taxable to you -- the grantor pays on ' +
-        'their own return. Confirm trust type with the trustee or a CPA.',
+        'their own return. Confirm trust type with the trustee or a CPA. If you ' +
+        'later sell BTC you received, Form 8949 captures the capital gain.',
       dueAt: apr,
       daysUntil: aprDays,
       filingReference: 'Schedule K-1',
+      forms: ['F1041K1', 'F8949'],
     });
   }
 
@@ -213,7 +285,9 @@ function buildReminders(vaults: Vault[], tips: Record<string, number>): Reminder
             'The heir quorum can spend now. Coordinate with co-heirs. Before moving ' +
             'funds: confirm basis, confirm K-1 or 1041 filings, talk to a CPA. ' +
             'Also confirm whether a death declaration and probate process has ' +
-            'completed, depending on your trust wrapper.',
+            'completed, depending on your trust wrapper. Form 706 may have been ' +
+            'required on the grantor\'s side.',
+          forms: ['F706', 'F1041', 'F1041K1'],
         });
       }
     }
@@ -401,6 +475,8 @@ export default function Reminders() {
 
       <RoleGuidance roles={myRoles} />
 
+      <FormsReference />
+
       <FullReference />
     </div>
   );
@@ -477,6 +553,89 @@ function ReminderCard({ r }: { r: Reminder }) {
       )}
       <div style={{ fontSize: 13, color: colors.sub, lineHeight: 1.55 }}>
         {r.body}
+      </div>
+      {r.forms && r.forms.length > 0 && (
+        <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {r.forms.map(key => {
+            const f = FORMS[key];
+            return (
+              <a
+                key={key}
+                href={f.url}
+                target="_blank"
+                rel="noreferrer"
+                title={f.desc}
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  padding: '4px 10px',
+                  background: colors.input,
+                  border: `1px solid ${colors.border}`,
+                  borderRadius: 999,
+                  color: colors.gold,
+                  textDecoration: 'none',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {f.name} &raquo;
+              </a>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FormsReference() {
+  return (
+    <div>
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: '0.12em',
+          color: colors.gold,
+          textTransform: 'uppercase',
+          marginBottom: 12,
+        }}
+      >
+        IRS + FinCEN forms reference
+      </div>
+      <div
+        style={{
+          background: colors.surface,
+          border: `1px solid ${colors.border}`,
+          borderRadius: 12,
+          padding: '14px 18px',
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+          gap: 10,
+        }}
+      >
+        {(Object.keys(FORMS) as FormKey[]).map(k => {
+          const f = FORMS[k];
+          return (
+            <a
+              key={k}
+              href={f.url}
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                display: 'block',
+                padding: '8px 10px',
+                background: colors.input,
+                borderRadius: 8,
+                color: colors.text,
+                textDecoration: 'none',
+                border: `1px solid ${colors.border}`,
+              }}
+            >
+              <div style={{ fontSize: 12, fontWeight: 700, color: colors.gold }}>{f.name}</div>
+              <div style={{ fontSize: 11, color: colors.muted, marginTop: 2, lineHeight: 1.4 }}>{f.desc}</div>
+            </a>
+          );
+        })}
       </div>
     </div>
   );
