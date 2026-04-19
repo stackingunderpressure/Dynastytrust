@@ -203,8 +203,9 @@ the defensive details.
 
 5. **Regulatory framing.** The network as a whole starts to look
    like an unregistered money transmitter or virtual asset service
-   provider in FATF countries. Mitigations in `docs/legal-threat-
-   model.md`.
+   provider in FATF countries. Out of scope for this idea-plan
+   document; threat model and defensive posture live in chat with
+   the operator, not in the repo.
 
 6. **Identity reuse across jobs.** Does a trustee persona serve
    many vaults with the same pubkey (efficient, more reputation
