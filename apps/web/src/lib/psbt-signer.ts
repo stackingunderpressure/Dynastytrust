@@ -244,72 +244,81 @@ function tapscriptSighash(
   leafHash: Uint8Array,
   sighashType: number = 0x00
 ): Uint8Array {
+  // BIP 341 tapscript sighash. The inner sha_* components are
+  // PLAIN SHA256 (not tagged). Only the outer wrapping is tagged
+  // with "TapSighash". Missing sha_prevouts or using taggedHash
+  // for the inner pieces produces a sighash that rust-miniscript's
+  // finalizer rejects as "bad schnorr signature".
   const tx = psbt.tx;
   const input = psbt.inputs[inputIndex];
   if (!input.witnessUtxo) throw new Error("Input " + inputIndex + " missing witness_utxo");
 
-  // Collect all witness UTXOs
   const allUtxos = psbt.inputs.map(inp => {
     if (!inp.witnessUtxo) throw new Error("All inputs must have witness_utxo for tapscript signing");
     return inp.witnessUtxo;
   });
 
-  // Epoch
-  const epoch = new Uint8Array([0x00]);
+  // sha_prevouts: SHA256 of all input outpoints (36 bytes each).
+  // Required for any sighash type that is NOT SIGHASH_ANYONECANPAY.
+  const prevoutsData = concat(
+    ...tx.inputs.map(i => concat(i.txid, writeUint32LE(i.vout))),
+  );
+  const shaPrevouts = sha256(prevoutsData);
 
-  // Hash amounts
+  // sha_amounts: SHA256 of all spent amounts (8 bytes LE each).
   const amountsData = concat(...allUtxos.map(u => writeUint64LE(u.amount)));
-  const hashAmounts = taggedHash("TapSighash", amountsData);
+  const shaAmounts = sha256(amountsData);
 
-  // Hash scriptpubkeys
+  // sha_scriptpubkeys: SHA256 of all spent scriptPubKeys (varint len + bytes).
   const spkData = concat(...allUtxos.map(u => concat(varint(u.scriptPubkey.length), u.scriptPubkey)));
-  const hashScriptPubkeys = taggedHash("TapSighash", spkData);
+  const shaScriptpubkeys = sha256(spkData);
 
-  // Hash sequences
-  const seqData = concat(...tx.inputs.map(inp => writeUint32LE(inp.sequence)));
-  const hashSequences = taggedHash("TapSighash", seqData);
+  // sha_sequences: SHA256 of all input nSequence fields.
+  const seqData = concat(...tx.inputs.map(i => writeUint32LE(i.sequence)));
+  const shaSequences = sha256(seqData);
 
-  // Hash outputs
+  // sha_outputs: SHA256 of all outputs (amount + script serialized as CTxOut).
   const outData = concat(...tx.outputs.map(out => concat(writeUint64LE(out.amount), varint(out.scriptPubkey.length), out.scriptPubkey)));
-  const hashOutputs = taggedHash("TapSighash", outData);
+  const shaOutputs = sha256(outData);
 
-  // Input-specific outpoint
   const inp = tx.inputs[inputIndex];
-  const outpoint = concat(inp.txid, writeUint32LE(inp.vout));
-
-  // Spend type: script path = 0x02 (ext_flag=1, annex=0)
+  // spend_type: script path (ext_flag=1), no annex -> 0x02.
   const spendType = new Uint8Array([0x02]);
-
-  // Script path ext: input_index (4 bytes LE)
   const inputIndexBytes = writeUint32LE(inputIndex);
 
-  // Leaf-specific data
+  // Per BIP 341: tapleaf_hash (32) + key_version (1, 0x00) +
+  // codesep_pos (4, UINT_MAX when no OP_CODESEPARATOR in leaf).
   const leafData = concat(
-    new Uint8Array([0x00]), // key_version
     leafHash,
-    new Uint8Array([0xff, 0xff, 0xff, 0xff]) // codesep_pos: UINT_MAX
+    new Uint8Array([0x00]),                             // key_version
+    new Uint8Array([0xff, 0xff, 0xff, 0xff]),           // codesep_pos = UINT_MAX
   );
 
+  // sigMsg assembly for SIGHASH_DEFAULT (0x00):
+  //   hash_type . nVersion . nLockTime
+  //   sha_prevouts . sha_amounts . sha_scriptpubkeys . sha_sequences
+  //   sha_outputs
+  //   spend_type
+  //   input_index                     (anyonecanpay NOT set)
+  //   tapleaf_hash . key_version . codesep_pos   (ext for script path)
   const sigMsg = concat(
-    epoch,
     new Uint8Array([sighashType]),
     writeUint32LE(tx.version),
     writeUint32LE(tx.locktime),
-    hashAmounts,
-    hashScriptPubkeys,
-    hashSequences,
-    hashOutputs,
+    shaPrevouts,
+    shaAmounts,
+    shaScriptpubkeys,
+    shaSequences,
+    shaOutputs,
     spendType,
-    outpoint,
-    writeUint64LE(allUtxos[inputIndex].amount),
-    varint(allUtxos[inputIndex].scriptPubkey.length),
-    allUtxos[inputIndex].scriptPubkey,
-    writeUint32LE(inp.sequence),
     inputIndexBytes,
-    leafData
+    leafData,
   );
 
-  return taggedHash("TapSighash", sigMsg);
+  // Outer TapSighash tag per BIP 341: hash( tag_hash || tag_hash || 0x00 || sigMsg ).
+  // Our taggedHash helper already computes tag_hash || tag_hash || msg, and we
+  // prepend the epoch byte 0x00 via the first varg.
+  return taggedHash("TapSighash", new Uint8Array([0x00]), sigMsg);
 }
 
 // ── PSBT serializer ───────────────────────────────────────────────────────────
