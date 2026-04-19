@@ -2421,6 +2421,74 @@ function ActionGuide({
   );
 }
 
+// Per-role plain-English context that pairs with the global
+// VaultPhaseCard. Tells each member what THEIR role can do at the
+// current phase + what to expect, so beneficiaries don't pester
+// trustees for spends that aren't allowed and protectors know
+// exactly when their power activates.
+function rolePhaseHint(
+  vault: Vault,
+  tip: number | null,
+): { lines: string[]; cta?: string } {
+  const role = (vault as Vault & { my_role?: string }).my_role;
+  const t = tip ?? 0;
+  const recoveryOpen = vault.recovery_after > 0 && t >= vault.recovery_after;
+  const protectorOpen = (vault.protector_after ?? 0) > 0 && t >= (vault.protector_after ?? 0);
+  const inheritanceOpen = vault.inheritance_after > 0 && t >= vault.inheritance_after;
+
+  const lines: string[] = [];
+  let cta: string | undefined;
+
+  if (role === "owner" || role === "founder") {
+    lines.push(
+      `You can co-sign normal spends today (${vault.founder_quorum} of ${vault.founder_keys.length} required).`,
+    );
+    if (vault.consent_quorum) {
+      lines.push("Reminder: every Path 1 spend also needs beneficiary consent.");
+    }
+    if (!recoveryOpen && vault.recovery_after > 0 && tip != null) {
+      lines.push(
+        `If trustees go silent ${blocksToLabel(vault.recovery_after - t)}, the recovery path opens.`,
+      );
+    } else if (recoveryOpen && vault.recovery_quorum != null && vault.recovery_quorum < vault.founder_quorum) {
+      lines.push(`Recovery is OPEN: ${vault.recovery_quorum} of ${vault.founder_keys.length} can sign.`);
+    }
+  } else if (role === "heir") {
+    if (inheritanceOpen) {
+      lines.push(
+        `Inheritance is OPEN. ${vault.heir_quorum} of ${vault.heir_keys.length} successors can spend without the trustees.`,
+      );
+      cta = "Coordinate with the other successors to sweep funds to a fresh vault you control.";
+    } else if (tip != null) {
+      const blocksLeft = vault.inheritance_after - t;
+      lines.push(`Your inheritance path unlocks in ${blocksToLabel(blocksLeft)} (block ${vault.inheritance_after.toLocaleString()}).`);
+      lines.push("Until then, only the trustees can spend. Keep your seed backed up.");
+    }
+  } else if (role === "protector") {
+    if (protectorOpen) {
+      lines.push("Your protector path is OPEN. Sweep funds to a fresh vault if trustees have gone rogue.");
+      cta = "Build a replacement vault first, then sweep.";
+    } else if ((vault.protector_after ?? 0) > 0 && tip != null) {
+      const blocksLeft = (vault.protector_after ?? 0) - t;
+      lines.push(`Your rescue path unlocks in ${blocksToLabel(blocksLeft)} (block ${(vault.protector_after ?? 0).toLocaleString()}).`);
+      lines.push("Watch the activity log. Step in only if trustees act in bad faith.");
+    }
+  } else if (role === "beneficiary") {
+    if (vault.consent_quorum) {
+      lines.push("Trustees CANNOT spend on the normal path without your signature.");
+      lines.push("If a proposal looks wrong, refuse to sign -- the timelocked recovery path won't help them for months.");
+    } else {
+      lines.push("Trustees handle distributions on your behalf.");
+      lines.push("File a distribution request when you need funds; trustees review against the trust doc.");
+      cta = "File a request from the Requests tab.";
+    }
+  } else if (role === "viewer") {
+    lines.push("You have read-only visibility. No signing authority.");
+  }
+
+  return { lines, cta };
+}
+
 // // -- VaultPhaseCard
 // Plain-English summary of what's spendable RIGHT NOW on the
 // vault. Complements TimelockCountdown (which shows per-path
@@ -2508,6 +2576,7 @@ function VaultPhaseCard({ vault }: { vault: Vault }) {
   }, [vault.network]);
 
   const phase = computePhase(vault, tip);
+  const roleHint = rolePhaseHint(vault, tip);
 
   return (
     <div
@@ -2552,6 +2621,38 @@ function VaultPhaseCard({ vault }: { vault: Vault }) {
         <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: colors.sub, lineHeight: 1.7 }}>
           {phase.paths.map((p, i) => <li key={i}>{p}</li>)}
         </ul>
+      )}
+      {roleHint.lines.length > 0 && (
+        <div
+          style={{
+            marginTop: 12,
+            paddingTop: 10,
+            borderTop: `1px solid ${colors.border}`,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: "0.1em",
+              color: colors.muted,
+              textTransform: "uppercase",
+              marginBottom: 4,
+            }}
+          >
+            Your role
+          </div>
+          {roleHint.lines.map((l, i) => (
+            <div key={i} style={{ fontSize: 12, color: colors.sub, lineHeight: 1.5 }}>
+              {l}
+            </div>
+          ))}
+          {roleHint.cta && (
+            <div style={{ fontSize: 12, color: phase.accent, marginTop: 6, fontWeight: 600 }}>
+              {roleHint.cta}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
