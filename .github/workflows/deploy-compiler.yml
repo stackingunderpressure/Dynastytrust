@@ -41,6 +41,6 @@ jobs:
           fi
           echo "Token length: ${#FLY_API_TOKEN}"
           echo "Token prefix: ${FLY_API_TOKEN:0:6}..."
-      - run: flyctl deploy --config compiler/fly.toml --remote-only
+      - run: flyctl deploy --remote-only
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
