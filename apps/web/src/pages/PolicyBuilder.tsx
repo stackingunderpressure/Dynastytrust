@@ -230,7 +230,11 @@ function validate(
   const warnings: string[] = [];
   if (!fk.length) errors.push('At least one signing key is required.');
   if (fq < 1) errors.push('Signing quorum must be >= 1.');
-  if (fq > fk.length) errors.push(`Signing quorum (${fq}) exceeds key count (${fk.length}).`);
+  // Only surface "quorum exceeds count" once the user has at least
+  // one key. While the picker is empty, the "at least one key"
+  // error covers it and the duplicate "quorum > count" is noise.
+  if (fk.length > 0 && fq > fk.length)
+    errors.push(`Signing quorum (${fq}) exceeds key count (${fk.length}).`);
 
   if (mode === 'inheritance') {
     if (!hk.length) warnings.push('No heir keys -- inheritance path will not be compiled.');
@@ -608,13 +612,15 @@ export default function PolicyBuilder() {
     if (role === 'founder') {
       setFK(prev => {
         const n = [...prev, sk];
-        setFQ(q => Math.min(q, n.length));
+        // Grow the quorum toward the template's plannedFounders
+        // target as slots fill; never exceed current key count.
+        setFQ(q => Math.min(Math.max(q, plannedFounders), n.length));
         return n;
       });
     } else if (role === 'heir') {
       setHK(prev => {
         const n = [...prev, sk];
-        setHQ(q => Math.min(q, n.length));
+        setHQ(q => Math.min(Math.max(q, plannedHeirs), n.length));
         return n;
       });
     } else if (role === 'protector') {
