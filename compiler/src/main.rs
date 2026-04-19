@@ -56,6 +56,7 @@ fn check_auth(headers: &HeaderMap, state: &AppState) -> Result<(), ApiError> {
 fn parse_network(s: &str) -> Result<Network> {
     match s.to_lowercase().as_str() {
         "testnet"           => Ok(Network::Testnet),
+        "signet"            => Ok(Network::Signet),
         "bitcoin"|"mainnet" => Ok(Network::Bitcoin),
         other => Err(anyhow!("unknown network: {other}")),
     }

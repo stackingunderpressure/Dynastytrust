@@ -59,8 +59,8 @@ export async function handler(event) {
     }
 
     const network = body.network || "testnet";
-    if (!["testnet", "bitcoin"].includes(network)) {
-      return json(400, { error: "Invalid network. Use 'testnet' or 'bitcoin'" });
+    if (!["testnet", "signet", "bitcoin"].includes(network)) {
+      return json(400, { error: "Invalid network. Use 'testnet', 'signet', or 'bitcoin'" });
     }
 
     const address_type = body.address_type || "tr_multileaf";

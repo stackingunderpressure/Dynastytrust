@@ -211,6 +211,7 @@ function QuickModal({ onDone, onClose }: { onClose: () => void; onDone: (key: Lo
           <Label>Network</Label>
           <select style={selectStyle} value={network} onChange={e => setNetwork(e.target.value as Network)}>
             <option value="testnet">Testnet</option>
+            <option value="signet">Signet</option>
             <option value="mainnet">Mainnet</option>
           </select>
         </div>
@@ -296,6 +297,7 @@ function SecureModal({ onDone, onClose }: { onClose: () => void; onDone: (key: L
           <Label>Network</Label>
           <select style={selectStyle} value={network} onChange={e => setNetwork(e.target.value as Network)}>
             <option value="testnet">Testnet</option>
+            <option value="signet">Signet</option>
             <option value="mainnet">Mainnet</option>
           </select>
         </div>
@@ -596,6 +598,7 @@ function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => v
           <Label>Network</Label>
           <select style={selectStyle} value={network} onChange={e => handleNetwork(e.target.value as Network)}>
             <option value="testnet">Testnet</option>
+            <option value="signet">Signet</option>
             <option value="mainnet">Mainnet</option>
           </select>
         </div>

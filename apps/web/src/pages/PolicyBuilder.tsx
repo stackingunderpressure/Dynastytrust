@@ -740,7 +740,7 @@ export default function PolicyBuilder() {
       const hasConsent = consentKeys.length > 0;
       const res = await api.compile({
         name,
-        network: network as 'testnet' | 'bitcoin',
+        network: network as 'testnet' | 'signet' | 'bitcoin',
         address_type: addrType,
         founder_keys: founderKeys.map(toPubkeyHex),
         founder_quorum: founderQ,
@@ -790,7 +790,7 @@ export default function PolicyBuilder() {
       const effectiveFounderQ = Math.min(founderQ, plannedFounders);
       const res = await api.vaults.createDraft({
         name,
-        network: draftNet as 'testnet' | 'bitcoin',
+        network: draftNet as 'testnet' | 'signet' | 'bitcoin',
         address_type: addrType,
         planned_founder_count: plannedFounders,
         planned_heir_count: effectivePlannedHeirs,
@@ -842,7 +842,7 @@ export default function PolicyBuilder() {
       const plain = mode === 'plain';
       const res = await api.vaults.create({
         name,
-        network: compiled.network as 'testnet' | 'bitcoin',
+        network: compiled.network as 'testnet' | 'signet' | 'bitcoin',
         address: compiled.address,
         descriptor: compiled.descriptor,
         miniscript_policy: compiled.miniscript_policy,

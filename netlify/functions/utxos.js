@@ -12,6 +12,7 @@ import { getSupabaseAdmin } from "./_supabase.js";
 
 const MEMPOOL = {
   testnet: "https://mempool.space/testnet/api",
+  signet:  "https://mempool.space/signet/api",
   bitcoin: "https://mempool.space/api",
 };
 
