@@ -446,6 +446,26 @@ function OverviewTab({
     vault.recovery_after === 0 &&
     vault.inheritance_after === 0;
 
+  // Timelocks are stored as ABSOLUTE CLTV block heights (what the
+  // Taproot leaf's `after(N)` bakes in). For display we subtract
+  // the current chain tip so labels show "unlocks in 6 years"
+  // instead of "after 615,360 blocks" (which is absolute and
+  // renders as ~11.7 years from genesis).
+  const [chainTip, setChainTip] = useState<number | null>(null);
+  useEffect(() => {
+    if (plain) return;
+    let cancelled = false;
+    tipHeight(vault.network)
+      .then(h => !cancelled && setChainTip(h))
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [plain, vault.network]);
+  const blocksFromNow = (abs: number | null | undefined) => {
+    if (!abs || abs <= 0) return 0;
+    if (chainTip == null) return abs; // fall back while tip is loading
+    return Math.max(0, abs - chainTip);
+  };
+
   const paths = plain
     ? [
         {
@@ -465,17 +485,17 @@ function OverviewTab({
         {
           num: 2,
           color: colors.blue,
-          title: "Recovery - " + blocksToLabel(vault.recovery_after),
+          title: "Recovery - " + blocksToLabel(blocksFromNow(vault.recovery_after)),
           body:
             vault.recovery_quorum != null && vault.recovery_quorum !== vault.founder_quorum
-              ? `${vault.recovery_quorum} of ${vault.founder_keys.length} trustee signatures after ${vault.recovery_after.toLocaleString()} blocks. Insurance against a lost device: quorum drops below the normal ${vault.founder_quorum}-of-${vault.founder_keys.length} so trustees can still spend if one key is gone.`
-              : `Trustees can recover after ${vault.recovery_after.toLocaleString()} blocks. Note: the recovery quorum matches the normal quorum, so this path grants no extra capability.`,
+              ? `${vault.recovery_quorum} of ${vault.founder_keys.length} trustee signatures after ${blocksFromNow(vault.recovery_after).toLocaleString()} blocks. Insurance against a lost device: quorum drops below the normal ${vault.founder_quorum}-of-${vault.founder_keys.length} so trustees can still spend if one key is gone.`
+              : `Trustees can recover after ${blocksFromNow(vault.recovery_after).toLocaleString()} blocks. Note: the recovery quorum matches the normal quorum, so this path grants no extra capability.`,
         },
         {
           num: 3,
           color: colors.green,
-          title: "Inheritance - " + blocksToLabel(vault.inheritance_after),
-          body: `${vault.heir_quorum} of ${vault.heir_keys.length} successor signatures after ${vault.inheritance_after.toLocaleString()} blocks. Triggered only if the trustees are unreachable for the full window.`,
+          title: "Inheritance - " + blocksToLabel(blocksFromNow(vault.inheritance_after)),
+          body: `${vault.heir_quorum} of ${vault.heir_keys.length} successor signatures after ${blocksFromNow(vault.inheritance_after).toLocaleString()} blocks. Triggered only if the trustees are unreachable for the full window.`,
         },
         ...(vault.protector_keys.length > 0 &&
         vault.protector_quorum != null &&
@@ -484,8 +504,8 @@ function OverviewTab({
               {
                 num: 4,
                 color: colors.blue,
-                title: "Protector - " + blocksToLabel(vault.protector_after),
-                body: `${vault.protector_quorum} of ${vault.protector_keys.length} protector signatures after ${vault.protector_after.toLocaleString()} blocks. An independent watchdog who can rescue funds if trustees go rogue before inheritance triggers.`,
+                title: "Protector - " + blocksToLabel(blocksFromNow(vault.protector_after)),
+                body: `${vault.protector_quorum} of ${vault.protector_keys.length} protector signatures after ${blocksFromNow(vault.protector_after).toLocaleString()} blocks. An independent watchdog who can rescue funds if trustees go rogue before inheritance triggers.`,
               },
             ]
           : []),
@@ -550,8 +570,8 @@ function OverviewTab({
           ["Address type", vault.address_type.toUpperCase()],
           ["Trustee quorum", `${vault.founder_quorum} of ${vault.founder_keys.length}`],
           ["Successor quorum", `${vault.heir_quorum} of ${vault.heir_keys.length}`],
-          ["Recovery", `${vault.recovery_after.toLocaleString()} blocks`],
-          ["Inheritance", `${vault.inheritance_after.toLocaleString()} blocks`],
+          ["Recovery", `unlocks at block ${vault.recovery_after.toLocaleString()} (${blocksToLabel(blocksFromNow(vault.recovery_after))})`],
+          ["Inheritance", `unlocks at block ${vault.inheritance_after.toLocaleString()} (${blocksToLabel(blocksFromNow(vault.inheritance_after))})`],
         ].map(([k, v]) => (
           <div
             key={k}
@@ -2421,9 +2441,13 @@ function TimelockCountdown({ vault }: { vault: Vault }) {
     };
   }, [vault.network]);
 
+  // vault.recovery_after / inheritance_after are ABSOLUTE CLTV
+  // block heights (baked into the Taproot leaf's `after(N)`).
+  // Subtract the current tip to get the relative blocks-until-
+  // unlock for display.
   const rows = [
-    { label: "Recovery", blocks: vault.recovery_after, color: colors.blue },
-    { label: "Inheritance", blocks: vault.inheritance_after, color: colors.green },
+    { label: "Recovery", absHeight: vault.recovery_after, color: colors.blue },
+    { label: "Inheritance", absHeight: vault.inheritance_after, color: colors.green },
   ];
 
   return (
@@ -2448,8 +2472,11 @@ function TimelockCountdown({ vault }: { vault: Vault }) {
         Timelocks
       </div>
       {rows.map(r => {
-        const unlocksAt = approxWallclockDate(r.blocks);
-        const unlocksLabel = blocksToApproxLabel(r.blocks);
+        const blocksLeft = tip != null ? Math.max(0, r.absHeight - tip) : r.absHeight;
+        const unlocksAt = approxWallclockDate(blocksLeft);
+        const unlocksLabel = blocksLeft === 0 && tip != null
+          ? "Unlocked"
+          : blocksToApproxLabel(blocksLeft);
         return (
           <div
             key={r.label}
@@ -2465,8 +2492,8 @@ function TimelockCountdown({ vault }: { vault: Vault }) {
               <div style={{ fontSize: 13, color: colors.text }}>{r.label}</div>
               <div style={{ fontSize: 11, color: colors.muted }}>
                 {tip != null
-                  ? `Tip ${tip.toLocaleString()} / locked for ${r.blocks.toLocaleString()} blocks`
-                  : `${r.blocks.toLocaleString()} blocks`}
+                  ? `tip ${tip.toLocaleString()} / unlocks at block ${r.absHeight.toLocaleString()}`
+                  : `unlocks at block ${r.absHeight.toLocaleString()}`}
               </div>
             </div>
             <div style={{ textAlign: "right" }}>
@@ -2474,7 +2501,7 @@ function TimelockCountdown({ vault }: { vault: Vault }) {
                 {unlocksLabel}
               </div>
               <div style={{ fontSize: 11, color: colors.muted }}>
-                {unlocksAt.toLocaleDateString()}
+                {blocksLeft > 0 ? unlocksAt.toLocaleDateString() : ""}
               </div>
             </div>
           </div>
