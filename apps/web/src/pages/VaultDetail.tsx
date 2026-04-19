@@ -196,6 +196,22 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
     finally { setArchiving(false); }
   }
 
+  async function deleteVault() {
+    const expected = vault.name;
+    const typed = prompt(
+      `Permanently delete "${expected}"? This cannot be undone.\n\n` +
+      `Any funds still at the vault address stay spendable via the descriptor backup (downloaded from the overview tab) but the vault will no longer appear in this app. Type the vault name to confirm.`,
+    );
+    if (typed !== expected) {
+      if (typed !== null) toast.error("Name did not match. Delete cancelled.");
+      return;
+    }
+    setArchiving(true);
+    try { await api.vaults.remove(vault.id); onBack(); }
+    catch (e) { toast.error(e instanceof Error ? e.message : "Failed to delete vault"); }
+    finally { setArchiving(false); }
+  }
+
   const pendingCount = proposals.filter(
     p => p.status !== "broadcast" && p.status !== "cancelled"
   ).length;
@@ -227,15 +243,26 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
         >
           {APP_NAME}
         </span>
-        <Button
-          variant="danger"
-          size="sm"
-          disabled={archiving}
-          style={{ fontSize: 12 }}
-          onClick={archive}
-        >
-          Archive
-        </Button>
+        <div style={{ display: "flex", gap: 6 }}>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={archiving}
+            style={{ fontSize: 12 }}
+            onClick={archive}
+          >
+            Archive
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
+            disabled={archiving}
+            style={{ fontSize: 12 }}
+            onClick={deleteVault}
+          >
+            Delete
+          </Button>
+        </div>
       </header>
 
       <main className="dt-page-main dt-page-main--narrow">

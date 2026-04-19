@@ -328,6 +328,9 @@ export const api = {
         body: JSON.stringify({ archived: true }),
       }),
 
+    remove: (id: string) =>
+      req<{ ok: true }>(`/vaults?id=${id}`, { method: 'DELETE' }),
+
     rename: (id: string, name: string) =>
       req<{ ok: true; vault: Vault }>(`/vaults?id=${id}`, {
         method: 'PATCH',
