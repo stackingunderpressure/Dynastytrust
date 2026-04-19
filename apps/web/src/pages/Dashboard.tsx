@@ -90,6 +90,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [showTrustCode, setShowTrustCode] = useState(false);
   const [search, setSearch] = useState("");
   const [renaming, setRenaming] = useState<Vault | null>(null);
 
@@ -147,6 +148,13 @@ export default function Dashboard() {
           onChange={e => setSearch(e.target.value)}
           style={{ flex: 1, minWidth: 180, padding: "8px 12px" }}
         />
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setShowTrustCode(true)}
+        >
+          Join with trust code
+        </Button>
         <Button size="sm" onClick={() => setShowCreate(true)}>
           + Add vault
         </Button>
@@ -295,6 +303,9 @@ export default function Dashboard() {
             openVault(v);
           }}
         />
+      )}
+      {showTrustCode && (
+        <TrustCodeModal onClose={() => setShowTrustCode(false)} />
       )}
       {renaming && (
         <RenameModal
@@ -507,6 +518,52 @@ function CreateVaultModal({
           <Button type="submit" disabled={busy}>
             {busy ? "Creating..." : "Create vault"}
           </Button>
+        </div>
+      </form>
+    </ModalShell>
+  );
+}
+
+// Trust code = the invite token. Useful when a member already has
+// a DynastyTrust account and prefers pasting a code to clicking a
+// one-time URL (works on a signer device that's already signed in,
+// and sidesteps the "I never made an account" drift that happens
+// when the invite URL is clicked in a fresh browser).
+function TrustCodeModal({ onClose }: { onClose: () => void }) {
+  const [code, setCode] = useState("");
+  const navigate = useNavigate();
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = code.trim();
+    if (!trimmed) return;
+    // The invite token is a UUID; the claim page takes ?token=...
+    navigate(`/invite?token=${encodeURIComponent(trimmed)}`);
+    onClose();
+  }
+
+  return (
+    <ModalShell onClose={onClose} maxWidth={460}>
+      <div style={{ fontSize: 18, fontWeight: 600, color: colors.text, marginBottom: 6, fontFamily: fonts.display }}>
+        Join a vault with a trust code
+      </div>
+      <div style={{ fontSize: 13, color: colors.muted, marginBottom: 14, lineHeight: 1.5 }}>
+        Paste the invite code a trustee sent you. You must already be signed in -- the code associates this account with your slot in the vault.
+      </div>
+      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div>
+          <Label>Trust code</Label>
+          <Input
+            mono
+            value={code}
+            onChange={e => setCode(e.target.value)}
+            placeholder="a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+            autoFocus
+          />
+        </div>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <Button variant="ghost" type="button" onClick={onClose}>Cancel</Button>
+          <Button type="submit" disabled={!code.trim()}>Continue</Button>
         </div>
       </form>
     </ModalShell>

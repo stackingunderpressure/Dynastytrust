@@ -790,27 +790,27 @@ function SendTab({ vault, balance, onDone, prefill }: {
       });
 
       // 3. Find local software keys
-      // Keys are matched against vault by pubkey during actual signing
-      // The vault.founder_keys stores the xpubs used at compile time
-      // We derive pubkey from each xpub and check against local key fingerprints
+      // Only local keys whose /0/0 pubkey actually appears in this
+      // vault's founder leaf should be offered as signers. Anything
+      // else just adds confusion -- if it's in the keyring but not
+      // a founder of THIS vault, it can't help. Derive each vault
+      // xpub to pubkey hex and intersect with the local keystore.
       const allLocalKeys = listKeys().filter(k => k.status === "active" && k.origin === "software");
-      
-      // Extract fingerprints from vault founder xpubs for matching
-      const vaultFingerprints = new Set<string>();
-      vault.founder_keys.forEach(xpub => {
-        if (xpub.length === 66) {
-          // It's a hex pubkey - take first 8 chars as fingerprint
-          vaultFingerprints.add(xpub.slice(0, 8));
+      const vaultSignerPubkeys = new Set<string>();
+      for (const x of vault.founder_keys) {
+        if (typeof x !== 'string') continue;
+        if (x.length === 66) {
+          // Legacy rows stored pubkey hex directly.
+          vaultSignerPubkeys.add(x);
+          continue;
         }
-      });
-      
-      // Show keys that match vault fingerprints, or all keys if we can't determine
-      const matchedKeys = vaultFingerprints.size > 0
-        ? allLocalKeys.filter(k => vaultFingerprints.has(k.fingerprint))
-        : allLocalKeys;
-      
-      // If no local keys match, show all with a warning in the UI
-      const signingKeys = matchedKeys.length > 0 ? matchedKeys : allLocalKeys;
+        try {
+          vaultSignerPubkeys.add(pubkeyFromXpub(x));
+        } catch {
+          /* skip malformed rows */
+        }
+      }
+      const signingKeys = allLocalKeys.filter(k => vaultSignerPubkeys.has(k.pubkey));
 
       setSigning({
         psbt_hex: psbtRes.psbt_hex,
