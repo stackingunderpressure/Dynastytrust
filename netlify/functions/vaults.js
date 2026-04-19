@@ -115,6 +115,17 @@ export async function handler(event) {
       if (!descriptor) return json(400, { error: "Missing: descriptor" });
       if (!miniscript_policy) return json(400, { error: "Missing: miniscript_policy" });
 
+      // The vault address was already compiled by /api/compile,
+      // which converted any relative block offsets into absolute
+      // CLTV heights (tip + offset) and returned them in the
+      // response. The client MUST pass those absolute values back
+      // here so the DB matches what the Taproot tree actually
+      // bakes in. Passing a relative offset here (or fetching a
+      // fresh tip and re-converting) would give a value that
+      // differs from what the address was compiled against, and
+      // /api/psbt-binary's tree rebuild would produce a different
+      // merkle root -- "Control block verification failed at
+      // index 0" on finalize.
       insertRow = {
         user_id: u.userId,
         name: body.name || "Vault",
@@ -126,8 +137,8 @@ export async function handler(event) {
         founder_quorum: body.founder_quorum ?? 2,
         heir_quorum: body.heir_quorum ?? 2,
         recovery_quorum: body.recovery_quorum ?? null,
-        recovery_after: body.recovery_after ?? 26000,
-        inheritance_after: body.inheritance_after ?? 52560,
+        recovery_after: body.recovery_after ?? 0,
+        inheritance_after: body.inheritance_after ?? 0,
         protector_keys: body.protector_keys ?? [],
         protector_quorum: body.protector_quorum ?? null,
         protector_after: body.protector_after ?? null,
