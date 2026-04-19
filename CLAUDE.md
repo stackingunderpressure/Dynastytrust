@@ -104,6 +104,33 @@ Monorepo root
 
 ## Architecture rules -- never break these
 
+### Timelocks are absolute CLTV (`after(N)`), not relative CSV
+
+Miniscript's `after(N)` compiles to `OP_CHECKLOCKTIMEVERIFY` —
+**absolute** block height. `older(N)` is CSV (relative to UTXO
+age) but BIP 68 caps CSV at 65,535 blocks (~15 months), which
+can't express 2-5 year inheritance windows. DynastyTrust uses
+`after()` for every timelock leaf, matching Liana.
+
+**Crucial:** callers pass relative offsets ("6 months = 26,280
+blocks"). The Netlify `compile.js` / `vaults-compile.js` fetch
+the current chain tip from mempool.space and forward **`tip +
+offset`** to the Fly compiler. The leaf then bakes in a specific
+absolute block height. Without the tip addition, the leaf's
+`after(26280)` compiles to `OP_CLTV` at height 26,280 (long past
+on any live network) → every timelock path unlocks at funding.
+
+`vaults.recovery_after / inheritance_after / protector_after`
+store the resulting **absolute block height**. The UI subtracts
+current tip to show "unlocks in Y months".
+
+Spending the timelocked path requires `tx.lock_time = N`;
+psbt-binary accepts a `path` field ("founders_now" | "recovery"
+| "inheritance" | "protector") and sets lock_time accordingly.
+
+Tranche (T-vesting) wallets are absolute by design — `unlock_block`
+is set directly from the ceremony UI.
+
 ### Address type: always `tr_multileaf`
 
 Default address type is `tr_multileaf`. Never use `tr` (single-leaf) as the

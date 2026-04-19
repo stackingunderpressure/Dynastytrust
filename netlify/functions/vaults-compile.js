@@ -25,6 +25,7 @@
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 import { pubkeyFromXpub } from "./_xpub.js";
+import { fetchTipHeight, relativeToAbsolute } from "./_chain.js";
 
 const COMPILER_URL = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -112,11 +113,30 @@ export async function handler(event) {
     });
   }
 
-  // Forward to the Fly.io compiler.
+  // Forward to the Fly.io compiler. Convert draft-time relative
+  // block offsets into absolute CLTV heights (tip + offset) before
+  // the leaf is compiled; otherwise `after(N)` ends up at a tiny
+  // absolute height that is long past on every live network and
+  // the timelock path unlocks immediately.
   const hasProtector =
     protectors.length > 0 &&
     vault.protector_quorum != null &&
     vault.protector_after != null;
+  let tipHeight = 0;
+  if (vault.recovery_after || vault.inheritance_after ||
+      (hasProtector && vault.protector_after)) {
+    try {
+      tipHeight = await fetchTipHeight(vault.network);
+    } catch (e) {
+      return json(502, {
+        error: `Could not fetch chain tip for ${vault.network}: ${e.message}`,
+      });
+    }
+  }
+  const absRecoveryAfter    = relativeToAbsolute(vault.recovery_after,    tipHeight);
+  const absInheritanceAfter = relativeToAbsolute(vault.inheritance_after, tipHeight);
+  const absProtectorAfter   = relativeToAbsolute(vault.protector_after,   tipHeight);
+
   const compilePayload = {
     name: vault.name,
     network: vault.network,
@@ -126,13 +146,13 @@ export async function handler(event) {
     recovery_quorum: vault.recovery_quorum,
     heir_keys: heirs.map(m => pubkeyFromXpub(m.xpub)),
     heir_quorum: vault.heir_quorum,
-    recovery_after: vault.recovery_after,
-    inheritance_after: vault.inheritance_after,
+    recovery_after: absRecoveryAfter,
+    inheritance_after: absInheritanceAfter,
     ...(hasProtector
       ? {
           protector_keys: protectors.map(m => pubkeyFromXpub(m.xpub)),
           protector_quorum: vault.protector_quorum,
-          protector_after: vault.protector_after,
+          protector_after: absProtectorAfter,
         }
       : {}),
     ...(vault.consent_quorum != null && consenters.length >= (vault.consent_quorum ?? 0)
@@ -190,6 +210,11 @@ export async function handler(event) {
       protector_keys: protectors.map(m => m.xpub),
       consent_keys:
         vault.consent_quorum != null ? consenters.map(m => m.xpub) : [],
+      // Overwrite the draft's relative offsets with the absolute
+      // CLTV heights that got baked into the compiled leaves.
+      recovery_after: absRecoveryAfter,
+      inheritance_after: absInheritanceAfter,
+      protector_after: hasProtector ? absProtectorAfter : vault.protector_after,
       status: "compiled",
     })
     .eq("id", vaultId)

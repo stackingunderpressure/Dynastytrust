@@ -201,6 +201,11 @@ export async function handler(event) {
         heir_quorum:       vault.heir_quorum,
         recovery_after:    vault.recovery_after,
         inheritance_after: vault.inheritance_after,
+        // Fly compiler needs the intended leaf so it can set
+        // tx.lock_time for CLTV-gated paths. Everything except
+        // founders_now requires an absolute nLockTime that matches
+        // the leaf's after(N).
+        path,
         ...(consentPubkeys.length > 0 && vault.consent_quorum != null
           ? { consent_keys: consentPubkeys, consent_quorum: vault.consent_quorum }
           : {}),
