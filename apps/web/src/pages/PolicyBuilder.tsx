@@ -1071,6 +1071,17 @@ export default function PolicyBuilder() {
   const [recovery, setRecovery] = useState(26_280);
   const [inherit, setInherit] = useState(52_560);
   const [compiled, setCompiled] = useState<CompiledVault | null>(null);
+  // Absolute CLTV heights returned by the Netlify compile function.
+  // These are the exact values baked into the Taproot tree's
+  // `after(N)` leaves; save() MUST store these against the vault
+  // row so the address and the DB agree -- otherwise psbt-binary's
+  // tree rebuild produces a different merkle root and finalize
+  // fails with "Control block verification failed at index 0".
+  const [absoluteTimelocks, setAbsoluteTimelocks] = useState<{
+    recovery_after: number;
+    inheritance_after: number;
+    protector_after: number;
+  } | null>(null);
   const [compiling, setCompiling] = useState(false);
   const [compileErr, setCompErr] = useState<string | null>(null);
   const [slowHint, setSlowHint] = useState(false);
@@ -1291,6 +1302,18 @@ export default function PolicyBuilder() {
           : [...founderKeys, ...heirKeys, ...protectorKeys, ...consentKeys],
       );
       setCompiled({ ...raw, descriptor: upgradeDescriptor(raw.descriptor, origins) });
+      // Remember the exact absolute CLTV heights the compiler
+      // baked into the tree so save() can store matching values
+      // in the DB.
+      if (res.absolute_timelocks) {
+        setAbsoluteTimelocks({
+          recovery_after: res.absolute_timelocks.recovery_after,
+          inheritance_after: res.absolute_timelocks.inheritance_after,
+          protector_after: res.absolute_timelocks.protector_after,
+        });
+      } else {
+        setAbsoluteTimelocks(null);
+      }
     } catch (e) {
       setCompErr(e instanceof Error ? e.message : 'Compilation failed');
     } finally {
@@ -1382,15 +1405,23 @@ export default function PolicyBuilder() {
         founder_quorum: founderQ,
         heir_quorum: plain ? 1 : heirQ,
         recovery_quorum: plain ? null : recoveryQ,
-        recovery_after: plain ? 0 : recovery,
-        inheritance_after: plain ? 0 : inherit,
+        // CRITICAL: store the absolute CLTV heights that the
+        // compiler baked into the address, not the relative
+        // offsets the user picked. If the server returned them
+        // (it does, via absolute_timelocks), use those; for
+        // backward compatibility with old servers, fall back to
+        // the relative offset (which would trip the "Control
+        // block verification failed" issue -- but the server is
+        // current in all live deployments).
+        recovery_after: plain ? 0 : (absoluteTimelocks?.recovery_after ?? recovery),
+        inheritance_after: plain ? 0 : (absoluteTimelocks?.inheritance_after ?? inherit),
         founder_keys: founderKeys.map(k => k.xpub),
         heir_keys: plain ? [] : heirKeys.map(k => k.xpub),
         ...(protectorKeys.length > 0 && !plain
           ? {
               protector_keys: protectorKeys.map(k => k.xpub),
               protector_quorum: protectorQ,
-              protector_after: protectorAfter,
+              protector_after: absoluteTimelocks?.protector_after ?? protectorAfter,
             }
           : {}),
         ...(consentKeys.length > 0

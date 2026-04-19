@@ -230,7 +230,15 @@ export async function handler(event) {
         metadata:   { address_type: compiled.address_type, network: compiled.network, via: "browser" },
       });
 
-      return json(201, { ok: true, compiled, saved: true, vault });
+      return json(201, {
+        ok: true, compiled, saved: true, vault,
+        absolute_timelocks: {
+          recovery_after: absRecoveryAfter,
+          inheritance_after: absInheritanceAfter,
+          protector_after: absProtectorAfter,
+          tip_height: tipHeight,
+        },
+      });
     } catch (err) {
       console.error("Save error:", err);
       return json(200, { ok: true, compiled, saved: false, save_error: err.message });
@@ -238,5 +246,18 @@ export async function handler(event) {
   }
 
   // Compile-only (no save)
-  return json(200, { ok: true, compiled, saved: false });
+  return json(200, {
+    ok: true,
+    compiled,
+    saved: false,
+    // Echo back the absolute CLTV heights we computed so the
+    // caller can store them against the vault row instead of
+    // re-deriving (which would race against a fresh chain tip).
+    absolute_timelocks: {
+      recovery_after: absRecoveryAfter,
+      inheritance_after: absInheritanceAfter,
+      protector_after: absProtectorAfter,
+      tip_height: tipHeight,
+    },
+  });
 }

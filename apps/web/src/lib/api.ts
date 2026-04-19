@@ -384,7 +384,22 @@ export const api = {
     consent_keys?: string[];
     consent_quorum?: number | null;
     save?: boolean;
-  }) => req<{ ok: true; compiled: unknown; saved: boolean; vault?: Vault }>('/compile', {
+  }) => req<{
+    ok: true;
+    compiled: unknown;
+    saved: boolean;
+    vault?: Vault;
+    // The Netlify compile function converts relative block
+    // offsets into absolute CLTV heights server-side. Callers
+    // MUST store these values against the vault row so the
+    // address and the DB agree on what `after(N)` actually is.
+    absolute_timelocks?: {
+      recovery_after: number;
+      inheritance_after: number;
+      protector_after: number;
+      tip_height: number;
+    };
+  }>('/compile', {
     method: 'POST',
     body: JSON.stringify(body),
   }),
