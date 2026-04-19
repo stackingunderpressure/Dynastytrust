@@ -34,6 +34,7 @@ import { DescriptorQr } from "../components/DescriptorQr";
 import { pubkeyFromXpub, fingerprintFromXpub } from "../lib/xpub";
 import { ensureMessagingKey, encryptMessage, decryptMessage, getMessagingPubkey } from "../lib/messaging";
 import { TrustTab } from "../components/TrustTab";
+import { RemindersBanner } from "../components/RemindersBanner";
 import { tipHeight, blocksToApproxLabel, approxWallclockDate } from "../lib/chain";
 
 
@@ -586,6 +587,7 @@ function OverviewTab({
   if (vault.status === "draft") {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <RemindersBanner vaultId={vault.id} />
         <DraftReadinessCard vault={vault} onOpenTab={onOpenTab} />
         <TrustDocSection vault={vault} />
       </div>
@@ -594,6 +596,7 @@ function OverviewTab({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <RemindersBanner vaultId={vault.id} />
       <SuccessionBanner vault={vault} onSendPrefill={onSendPrefill} />
       <ActionGuide
         vault={vault}
@@ -728,6 +731,27 @@ function OverviewTab({
               }}
             >
               Audit PDF
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              style={{ padding: "3px 9px", fontSize: 11 }}
+              onClick={async () => {
+                // Default to last completed tax year. The server
+                // accepts any year between 2020 and 2099.
+                const lastYear = new Date().getUTCFullYear() - 1;
+                const yearStr = prompt("Tax year to summarize:", String(lastYear));
+                if (!yearStr) return;
+                const year = Number(yearStr);
+                if (!Number.isInteger(year) || year < 2020 || year > 2099) {
+                  alert("Enter a valid 4-digit year between 2020 and 2099.");
+                  return;
+                }
+                const url = await api.taxSummaryUrl(vault.id, year);
+                window.open(url, "_blank");
+              }}
+            >
+              Tax summary
             </Button>
             <Button
               variant="ghost"

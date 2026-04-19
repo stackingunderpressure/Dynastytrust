@@ -7,6 +7,7 @@ import VaultDetail from './pages/VaultDetail';
 import ProposalDetail from './pages/ProposalDetail';
 import InviteClaim from './pages/InviteClaim';
 import Landing from './pages/Landing';
+import Reminders from './pages/Reminders';
 import { NAV_LINKS } from './config';
 import { Layout } from './components/Layout';
 import { PageHeader } from './components/PageHeader';
@@ -78,6 +79,18 @@ function AuthedApp() {
       />
       <Route path="/vaults/:id" element={<VaultDetail />} />
       <Route path="/vaults/:vaultId/proposals/:proposalId" element={<ProposalDetail />} />
+      <Route
+        path="/reminders"
+        element={
+          <Layout activeNavId={activeNavId} onSignOut={() => supabase.auth.signOut()}>
+            <PageHeader
+              title="Reminders"
+              sub="Role-aware legal + governance reminders. Countdowns to timelocks, tax deadlines, annual reviews."
+            />
+            <Reminders />
+          </Layout>
+        }
+      />
       <Route path="*" element={<Navigate to="/keys" replace />} />
     </Routes>
   );

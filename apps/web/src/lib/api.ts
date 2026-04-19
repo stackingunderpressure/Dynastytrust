@@ -335,6 +335,9 @@ export const api = {
       protector_after?: number | null;
       consent_keys?: string[];
       consent_quorum?: number | null;
+      /** TOS version the user accepted. Server writes a
+       *  terms_accepted vault_event with this string + timestamp. */
+      terms_accepted_version?: string;
     }) => req<{ ok: true; vault: Vault }>('/vaults', { method: 'POST', body: JSON.stringify(body) }),
 
     // Draft vault: no descriptor yet. Members bring their xpubs via
@@ -568,6 +571,11 @@ export const api = {
   activityExportUrl: async (vault_id: string): Promise<string> => {
     const token = await getToken();
     return `/api/vault-activity-export?vault_id=${vault_id}&token=${token}`;
+  },
+
+  taxSummaryUrl: async (vault_id: string, year: number): Promise<string> => {
+    const token = await getToken();
+    return `/api/vault-tax-summary?id=${vault_id}&year=${year}&token=${token}`;
   },
 
   pdfUrl: async (vault_id: string): Promise<string> => {

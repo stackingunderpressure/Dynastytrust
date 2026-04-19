@@ -172,6 +172,23 @@ export async function handler(event) {
         : { address_type, network },
     });
 
+    // Record explicit terms-of-service acceptance alongside the
+    // vault creation. The client passes the version string it saw
+    // in the UI; the server timestamps it. This gives us a durable
+    // audit trail tied to a specific user and vault_id without
+    // adding a separate table.
+    if (body.terms_accepted_version) {
+      await supabase.from("vault_events").insert({
+        vault_id: data.id,
+        user_id: u.userId,
+        event_type: "terms_accepted",
+        metadata: {
+          terms_version: String(body.terms_accepted_version),
+          user_agent: event.headers?.["user-agent"] || null,
+        },
+      });
+    }
+
     return json(201, { ok: true, vault: data });
   }
 

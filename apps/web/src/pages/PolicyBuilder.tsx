@@ -7,6 +7,11 @@ import { Button, Input, Label } from '../components/ui';
 import { downloadVaultBackup } from '../lib/descriptor-backup';
 import { DescriptorQr } from '../components/DescriptorQr';
 
+// Bump when docs/terms-of-service.md changes materially. The server
+// records this string with the user_id + timestamp so we have a
+// durable "who accepted which TOS when" audit trail.
+const TOS_VERSION = '1.0';
+
 /**
  * Post-process the compiler's raw-pubkey descriptor into the Nunchuk /
  * Sparrow / Coldcard key-origin form: `pk([fp/path]xpub/0/*)`. The Rust
@@ -1223,6 +1228,7 @@ export default function PolicyBuilder() {
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const [savedVault, setSavedVault] = useState<Vault | null>(null);
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   // Vault type: plain (single-sig or multisig, no timelocks) vs
   // inheritance (founders + heirs + recovery + inheritance).
@@ -1530,6 +1536,11 @@ export default function PolicyBuilder() {
         descriptor: compiled.descriptor,
         miniscript_policy: compiled.miniscript_policy,
         address_type: compiled.address_type,
+        // Record TOS acceptance with the vault. The server writes a
+        // terms_accepted vault_event with this version + timestamp,
+        // so the audit trail has "who agreed to what, when" tied to
+        // the vault they were creating.
+        terms_accepted_version: TOS_VERSION,
         founder_quorum: founderQ,
         heir_quorum: plain ? 1 : heirQ,
         recovery_quorum: plain ? null : recoveryQ,
@@ -2124,7 +2135,53 @@ export default function PolicyBuilder() {
 
             {saveErr && <p style={{ color: colors.red, fontSize: 13 }}>{saveErr}</p>}
 
-            <Button disabled={saving} onClick={save}>
+            <label
+              style={{
+                display: 'flex',
+                gap: 10,
+                alignItems: 'flex-start',
+                fontSize: 13,
+                color: colors.sub,
+                padding: '10px 12px',
+                background: colors.input,
+                border: `1px solid ${colors.border}`,
+                borderRadius: radii.md,
+                cursor: 'pointer',
+                lineHeight: 1.5,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={termsAccepted}
+                onChange={e => setTermsAccepted(e.target.checked)}
+                style={{ marginTop: 2, flex: '0 0 auto' }}
+              />
+              <span>
+                I have read and agree to the{' '}
+                <a
+                  href="/legal/terms-of-service.md"
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: colors.gold, textDecoration: 'underline' }}
+                >
+                  Terms of Service (v{TOS_VERSION})
+                </a>
+                {' and the '}
+                <a
+                  href="/legal/legal-framework-for-users.md"
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: colors.gold, textDecoration: 'underline' }}
+                >
+                  Legal framework guide
+                </a>
+                . I understand DynastyTrust is non-custodial, that I retain
+                sole control of my keys, and that legal and tax compliance
+                is my responsibility.
+              </span>
+            </label>
+
+            <Button disabled={saving || !termsAccepted} onClick={save}>
               {saving ? 'Saving vault...' : 'Save vault ->'}
             </Button>
           </div>
