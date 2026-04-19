@@ -1196,28 +1196,21 @@ export default function PolicyBuilder() {
     setCompiled(null);
   }
 
-  const availForFounder = allKeys.filter(k =>
-    !founderKeys.some(fk => fk.keyId === k.keyId) &&
-    !protectorKeys.some(pk => pk.keyId === k.keyId) &&
-    !consentKeys.some(ck => ck.keyId === k.keyId),
-  );
-  const availForHeir = allKeys.filter(k =>
-    !heirKeys.some(hk => hk.keyId === k.keyId) &&
-    !protectorKeys.some(pk => pk.keyId === k.keyId) &&
-    !consentKeys.some(ck => ck.keyId === k.keyId),
-  );
-  const availForProtector = allKeys.filter(k =>
-    !founderKeys.some(fk => fk.keyId === k.keyId) &&
-    !heirKeys.some(hk => hk.keyId === k.keyId) &&
-    !protectorKeys.some(pk => pk.keyId === k.keyId) &&
-    !consentKeys.some(ck => ck.keyId === k.keyId),
-  );
-  const availForConsent = allKeys.filter(k =>
-    !founderKeys.some(fk => fk.keyId === k.keyId) &&
-    !heirKeys.some(hk => hk.keyId === k.keyId) &&
-    !protectorKeys.some(pk => pk.keyId === k.keyId) &&
-    !consentKeys.some(ck => ck.keyId === k.keyId),
-  );
+  // A key can only fill one role at a time; the checkerless UX
+  // made it possible to silently promote a heir into a trustee
+  // slot, which then produced a compiled vault with the heir's
+  // pubkey embedded in Path 1. Each role's availability list
+  // excludes keys already claimed by ANY other role.
+  const claimedIds = new Set<string>([
+    ...founderKeys.map(k => k.keyId),
+    ...heirKeys.map(k => k.keyId),
+    ...protectorKeys.map(k => k.keyId),
+    ...consentKeys.map(k => k.keyId),
+  ]);
+  const availForFounder   = allKeys.filter(k => !claimedIds.has(k.keyId));
+  const availForHeir      = allKeys.filter(k => !claimedIds.has(k.keyId));
+  const availForProtector = allKeys.filter(k => !claimedIds.has(k.keyId));
+  const availForConsent   = allKeys.filter(k => !claimedIds.has(k.keyId));
 
   function applyTemplate(t: VaultTemplate) {
     const c = t.config;
