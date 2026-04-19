@@ -13,6 +13,7 @@ from .templates import (
     LeafMatch,
     canonicalize,
     classify,
+    classify_with_scripts,
     descriptor_hash,
     UnsupportedError,
 )
@@ -34,6 +35,16 @@ from .allowlist import (
     load,
     save,
 )
+from .psbt_adapter import adapt
+from .timelock import (
+    BLOCKS_PER_DAY,
+    BLOCKS_PER_HOUR,
+    BLOCKS_PER_MONTH,
+    BLOCKS_PER_WEEK,
+    BLOCKS_PER_YEAR,
+    blocks_to_label,
+    format_unlock,
+)
 
 __all__ = [
     # templates
@@ -43,6 +54,7 @@ __all__ = [
     "LeafMatch",
     "canonicalize",
     "classify",
+    "classify_with_scripts",
     "descriptor_hash",
     "UnsupportedError",
     # policy_guard
@@ -61,4 +73,14 @@ __all__ = [
     "SCHEMA_VERSION",
     "load",
     "save",
+    # psbt_adapter
+    "adapt",
+    # timelock
+    "BLOCKS_PER_DAY",
+    "BLOCKS_PER_HOUR",
+    "BLOCKS_PER_MONTH",
+    "BLOCKS_PER_WEEK",
+    "BLOCKS_PER_YEAR",
+    "blocks_to_label",
+    "format_unlock",
 ]
