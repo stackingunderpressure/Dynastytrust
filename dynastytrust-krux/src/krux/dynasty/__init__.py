@@ -1,9 +1,8 @@
 """DynastyTrust trust-mode extension for Krux.
 
-Phase 1 exports: the template matcher. Later phases add a policy guard
-(``policy_guard``), persistent allowlist storage (``allowlist``), and UI
-screens (``ui``). None of those are imported here -- keeps the dependency
-footprint small on K210 hardware, where Krux lazy-imports features.
+Phase 1 exports the template matcher; Phase 2 adds the policy guard.
+Phase 3 will add allowlist persistence + UI. Imports are kept shallow
+so K210 lazy-loaders only pay for what's actually used.
 """
 
 from .templates import (
@@ -15,8 +14,18 @@ from .templates import (
     classify,
     UnsupportedError,
 )
+from .policy_guard import (
+    GuardInput,
+    GuardOutput,
+    GuardCheckResult,
+    check,
+    leaf_script_index,
+    ACCEPTABLE_SIGHASH,
+    SEQUENCE_FINAL,
+)
 
 __all__ = [
+    # templates
     "NUMS_XONLY_HEX",
     "TemplateKind",
     "TemplateMatch",
@@ -24,4 +33,12 @@ __all__ = [
     "canonicalize",
     "classify",
     "UnsupportedError",
+    # policy_guard
+    "GuardInput",
+    "GuardOutput",
+    "GuardCheckResult",
+    "check",
+    "leaf_script_index",
+    "ACCEPTABLE_SIGHASH",
+    "SEQUENCE_FINAL",
 ]
