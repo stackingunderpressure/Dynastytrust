@@ -640,6 +640,17 @@ function OverviewTab({
             >
               Audit PDF
             </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              style={{ padding: "3px 9px", fontSize: 11 }}
+              onClick={async () => {
+                const url = await api.activityExportUrl(vault.id);
+                window.open(url, "_blank");
+              }}
+            >
+              Activity JSON
+            </Button>
           </div>
         </div>
         <div
