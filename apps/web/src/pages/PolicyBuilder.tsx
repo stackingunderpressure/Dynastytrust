@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listKeys, type LocalKey } from '../lib/keystore';
-import { api, type Vault } from '../lib/api';
+import { api, type Vault, type TrustDoc } from '../lib/api';
 import { colors, fonts, radii, space } from '../theme';
 import { Button, Input, Label } from '../components/ui';
 import { downloadVaultBackup } from '../lib/descriptor-backup';
@@ -108,6 +108,13 @@ type VaultTemplate = {
     plannedConsenters?: number;
   };
   scenarios: Scenario[];
+  /**
+   * Default trust-document clauses matching the vault shape.
+   * Saved to the vault's trust_doc field right after compile so the
+   * trust doc editor opens with attorney-review-ready boilerplate
+   * instead of a blank slate.
+   */
+  trustDoc?: TrustDoc;
 };
 
 const VAULT_TEMPLATES: VaultTemplate[] = [
@@ -149,6 +156,14 @@ const VAULT_TEMPLATES: VaultTemplate[] = [
         severity: 'warn',
       },
     ],
+    trustDoc: {
+      purpose:
+        "Personal Bitcoin savings vault for long-term holding. Single-signer wallet with no on-chain inheritance path; off-chain seed backups are the only recovery mechanism.",
+      distribution_rules:
+        "Holder spends at their discretion. No formal distribution schedule.",
+      succession_notes:
+        "Back up the seed on metal and store in at least two geographically separated locations (e.g. home safe + safe-deposit box). Leave the seed LOCATION in a sealed envelope with your attorney or in your legal will -- do NOT write the seed words in the will itself. On death, heirs must physically retrieve the seed to recover funds.",
+    },
   },
   {
     id: 'couples',
@@ -200,6 +215,14 @@ const VAULT_TEMPLATES: VaultTemplate[] = [
         severity: 'warn',
       },
     ],
+    trustDoc: {
+      purpose:
+        "Joint Bitcoin savings vault for two partners. Every spend requires BOTH signatures; neither partner can move funds unilaterally.",
+      distribution_rules:
+        "All spends must be authorized by both signers. Each proposal should include a memo describing the spend.",
+      succession_notes:
+        "Exchange sealed seed backups stored with an attorney, in a joint safe-deposit box, or with a mutually-trusted executor. On the death of either partner, the survivor will need both seed backups to recover: the vault is not Bitcoin-inheritable in this shape. On divorce, assets are frozen until both parties cooperate to spend.",
+    },
   },
   {
     id: 'family-inheritance',
@@ -273,6 +296,41 @@ const VAULT_TEMPLATES: VaultTemplate[] = [
         severity: 'danger',
       },
     ],
+    trustDoc: {
+      purpose:
+        "Multi-generational family Bitcoin trust. Three trustees manage distributions to beneficiaries during the grantor's lifetime. After a prolonged trustee silence (6 months the trustee quorum drops for recovery, 2 years the heir successors take over), on-chain paths unlock to ensure funds reach the next generation.",
+      distribution_rules:
+        "Trustees (2-of-3) may approve distributions consistent with the purposes below. Every proposal must cite a rule and include a memo. Distributions outside the listed rules require written justification and logging in the audit trail.",
+      succession_notes:
+        "Trustees are expected to meet at least annually to confirm signing keys are still accessible and to rotate any member who has become unreachable. If all trustees go silent for 2 years, the heir quorum will automatically inherit via the inheritance path. Trustees should replace themselves BEFORE relying on the timelock -- the on-chain inheritance is a backstop, not the primary mechanism.",
+      rules: [
+        {
+          id: 'living-expenses',
+          name: 'Living expenses',
+          max_sats: 10_000_000,
+          notes: 'Monthly household support up to ~0.1 BTC without extra documentation.',
+          requires_comment: false,
+        },
+        {
+          id: 'education',
+          name: 'Education',
+          notes: 'Tuition, books, and required living expenses during study. Attach receipts or enrollment proof in the memo.',
+          requires_comment: true,
+        },
+        {
+          id: 'medical-emergency',
+          name: 'Medical / emergency',
+          notes: 'Documented medical expenses or time-critical emergencies.',
+          requires_comment: true,
+        },
+        {
+          id: 'discretionary',
+          name: 'Other / discretionary',
+          notes: 'Any spend outside the above categories. Requires a written justification in the memo.',
+          requires_comment: true,
+        },
+      ],
+    },
   },
   {
     id: 'generational-trust',
@@ -354,6 +412,40 @@ const VAULT_TEMPLATES: VaultTemplate[] = [
         severity: 'info',
       },
     ],
+    trustDoc: {
+      purpose:
+        "Institutional-grade multi-generational Bitcoin trust. Five independent trustees manage day-to-day distributions (3 signatures required), with a beneficiary-consent gate on every normal spend. An independent protector supervises the trustees and can rescue funds after 9 months if they act in bad faith. After 3 years of trustee silence, the heir quorum inherits.",
+      distribution_rules:
+        "Every day-to-day distribution requires the trustee quorum (3-of-5) AND at least one beneficiary signature (consent gate). If a beneficiary refuses to cosign, normal spends are frozen -- trustees may only fall back to the recovery path (1 year) or the protector path (9 months) if the protector intervenes. All proposals must cite a rule and include a memo for the audit trail.",
+      succession_notes:
+        "Trustees must hold quarterly video calls to confirm keys are accessible and to rotate any departing member. The protector's sole duty is to monitor for abuse and step in at the 9-month mark if trustees act in bad faith -- the protector should maintain a standby replacement vault so a sweep can happen quickly. After 3 years with no activity, the heir successors will inherit via the on-chain timelock.",
+      rules: [
+        {
+          id: 'scheduled',
+          name: 'Scheduled distribution',
+          notes: 'Recurring distributions that match the trust schedule. Normally cosigned within 7 days.',
+          requires_comment: false,
+        },
+        {
+          id: 'discretionary',
+          name: 'Discretionary',
+          notes: 'Discretionary distributions outside the schedule. Trustees must document the basis in the memo.',
+          requires_comment: true,
+        },
+        {
+          id: 'emergency',
+          name: 'Emergency',
+          notes: 'Documented urgent need. Beneficiary consent still required.',
+          requires_comment: true,
+        },
+        {
+          id: 'trustee-fee',
+          name: 'Trustee fee',
+          notes: 'Quarterly administrative fee per the trust agreement.',
+          requires_comment: false,
+        },
+      ],
+    },
   },
   {
     id: 'business-treasury',
@@ -403,6 +495,34 @@ const VAULT_TEMPLATES: VaultTemplate[] = [
         severity: 'danger',
       },
     ],
+    trustDoc: {
+      purpose:
+        "Corporate Bitcoin treasury. Five authorized directors hold signing keys; any three can authorize a spend on behalf of the company. Intended for long-term cold storage, not operational cash.",
+      distribution_rules:
+        "Every spend must be authorized by a board resolution. The proposal memo must reference the resolution number and the approved amount. Spends outside authorized resolutions will be declined by the remaining directors.",
+      succession_notes:
+        "Director turnover triggers a full vault recompile: generate a new vault with the updated director set and sweep funds within 30 days of the change. Each director holds one key stored in a hardware wallet kept off-site. Seeds are backed up on metal and stored in separately locked safes accessible only by the individual director and one trusted backup officer.",
+      rules: [
+        {
+          id: 'opex',
+          name: 'Operating expense',
+          notes: 'Routine operational spends authorized under the operating budget resolution.',
+          requires_comment: true,
+        },
+        {
+          id: 'capex',
+          name: 'Capital expense',
+          notes: 'Large capital outlay requiring a specific board resolution referenced in the memo.',
+          requires_comment: true,
+        },
+        {
+          id: 'sweep',
+          name: 'Sweep / rebalance',
+          notes: 'Treasury rebalancing or sweep to another corporate cold-storage vault.',
+          requires_comment: false,
+        },
+      ],
+    },
   },
   {
     id: 'emergency-backup',
@@ -465,6 +585,14 @@ const VAULT_TEMPLATES: VaultTemplate[] = [
         severity: 'danger',
       },
     ],
+    trustDoc: {
+      purpose:
+        "Same-person 2-of-3 multisig for device-loss insurance. The holder keeps all three keys on three different devices kept in geographically separated locations. Normal spends require any 2 keys; after 6 months of silence, any 1 key can spend via the recovery path.",
+      distribution_rules:
+        "Holder spends at their discretion using any 2 of 3 devices. No distributions to third parties by design.",
+      succession_notes:
+        "Store each device in a different secured location (home safe, safe-deposit box, trusted relative). Test seed restore on each device QUARTERLY; a dead seed that you only discover after losing a second device converts this vault from 2-of-3 into a brick. If a seed is stolen, immediately sweep to a new vault with fresh keys BEFORE the 6-month recovery timer makes a single stolen seed sufficient to spend.",
+    },
   },
 ];
 
@@ -954,6 +1082,11 @@ export default function PolicyBuilder() {
   // inheritance (founders + heirs + recovery + inheritance).
   const [mode, setMode] = useState<VaultMode>('plain');
 
+  // Trust-doc defaults from the most recently applied template.
+  // Attached to the vault right after save so the trust doc editor
+  // opens with attorney-ready boilerplate instead of a blank slate.
+  const [pendingTrustDoc, setPendingTrustDoc] = useState<TrustDoc | null>(null);
+
   // Draft mode -- the target shape of the vault when compiled.
   // Defaults track the currently-selected counts so the existing
   // "compile immediately" flow still feels the same.
@@ -1099,6 +1232,9 @@ export default function PolicyBuilder() {
     }
     setName(t.title);
     setCompiled(null);
+    // Remember the template's trust-doc boilerplate so save() can
+    // attach it once the vault exists.
+    setPendingTrustDoc(t.trustDoc ?? null);
     // Jump the user to the key-picking section so they can start
     // filling the slots the template just declared.
     requestAnimationFrame(() => {
@@ -1210,7 +1346,19 @@ export default function PolicyBuilder() {
         }
       }
 
-      navigate(`/vaults/${res.vault.id}`, { state: { vault: res.vault } });
+      // Apply the template's trust-doc boilerplate so the draft
+      // opens with attorney-ready defaults already in place.
+      let finalVault = res.vault;
+      if (pendingTrustDoc) {
+        try {
+          const updated = await api.vaults.updateTrustDoc(res.vault.id, pendingTrustDoc);
+          finalVault = updated.vault;
+        } catch {
+          /* non-fatal; user can edit trust doc from the overview */
+        }
+      }
+
+      navigate(`/vaults/${finalVault.id}`, { state: { vault: finalVault } });
     } catch (e) {
       setDraftErr(e instanceof Error ? e.message : 'Failed to save draft');
     } finally {
@@ -1252,7 +1400,20 @@ export default function PolicyBuilder() {
             }
           : {}),
       });
-      setSavedVault(res.vault);
+      // Attach the template's trust-doc boilerplate so the editor
+      // opens with meaningful defaults. Non-fatal on error: the
+      // vault was created successfully and the user can fill it in
+      // manually from the Overview tab.
+      if (pendingTrustDoc) {
+        try {
+          const updated = await api.vaults.updateTrustDoc(res.vault.id, pendingTrustDoc);
+          setSavedVault(updated.vault);
+        } catch {
+          setSavedVault(res.vault);
+        }
+      } else {
+        setSavedVault(res.vault);
+      }
     } catch (e) {
       setSaveErr(e instanceof Error ? e.message : 'Save failed');
     } finally {
