@@ -17,6 +17,70 @@ function blocksToLabel(blocks: number): string {
   return "~" + (days / 365).toFixed(1) + "yr";
 }
 
+// Role-aware rendering. Each vault card surfaces the caller's role
+// in the vault (owner/founder = trustee, heir = successor, etc.)
+// and a one-line status tuned to that role so users see "what's
+// mine to do" at a glance instead of a homogenous vault list.
+function roleLabel(role: string | null | undefined): string {
+  switch (role) {
+    case "owner": return "Primary Trustee";
+    case "founder": return "Trustee";
+    case "heir": return "Successor";
+    case "protector": return "Protector";
+    case "beneficiary": return "Beneficiary";
+    case "viewer": return "Observer";
+    default: return "Member";
+  }
+}
+
+function roleAccent(role: string | null | undefined): string {
+  switch (role) {
+    case "owner":
+    case "founder": return colors.gold;
+    case "heir": return colors.green;
+    case "protector": return colors.blue;
+    case "beneficiary": return colors.orange;
+    default: return colors.muted;
+  }
+}
+
+// Sort vaults so roles that need action (trustees) land first.
+function rolePriority(role: string | null | undefined): number {
+  switch (role) {
+    case "owner": return 0;
+    case "founder": return 1;
+    case "protector": return 2;
+    case "beneficiary": return 3;
+    case "heir": return 4;
+    case "viewer": return 5;
+    default: return 6;
+  }
+}
+
+function roleStatus(v: Vault): string {
+  switch (v.my_role) {
+    case "owner":
+    case "founder":
+      return "You can sign now";
+    case "heir":
+      return v.inheritance_after
+        ? `Inheritance unlocks in ${blocksToLabel(v.inheritance_after)}`
+        : "Successor on standby";
+    case "protector":
+      return v.protector_after
+        ? `Protector path unlocks in ${blocksToLabel(v.protector_after)}`
+        : "Protector role (no timelock)";
+    case "beneficiary":
+      return v.consent_quorum
+        ? "Consent required for spends"
+        : "Beneficiary (view + receive)";
+    case "viewer":
+      return "Read-only access";
+    default:
+      return "";
+  }
+}
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const openVault = (v: Vault) => navigate(`/vaults/${v.id}`, { state: { vault: v } });
@@ -59,12 +123,16 @@ export default function Dashboard() {
   const drafts = vaults.filter(v => v.status === 'draft');
   const liveVaults = vaults.filter(v => v.status !== 'draft');
 
-  const visible = liveVaults.filter(
-    v =>
-      !search ||
-      v.name.toLowerCase().includes(search.toLowerCase()) ||
-      (v.address ?? '').includes(search),
-  );
+  const visible = liveVaults
+    .filter(
+      v =>
+        !search ||
+        v.name.toLowerCase().includes(search.toLowerCase()) ||
+        (v.address ?? '').includes(search),
+    )
+    // Actionable roles (trustee, protector) first so the user
+    // sees "what's mine to do" before passive memberships.
+    .sort((a, b) => rolePriority(a.my_role) - rolePriority(b.my_role));
 
   return (
     <div style={{ fontFamily: fonts.sans }}>
@@ -128,22 +196,40 @@ export default function Dashboard() {
               }}
               onClick={() => openVault(v)}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-                <div>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: colors.text, marginBottom: 3 }}>{v.name}</div>
-                  <span
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 700,
-                      letterSpacing: "0.1em",
-                      padding: "3px 8px",
-                      borderRadius: 4,
-                      background: v.network === "bitcoin" ? "#2A1F0A" : "#0A1F14",
-                      color: v.network === "bitcoin" ? colors.gold : colors.green,
-                    }}
-                  >
-                    {v.network.toUpperCase()}
-                  </span>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12, gap: 8 }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: colors.text, marginBottom: 4, wordBreak: "break-word" }}>{v.name}</div>
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        letterSpacing: "0.1em",
+                        padding: "3px 8px",
+                        borderRadius: 4,
+                        background: v.network === "bitcoin" ? "#2A1F0A" : "#0A1F14",
+                        color: v.network === "bitcoin" ? colors.gold : colors.green,
+                      }}
+                    >
+                      {v.network.toUpperCase()}
+                    </span>
+                    {v.my_role && (
+                      <span
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          letterSpacing: "0.08em",
+                          padding: "3px 8px",
+                          borderRadius: 4,
+                          background: roleAccent(v.my_role) + "22",
+                          color: roleAccent(v.my_role),
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        {roleLabel(v.my_role)}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
               <div
@@ -163,11 +249,16 @@ export default function Dashboard() {
                   ${bal.usd_value.toLocaleString("en-US", { maximumFractionDigits: 0 })}
                 </div>
               )}
-              <div style={{ fontFamily: fonts.mono, fontSize: 11, color: colors.muted, marginBottom: 12 }}>
+              <div style={{ fontFamily: fonts.mono, fontSize: 11, color: colors.muted, marginBottom: 6 }}>
                 {v.address
                   ? `${v.address.slice(0, 14)}...${v.address.slice(-8)}`
                   : "Draft -- awaiting compile"}
               </div>
+              {roleStatus(v) && (
+                <div style={{ fontSize: 12, color: roleAccent(v.my_role), marginBottom: 12 }}>
+                  {roleStatus(v)}
+                </div>
+              )}
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", borderTop: "1px solid #1A1A28", paddingTop: 12 }}>
                 <span style={{ fontSize: 11, color: colors.muted }}>
                   {v.founder_quorum}/{v.founder_keys.length} founders

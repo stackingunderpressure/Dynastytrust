@@ -77,6 +77,9 @@ export interface Vault {
   consent_quorum: number | null;
   archived: boolean;
   status: VaultStatus;
+  /** Caller's role in this vault -- attached server-side so the
+   *  Dashboard can render a role-aware view without an N+1 fetch. */
+  my_role?: VaultRole | null;
   // Draft-only: how many signing slots the vault will have when
   // compiled. Null on legacy compiled rows.
   planned_founder_count: number | null;

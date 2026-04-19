@@ -18,13 +18,14 @@ export async function handler(event) {
 
     const { data: memberships, error: mErr } = await supabase
       .from("vault_members")
-      .select("vault_id")
+      .select("vault_id, role")
       .eq("user_id", u.userId)
       .eq("status", "active");
     if (mErr) return json(500, { error: mErr.message });
 
     const vaultIds = (memberships ?? []).map(m => m.vault_id);
     if (vaultIds.length === 0) return json(200, { ok: true, vaults: [] });
+    const roleById = new Map((memberships ?? []).map(m => [m.vault_id, m.role]));
 
     let query = supabase
       .from("vaults")
@@ -36,7 +37,10 @@ export async function handler(event) {
 
     const { data, error } = await query;
     if (error) return json(500, { error: error.message });
-    return json(200, { ok: true, vaults: data });
+    // Attach the caller's role in each vault so the Dashboard can
+    // render a role-aware view without an N+1 fetch.
+    const vaults = (data ?? []).map(v => ({ ...v, my_role: roleById.get(v.id) ?? null }));
+    return json(200, { ok: true, vaults });
   }
 
   // ── POST /api/vaults ─────────────────────────────────────────
