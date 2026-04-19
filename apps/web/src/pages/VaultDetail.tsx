@@ -387,7 +387,9 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
         <div
           style={{
             display: "flex",
-            gap: 2,
+            flexWrap: "wrap",
+            rowGap: 2,
+            columnGap: 2,
             borderBottom: `1px solid ${colors.border}`,
             marginBottom: 20,
           }}
@@ -413,18 +415,24 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
               key={t.id}
               onClick={() => setTab(t.id as typeof tab)}
               style={{
-                padding: "9px 18px",
+                flex: "1 1 0",
+                minWidth: 76,
+                padding: "8px 10px",
                 border: "none",
-                fontSize: 14,
+                fontSize: 13,
                 cursor: "pointer",
                 fontFamily: fonts.sans,
-                background: "transparent",
+                background: tab === t.id ? colors.input : "transparent",
                 color: tab === t.id ? colors.text : colors.muted,
                 borderBottom: tab === t.id ? `2px solid ${colors.gold}` : "2px solid transparent",
+                borderTopLeftRadius: 6,
+                borderTopRightRadius: 6,
                 marginBottom: -1,
                 display: "flex",
                 alignItems: "center",
+                justifyContent: "center",
                 gap: 6,
+                whiteSpace: "nowrap",
               }}
             >
               {t.label}
