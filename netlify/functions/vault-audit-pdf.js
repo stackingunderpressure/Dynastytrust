@@ -76,7 +76,8 @@ function wrapMono(str, maxChars) {
 
 async function buildAuditPdf(data) {
   const { vault, trustDoc, members, invites, proposals, signerSessions,
-          comments, requests, stipends, distributionWallets, events } = data;
+          comments, requests, stipends, distributionWallets, events,
+          attestations } = data;
 
   const doc = await PDFDocument.create();
   doc.setTitle(`DynastyTrust Audit -- ${vault.name}`);
@@ -381,6 +382,74 @@ async function buildAuditPdf(data) {
     }
   }
 
+  // -- Signed attestations --------------------------------------------------
+  sectionHeader('SIGNED ATTESTATIONS');
+  if (!attestations || attestations.length === 0) {
+    line('No attestations recorded.', { color: TEXT_MUTE });
+  } else {
+    const byType = {
+      trust_doc: attestations.filter(a => a.attestation_type === 'trust_doc'),
+      proof_of_life: attestations.filter(a => a.attestation_type === 'proof_of_life'),
+      death_declaration: attestations.filter(a => a.attestation_type === 'death_declaration'),
+    };
+    const memberLabel = id => members.find(m => m.user_id === id)?.label || '(unknown)';
+
+    if (byType.trust_doc.length) {
+      line('Trust doc attestations', { font: bold, size: 9, color: GOLD });
+      for (const a of byType.trust_doc) {
+        line(
+          `. ${memberLabel(a.user_id)} signed hash ${a.target_hash.slice(0, 12)}... on ${fmtDate(a.signed_at)}`,
+          { indent: 12, size: 8, color: TEXT_DIM },
+        );
+        line(
+          `  sig ${a.signature.slice(0, 24)}...${a.signature.slice(-12)}`,
+          { indent: 20, size: 7.5, font: mono, color: TEXT_MUTE, gap: 10 },
+        );
+      }
+      y -= 4;
+    }
+
+    if (byType.proof_of_life.length) {
+      line('Proof-of-life check-ins', { font: bold, size: 9, color: GREEN });
+      for (const a of byType.proof_of_life) {
+        const note = (a.target_data && a.target_data.note) || '';
+        line(
+          `. ${memberLabel(a.user_id)} at ${fmtDate(a.signed_at)}${note ? ` -- ${note}` : ''}`,
+          { indent: 12, size: 8, color: TEXT_DIM },
+        );
+      }
+      y -= 4;
+    }
+
+    if (byType.death_declaration.length) {
+      line('Death declarations', { font: bold, size: 9, color: RED });
+      const byHash = new Map();
+      for (const a of byType.death_declaration) {
+        const arr = byHash.get(a.target_hash) || [];
+        arr.push(a);
+        byHash.set(a.target_hash, arr);
+      }
+      for (const [hash, sigs] of byHash) {
+        const first = sigs[0];
+        const td = first.target_data || {};
+        const subj = memberLabel(td.subject_user_id);
+        line(
+          `Subject: ${subj}  .  effective ${td.effective_date || '-'}  .  ${sigs.length} signature${sigs.length === 1 ? '' : 's'}`,
+          { font: bold, size: 9, color: TEXT, indent: 12 },
+        );
+        line(`hash ${hash.slice(0, 16)}...`, { indent: 20, size: 7.5, font: mono, color: TEXT_MUTE, gap: 10 });
+        if (td.notes) wrapped(`notes: ${td.notes}`, { indent: 20, size: 8, color: TEXT_DIM });
+        for (const s of sigs) {
+          line(
+            `. ${memberLabel(s.user_id)} signed ${fmtDate(s.signed_at)}`,
+            { indent: 20, size: 8, color: TEXT_DIM },
+          );
+        }
+        y -= 4;
+      }
+    }
+  }
+
   // -- Events log -----------------------------------------------------------
   sectionHeader('CHRONOLOGICAL EVENT LOG');
   if (events.length === 0) {
@@ -454,6 +523,7 @@ export async function handler(event) {
   const [
     vaultRes, membersRes, invitesRes, proposalsRes,
     requestsRes, stipendsRes, walletsRes, eventsRes,
+    attestationsRes,
   ] = await Promise.all([
     supabase.from('vaults').select('*').eq('id', id).single(),
     supabase.from('vault_members').select('*').eq('vault_id', id).order('created_at'),
@@ -463,6 +533,7 @@ export async function handler(event) {
     supabase.from('scheduled_stipends').select('*').eq('vault_id', id).order('next_due_at'),
     supabase.from('distribution_wallets').select('*').eq('vault_id', id).order('created_at'),
     supabase.from('vault_events').select('*').eq('vault_id', id).order('created_at'),
+    supabase.from('vault_attestations').select('*').eq('vault_id', id).order('signed_at'),
   ]);
 
   if (vaultRes.error || !vaultRes.data) {
@@ -493,6 +564,7 @@ export async function handler(event) {
       stipends: stipendsRes.data ?? [],
       distributionWallets: walletsRes.data ?? [],
       events: eventsRes.data ?? [],
+      attestations: attestationsRes.data ?? [],
     });
 
     const safeName = (vaultRes.data.name || 'vault').replace(/[^a-z0-9]/gi, '_').toLowerCase();
