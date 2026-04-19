@@ -8,6 +8,7 @@
 
 import { requireUser, json } from './_auth.js';
 import { getSupabaseAdmin } from './_supabase.js';
+import { fetchTipHeight } from './_chain.js';
 
 const COMPILER_URL    = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -169,12 +170,29 @@ export async function handler(event) {
 
     if (upErr) return json(500, { error: upErr.message });
 
-    // Log status transitions
+    // Log status transitions. Stamp chain tip best-effort so
+    // broadcast events correlate with on-chain position in the
+    // activity export / audit PDF. Falls back to null on fetch
+    // failure -- not worth failing the write over.
     if (updates.status) {
+      let blockHeight = null;
+      if (updates.status === 'broadcast') {
+        try {
+          const { data: v } = await supabase
+            .from('vaults')
+            .select('network')
+            .eq('id', updated.vault_id)
+            .maybeSingle();
+          if (v?.network) blockHeight = await fetchTipHeight(v.network);
+        } catch {
+          /* non-fatal */
+        }
+      }
       await supabase.from('vault_events').insert({
         vault_id: updated.vault_id, user_id: u.userId,
         event_type: updates.status === 'broadcast' ? 'signed' : updates.status,
         metadata: { proposal_id: id, txid: updates.txid || null },
+        block_height: blockHeight,
       });
     }
 

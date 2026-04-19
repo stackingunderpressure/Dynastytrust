@@ -508,6 +508,11 @@ export const api = {
     return `/api/vault-audit-pdf?id=${vault_id}&token=${token}`;
   },
 
+  activityExportUrl: async (vault_id: string): Promise<string> => {
+    const token = await getToken();
+    return `/api/vault-activity-export?vault_id=${vault_id}&token=${token}`;
+  },
+
   pdfUrl: async (vault_id: string): Promise<string> => {
     const token = await getToken();
     return `/api/vault-pdf?id=${vault_id}&token=${token}`;
