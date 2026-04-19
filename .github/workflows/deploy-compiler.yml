@@ -29,6 +29,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Verify FLY_API_TOKEN reaches the runner
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          if [ -z "$FLY_API_TOKEN" ]; then
+            echo "::error::FLY_API_TOKEN secret is empty or not exposed to this job."
+            echo "Check: https://github.com/stackingunderpressure/Dynastytrust/settings/secrets/actions"
+            echo "Must be a Repository secret named exactly FLY_API_TOKEN (case-sensitive)."
+            exit 1
+          fi
+          echo "Token length: ${#FLY_API_TOKEN}"
+          echo "Token prefix: ${FLY_API_TOKEN:0:6}..."
       - run: flyctl deploy --config compiler/fly.toml --remote-only
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
