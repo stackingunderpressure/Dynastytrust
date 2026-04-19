@@ -5,6 +5,7 @@ import { useRealtimeRefresh } from "../lib/realtime";
 import { colors, fonts, radii, space } from "../theme";
 import { Button, Input, Label, Textarea } from "../components/ui";
 import { useToast } from "../components/toast";
+import { RemindersBanner } from "../components/RemindersBanner";
 
 function satsToBtc(sats: number): string {
   return (sats / 1e8).toFixed(8).replace(/\.?0+$/, "") || "0";
@@ -160,6 +161,7 @@ export default function Dashboard() {
 
   return (
     <div style={{ fontFamily: fonts.sans }}>
+      <RemindersBanner />
       <RoleSummary vaults={vaults} />
       <PendingFeed />
       {drafts.length > 0 && <DraftsSection drafts={drafts} />}

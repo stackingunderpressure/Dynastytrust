@@ -34,6 +34,7 @@ import { DescriptorQr } from "../components/DescriptorQr";
 import { pubkeyFromXpub, fingerprintFromXpub } from "../lib/xpub";
 import { ensureMessagingKey, encryptMessage, decryptMessage, getMessagingPubkey } from "../lib/messaging";
 import { TrustTab } from "../components/TrustTab";
+import { RemindersBanner } from "../components/RemindersBanner";
 import { tipHeight, blocksToApproxLabel, approxWallclockDate } from "../lib/chain";
 
 
@@ -586,6 +587,7 @@ function OverviewTab({
   if (vault.status === "draft") {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <RemindersBanner vaultId={vault.id} />
         <DraftReadinessCard vault={vault} onOpenTab={onOpenTab} />
         <TrustDocSection vault={vault} />
       </div>
@@ -594,6 +596,7 @@ function OverviewTab({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <RemindersBanner vaultId={vault.id} />
       <SuccessionBanner vault={vault} onSendPrefill={onSendPrefill} />
       <ActionGuide
         vault={vault}
