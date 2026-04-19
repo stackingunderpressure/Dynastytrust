@@ -80,6 +80,9 @@ export interface Vault {
   /** Caller's role in this vault -- attached server-side so the
    *  Dashboard can render a role-aware view without an N+1 fetch. */
   my_role?: VaultRole | null;
+  /** If this vault was created by rotating an older one, points
+   *  to the predecessor. Lets the UI render a succession chain. */
+  predecessor_id?: string | null;
   // Draft-only: how many signing slots the vault will have when
   // compiled. Null on legacy compiled rows.
   planned_founder_count: number | null;
@@ -333,6 +336,23 @@ export const api = {
 
     remove: (id: string) =>
       req<{ ok: true }>(`/vaults?id=${id}`, { method: 'DELETE' }),
+
+    rotate: (body: {
+      vault_id: string;
+      overrides?: {
+        name?: string;
+        recovery_after?: number;
+        inheritance_after?: number;
+        protector_after?: number;
+        founder_quorum?: number;
+        heir_quorum?: number;
+        recovery_quorum?: number | null;
+      };
+    }) =>
+      req<{ ok: true; vault: Vault }>(`/vaults-rotate`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
 
     rename: (id: string, name: string) =>
       req<{ ok: true; vault: Vault }>(`/vaults?id=${id}`, {
