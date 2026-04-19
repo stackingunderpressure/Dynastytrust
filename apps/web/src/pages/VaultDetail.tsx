@@ -606,6 +606,17 @@ function OverviewTab({
             >
               Download backup
             </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              style={{ padding: "3px 9px", fontSize: 11 }}
+              onClick={async () => {
+                const url = await api.auditPdfUrl(vault.id);
+                window.open(url, "_blank");
+              }}
+            >
+              Audit PDF
+            </Button>
           </div>
         </div>
         <div
