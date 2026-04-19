@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard';
 import VaultDetail from './pages/VaultDetail';
 import ProposalDetail from './pages/ProposalDetail';
 import InviteClaim from './pages/InviteClaim';
+import Landing from './pages/Landing';
 import { NAV_LINKS } from './config';
 import { Layout } from './components/Layout';
 import { PageHeader } from './components/PageHeader';
@@ -15,6 +16,10 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* Public: the landing page is the first-lander marketing +
+            inline login. Repeat visitors with an active session are
+            auto-redirected to /vaults by the page itself. */}
+        <Route path="/" element={<Landing />} />
         {/* Public: the claim page must load before the user is signed in. */}
         <Route path="/invite/:token" element={<InviteClaim />} />
         {/* Everything else sits behind RequireAuth. */}
