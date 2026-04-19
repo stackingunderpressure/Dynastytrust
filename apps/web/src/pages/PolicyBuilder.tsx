@@ -115,6 +115,14 @@ type VaultTemplate = {
    * instead of a blank slate.
    */
   trustDoc?: TrustDoc;
+  /**
+   * Marks a template as the "ultra-short-timelock" variant used
+   * for iteration: timelocks in dozens of blocks (hours, not
+   * years) so signet / testnet can verify recovery + inheritance
+   * paths end-to-end. Same shape can later be re-compiled at
+   * production durations.
+   */
+  testMode?: boolean;
 };
 
 const VAULT_TEMPLATES: VaultTemplate[] = [
@@ -593,6 +601,132 @@ const VAULT_TEMPLATES: VaultTemplate[] = [
       succession_notes:
         "Store each device in a different secured location (home safe, safe-deposit box, trusted relative). Test seed restore on each device QUARTERLY; a dead seed that you only discover after losing a second device converts this vault from 2-of-3 into a brick. If a seed is stolen, immediately sweep to a new vault with fresh keys BEFORE the 6-month recovery timer makes a single stolen seed sufficient to spend.",
     },
+  },
+
+  // // -- Test-mode templates -------------------------------------
+  // Same shapes, timelocks measured in blocks (hours-to-a-day on
+  // signet at 10-min blocks) so a full recovery / inheritance /
+  // protector cycle can be demonstrated without waiting months.
+  // Mark vault names with `[TEST]` so they're visually distinct
+  // from production vaults. Recompile the equivalent production
+  // template once you're ready to put real value in.
+  {
+    id: 'test-family-inheritance',
+    title: '[TEST] Family Inheritance',
+    tagline: '2-of-3 . 2-of-3 heirs . 10 / 30 blocks',
+    useCase:
+      'Software-key sandbox for the Family Inheritance shape. Recovery in ~10 blocks (~100 min on signet), inheritance in ~30 blocks (~5 hours). Verify every path end-to-end, then rebuild the real vault with production timelocks.',
+    config: {
+      mode: 'inheritance',
+      plannedFounders: 3,
+      founderQ: 2,
+      plannedHeirs: 3,
+      heirQ: 2,
+      recoveryAfter: 10,
+      inheritanceAfter: 30,
+    },
+    scenarios: [
+      {
+        title: 'Test every path without waiting years',
+        trigger: 'You want to see the recovery + inheritance paths actually unlock.',
+        outcome:
+          'Recovery opens ~100 min after compile; inheritance ~5 hours. Plenty of time to verify signing, broadcast, and role-specific behavior.',
+        actions: [
+          'Compile, fund from the signet faucet, send a normal spend first.',
+          'Wait for tip to cross recovery_after; try a recovery-path spend.',
+          'Wait longer; verify the inheritance path signs with heir keys alone.',
+          'Once satisfied, recompile the production "Family Inheritance" template with real timelocks and fund that.',
+        ],
+        severity: 'info',
+      },
+    ],
+    trustDoc: {
+      purpose: 'Signet test sandbox for the Family Inheritance shape. Not for real value.',
+      distribution_rules:
+        'Test distributions only. Reset mnemonics + vault after verification.',
+      succession_notes:
+        'Test vault. Do not back up the seeds long-term -- delete after you have verified every spending path.',
+    },
+    testMode: true,
+  },
+  {
+    id: 'test-generational-trust',
+    title: '[TEST] Generational Trust',
+    tagline: '3-of-5 . protector . consent . 15 / 45 / 8',
+    useCase:
+      'Sandbox for the Generational Trust shape with its protector and beneficiary-consent gate. Protector unlocks at ~8 blocks, recovery at ~15 blocks, inheritance at ~45 blocks. Walk the full drama -- beneficiary refuses, protector steps in -- in one afternoon.',
+    config: {
+      mode: 'inheritance',
+      plannedFounders: 5,
+      founderQ: 3,
+      plannedHeirs: 3,
+      heirQ: 2,
+      recoveryAfter: 15,
+      inheritanceAfter: 45,
+      protectorEnabled: true,
+      protectorAfter: 8,
+      protectorQ: 1,
+      plannedProtectors: 1,
+      consentEnabled: true,
+      consentQ: 1,
+      plannedConsenters: 1,
+    },
+    scenarios: [
+      {
+        title: 'Full governance dry-run',
+        trigger: 'Walk the trust + beneficiary + protector + successor flows in one sitting.',
+        outcome:
+          'Enough window to test: beneficiary cosigns Path 1, beneficiary refuses, protector opens at 8 blocks and sweeps, successors inherit at 45 blocks.',
+        actions: [
+          'Fund, file a request, approve via trustee quorum + beneficiary consent.',
+          'File another request; have the beneficiary refuse; confirm Path 1 is frozen.',
+          'Wait for protector window; sweep to a replacement vault.',
+          'Then recompile the production Generational Trust with the intended multi-year timelocks.',
+        ],
+        severity: 'info',
+      },
+    ],
+    trustDoc: {
+      purpose: 'Signet test sandbox for the Generational Trust shape with protector + consent.',
+      distribution_rules:
+        'Test distributions only. Each role should exercise its path at least once.',
+      succession_notes:
+        'Test vault. Rotate out after all four paths have signed + broadcast.',
+    },
+    testMode: true,
+  },
+  {
+    id: 'test-lost-device',
+    title: '[TEST] Lost-Device Insurance',
+    tagline: '2-of-3 . 12 / 30 blocks',
+    useCase:
+      'Short-timelock rehearsal for the Lost-Device shape. Lets you actually observe the 6-month recovery path by waiting ~2 hours on signet instead.',
+    config: {
+      mode: 'inheritance',
+      plannedFounders: 3,
+      founderQ: 2,
+      plannedHeirs: 1,
+      heirQ: 1,
+      recoveryAfter: 12,
+      inheritanceAfter: 30,
+    },
+    scenarios: [
+      {
+        title: 'Lose two devices, wait, recover',
+        trigger: 'Simulate losing 2 of 3 keys and using the 1-key recovery path.',
+        outcome:
+          'Fund, "lose" 2 keys (just don\'t sign), wait ~120 min, sign with the remaining key on the recovery path.',
+        actions: [
+          'Helpful to pair with the "Scan signed QR" flow to verify the air-gapped sign path.',
+        ],
+        severity: 'info',
+      },
+    ],
+    trustDoc: {
+      purpose: 'Signet test sandbox. Verify the 2-of-3 recovery behavior on short timelocks.',
+      succession_notes: 'Test vault. Drop after verification.',
+    },
+    testMode: true,
   },
 ];
 
@@ -1469,12 +1603,60 @@ export default function PolicyBuilder() {
       >
         <div
           style={{
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: '0.1em',
+            color: colors.muted,
+            textTransform: 'uppercase',
+            marginBottom: 8,
+          }}
+        >
+          Production
+        </div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+            gap: 10,
+            marginBottom: 16,
+          }}
+        >
+          {VAULT_TEMPLATES.filter(t => !t.testMode).map(t => (
+            <TemplateCard key={t.id} template={t} onApply={() => applyTemplate(t)} />
+          ))}
+        </div>
+        <div
+          style={{
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: '0.1em',
+            color: colors.orange,
+            textTransform: 'uppercase',
+            marginBottom: 8,
+            paddingTop: 12,
+            borderTop: `1px solid ${colors.border}`,
+          }}
+        >
+          Test mode -- signet + short timelocks
+        </div>
+        <div
+          style={{
+            fontSize: 12,
+            color: colors.muted,
+            marginBottom: 10,
+            lineHeight: 1.5,
+          }}
+        >
+          Same shapes, but timelocks in blocks (hours-to-a-day on signet) so recovery / inheritance / protector paths can actually be exercised end-to-end. Once verified, recompile the production template with real durations.
+        </div>
+        <div
+          style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
             gap: 10,
           }}
         >
-          {VAULT_TEMPLATES.map(t => (
+          {VAULT_TEMPLATES.filter(t => t.testMode).map(t => (
             <TemplateCard key={t.id} template={t} onApply={() => applyTemplate(t)} />
           ))}
         </div>
