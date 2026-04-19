@@ -12,24 +12,27 @@ import { NAV_LINKS } from './config';
 import { Layout } from './components/Layout';
 import { PageHeader } from './components/PageHeader';
 import { RequireAuth } from './components/RequireAuth';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        {/* Public: the landing page is the first-lander marketing +
-            inline login. Repeat visitors with an active session are
-            auto-redirected to /vaults by the page itself. */}
-        <Route path="/" element={<Landing />} />
-        {/* Public: the claim page must load before the user is signed in. */}
-        <Route path="/invite/:token" element={<InviteClaim />} />
-        {/* Everything else sits behind RequireAuth. */}
-        <Route
-          path="*"
-          element={<RequireAuth>{() => <AuthedApp />}</RequireAuth>}
-        />
-      </Routes>
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <Routes>
+          {/* Public: the landing page is the first-lander marketing +
+              inline login. Repeat visitors with an active session are
+              auto-redirected to /vaults by the page itself. */}
+          <Route path="/" element={<Landing />} />
+          {/* Public: the claim page must load before the user is signed in. */}
+          <Route path="/invite/:token" element={<InviteClaim />} />
+          {/* Everything else sits behind RequireAuth. */}
+          <Route
+            path="*"
+            element={<RequireAuth>{() => <AuthedApp />}</RequireAuth>}
+          />
+        </Routes>
+      </BrowserRouter>
+    </ErrorBoundary>
   );
 }
 
