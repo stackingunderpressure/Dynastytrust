@@ -64,7 +64,7 @@ export async function handler(event) {
   const supabase = getSupabaseAdmin();
   const { data: vault, error } = await supabase
     .from('vaults')
-    .select('id, name, address, network, descriptor, address_type, recovery_after, inheritance_after, founder_quorum, heir_quorum, founder_keys, heir_keys, consent_keys, consent_quorum')
+    .select('id, name, address, network, descriptor, address_type, recovery_after, inheritance_after, recovery_quorum, founder_quorum, heir_quorum, founder_keys, heir_keys, consent_keys, consent_quorum, protector_keys, protector_quorum, protector_after')
     .eq('id', vault_id)
     .eq('user_id', u.userId)
     .single();
@@ -82,11 +82,12 @@ export async function handler(event) {
     if (k.length === 66) return k; // already pubkey hex
     return pubkeyFromXpub(k); // throws "Version mismatch" etc.
   };
-  let founderPubkeys, heirPubkeys, consentPubkeys;
+  let founderPubkeys, heirPubkeys, consentPubkeys, protectorPubkeys;
   try {
     founderPubkeys = (vault.founder_keys || []).map(toPubkeyHex);
     heirPubkeys = (vault.heir_keys || []).map(toPubkeyHex);
     consentPubkeys = (vault.consent_keys || []).map(toPubkeyHex);
+    protectorPubkeys = (vault.protector_keys || []).map(toPubkeyHex);
   } catch (e) {
     return json(500, { error: 'Could not derive /0/0 pubkey from vault xpubs: ' + e.message });
   }
@@ -194,12 +195,20 @@ export async function handler(event) {
         address_type:      vault.address_type || 'tr',
         founder_keys:      founderPubkeys,
         founder_quorum:    vault.founder_quorum,
+        recovery_quorum:   vault.recovery_quorum ?? null,
         heir_keys:         heirPubkeys,
         heir_quorum:       vault.heir_quorum,
         recovery_after:    vault.recovery_after,
         inheritance_after: vault.inheritance_after,
         ...(consentPubkeys.length > 0 && vault.consent_quorum != null
           ? { consent_keys: consentPubkeys, consent_quorum: vault.consent_quorum }
+          : {}),
+        ...(protectorPubkeys.length > 0 && vault.protector_quorum != null && vault.protector_after != null
+          ? {
+              protector_keys: protectorPubkeys,
+              protector_quorum: vault.protector_quorum,
+              protector_after: vault.protector_after,
+            }
           : {}),
       }),
     });

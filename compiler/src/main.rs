@@ -13,11 +13,11 @@ use bitcoin::psbt::Psbt;
 use bitcoin::taproot::{LeafVersion, TaprootBuilder};
 use bitcoin::secp256k1::{Secp256k1, XOnlyPublicKey};
 use dynastytrust_protocol::{
-    audit_spend, compile_dynasty_policy, compile_dynasty_policy_tr,
-    compile_dynasty_policy_tr_multileaf, compile_tranche_tr_multileaf,
-    evaluate_spend_proposal, evaluate_vault_status, next_action,
-    DynastyPolicy, ProposedSpend, SignerStatus, SpendingPath,
-    TranchePolicy, VaultPolicy,
+    audit_spend, build_multileaf_spend_info, compile_dynasty_policy,
+    compile_dynasty_policy_tr, compile_dynasty_policy_tr_multileaf,
+    compile_tranche_tr_multileaf, evaluate_spend_proposal,
+    evaluate_vault_status, next_action, DynastyPolicy, ProposedSpend,
+    SignerStatus, SpendingPath, TranchePolicy, VaultPolicy,
 };
 use miniscript::policy::concrete::Policy;
 use miniscript::{psbt::PsbtExt, Miniscript};
@@ -236,6 +236,10 @@ struct PsbtBinaryRequest {
     address_type:     Option<String>,
     #[serde(default)] consent_keys:   Vec<String>,
     #[serde(default)] consent_quorum: Option<usize>,
+    #[serde(default)] recovery_quorum: Option<usize>,
+    #[serde(default)] protector_keys: Vec<String>,
+    #[serde(default)] protector_quorum: Option<usize>,
+    #[serde(default)] protector_after: Option<u32>,
     // Fallback raw scripts (if policy params not provided)
     leaf_script_hex:    Option<String>,
     witness_script_hex: Option<String>,
@@ -312,51 +316,50 @@ async fn psbt_binary(
     let mut psbt = Psbt::from_unsigned_tx(tx)
         .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, format!("PSBT: {e}")))?;
 
-    // Resolve leaf script from policy params or raw hex fallback
-    let tap_leaf_script: Option<ScriptBuf> = if let (
+    // Build the FULL multileaf taproot tree so the control block
+    // attached to tap_scripts proves against the real vault's merkle
+    // root -- rebuilding only the founders-now leaf produced a
+    // mismatched root and the finalizer rejected the spend with
+    // "Control block verification failed at index 0".
+    let addr_type = req.address_type.as_deref().unwrap_or("tr");
+    let full_spend_info: Option<(bitcoin::taproot::TaprootSpendInfo, ScriptBuf)> = if let (
         Some(fk), Some(fq), Some(hk), Some(hq), Some(ra), Some(ia)
     ) = (
         req.founder_keys.as_ref(), req.founder_quorum,
         req.heir_keys.as_ref(),    req.heir_quorum,
         req.recovery_after,        req.inheritance_after,
     ) {
-        let addr_type = req.address_type.as_deref().unwrap_or("tr");
-        match (parse_pubkeys(fk), parse_pubkeys(hk)) {
-            (Ok(founders), Ok(heirs)) => {
-                let consenters = parse_pubkeys(&req.consent_keys).unwrap_or_default();
+        match (
+            parse_pubkeys(fk),
+            parse_pubkeys(hk),
+            parse_pubkeys(&req.protector_keys),
+            parse_pubkeys(&req.consent_keys),
+        ) {
+            (Ok(founders), Ok(heirs), Ok(protectors), Ok(consenters)) => {
                 let pol = DynastyPolicy {
                     founder_keys: founders, founder_quorum: fq,
-                    recovery_quorum: None,
+                    recovery_quorum: req.recovery_quorum,
                     heir_keys: heirs,       heir_quorum: hq,
                     recovery_after: ra,     inheritance_after: ia,
-                    protector_keys: vec![],
-                    protector_quorum: None,
-                    protector_after: None,
+                    protector_keys: protectors,
+                    protector_quorum: req.protector_quorum,
+                    protector_after: req.protector_after,
                     consent_keys: consenters,
                     consent_quorum: req.consent_quorum,
                 };
-                build_founders_leaf_script(&pol, addr_type).ok()
+                build_multileaf_spend_info(&pol).ok()
             }
             _ => None,
         }
     } else {
-        req.leaf_script_hex.as_ref().and_then(|h| hex::decode(h).ok().map(ScriptBuf::from_bytes))
+        None
     };
 
+    let _ = addr_type; // kept for future use
     let witness_script: Option<ScriptBuf> =
         req.witness_script_hex.as_ref().and_then(|h| hex::decode(h).ok().map(ScriptBuf::from_bytes));
 
-    let has_tap_leaf = tap_leaf_script.is_some();
-    let secp = Secp256k1::verification_only();
-
-    // Precompute taproot spend_info if we have a leaf script
-    let spend_info_opt = tap_leaf_script.as_ref().and_then(|leaf| {
-        let nums_bytes = hex::decode(NUMS_HEX).ok()?;
-        let internal_key = XOnlyPublicKey::from_slice(&nums_bytes).ok()?;
-        TaprootBuilder::new()
-            .add_leaf(0, leaf.clone()).ok()?
-            .finalize(&secp, internal_key).ok()
-    });
+    let has_tap_leaf = full_spend_info.is_some();
 
     for (i, utxo_in) in req.inputs.iter().enumerate() {
         // witness_utxo — mandatory for all hardware wallets
@@ -368,14 +371,10 @@ async fn psbt_binary(
         });
 
         if spk.is_p2tr() {
-            if let (Some(ref leaf), Some(ref spend_info)) = (&tap_leaf_script, &spend_info_opt) {
-                // tap_internal_key — tells wallet keypath spend is disabled (NUMS)
+            if let Some((ref spend_info, ref leaf)) = full_spend_info {
                 let nums_bytes = hex::decode(NUMS_HEX).unwrap();
                 psbt.inputs[i].tap_internal_key =
                     Some(XOnlyPublicKey::from_slice(&nums_bytes).unwrap());
-
-                // tap_scripts — control block + leaf script for the signing path
-                // Without this Coldcard shows "Unknown script" and refuses to sign
                 let script_ver = (leaf.clone(), LeafVersion::TapScript);
                 if let Some(ctrl) = spend_info.control_block(&script_ver) {
                     psbt.inputs[i].tap_scripts.insert(ctrl, script_ver);

@@ -1,6 +1,6 @@
 use bitcoin::{Address, Network, PublicKey};
 use bitcoin::secp256k1::{Secp256k1, XOnlyPublicKey};
-use bitcoin::taproot::TaprootBuilder;
+use bitcoin::taproot::{TaprootBuilder, TaprootSpendInfo};
 use miniscript::policy::{Concrete, Liftable};
 use miniscript::{Descriptor, Miniscript};
 use serde::{Deserialize, Serialize};
@@ -188,6 +188,127 @@ pub fn compile_dynasty_policy_tr(
         address: addr,
         address_type: AddressType::Tr,
     })
+}
+
+/// Build the full multileaf Taproot spend_info + return the
+/// founders-now leaf script. Used by both the compile handler and
+/// the PSBT builder so the control block attached to `tap_scripts`
+/// proves against the real address's merkle root.
+///
+/// The single-leaf rebuild in psbt_binary was producing a tree with
+/// a different merkle root than the actual compiled vault, so the
+/// finalizer rejected the spend with "Control block verification
+/// failed at index 0".
+pub fn build_multileaf_spend_info(
+    policy: &DynastyPolicy,
+) -> Result<(TaprootSpendInfo, bitcoin::ScriptBuf), PolicyError> {
+    verify(policy)?;
+
+    let secp = Secp256k1::verification_only();
+    let nums_bytes = hex::decode(NUMS_HEX)
+        .map_err(|e| PolicyError::Descriptor(format!("NUMS decode: {e}")))?;
+    let internal_key = XOnlyPublicKey::from_slice(&nums_bytes)
+        .map_err(|e| PolicyError::Descriptor(format!("NUMS xonly: {e}")))?;
+
+    let founders: Vec<String> = policy
+        .founder_keys
+        .iter()
+        .map(|k| format!("pk({k})"))
+        .collect();
+
+    let trustee_thresh = format!("thresh({},{})", policy.founder_quorum, founders.join(","));
+    let founder_thresh = if policy.has_consent() {
+        let consenters: Vec<String> = policy
+            .consent_keys
+            .iter()
+            .map(|k| format!("pk({k})"))
+            .collect();
+        let consent_thresh = format!(
+            "thresh({},{})",
+            policy.consent_quorum.unwrap(),
+            consenters.join(","),
+        );
+        format!("and({},{})", trustee_thresh, consent_thresh)
+    } else {
+        trustee_thresh
+    };
+
+    let compile_leaf =
+        |policy_str: &str| -> Result<Miniscript<PublicKey, miniscript::Tap>, PolicyError> {
+            policy_str
+                .parse::<Concrete<PublicKey>>()
+                .map_err(|e| PolicyError::Miniscript(format!("parse {policy_str}: {e:?}")))?
+                .compile()
+                .map_err(|e| PolicyError::Miniscript(format!("compile {policy_str}: {e:?}")))
+        };
+
+    let ms_founder = compile_leaf(&founder_thresh)?;
+    let founder_script = ms_founder.encode();
+
+    if policy.is_plain() {
+        let builder = TaprootBuilder::new()
+            .add_leaf(0, founder_script.clone())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?;
+        let spend_info = builder
+            .finalize(&secp, internal_key)
+            .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
+        return Ok((spend_info, founder_script));
+    }
+
+    let heirs: Vec<String> = policy
+        .heir_keys
+        .iter()
+        .map(|k| format!("pk({k})"))
+        .collect();
+    let recovery_quorum = policy.recovery_quorum.unwrap_or(policy.founder_quorum);
+    let recovery_thresh = format!("thresh({},{})", recovery_quorum, founders.join(","));
+    let recovery_branch = format!("and(after({}),{})", policy.recovery_after, recovery_thresh);
+    let inheritance_branch = format!(
+        "and(after({}),thresh({},{}))",
+        policy.inheritance_after,
+        policy.heir_quorum,
+        heirs.join(","),
+    );
+    let ms_recovery = compile_leaf(&recovery_branch)?;
+    let ms_inheritance = compile_leaf(&inheritance_branch)?;
+
+    let spend_info = if policy.has_protector() {
+        let protectors: Vec<String> = policy
+            .protector_keys
+            .iter()
+            .map(|k| format!("pk({k})"))
+            .collect();
+        let protector_branch = format!(
+            "and(after({}),thresh({},{}))",
+            policy.protector_after.unwrap(),
+            policy.protector_quorum.unwrap(),
+            protectors.join(","),
+        );
+        let ms_protector = compile_leaf(&protector_branch)?;
+        TaprootBuilder::new()
+            .add_leaf(1, founder_script.clone())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?
+            .add_leaf(2, ms_recovery.encode())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf recovery: {e:?}")))?
+            .add_leaf(3, ms_inheritance.encode())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf inheritance: {e:?}")))?
+            .add_leaf(3, ms_protector.encode())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf protector: {e:?}")))?
+            .finalize(&secp, internal_key)
+            .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?
+    } else {
+        TaprootBuilder::new()
+            .add_leaf(1, founder_script.clone())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?
+            .add_leaf(2, ms_recovery.encode())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf recovery: {e:?}")))?
+            .add_leaf(2, ms_inheritance.encode())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf inheritance: {e:?}")))?
+            .finalize(&secp, internal_key)
+            .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?
+    };
+
+    Ok((spend_info, founder_script))
 }
 
 pub fn compile_dynasty_policy_tr_multileaf(
