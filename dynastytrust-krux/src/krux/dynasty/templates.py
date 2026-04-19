@@ -361,6 +361,26 @@ def canonicalize(leaves: List[LeafMatch]) -> Tuple:
     return tuple(sorted((leaf_key(l) for l in leaves)))
 
 
+def descriptor_hash(template: TemplateMatch) -> str:
+    """Stable 64-char SHA-256 digest of a classified template.
+
+    The allowlist stores this digest alongside a role label; on every
+    PSBT load the device classifies the incoming descriptor and compares
+    its digest against the stored one. Mismatch = wrong vault = refuse.
+
+    Computed over the canonical form so descriptors that differ only in
+    leaf-ordering or key-ordering yield the same digest. The hash is
+    hex-encoded so it travels through JSON serialization without
+    surprises and is safe to display on-screen.
+    """
+    import hashlib
+    canonical = canonicalize(template.leaves)
+    # ``repr`` of a tuple of plain types (str, int, None, nested tuples)
+    # is stable across Python versions and across CPython / MicroPython,
+    # which matters because Krux runs on the K210's MicroPython port.
+    return hashlib.sha256(repr(canonical).encode()).hexdigest()
+
+
 def classify(descriptor: Descriptor) -> TemplateMatch:
     """Classify a DynastyTrust taproot descriptor or raise.
 
