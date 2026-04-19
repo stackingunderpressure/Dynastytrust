@@ -1,9 +1,10 @@
 """DynastyTrust trust-mode extension for Krux.
 
 Phase 1 exports the template matcher; Phase 2 adds the policy guard;
-Phase 2.5 adds the descriptor hash + persistent allowlist storage.
-Imports are kept shallow so K210 lazy-loaders only pay for what's
-actually used.
+Phase 2.5 adds the descriptor hash + persistent allowlist storage;
+Phase 3 adds the PSBT adapter, timelock formatter, and on-device UI
+screens. Imports are kept shallow so K210 lazy-loaders only pay for
+what's actually used.
 """
 
 from .templates import (
