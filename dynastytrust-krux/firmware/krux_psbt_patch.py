@@ -153,4 +153,3 @@ def _summarize_destinations(psbt, outputs) -> str:
     except Exception:
         pass
     return spk.data.hex()[:12] + "..." + spk.data.hex()[-6:]
-
