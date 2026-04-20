@@ -2059,9 +2059,25 @@ export default function PolicyBuilder() {
             <Label>{mode === 'plain' ? 'Planned signer count' : 'Planned founder count'}</Label>
             <Input
               type="number"
+              inputMode="numeric"
               min={1}
-              value={plannedFounders}
-              onChange={e => setPlannedFounders(Math.max(1, parseInt(e.target.value) || 1))}
+              value={Number.isFinite(plannedFounders) ? String(plannedFounders) : ''}
+              onChange={e => {
+                // Accept empty string during edit so the cursor doesn't
+                // snap back to 1 while the user is typing. Clamp on blur.
+                const raw = e.target.value;
+                if (raw === '') {
+                  setPlannedFounders(NaN);
+                } else {
+                  const n = parseInt(raw, 10);
+                  if (!isNaN(n)) setPlannedFounders(n);
+                }
+              }}
+              onBlur={() => {
+                if (!Number.isFinite(plannedFounders) || plannedFounders < 1) {
+                  setPlannedFounders(1);
+                }
+              }}
             />
           </div>
           {mode === 'inheritance' && (
@@ -2069,9 +2085,23 @@ export default function PolicyBuilder() {
             <Label>Planned heir count</Label>
             <Input
               type="number"
+              inputMode="numeric"
               min={0}
-              value={plannedHeirs}
-              onChange={e => setPlannedHeirs(Math.max(0, parseInt(e.target.value) || 0))}
+              value={Number.isFinite(plannedHeirs) ? String(plannedHeirs) : ''}
+              onChange={e => {
+                const raw = e.target.value;
+                if (raw === '') {
+                  setPlannedHeirs(NaN);
+                } else {
+                  const n = parseInt(raw, 10);
+                  if (!isNaN(n)) setPlannedHeirs(n);
+                }
+              }}
+              onBlur={() => {
+                if (!Number.isFinite(plannedHeirs) || plannedHeirs < 0) {
+                  setPlannedHeirs(0);
+                }
+              }}
             />
           </div>
           )}

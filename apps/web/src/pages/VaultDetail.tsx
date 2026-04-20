@@ -1747,6 +1747,14 @@ function MembersTab({ vault }: { vault: Vault }) {
   const [err, setErr] = useState<string | null>(null);
   const [showInvite, setShowInvite] = useState(false);
   const [recentLink, setRecentLink] = useState<string | null>(null);
+  const [sessionUserId, setSessionUserId] = useState<string | null>(null);
+  const [showMyKey, setShowMyKey] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSessionUserId(data.session?.user?.id ?? null);
+    });
+  }, []);
 
   const load = useCallback(async () => {
     setErr(null);
@@ -1807,9 +1815,17 @@ function MembersTab({ vault }: { vault: Vault }) {
   if (err) return <p style={{ color: colors.red, fontSize: 14 }}>{err}</p>;
 
   const pendingInvites = invites.filter(i => !i.claimed_at && new Date(i.expires_at).getTime() > Date.now());
+  const myself = members.find(m => m.user_id === sessionUserId) ?? null;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {myself && (
+        <YourMembershipCard
+          me={myself}
+          vault={vault}
+          onEdit={() => setShowMyKey(true)}
+        />
+      )}
       {recentLink && (
         <div
           style={{
@@ -1914,6 +1930,10 @@ function MembersTab({ vault }: { vault: Vault }) {
                 navigator.clipboard.writeText(url);
                 toast.success("Link copied");
               }}
+              onCopyCode={() => {
+                navigator.clipboard.writeText(inv.token);
+                toast.success("Trust code copied");
+              }}
               onRevoke={() => void revoke(inv)}
             />
           ))}
@@ -1931,6 +1951,210 @@ function MembersTab({ vault }: { vault: Vault }) {
           }}
         />
       )}
+      {showMyKey && myself && (
+        <MyKeyModal
+          vault={vault}
+          me={myself}
+          onClose={() => setShowMyKey(false)}
+          onSaved={() => {
+            setShowMyKey(false);
+            void load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// YourMembershipCard -- shown at the top of the Members tab for the
+// current user. Makes it unambiguous which member row is "you" and
+// gives a one-click path to update the xpub when a member claimed
+// without providing one (or needs to rotate their key).
+function YourMembershipCard({
+  me,
+  vault,
+  onEdit,
+}: {
+  me: VaultMember;
+  vault: Vault;
+  onEdit: () => void;
+}) {
+  const hasKey = !!me.xpub && !!me.fingerprint && !!me.pubkey && !!me.derivation_path;
+  const netLabel = vault.network.toUpperCase();
+  return (
+    <div
+      style={{
+        background: colors.surface,
+        border: `1px solid ${colors.border}`,
+        borderLeft: `3px solid ${hasKey ? colors.green : colors.orange}`,
+        borderRadius: 12,
+        padding: "14px 16px",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: 10,
+        flexWrap: "wrap",
+      }}
+    >
+      <div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: colors.gold, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+          Your slot
+        </div>
+        <div style={{ fontSize: 14, color: colors.text, marginTop: 2 }}>
+          {me.label ?? "Unnamed"} <span style={{ color: colors.muted }}>({roleLabel(me.role)})</span>
+        </div>
+        <div style={{ fontSize: 12, color: hasKey ? colors.sub : colors.orange, marginTop: 4 }}>
+          {hasKey
+            ? `Key ready -- fingerprint ${me.fingerprint} on ${netLabel}`
+            : `No key yet -- you won't be able to sign until you add one`}
+        </div>
+      </div>
+      <Button size="sm" variant={hasKey ? "ghost" : "primary"} onClick={onEdit}>
+        {hasKey ? "Change key" : "Add your key"}
+      </Button>
+    </div>
+  );
+}
+
+// MyKeyModal -- lets the current member attach or replace the key
+// material on their own vault_members row. Reads from the browser
+// keystore and calls api.members.update() to PATCH the row.
+function MyKeyModal({
+  vault,
+  me,
+  onClose,
+  onSaved,
+}: {
+  vault: Vault;
+  me: VaultMember;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const toast = useToast();
+  const [selectedId, setSelectedId] = useState<string>("");
+  const [label, setLabel] = useState(me.label ?? "");
+  const [busy, setBusy] = useState(false);
+  const eligibleKeys = listKeys().filter(
+    k => k.status === "active" && k.network === vault.network,
+  );
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedId) {
+      toast.error("Pick a key to attach to your slot");
+      return;
+    }
+    const chosen = eligibleKeys.find(k => k.keyId === selectedId);
+    if (!chosen) return;
+    setBusy(true);
+    try {
+      await api.members.update(me.id, {
+        label: label.trim() || undefined,
+        xpub: chosen.xpub,
+        fingerprint: chosen.masterFingerprint ?? chosen.fingerprint,
+        pubkey: chosen.pubkey,
+        derivation_path: chosen.derivationPath,
+        key_label: chosen.label,
+      });
+      toast.success("Key attached to your slot");
+      onSaved();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to update key");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.75)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 500,
+        padding: space[4],
+      }}
+    >
+      <div
+        style={{
+          background: colors.surface,
+          border: `1px solid ${colors.border}`,
+          borderRadius: 16,
+          padding: "24px 28px",
+          width: "100%",
+          maxWidth: 480,
+          maxHeight: "90dvh",
+          overflowY: "auto",
+        }}
+      >
+        <div style={{ fontSize: 18, fontWeight: 600, color: colors.text, marginBottom: 6 }}>
+          {me.xpub ? "Change your key" : "Add your key"}
+        </div>
+        <p style={{ fontSize: 13, color: colors.sub, lineHeight: 1.5, marginBottom: 14 }}>
+          Pick an {vault.network.toUpperCase()} key from your local keystore to
+          attach to your slot in {vault.name}. Private material stays in this
+          browser -- only the xpub and derivation metadata go to the server.
+        </p>
+        {eligibleKeys.length === 0 ? (
+          <div
+            style={{
+              padding: 12,
+              borderRadius: 10,
+              background: colors.input,
+              color: colors.orange,
+              fontSize: 13,
+              marginBottom: 12,
+            }}
+          >
+            No active {vault.network.toUpperCase()} keys in your keystore.
+            Open the Keys tab first to generate or import one.
+          </div>
+        ) : (
+          <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div>
+              <Label>Your display label</Label>
+              <Input value={label} onChange={e => setLabel(e.target.value)} placeholder={me.label ?? "Your name"} />
+            </div>
+            <div>
+              <Label>Key to attach</Label>
+              <select
+                value={selectedId}
+                onChange={e => setSelectedId(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "11px 13px",
+                  background: colors.input,
+                  border: `1px solid ${colors.border}`,
+                  borderRadius: radii.md,
+                  color: colors.text,
+                  fontSize: 14,
+                  fontFamily: fonts.sans,
+                  boxSizing: "border-box",
+                }}
+              >
+                <option value="">-- pick a key --</option>
+                {eligibleKeys.map(k => (
+                  <option key={k.keyId} value={k.keyId}>
+                    {k.label} -- {k.fingerprint}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+              <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={busy || !selectedId}>
+                {busy ? "Saving..." : me.xpub ? "Replace key" : "Attach key"}
+              </Button>
+            </div>
+          </form>
+        )}
+      </div>
     </div>
   );
 }
@@ -1983,10 +2207,12 @@ function MemberRow({ member: m, onRemove }: { member: VaultMember; onRemove: () 
 function InviteRow({
   invite,
   onCopyLink,
+  onCopyCode,
   onRevoke,
 }: {
   invite: VaultInvite;
   onCopyLink: () => void;
+  onCopyCode: () => void;
   onRevoke: () => void;
 }) {
   const expires = new Date(invite.expires_at);
@@ -1998,6 +2224,8 @@ function InviteRow({
         justifyContent: "space-between",
         padding: "12px 16px",
         borderBottom: `1px solid ${colors.border}`,
+        flexWrap: "wrap",
+        gap: 8,
       }}
     >
       <div>
@@ -2008,9 +2236,12 @@ function InviteRow({
           Expires {expires.toLocaleDateString()}
         </div>
       </div>
-      <div style={{ display: "flex", gap: 6 }}>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
         <Button variant="ghost" size="sm" style={{ fontSize: 12 }} onClick={onCopyLink}>
           Copy link
+        </Button>
+        <Button variant="ghost" size="sm" style={{ fontSize: 12 }} onClick={onCopyCode}>
+          Copy code
         </Button>
         <Button variant="danger" size="sm" style={{ fontSize: 12 }} onClick={onRevoke}>
           Revoke
