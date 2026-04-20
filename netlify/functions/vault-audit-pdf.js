@@ -388,11 +388,23 @@ async function buildAuditPdf(data) {
     line('No attestations recorded.', { color: TEXT_MUTE });
   } else {
     const byType = {
+      descriptor: attestations.filter(a => a.attestation_type === 'descriptor'),
       trust_doc: attestations.filter(a => a.attestation_type === 'trust_doc'),
       proof_of_life: attestations.filter(a => a.attestation_type === 'proof_of_life'),
       death_declaration: attestations.filter(a => a.attestation_type === 'death_declaration'),
     };
     const memberLabel = id => members.find(m => m.user_id === id)?.label || '(unknown)';
+
+    if (byType.descriptor.length) {
+      line('Descriptor attestations', { font: bold, size: 9, color: rgb(0.29, 0.565, 0.851) });
+      for (const a of byType.descriptor) {
+        line(
+          `. ${memberLabel(a.user_id)} signed descriptor hash ${a.target_hash.slice(0, 12)}... on ${fmtDate(a.signed_at)}`,
+          { indent: 12, size: 8, color: TEXT_DIM },
+        );
+      }
+      y -= 4;
+    }
 
     if (byType.trust_doc.length) {
       line('Trust doc attestations', { font: bold, size: 9, color: GOLD });

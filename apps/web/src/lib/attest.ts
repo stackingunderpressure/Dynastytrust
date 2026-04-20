@@ -18,7 +18,11 @@ import { sha256 } from '@noble/hashes/sha256';
 import { HDKey } from '@scure/bip32';
 import { mnemonicToSeedSync } from '@scure/bip39';
 
-export type AttestationType = 'trust_doc' | 'proof_of_life' | 'death_declaration';
+export type AttestationType =
+  | 'trust_doc'
+  | 'proof_of_life'
+  | 'death_declaration'
+  | 'descriptor';
 
 const TAG = 'DT-ATT-v1';
 
@@ -65,6 +69,28 @@ export function proofOfLifeHash(vaultId: string, signedAtIso: string, note = '')
   const msg = vaultId + '|' + signedAtIso + '|' + note;
   return toHex(sha256(new TextEncoder().encode(msg)));
 }
+
+/**
+ * Hash the compiled vault descriptor for attestation.
+ *
+ * The digest covers the exact descriptor string plus the address it
+ * derived to. Either field changing invalidates every prior signature,
+ * which is the point: if the server swaps the vault's address under
+ * the members, their attestation counts drop to zero and the UI
+ * flags the vault as "descriptor changed -- re-attest before spending".
+ *
+ * The address is included even though it is deterministic from the
+ * descriptor, as a defence against a malicious server showing a
+ * different address string in the UI than the descriptor compiles to.
+ */
+export function descriptorAttestationHash(
+  descriptor: string,
+  address: string,
+): string {
+  const msg = descriptor.trim() + '|' + address.trim();
+  return toHex(sha256(new TextEncoder().encode(msg)));
+}
+
 
 /** Hash for a death declaration of a subject. */
 export function deathDeclarationHash(
