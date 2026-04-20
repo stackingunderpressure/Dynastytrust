@@ -49,38 +49,51 @@ export async function handler(event) {
     return json(410, { error: "Invite expired" });
   }
 
-  // Reject if this user is already a member of this vault (idempotent claim
-  // still succeeds -- we mark the invite consumed but don't duplicate the row).
+  // Reject if this user is already a member of this vault. This catches
+  // the common foot-gun where a vault owner clicks an invite link meant
+  // for someone else (e.g. to test) while logged in as themselves: the
+  // old logic silently consumed the invite and left the intended
+  // recipient unable to claim it later. Now the invite stays unclaimed
+  // and the intended recipient can still use the link.
   const { data: existing } = await supabase
     .from("vault_members")
-    .select("id")
+    .select("id, role, label")
     .eq("vault_id", invite.vault_id)
     .eq("user_id", u.userId)
+    .neq("status", "removed")
     .maybeSingle();
 
-  let memberId;
   if (existing) {
-    memberId = existing.id;
-  } else {
-    const { data: member, error: memberErr } = await supabase
-      .from("vault_members")
-      .insert({
-        vault_id: invite.vault_id,
-        user_id: u.userId,
-        role: invite.invited_role,
-        label: body.label || invite.invited_label || null,
-        xpub: body.xpub || null,
-        fingerprint: body.fingerprint || null,
-        pubkey: body.pubkey || null,
-        derivation_path: body.derivation_path || null,
-        key_label: body.key_label || null,
-        status: "active",
-      })
-      .select("id")
-      .single();
-    if (memberErr) return json(500, { error: memberErr.message });
-    memberId = member.id;
+    return json(409, {
+      error:
+        "You are already a member of this vault (as " +
+        (existing.label || existing.role) +
+        "). Share this invite link with the intended recipient; they must " +
+        "be logged in as themselves -- not you -- to claim it.",
+      already_member: true,
+      member_id: existing.id,
+      vault_id: invite.vault_id,
+    });
   }
+
+  const { data: member, error: memberErr } = await supabase
+    .from("vault_members")
+    .insert({
+      vault_id: invite.vault_id,
+      user_id: u.userId,
+      role: invite.invited_role,
+      label: body.label || invite.invited_label || null,
+      xpub: body.xpub || null,
+      fingerprint: body.fingerprint || null,
+      pubkey: body.pubkey || null,
+      derivation_path: body.derivation_path || null,
+      key_label: body.key_label || null,
+      status: "active",
+    })
+    .select("id")
+    .single();
+  if (memberErr) return json(500, { error: memberErr.message });
+  const memberId = member.id;
 
   // Mark invite consumed. If the update races, the member row still exists
   // so the user isn't left without access.
