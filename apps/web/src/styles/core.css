@@ -104,8 +104,8 @@ body {
   gap: 14px;
 }
 
-/* Sticky app header -- always on top, 14px horizontal padding on
-   mobile so the logo + nav + sign-out don't get squeezed. */
+/* Original single-row header kept for VaultDetail + any page that
+   runs its own header (Back / title / action buttons on one line). */
 .dt-header {
   display: flex;
   align-items: center;
@@ -120,22 +120,60 @@ body {
   gap: 8px;
 }
 
-.dt-header nav {
-  display: flex;
-  gap: 2px;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-}
-
-.dt-header nav::-webkit-scrollbar {
-  display: none;
-}
-
 @media (max-width: 640px) {
   .dt-header {
     padding: 0 12px;
     height: 52px;
+  }
+}
+
+/* App-shell header used by Layout: banner row on top, full-width
+   nav below. Two rows so nav buttons never have to scroll sideways. */
+.dt-shell-header {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-header);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.dt-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 32px;
+  gap: 12px;
+}
+
+/* Nav row: each link flexes to fill its share so all four tabs
+   fit on one line down to ~340px viewport. Wraps only on very
+   narrow screens where four tabs physically cannot fit one row. */
+.dt-header-nav {
+  display: flex;
+  gap: 4px;
+  padding: 0 24px 8px;
+  flex-wrap: wrap;
+}
+
+.dt-header-nav a {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .dt-header-top {
+    padding: 8px 12px;
+  }
+  .dt-header-nav {
+    padding: 0 8px 6px;
+    gap: 2px;
+  }
+  .dt-header-nav a {
+    padding: 8px 6px !important;
+    font-size: 12px !important;
   }
 }
 
