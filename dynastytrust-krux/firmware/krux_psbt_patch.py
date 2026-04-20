@@ -5,48 +5,98 @@ fork after applying the integration patch from INTEGRATION.md. The
 upstream ``krux/psbt.py`` modification calls ``policy_guard_check``
 before invoking ``self.psbt.sign_with(seed)``.
 
-This file is the only firmware-side glue layer. All policy logic
-lives in the upstream-agnostic :mod:`krux.dynasty` package.
+This hook is self-gating: it runs on every sign() call, but returns
+True (pass-through, allow normal signing) for any wallet that isn't
+a DynastyTrust-template vault provisioned on this device. So
+patching Krux is a single one-line addition to psbt.py and nothing
+else -- no wallet.py modification, no settings entries, no new
+imports outside this file.
 """
-from .dynasty import (
-    UnsupportedError,
-    adapt,
-    check,
-    classify_with_scripts,
-)
-from .dynasty.ui import ConfirmScreen, PathChooserScreen, _BRANCH_LABEL
 
 
 def policy_guard_check(ctx, wallet, psbt) -> bool:
     """Run the full trust-mode pre-sign validation flow.
 
     Returns:
-        True if the operator has confirmed the spend; the firmware
-            then proceeds to call psbt.sign_with(seed).
-        False on any rejection or operator cancel; the firmware aborts.
+        True  -- either the wallet isn't in trust mode, or the
+                 operator confirmed the spend. Upstream proceeds to
+                 call psbt.sign_with(seed).
+        False -- trust mode engaged AND the guard rejected OR the
+                 operator cancelled. Upstream aborts without signing.
 
-    Architecture note: this function never touches private keys. It
-    only inspects the PSBT shape, runs the policy guard, and shows
-    user-confirmation screens. Signing happens after this returns.
+    Self-gating logic, in order:
+
+      1. No descriptor on the wallet -> pass through.
+      2. Descriptor doesn't classify as a DynastyTrust template ->
+         pass through (normal Krux wallet).
+      3. Descriptor classifies but device has no allowlist entry
+         matching this descriptor's digest -> pass through (device
+         not provisioned for this vault, treat as a normal signer).
+      4. Descriptor matches a provisioned vault -> enforce trust
+         mode: run the policy guard, show the user-confirmation
+         flow, return the operator's decision.
+
+    This function never touches private keys. Signing happens in
+    the caller after this returns True.
     """
-    descriptor = wallet.descriptor
+    descriptor = getattr(wallet, "descriptor", None)
+    if descriptor is None:
+        return True
 
-    # 1. Re-classify the descriptor on every signing attempt so that a
-    #    swapped descriptor (e.g. an attacker editing the SD card)
-    #    can't bypass the gate. The wallet's stored allowlist record
-    #    must still match the descriptor's digest; the wallet loader
-    #    confirmed this at load time, but we re-derive here for
-    #    defense-in-depth.
+    # Imports deferred so a broken /sd or a stale install doesn't
+    # crash every non-trust-mode signing attempt. Any ImportError
+    # here means the dynasty package never landed on this device
+    # and we should default-pass.
+    try:
+        from .dynasty import (
+            UnsupportedError,
+            adapt,
+            check,
+            classify_with_scripts,
+            descriptor_hash,
+            load as load_allowlist,
+        )
+        from .dynasty.ui import ConfirmScreen, PathChooserScreen, _BRANCH_LABEL
+    except ImportError:
+        return True
+
     try:
         template, leaf_to_match = classify_with_scripts(descriptor)
-    except UnsupportedError as e:
-        ctx.display.flash_text("Refused: " + str(e))
-        return False
+    except UnsupportedError:
+        # Descriptor is not a DynastyTrust template. Not our concern.
+        return True
+    except Exception:
+        # Anything weird with the descriptor shape -- default pass so
+        # we never brick normal signing for a non-DT wallet due to our
+        # own bugs.
+        return True
 
-    # 2. Convert the PSBT into guard-shaped dataclasses.
+    # Descriptor IS a DynastyTrust template. See if THIS device has
+    # been provisioned for it.
+    try:
+        from .krux_settings import Settings
+        al_path = Settings().persist.path("dynasty_allowlist.json")
+    except Exception:
+        al_path = "/sd/dynasty_allowlist.json"
+
+    try:
+        allowlist = load_allowlist(al_path)
+    except Exception:
+        # No allowlist file or corrupt -> treat as un-provisioned.
+        return True
+
+    digest = descriptor_hash(template)
+    if not allowlist.find(digest):
+        # DT-shaped descriptor but this isn't a vault we've been
+        # provisioned for. Treat as a normal signing session; don't
+        # refuse. (User may be testing; the device isn't in trust
+        # mode for THIS vault.)
+        return True
+
+    # --- Provisioned match. Enforce trust mode from here on. ---
+
     inputs, outputs, lock_time, expected_spk = adapt(psbt, descriptor)
 
-    # 3. Run the policy guard.
     result = check(
         template=template,
         inputs=inputs,
@@ -56,20 +106,18 @@ def policy_guard_check(ctx, wallet, psbt) -> bool:
         expected_input_script_hex=expected_spk,
     )
 
-    # 4. Special-case: the guard rejected because no leaf was specified.
-    #    Offer the operator a path-chooser, then let them re-coordinate
-    #    the PSBT externally (we do NOT mutate the PSBT here -- the
-    #    coordinator must rebuild it with the chosen leaf populated).
+    # Path-chooser fallback when the guard complains about missing
+    # leaf. User picks a branch; we don't mutate the PSBT here, we
+    # tell them to re-coordinate.
     if not result.ok and "does not specify which leaf" in (result.reason or ""):
         chooser = PathChooserScreen(ctx, template)
         chosen = chooser.run()
         if chosen is not None:
             ctx.display.flash_text(
-                f"Tell coordinator to use {_BRANCH_LABEL[chosen]} leaf"
+                "Tell coordinator to use " + _BRANCH_LABEL[chosen] + " leaf"
             )
         return False
 
-    # 5. Final confirmation.
     destination_summary = _summarize_destinations(psbt, outputs)
     confirmer = ConfirmScreen(
         ctx,
@@ -86,17 +134,15 @@ def _summarize_destinations(psbt, outputs) -> str:
     confirmation screen renders this single-line so we keep it short.
     """
     from embit.networks import NETWORKS
-    from embit.script import Script
 
     externals = [(i, o) for i, o in enumerate(outputs) if not o.is_change]
     if not externals:
         return "(no external destinations)"
     if len(externals) > 1:
-        return f"{len(externals)} destinations"
+        return str(len(externals)) + " destinations"
     idx, _go = externals[0]
     spk = psbt.tx.vout[idx].script_pubkey
     try:
-        # Try mainnet first; if it doesn't render, try testnet/signet/regtest.
         for net_key in ("main", "test", "signet", "regtest"):
             try:
                 addr = spk.address(NETWORKS[net_key])

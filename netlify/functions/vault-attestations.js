@@ -23,7 +23,12 @@ import { requireUser, json } from "./_auth.js";
 const FIELDS =
   "id, vault_id, user_id, attestation_type, target_hash, target_data, signature, pubkey, signed_at";
 
-const VALID_TYPES = new Set(["trust_doc", "proof_of_life", "death_declaration"]);
+const VALID_TYPES = new Set([
+  "trust_doc",
+  "proof_of_life",
+  "death_declaration",
+  "descriptor",
+]);
 
 async function assertMember(supabase, vaultId, userId) {
   const { data } = await supabase

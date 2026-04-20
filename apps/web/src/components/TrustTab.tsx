@@ -32,6 +32,7 @@ import {
   trustDocHash,
   proofOfLifeHash,
   deathDeclarationHash,
+  descriptorAttestationHash,
   verifyAttestation,
 } from '../lib/attest';
 import { useToast } from './toast';
@@ -121,12 +122,20 @@ export function TrustTab({ vault }: { vault: Vault }) {
       >
         <strong style={{ color: colors.gold }}>Trust governance layer.</strong>{' '}
         Bitcoin enforces the script. This layer gives you the court-admissible
-        paper trail: every member signs the trust doc hash, founders post
-        proof-of-life, witnesses sign death declarations. All signatures use
-        the same Bitcoin key that moves the coins, under a domain-separated
-        tag so an attestation cannot be replayed as a transaction signature.
+        paper trail: members sign the vault descriptor and trust doc hashes,
+        founders post proof-of-life, witnesses sign death declarations. All
+        signatures use the same Bitcoin key that moves the coins, under a
+        domain-separated tag so an attestation cannot be replayed as a
+        transaction signature.
       </div>
 
+      <DescriptorPanel
+        vault={vault}
+        me={me}
+        members={members}
+        attestations={attestations}
+        onDone={load}
+      />
       <TrustDocPanel
         vault={vault}
         me={me}
@@ -264,6 +273,142 @@ function MemberAttestList({
         );
       })}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------
+// DescriptorPanel -- members attest to the vault's compiled
+// descriptor + address. Protects against a server-side address
+// swap: changing either invalidates every prior signature and the
+// panel surfaces that immediately ("0 of N attested to the current
+// descriptor").
+// ---------------------------------------------------------------
+
+function DescriptorPanel({
+  vault,
+  me,
+  members,
+  attestations,
+  onDone,
+}: {
+  vault: Vault;
+  me: VaultMember | null;
+  members: VaultMember[];
+  attestations: VaultAttestation[];
+  onDone: () => void;
+}) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+
+  const hasDescriptor = !!vault.descriptor && !!vault.address;
+  const currentHash = useMemo(() => {
+    if (!hasDescriptor) return '';
+    return descriptorAttestationHash(vault.descriptor!, vault.address!);
+  }, [vault.descriptor, vault.address, hasDescriptor]);
+
+  const sigsForCurrent = attestations.filter(
+    a => a.attestation_type === 'descriptor' && a.target_hash === currentHash,
+  );
+  const totalMembers = members.filter(m => m.status !== 'removed').length;
+  const iHaveSigned = !!me && sigsForCurrent.some(a => a.user_id === me.user_id);
+
+  // Any stale descriptor attestations (type=descriptor but target_hash
+  // doesn't match the current digest) indicate either a past version
+  // of the descriptor or -- alarmingly -- that the current address has
+  // been altered since members last attested.
+  const allDescriptorSigs = attestations.filter(a => a.attestation_type === 'descriptor');
+  const staleCount = allDescriptorSigs.length - sigsForCurrent.length;
+
+  async function attest() {
+    if (!me || !hasDescriptor) return;
+    setBusy(true);
+    try {
+      const { signature, pubkey } = await signWithLocalKey({
+        pubkey: me.pubkey,
+        attestationType: 'descriptor',
+        targetHash: currentHash,
+        network: vault.network,
+      });
+      await api.attestations.create({
+        vault_id: vault.id,
+        attestation_type: 'descriptor',
+        target_hash: currentHash,
+        target_data: { descriptor: vault.descriptor, address: vault.address },
+        signature,
+        pubkey,
+      });
+      toast.success('Descriptor attested');
+      onDone();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to attest');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <PanelShell title="Descriptor attestation" accent={colors.blue}>
+      <div style={{ fontSize: 13, color: colors.text, marginBottom: 10, lineHeight: 1.5 }}>
+        Members sign the hash of the vault's compiled descriptor plus its
+        receive address. This binds the members' keys to the exact on-chain
+        output -- an attacker who swaps the address in our database cannot
+        forge a matching signature, and the counter drops to "0 of N" so you
+        know before funding.
+      </div>
+      {!hasDescriptor ? (
+        <div style={{ fontSize: 12, color: colors.muted, fontStyle: 'italic' }}>
+          Vault has not been compiled yet. Compile first, then members attest.
+        </div>
+      ) : (
+        <>
+          <div
+            style={{
+              fontFamily: fonts.mono,
+              fontSize: 11,
+              color: colors.muted,
+              marginBottom: 12,
+              wordBreak: 'break-all',
+            }}
+          >
+            Descriptor + address hash: {shortHash(currentHash)}
+          </div>
+          <div
+            style={{
+              fontSize: 12,
+              color: colors.sub,
+              marginBottom: 8,
+              fontWeight: 600,
+            }}
+          >
+            Attested: {sigsForCurrent.length} / {totalMembers} members
+            {staleCount > 0 && (
+              <span style={{ color: colors.orange, marginLeft: 8 }}>
+                ({staleCount} stale from prior descriptor -- if you did not
+                rotate the vault, this is a signal the address changed under
+                members and needs verification before spending)
+              </span>
+            )}
+          </div>
+          <MemberAttestList
+            attestations={sigsForCurrent}
+            members={members}
+            emptyLabel="No members have attested to this descriptor yet."
+          />
+          {me && !iHaveSigned && (
+            <div style={{ marginTop: 12 }}>
+              <Button size="sm" onClick={attest} disabled={busy}>
+                {busy ? 'Signing...' : 'Sign this descriptor'}
+              </Button>
+            </div>
+          )}
+          {iHaveSigned && (
+            <div style={{ marginTop: 10, fontSize: 12, color: colors.green }}>
+              You attested this descriptor.
+            </div>
+          )}
+        </>
+      )}
+    </PanelShell>
   );
 }
 

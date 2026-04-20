@@ -281,7 +281,11 @@ export interface VaultMessage {
   }[];
 }
 
-export type AttestationType = 'trust_doc' | 'proof_of_life' | 'death_declaration';
+export type AttestationType =
+  | 'trust_doc'
+  | 'proof_of_life'
+  | 'death_declaration'
+  | 'descriptor';
 
 export interface VaultAttestation {
   id: string;
