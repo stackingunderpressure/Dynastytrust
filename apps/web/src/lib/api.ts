@@ -826,7 +826,9 @@ export const api = {
     revoke: (id: string) =>
       req<{ ok: true }>(`/invites?id=${id}`, { method: 'DELETE' }),
 
-    // Public lookup (no auth). Returns only the fields the claim page needs.
+    // Public lookup (no auth). Returns the invite + vault preview
+    // (trust doc, quorums, timelocks, member roster) so a prospective
+    // member can review before accepting.
     lookup: (token: string) =>
       fetch(`/api/invites-lookup?token=${encodeURIComponent(token)}`).then(async r => {
         const body = (await r.json()) as {
@@ -839,10 +841,43 @@ export const api = {
             invited_label: string | null;
             expires_at: string;
           } | null;
-          vault?: { id: string; name: string; network: 'testnet' | 'signet' | 'bitcoin' } | null;
+          vault?: {
+            id: string;
+            name: string;
+            network: 'testnet' | 'signet' | 'bitcoin';
+            status: string;
+            address_type: string;
+            founder_quorum: number;
+            heir_quorum: number;
+            recovery_quorum: number | null;
+            recovery_after: number;
+            inheritance_after: number;
+            protector_quorum: number | null;
+            protector_after: number | null;
+            consent_quorum: number | null;
+            trust_doc: TrustDoc;
+            founder_count: number;
+            heir_count: number;
+            protector_count: number;
+            consent_count: number;
+            planned_founder_count: number | null;
+            planned_heir_count: number | null;
+          } | null;
+          members?: {
+            id: string;
+            role: VaultRole;
+            label: string | null;
+            status: string;
+            created_at: string;
+          }[];
         };
         if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
-        return body as { ok: true; invite: NonNullable<typeof body.invite>; vault: typeof body.vault };
+        return body as {
+          ok: true;
+          invite: NonNullable<typeof body.invite>;
+          vault: NonNullable<typeof body.vault>;
+          members: NonNullable<typeof body.members>;
+        };
       }),
 
     claim: (body: {

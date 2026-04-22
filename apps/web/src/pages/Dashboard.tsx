@@ -573,8 +573,10 @@ function TrustCodeModal({ onClose }: { onClose: () => void }) {
     e.preventDefault();
     const trimmed = code.trim();
     if (!trimmed) return;
-    // The invite token is a UUID; the claim page takes ?token=...
-    navigate(`/invite?token=${encodeURIComponent(trimmed)}`);
+    // The invite route lives at /invite/:token (path segment, not
+    // query param). Earlier versions used ?token= and silently
+    // routed nowhere; this is the form the rest of the UI generates.
+    navigate(`/invite/${encodeURIComponent(trimmed)}`);
     onClose();
   }
 

@@ -37,11 +37,33 @@ export async function handler(event) {
     return json(410, { error: "Invite expired", invite: null });
   }
 
+  // Pull the vault record plus the shape fields the claim page
+  // shows in its preview: trust doc (purpose + distribution rules
+  // + beneficiaries + succession notes), quorums, timelocks, and
+  // the member roster (roles + labels only, never xpubs). Enough
+  // for a prospective member to decide whether to accept without
+  // exposing anything sensitive.
   const { data: vault } = await supabase
     .from("vaults")
-    .select("id, name, network")
+    .select(
+      "id, name, network, status, address_type, founder_quorum, heir_quorum, " +
+      "recovery_quorum, recovery_after, inheritance_after, protector_quorum, " +
+      "protector_after, consent_quorum, trust_doc, founder_keys, heir_keys, " +
+      "protector_keys, consent_keys, planned_founder_count, planned_heir_count",
+    )
     .eq("id", invite.vault_id)
     .maybeSingle();
+
+  // Member roster: only public-facing fields. No xpubs, no
+  // fingerprints, no pubkeys -- this endpoint is unauthenticated
+  // and the inviter may not want those leaked to a stranger who
+  // only has the invite link.
+  const { data: members } = await supabase
+    .from("vault_members")
+    .select("id, role, label, status, created_at")
+    .eq("vault_id", invite.vault_id)
+    .neq("status", "removed")
+    .order("created_at", { ascending: true });
 
   return json(200, {
     ok: true,
@@ -52,6 +74,28 @@ export async function handler(event) {
       invited_label: invite.invited_label,
       expires_at: invite.expires_at,
     },
-    vault: vault ? { id: vault.id, name: vault.name, network: vault.network } : null,
+    vault: vault ? {
+      id: vault.id,
+      name: vault.name,
+      network: vault.network,
+      status: vault.status,
+      address_type: vault.address_type,
+      founder_quorum: vault.founder_quorum,
+      heir_quorum: vault.heir_quorum,
+      recovery_quorum: vault.recovery_quorum,
+      recovery_after: vault.recovery_after,
+      inheritance_after: vault.inheritance_after,
+      protector_quorum: vault.protector_quorum,
+      protector_after: vault.protector_after,
+      consent_quorum: vault.consent_quorum,
+      trust_doc: vault.trust_doc || {},
+      founder_count: (vault.founder_keys || []).length,
+      heir_count: (vault.heir_keys || []).length,
+      protector_count: (vault.protector_keys || []).length,
+      consent_count: (vault.consent_keys || []).length,
+      planned_founder_count: vault.planned_founder_count,
+      planned_heir_count: vault.planned_heir_count,
+    } : null,
+    members: members ?? [],
   });
 }
