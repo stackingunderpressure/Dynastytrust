@@ -196,9 +196,48 @@ function ClaimForm({
   const [err, setErr] = useState<string | null>(null);
 
   const keys = listKeys().filter(k => k.status === 'active' && k.network === vault.network);
+  const needsKey = !NO_KEY_ROLES.has(invite.invited_role);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  // Wizard flow. Viewer / beneficiary skip the key step entirely.
+  const steps: { id: string; title: string }[] = [
+    { id: 'welcome', title: 'Welcome' },
+    { id: 'vault', title: 'Review vault' },
+    { id: 'role', title: 'Your role' },
+    ...(needsKey ? [{ id: 'key', title: 'Signing key' }] : []),
+    { id: 'confirm', title: 'Confirm' },
+  ];
+  const [stepIdx, setStepIdx] = useState(0);
+  const stepId = steps[stepIdx].id;
+  const isLast = stepIdx === steps.length - 1;
+  const isFirst = stepIdx === 0;
+
+  // Validate before moving off the key step.
+  function canAdvance(): true | string {
+    if (stepId !== 'key') return true;
+    if (mode === 'skip') return true;
+    if (mode === 'browser') {
+      if (!selectedKeyId) return 'Pick a local key or switch to Skip.';
+      return true;
+    }
+    if (mode === 'hardware') {
+      if (!hwKey) return 'Scan or paste your xpub first, or switch to Skip.';
+      return true;
+    }
+    return true;
+  }
+
+  function next() {
+    const v = canAdvance();
+    if (v !== true) { setErr(v); return; }
+    setErr(null);
+    setStepIdx(i => Math.min(steps.length - 1, i + 1));
+  }
+  function back() {
+    setErr(null);
+    setStepIdx(i => Math.max(0, i - 1));
+  }
+
+  async function submit() {
     setBusy(true);
     setErr(null);
     try {
@@ -206,29 +245,20 @@ function ClaimForm({
         token,
         label: label.trim() || undefined,
       };
-
-      if (invite.invited_role !== 'viewer') {
+      if (needsKey) {
         if (mode === 'browser') {
           const selected: LocalKey | undefined = keys.find(k => k.keyId === selectedKeyId);
-          if (!selected) {
-            setErr('Pick a local key or switch to hardware wallet / skip.');
-            setBusy(false);
-            return;
+          if (selected) {
+            payload = {
+              ...payload,
+              xpub: selected.xpub,
+              fingerprint: selected.masterFingerprint ?? selected.fingerprint,
+              pubkey: selected.pubkey,
+              derivation_path: selected.derivationPath,
+              key_label: selected.label,
+            };
           }
-          payload = {
-            ...payload,
-            xpub: selected.xpub,
-            fingerprint: selected.masterFingerprint ?? selected.fingerprint,
-            pubkey: selected.pubkey,
-            derivation_path: selected.derivationPath,
-            key_label: selected.label,
-          };
-        } else if (mode === 'hardware') {
-          if (!hwKey) {
-            setErr('Scan or paste your xpub first, or switch to Skip for now.');
-            setBusy(false);
-            return;
-          }
+        } else if (mode === 'hardware' && hwKey) {
           payload = {
             ...payload,
             xpub: hwKey.xpub,
@@ -239,7 +269,6 @@ function ClaimForm({
           };
         }
       }
-
       const res = await api.invites.claim(payload);
       toast.success('Joined ' + vault.name);
       navigate(`/vaults/${res.vault_id}`);
@@ -251,41 +280,57 @@ function ClaimForm({
   }
 
   return (
-    <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div
-        style={{
-          fontFamily: fonts.display,
-          fontSize: 22,
-          fontWeight: 700,
-          letterSpacing: '0.12em',
-          color: colors.gold,
-          marginBottom: 4,
-        }}
-      >
-        {APP_NAME}
-      </div>
-      <div style={{ fontSize: 15, color: colors.text, marginBottom: 4 }}>
-        Claim your spot on <strong>{vault.name}</strong>
-      </div>
-      <div style={{ fontSize: 12, color: colors.muted, marginBottom: 10 }}>
-        Role: {invite.invited_role} / Network: {vault.network.toUpperCase()}
-      </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <WizardHeader vault={vault} invite={invite} steps={steps} activeIdx={stepIdx} />
 
-      <RolePrimer role={invite.invited_role} />
-      <VaultPreviewBlock invite={invite} vault={vault} members={members} />
+      {stepId === 'welcome' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ fontSize: 16, color: colors.text, lineHeight: 1.55 }}>
+            You have been invited to join <strong>{vault.name}</strong> as{' '}
+            <strong>{invite.invited_role}</strong>.
+          </div>
+          <div style={{ fontSize: 13, color: colors.sub, lineHeight: 1.6 }}>
+            On the next steps you will:
+            <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+              <li>Review the vault&apos;s trust document and governance rules</li>
+              <li>Understand what your role means and what is expected</li>
+              {needsKey && <li>Attach a signing key (or skip and add it later)</li>}
+              <li>Confirm and claim your spot</li>
+            </ul>
+          </div>
+          <div style={{ fontSize: 12, color: colors.muted, marginTop: 4 }}>
+            You can back out anytime -- no commitment until you click <em>Claim</em> on the last step.
+          </div>
+        </div>
+      )}
 
-      <div>
-        <Label>Display name (optional)</Label>
-        <Input
-          value={label}
-          onChange={e => setLabel(e.target.value)}
-          placeholder={invite.invited_label ?? 'e.g. Dad, Sister, Lawyer'}
-        />
-      </div>
+      {stepId === 'vault' && (
+        <VaultPreviewBlock invite={invite} vault={vault} members={members} />
+      )}
 
-      {invite.invited_role !== 'viewer' && (
-        <div>
-          <Label>Signing key</Label>
+      {stepId === 'role' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <RolePrimer role={invite.invited_role} />
+          <div>
+            <Label>Display name (optional)</Label>
+            <Input
+              value={label}
+              onChange={e => setLabel(e.target.value)}
+              placeholder={invite.invited_label ?? 'e.g. Dad, Sister, Lawyer'}
+            />
+            <div style={{ fontSize: 11, color: colors.muted, marginTop: 4 }}>
+              How other members see you on the roster.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {stepId === 'key' && needsKey && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ fontSize: 13, color: colors.sub, lineHeight: 1.55 }}>
+            Attach a signing key so you can sign transactions for this vault.
+            You can change it later from the Members tab.
+          </div>
           <div
             style={{
               display: 'flex',
@@ -293,7 +338,6 @@ function ClaimForm({
               background: colors.input,
               borderRadius: radii.md,
               padding: 4,
-              marginBottom: 10,
             }}
           >
             {(['hardware', 'browser', 'skip'] as const).map(m => (
@@ -303,7 +347,7 @@ function ClaimForm({
                 onClick={() => setMode(m)}
                 style={{
                   flex: 1,
-                  padding: '7px 0',
+                  padding: '8px 0',
                   border: 'none',
                   borderRadius: radii.sm,
                   background: mode === m ? colors.border : 'transparent',
@@ -311,20 +355,15 @@ function ClaimForm({
                   fontSize: 12,
                   fontFamily: fonts.sans,
                   cursor: 'pointer',
-                  textTransform: 'capitalize',
                 }}
               >
-                {m === 'hardware' ? 'Hardware wallet' : m === 'browser' ? 'Browser key' : 'Skip'}
+                {m === 'hardware' ? 'Hardware wallet' : m === 'browser' ? 'Browser key' : "I'll add later"}
               </button>
             ))}
           </div>
 
           {mode === 'hardware' && (
-            <HardwareKeyInput
-              network={vault.network}
-              value={hwKey}
-              onChange={setHwKey}
-            />
+            <HardwareKeyInput network={vault.network} value={hwKey} onChange={setHwKey} />
           )}
 
           {mode === 'browser' && (
@@ -352,30 +391,120 @@ function ClaimForm({
                 ))}
               </select>
               {keys.length === 0 && (
-                <div style={{ fontSize: 12, color: colors.muted, marginTop: 6 }}>
-                  No {vault.network} keys in this browser. Generate one on the Keys tab or switch to the hardware wallet flow.
+                <div style={{ fontSize: 12, color: colors.muted, marginTop: 2 }}>
+                  No {vault.network} keys in this browser. Generate one on the Keys tab first, or switch to hardware wallet / I&apos;ll add later.
                 </div>
               )}
-              <div style={{ fontSize: 11, color: colors.orange, marginTop: 8 }}>
+              <div style={{ fontSize: 11, color: colors.orange }}>
                 Browser keys are for testing only. Use a hardware wallet for real funds.
               </div>
             </>
           )}
 
           {mode === 'skip' && (
-            <div style={{ fontSize: 13, color: colors.muted, lineHeight: 1.5 }}>
-              Claim the slot now. You can add your xpub later from the vault's Members tab before the vault is compiled.
+            <div style={{ fontSize: 13, color: colors.muted, lineHeight: 1.5, padding: 10, background: colors.input, borderRadius: radii.sm }}>
+              No problem -- you will claim your slot now and attach a key later from the vault&apos;s Members tab. The vault cannot be compiled until every slot has a key, so try not to leave it too long.
             </div>
           )}
         </div>
       )}
 
+      {stepId === 'confirm' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ fontSize: 14, color: colors.text, lineHeight: 1.55 }}>
+            Ready to join <strong>{vault.name}</strong>.
+          </div>
+          <div style={{ fontSize: 13, color: colors.sub, lineHeight: 1.7 }}>
+            <div>Role: <strong style={{ color: colors.text }}>{invite.invited_role}</strong></div>
+            <div>Display name: <strong style={{ color: colors.text }}>{label.trim() || invite.invited_label || '(none)'}</strong></div>
+            {needsKey && (
+              <div>
+                Key: <strong style={{ color: colors.text }}>
+                  {mode === 'skip' && 'will add later'}
+                  {mode === 'browser' && (selectedKeyId
+                    ? keys.find(k => k.keyId === selectedKeyId)?.label
+                    : 'none selected')}
+                  {mode === 'hardware' && (hwKey ? `hw wallet ${hwKey.fingerprint}` : 'none')}
+                </strong>
+              </div>
+            )}
+            <div>Network: <strong style={{ color: colors.text }}>{vault.network.toUpperCase()}</strong></div>
+          </div>
+          <div style={{ fontSize: 12, color: colors.muted, marginTop: 4 }}>
+            Clicking Claim links your account to this slot on the vault. The vault will show up on your Dashboard.
+          </div>
+        </div>
+      )}
+
       {err && <p style={{ color: colors.red, fontSize: 13, margin: 0 }}>{err}</p>}
 
-      <Button type="submit" disabled={busy}>
-        {busy ? 'Claiming...' : 'Claim invite'}
-      </Button>
-    </form>
+      <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+        {!isFirst && (
+          <Button type="button" variant="ghost" onClick={back} disabled={busy}>
+            Back
+          </Button>
+        )}
+        {!isLast && (
+          <Button type="button" onClick={next} style={{ marginLeft: 'auto' }}>
+            Continue
+          </Button>
+        )}
+        {isLast && (
+          <Button type="button" onClick={submit} disabled={busy} style={{ marginLeft: 'auto' }}>
+            {busy ? 'Claiming...' : 'Claim my spot'}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// // -- Wizard header: progress dots + title
+function WizardHeader({
+  vault,
+  invite,
+  steps,
+  activeIdx,
+}: {
+  vault: VaultInfo;
+  invite: InviteInfo;
+  steps: { id: string; title: string }[];
+  activeIdx: number;
+}) {
+  return (
+    <div>
+      <div
+        style={{
+          fontFamily: fonts.display,
+          fontSize: 22,
+          fontWeight: 700,
+          letterSpacing: '0.12em',
+          color: colors.gold,
+          marginBottom: 2,
+        }}
+      >
+        {APP_NAME}
+      </div>
+      <div style={{ fontSize: 14, color: colors.text, marginBottom: 2 }}>
+        Join <strong>{vault.name}</strong> as {invite.invited_role}
+      </div>
+      <div style={{ fontSize: 11, color: colors.muted, marginBottom: 12 }}>
+        Step {activeIdx + 1} of {steps.length} - {steps[activeIdx].title}
+      </div>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+        {steps.map((s, i) => (
+          <div
+            key={s.id}
+            style={{
+              flex: 1,
+              height: 3,
+              borderRadius: 2,
+              background: i <= activeIdx ? colors.gold : colors.border,
+            }}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 
