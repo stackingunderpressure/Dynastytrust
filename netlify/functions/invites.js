@@ -71,7 +71,7 @@ export async function handler(event) {
 
     const { vault_id, invited_role } = body;
     if (!vault_id) return json(400, { error: "Missing: vault_id" });
-    if (!["founder", "heir", "viewer"].includes(invited_role)) {
+    if (!["founder", "heir", "protector", "beneficiary", "viewer"].includes(invited_role)) {
       return json(400, { error: "Invalid invited_role" });
     }
 

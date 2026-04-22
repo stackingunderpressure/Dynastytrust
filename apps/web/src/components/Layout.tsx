@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 import { APP_NAME, NAV_LINKS } from '../config';
+import { supabase } from '../lib/supabase';
 import { colors, fonts, radii } from '../theme';
 
 interface LayoutProps {
@@ -10,6 +11,29 @@ interface LayoutProps {
 }
 
 export function Layout({ activeNavId, onSignOut, children }: LayoutProps) {
+  // Pull the signed-in user's email once and derive a friendly name
+  // (local part before @). Supabase's onAuthStateChange keeps it
+  // fresh across sign-in / sign-out in the same tab.
+  const [displayName, setDisplayName] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const nameFromEmail = (email: string | undefined | null): string | null => {
+      if (!email) return null;
+      const local = email.split('@')[0];
+      // Replace common separators so "jane.doe" shows as "jane doe",
+      // then keep it lowercase -- users can't set a display name yet.
+      return local.replace(/[._-]+/g, ' ');
+    };
+    supabase.auth.getSession().then(({ data }) => {
+      if (cancelled) return;
+      setDisplayName(nameFromEmail(data.session?.user?.email));
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => {
+      if (!cancelled) setDisplayName(nameFromEmail(s?.user?.email));
+    });
+    return () => { cancelled = true; subscription.unsubscribe(); };
+  }, []);
+
   return (
     <div style={{ minHeight: '100vh', fontFamily: fonts.sans }}>
       <header className="dt-shell-header">
@@ -26,21 +50,47 @@ export function Layout({ activeNavId, onSignOut, children }: LayoutProps) {
           >
             {APP_NAME}
           </span>
-          <button
-            onClick={onSignOut}
+          <div
             style={{
-              background: 'none',
-              border: `1px solid ${colors.border}`,
-              borderRadius: radii.md,
-              color: colors.muted,
-              fontSize: 13,
-              padding: '6px 14px',
-              cursor: 'pointer',
-              fontFamily: fonts.sans,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              minWidth: 0,
+              flex: '1 1 auto',
+              justifyContent: 'flex-end',
             }}
           >
-            Sign out
-          </button>
+            {displayName && (
+              <span
+                title={displayName}
+                style={{
+                  fontSize: 13,
+                  color: colors.sub,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  maxWidth: 220,
+                }}
+              >
+                Hi, <span style={{ color: colors.text }}>{displayName}</span>
+              </span>
+            )}
+            <button
+              onClick={onSignOut}
+              style={{
+                background: 'none',
+                border: `1px solid ${colors.border}`,
+                borderRadius: radii.md,
+                color: colors.muted,
+                fontSize: 13,
+                padding: '6px 14px',
+                cursor: 'pointer',
+                fontFamily: fonts.sans,
+              }}
+            >
+              Sign out
+            </button>
+          </div>
         </div>
         <nav className="dt-header-nav">
           {NAV_LINKS.map(link => {
