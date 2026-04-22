@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { supabase, type Session } from '../lib/supabase';
-import { api } from '../lib/api';
+import { api, type TrustDoc, type VaultRole } from '../lib/api';
 import { listKeys, type LocalKey } from '../lib/keystore';
 import { APP_NAME } from '../config';
 import { colors, fonts, radii, space } from '../theme';
@@ -12,10 +12,12 @@ import { QrScanner } from '../components/QrScanner';
 import { pubkeyFromXpub } from '../lib/xpub';
 import Auth from './Auth';
 
+type InvitableRole = Exclude<VaultRole, 'owner'>;
+
 interface InviteInfo {
   id: string;
   vault_id: string;
-  invited_role: 'founder' | 'heir' | 'viewer';
+  invited_role: InvitableRole;
   invited_label: string | null;
   expires_at: string;
 }
@@ -24,7 +26,34 @@ interface VaultInfo {
   id: string;
   name: string;
   network: 'testnet' | 'signet' | 'bitcoin';
+  status: string;
+  founder_quorum: number;
+  heir_quorum: number;
+  recovery_after: number;
+  inheritance_after: number;
+  protector_after: number | null;
+  consent_quorum: number | null;
+  trust_doc: TrustDoc;
+  founder_count: number;
+  heir_count: number;
+  protector_count: number;
+  consent_count: number;
+  planned_founder_count: number | null;
+  planned_heir_count: number | null;
 }
+
+interface MemberPreview {
+  id: string;
+  role: VaultRole;
+  label: string | null;
+  status: string;
+  created_at: string;
+}
+
+// Roles where the caller does NOT need to attach a signing key. For
+// these we default to "skip" so the claim form doesn't block them
+// on a decision that doesn't apply.
+const NO_KEY_ROLES = new Set<InvitableRole>(['viewer', 'beneficiary']);
 
 // // -- Claim page
 // Renders the invite details, then either an inline <Auth /> screen
@@ -37,6 +66,7 @@ export default function InviteClaim() {
   const [sessionLoading, setSessionLoading] = useState(true);
   const [invite, setInvite] = useState<InviteInfo | null>(null);
   const [vault, setVault] = useState<VaultInfo | null>(null);
+  const [members, setMembers] = useState<MemberPreview[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -60,6 +90,7 @@ export default function InviteClaim() {
       .then(res => {
         setInvite(res.invite);
         setVault(res.vault ?? null);
+        setMembers(res.members ?? []);
       })
       .catch(e => setError(e instanceof Error ? e.message : 'Failed to load invite'))
       .finally(() => setLoading(false));
@@ -70,7 +101,7 @@ export default function InviteClaim() {
   if (error) return <CenteredCard><ErrorBody message={error} /></CenteredCard>;
   if (!invite || !vault) return <CenteredCard><ErrorBody message="Invite not found" /></CenteredCard>;
 
-  // Not signed in: show Auth inline with a banner explaining why.
+  // Not signed in: show Auth inline with a banner + vault preview.
   if (!session) {
     return (
       <div
@@ -82,6 +113,7 @@ export default function InviteClaim() {
         }}
       >
         <InviteBanner invite={invite} vault={vault} />
+        <VaultPreviewBlock invite={invite} vault={vault} members={members} />
         <Auth redirectTo={typeof window !== 'undefined' ? window.location.href : undefined} />
       </div>
     );
@@ -90,7 +122,7 @@ export default function InviteClaim() {
   // Signed in: show the claim form.
   return (
     <CenteredCard>
-      <ClaimForm token={token!} invite={invite} vault={vault} />
+      <ClaimForm token={token!} invite={invite} vault={vault} members={members} />
     </CenteredCard>
   );
 }
@@ -142,15 +174,22 @@ function ClaimForm({
   token,
   invite,
   vault,
+  members,
 }: {
   token: string;
   invite: InviteInfo;
   vault: VaultInfo;
+  members: MemberPreview[];
 }) {
   const navigate = useNavigate();
   const toast = useToast();
   const [label, setLabel] = useState(invite.invited_label ?? '');
-  const [mode, setMode] = useState<'hardware' | 'browser' | 'skip'>('hardware');
+  // Default to skip for roles that never sign (viewer, beneficiary).
+  // Everyone else defaults to browser mode, which works on any box
+  // whether or not the user has a hardware wallet handy.
+  const [mode, setMode] = useState<'hardware' | 'browser' | 'skip'>(
+    NO_KEY_ROLES.has(invite.invited_role) ? 'skip' : 'browser',
+  );
   const [selectedKeyId, setSelectedKeyId] = useState<string>('');
   const [hwKey, setHwKey] = useState<HwKeyDraft | null>(null);
   const [busy, setBusy] = useState(false);
@@ -228,9 +267,12 @@ function ClaimForm({
       <div style={{ fontSize: 15, color: colors.text, marginBottom: 4 }}>
         Claim your spot on <strong>{vault.name}</strong>
       </div>
-      <div style={{ fontSize: 12, color: colors.muted, marginBottom: 14 }}>
+      <div style={{ fontSize: 12, color: colors.muted, marginBottom: 10 }}>
         Role: {invite.invited_role} / Network: {vault.network.toUpperCase()}
       </div>
+
+      <RolePrimer role={invite.invited_role} />
+      <VaultPreviewBlock invite={invite} vault={vault} members={members} />
 
       <div>
         <Label>Display name (optional)</Label>
@@ -386,6 +428,208 @@ function ErrorBody({ message }: { message: string }) {
         Can't use this invite
       </div>
       <div style={{ fontSize: 14, color: colors.sub }}>{message}</div>
+    </div>
+  );
+}
+
+const ROLE_PRIMERS: Record<InvitableRole, { title: string; body: string }> = {
+  founder: {
+    title: 'You are joining as a Trustee.',
+    body:
+      "Trustees sign spends on behalf of the vault. You need a signing " +
+      "key; once the vault is compiled your signature, combined with " +
+      "other trustees up to the quorum, authorizes transactions. You " +
+      "can attach a key now or later from the vault's Members tab.",
+  },
+  heir: {
+    title: 'You are joining as a Successor.',
+    body:
+      "Successors inherit the vault after its inheritance timelock " +
+      "elapses. You need a signing key, but you will not use it until " +
+      "the inheritance path unlocks (often years from now). Back it up " +
+      "carefully. You can attach a key now or later.",
+  },
+  protector: {
+    title: 'You are joining as a Protector.',
+    body:
+      "Protectors can intervene via a time-locked emergency path if " +
+      "the trustees become unable or unwilling to act. You need a " +
+      "signing key. The protector role carries fiduciary weight in many " +
+      "jurisdictions -- accept only if you understand the responsibility.",
+  },
+  beneficiary: {
+    title: 'You are joining as a Beneficiary.',
+    body:
+      "Beneficiaries receive distributions from the vault according to " +
+      "the trust document. No signing key is required. You can review " +
+      "the trust doc below and, if it includes a consent quorum for " +
+      "your slot, attach a key later to co-sign day-to-day spends.",
+  },
+  viewer: {
+    title: 'You are joining as an Observer.',
+    body:
+      "Observers have read-only access to the vault and its governance " +
+      "log. No signing key is required -- click through to confirm.",
+  },
+};
+
+function RolePrimer({ role }: { role: InvitableRole }) {
+  const p = ROLE_PRIMERS[role];
+  if (!p) return null;
+  return (
+    <div
+      style={{
+        background: colors.input,
+        border: `1px solid ${colors.border}`,
+        borderLeft: `3px solid ${colors.gold}`,
+        borderRadius: radii.md,
+        padding: '12px 14px',
+        marginBottom: 12,
+      }}
+    >
+      <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+        {p.title}
+      </div>
+      <div style={{ fontSize: 13, color: colors.sub, lineHeight: 1.55 }}>{p.body}</div>
+    </div>
+  );
+}
+
+function blocksToApproxMonths(blocks: number): string {
+  if (!blocks || blocks <= 0) return 'unset';
+  const days = Math.round((blocks * 10) / 60 / 24);
+  if (days < 30) return `~${days} days`;
+  if (days < 365) return `~${Math.round(days / 30)} months`;
+  return `~${(days / 365).toFixed(1)} years`;
+}
+
+function VaultPreviewBlock({
+  invite,
+  vault,
+  members,
+}: {
+  invite: InviteInfo;
+  vault: VaultInfo;
+  members: MemberPreview[];
+}) {
+  const trust = vault.trust_doc || {};
+  const hasTrustDoc =
+    !!trust.purpose ||
+    !!trust.distribution_rules ||
+    !!trust.succession_notes ||
+    (trust.beneficiaries && trust.beneficiaries.length > 0);
+  const activeMembers = members.filter(m => m.status !== 'removed');
+  const plannedF = vault.planned_founder_count ?? vault.founder_count;
+  const plannedH = vault.planned_heir_count ?? vault.heir_count;
+
+  return (
+    <div
+      style={{
+        background: colors.surface,
+        border: `1px solid ${colors.border}`,
+        borderRadius: radii.md,
+        padding: '14px 16px',
+        marginBottom: 12,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: '0.1em',
+          color: colors.gold,
+          textTransform: 'uppercase',
+          marginBottom: 10,
+        }}
+      >
+        What you are joining
+      </div>
+
+      {hasTrustDoc ? (
+        <div style={{ marginBottom: 12 }}>
+          {trust.purpose && (
+            <PreviewField label="Purpose" value={trust.purpose} />
+          )}
+          {trust.beneficiaries && trust.beneficiaries.length > 0 && (
+            <PreviewField
+              label="Beneficiaries"
+              value={trust.beneficiaries
+                .map(b => b.name + (b.relation ? ` (${b.relation})` : ''))
+                .join(', ')}
+            />
+          )}
+          {trust.distribution_rules && (
+            <PreviewField label="Distribution rules" value={trust.distribution_rules} />
+          )}
+          {trust.succession_notes && (
+            <PreviewField label="Succession" value={trust.succession_notes} />
+          )}
+        </div>
+      ) : (
+        <div style={{ fontSize: 12, color: colors.muted, lineHeight: 1.5, marginBottom: 10 }}>
+          No trust document has been drafted yet. Ask the inviter to fill
+          it in before you commit to the vault if the governance rules
+          matter to you.
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, marginBottom: 10 }}>
+        <Fact label="Trustees" value={`${vault.founder_quorum} of ${plannedF || '?'}`} />
+        {plannedH > 0 && (
+          <Fact label="Successors" value={`${vault.heir_quorum} of ${plannedH}`} />
+        )}
+        <Fact label="Recovery unlocks" value={blocksToApproxMonths(vault.recovery_after)} />
+        {vault.inheritance_after > 0 && (
+          <Fact label="Inheritance unlocks" value={blocksToApproxMonths(vault.inheritance_after)} />
+        )}
+        {vault.protector_after && vault.protector_after > 0 && (
+          <Fact label="Protector unlocks" value={blocksToApproxMonths(vault.protector_after)} />
+        )}
+        {vault.consent_quorum != null && (
+          <Fact label="Consent quorum" value={`${vault.consent_quorum} beneficiary sig(s)`} />
+        )}
+      </div>
+
+      {activeMembers.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 11, color: colors.muted, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            Members already on this vault
+          </div>
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {activeMembers.map(m => (
+              <li key={m.id} style={{ fontSize: 12, color: colors.text }}>
+                {m.label ?? '(unlabeled)'} <span style={{ color: colors.muted }}>-- {m.role}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div style={{ marginTop: 10, fontSize: 11, color: colors.muted, fontStyle: 'italic' }}>
+        You are being invited as {invite.invited_role}. If the vault or any
+        of the numbers above do not match what the inviter told you, stop
+        and confirm before accepting.
+      </div>
+    </div>
+  );
+}
+
+function PreviewField({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', color: colors.muted, textTransform: 'uppercase', marginBottom: 2 }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 13, color: colors.text, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{value}</div>
+    </div>
+  );
+}
+
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ background: colors.input, borderRadius: radii.sm, padding: '6px 10px' }}>
+      <div style={{ fontSize: 10, color: colors.muted, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{label}</div>
+      <div style={{ fontSize: 12, color: colors.text, marginTop: 2 }}>{value}</div>
     </div>
   );
 }
