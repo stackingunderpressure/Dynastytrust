@@ -34,6 +34,7 @@ import {
   deathDeclarationHash,
   descriptorAttestationHash,
   verifyAttestation,
+  verifyAttestationRecord,
 } from '../lib/attest';
 import { useToast } from './toast';
 import { useRealtimeRefresh } from '../lib/realtime';
@@ -62,6 +63,24 @@ function attestNetwork(n: Vault['network']): 'testnet' | 'signet' | 'mainnet' {
   if (n === 'bitcoin') return 'mainnet';
   if (n === 'signet') return 'signet';
   return 'testnet';
+}
+
+/**
+ * True only if an attestation is genuine: the Schnorr signature
+ * verifies AND its unsigned target_data still hashes to the signed
+ * target_hash. Every threshold counter and governance grouping
+ * below filters through this -- a row that fails it must not count
+ * toward "X of N attested" or be displayed as a real attestation.
+ */
+function isAuthentic(a: VaultAttestation, vaultId: string): boolean {
+  return verifyAttestationRecord({
+    attestationType: a.attestation_type,
+    targetHash: a.target_hash,
+    targetData: a.target_data,
+    signature: a.signature,
+    pubkey: a.pubkey,
+    vaultId,
+  });
 }
 
 export function TrustTab({ vault }: { vault: Vault }) {
@@ -306,8 +325,12 @@ function DescriptorPanel({
     return descriptorAttestationHash(vault.descriptor!, vault.address!);
   }, [vault.descriptor, vault.address, hasDescriptor]);
 
-  const sigsForCurrent = attestations.filter(
-    a => a.attestation_type === 'descriptor' && a.target_hash === currentHash,
+  // Only signature-verified attestations count toward the threshold.
+  const verifiedDescriptorSigs = attestations.filter(
+    a => a.attestation_type === 'descriptor' && isAuthentic(a, vault.id),
+  );
+  const sigsForCurrent = verifiedDescriptorSigs.filter(
+    a => a.target_hash === currentHash,
   );
   const totalMembers = members.filter(m => m.status !== 'removed').length;
   const iHaveSigned = !!me && sigsForCurrent.some(a => a.user_id === me.user_id);
@@ -316,7 +339,7 @@ function DescriptorPanel({
   // doesn't match the current digest) indicate either a past version
   // of the descriptor or -- alarmingly -- that the current address has
   // been altered since members last attested.
-  const allDescriptorSigs = attestations.filter(a => a.attestation_type === 'descriptor');
+  const allDescriptorSigs = verifiedDescriptorSigs;
   const staleCount = allDescriptorSigs.length - sigsForCurrent.length;
 
   async function attest() {
@@ -430,7 +453,10 @@ function TrustDocPanel({
 
   const currentHash = useMemo(() => trustDocHash(vault.trust_doc ?? {}), [vault.trust_doc]);
   const sigsForCurrent = attestations.filter(
-    a => a.attestation_type === 'trust_doc' && a.target_hash === currentHash,
+    a =>
+      a.attestation_type === 'trust_doc' &&
+      a.target_hash === currentHash &&
+      isAuthentic(a, vault.id),
   );
   const totalMembers = members.filter(m => m.status !== 'removed').length;
   const iHaveSigned = !!me && sigsForCurrent.some(a => a.user_id === me.user_id);
@@ -535,7 +561,7 @@ function ProofOfLifePanel({
   const iAmFounder = !!me && (me.role === 'owner' || me.role === 'founder');
 
   const polSigs = attestations
-    .filter(a => a.attestation_type === 'proof_of_life')
+    .filter(a => a.attestation_type === 'proof_of_life' && isAuthentic(a, vault.id))
     .sort((a, b) => b.signed_at.localeCompare(a.signed_at));
 
   // Latest check-in per founder.
@@ -664,8 +690,12 @@ function DeathDeclarationPanel({
   const [busy, setBusy] = useState(false);
 
   // A "declaration" = unique target_hash. Group sigs by hash to show
-  // "N witnesses have signed this declaration".
-  const sigs = attestations.filter(a => a.attestation_type === 'death_declaration');
+  // "N witnesses have signed this declaration". Only authentic rows
+  // count: isAuthentic also binds target_data.subject_user_id to the
+  // signed target_hash, so the subject shown below cannot be swapped.
+  const sigs = attestations.filter(
+    a => a.attestation_type === 'death_declaration' && isAuthentic(a, vault.id),
+  );
   const byHash = new Map<string, VaultAttestation[]>();
   for (const a of sigs) {
     const arr = byHash.get(a.target_hash) ?? [];
