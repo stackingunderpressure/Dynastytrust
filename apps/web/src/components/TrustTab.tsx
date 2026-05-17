@@ -34,7 +34,7 @@ import {
   deathDeclarationHash,
   descriptorAttestationHash,
   verifyAttestation,
-  verifyAttestationRecord,
+  authorizedAttestations,
 } from '../lib/attest';
 import { useToast } from './toast';
 import { useRealtimeRefresh } from '../lib/realtime';
@@ -66,21 +66,49 @@ function attestNetwork(n: Vault['network']): 'testnet' | 'signet' | 'mainnet' {
 }
 
 /**
- * True only if an attestation is genuine: the Schnorr signature
- * verifies AND its unsigned target_data still hashes to the signed
- * target_hash. Every threshold counter and governance grouping
- * below filters through this -- a row that fails it must not count
- * toward "X of N attested" or be displayed as a real attestation.
+ * x-only pubkeys of the vault's authorized signers -- active members
+ * whose signing key is registered. `roles`, when given, narrows to
+ * specific member roles (founders, for proof-of-life).
+ *
+ * A governance counter must gate on this set. A valid signature only
+ * proves possession of *a* key, and anyone can mint a keypair; the
+ * authorized-pubkey set is what ties a counted attestation to a real
+ * vault member or designated witness.
  */
-function isAuthentic(a: VaultAttestation, vaultId: string): boolean {
-  return verifyAttestationRecord({
-    attestationType: a.attestation_type,
-    targetHash: a.target_hash,
-    targetData: a.target_data,
-    signature: a.signature,
-    pubkey: a.pubkey,
-    vaultId,
-  });
+function authorizedSignerKeys(
+  members: VaultMember[],
+  roles?: VaultMember['role'][],
+): Set<string> {
+  const keys = new Set<string>();
+  for (const m of members) {
+    if (m.status === 'removed') continue;
+    if (roles && !roles.includes(m.role)) continue;
+    if (m.pubkey) keys.add(m.pubkey);
+  }
+  return keys;
+}
+
+/** Keep at most one attestation per signer pubkey (first wins). */
+function dedupeBySigner(rows: VaultAttestation[]): VaultAttestation[] {
+  const seen = new Set<string>();
+  const out: VaultAttestation[] = [];
+  for (const a of rows) {
+    if (seen.has(a.pubkey)) continue;
+    seen.add(a.pubkey);
+    out.push(a);
+  }
+  return out;
+}
+
+/**
+ * The check-in timestamp the founder actually SIGNED -- it is folded
+ * into target_hash via proofOfLifeHash, so for an authentic record
+ * it cannot be forged. The server-set `signed_at` column is NOT
+ * signed and must not be the authoritative "last heard from".
+ */
+function signedCheckInTime(a: VaultAttestation): string {
+  const t = a.target_data.signed_at;
+  return typeof t === 'string' ? t : a.signed_at;
 }
 
 export function TrustTab({ vault }: { vault: Vault }) {
@@ -325,12 +353,16 @@ function DescriptorPanel({
     return descriptorAttestationHash(vault.descriptor!, vault.address!);
   }, [vault.descriptor, vault.address, hasDescriptor]);
 
-  // Only signature-verified attestations count toward the threshold.
-  const verifiedDescriptorSigs = attestations.filter(
-    a => a.attestation_type === 'descriptor' && isAuthentic(a, vault.id),
+  // Count toward the threshold only attestations that are authentic
+  // (verifyAttestationRecord) AND signed by an authorized member key,
+  // each authorized signer at most once.
+  const descriptorSigs = authorizedAttestations(
+    attestations.filter(a => a.attestation_type === 'descriptor'),
+    authorizedSignerKeys(members),
+    vault.id,
   );
-  const sigsForCurrent = verifiedDescriptorSigs.filter(
-    a => a.target_hash === currentHash,
+  const sigsForCurrent = dedupeBySigner(
+    descriptorSigs.filter(a => a.target_hash === currentHash),
   );
   const totalMembers = members.filter(m => m.status !== 'removed').length;
   const iHaveSigned = !!me && sigsForCurrent.some(a => a.user_id === me.user_id);
@@ -339,7 +371,7 @@ function DescriptorPanel({
   // doesn't match the current digest) indicate either a past version
   // of the descriptor or -- alarmingly -- that the current address has
   // been altered since members last attested.
-  const allDescriptorSigs = verifiedDescriptorSigs;
+  const allDescriptorSigs = dedupeBySigner(descriptorSigs);
   const staleCount = allDescriptorSigs.length - sigsForCurrent.length;
 
   async function attest() {
@@ -452,11 +484,14 @@ function TrustDocPanel({
   const [busy, setBusy] = useState(false);
 
   const currentHash = useMemo(() => trustDocHash(vault.trust_doc ?? {}), [vault.trust_doc]);
-  const sigsForCurrent = attestations.filter(
-    a =>
-      a.attestation_type === 'trust_doc' &&
-      a.target_hash === currentHash &&
-      isAuthentic(a, vault.id),
+  const sigsForCurrent = dedupeBySigner(
+    authorizedAttestations(
+      attestations.filter(
+        a => a.attestation_type === 'trust_doc' && a.target_hash === currentHash,
+      ),
+      authorizedSignerKeys(members),
+      vault.id,
+    ),
   );
   const totalMembers = members.filter(m => m.status !== 'removed').length;
   const iHaveSigned = !!me && sigsForCurrent.some(a => a.user_id === me.user_id);
@@ -560,9 +595,11 @@ function ProofOfLifePanel({
   );
   const iAmFounder = !!me && (me.role === 'owner' || me.role === 'founder');
 
-  const polSigs = attestations
-    .filter(a => a.attestation_type === 'proof_of_life' && isAuthentic(a, vault.id))
-    .sort((a, b) => b.signed_at.localeCompare(a.signed_at));
+  const polSigs = authorizedAttestations(
+    attestations.filter(a => a.attestation_type === 'proof_of_life'),
+    authorizedSignerKeys(members, ['owner', 'founder']),
+    vault.id,
+  ).sort((a, b) => signedCheckInTime(b).localeCompare(signedCheckInTime(a)));
 
   // Latest check-in per founder.
   const latestByFounder = new Map<string, VaultAttestation>();
@@ -628,7 +665,9 @@ function ProofOfLifePanel({
               >
                 <span>{f.label || '(unlabeled founder)'}</span>
                 <span style={{ color: latest ? colors.green : colors.orange }}>
-                  {latest ? 'last heard from ' + relativeTime(latest.signed_at) : 'no check-in yet'}
+                  {latest
+                    ? 'last heard from ' + relativeTime(signedCheckInTime(latest))
+                    : 'no check-in yet'}
                 </span>
               </div>
             );
@@ -690,15 +729,20 @@ function DeathDeclarationPanel({
   const [busy, setBusy] = useState(false);
 
   // A "declaration" = unique target_hash. Group sigs by hash to show
-  // "N witnesses have signed this declaration". Only authentic rows
-  // count: isAuthentic also binds target_data.subject_user_id to the
-  // signed target_hash, so the subject shown below cannot be swapped.
-  const sigs = attestations.filter(
-    a => a.attestation_type === 'death_declaration' && isAuthentic(a, vault.id),
+  // "N witnesses have signed this declaration". Counted rows must be
+  // authentic (signature valid + target_data bound to target_hash,
+  // so the subject shown below cannot be swapped) AND signed by an
+  // authorized member key -- and each witness counts at most once
+  // per declaration, so a forged keypair cannot inflate the count.
+  const sigs = authorizedAttestations(
+    attestations.filter(a => a.attestation_type === 'death_declaration'),
+    authorizedSignerKeys(members),
+    vault.id,
   );
   const byHash = new Map<string, VaultAttestation[]>();
   for (const a of sigs) {
     const arr = byHash.get(a.target_hash) ?? [];
+    if (arr.some(x => x.pubkey === a.pubkey)) continue;
     arr.push(a);
     byHash.set(a.target_hash, arr);
   }

@@ -15,6 +15,7 @@ import {
   verifyAttestationRecord,
   recomputeTargetHash,
   deathDeclarationHash,
+  authorizedAttestations,
 } from '../apps/web/src/lib/attest.ts';
 
 const mnemonic =
@@ -122,6 +123,73 @@ assert.equal(
   }),
   false,
   'a tampered target_hash must fail verification',
+);
+
+// --- P0: the authorized-signer gate --------------------------------
+// verifyAttestationRecord proves a record is internally consistent
+// and signed. It does NOT prove the signer is AUTHORIZED. A valid
+// signature is cheap -- an attacker mints a fresh keypair and signs a
+// genuine-looking attestation. authorizedAttestations() is the gate
+// that ties a counted attestation to a pre-registered signer.
+
+const attackerMnemonic =
+  'legal winner thank year wave sausage worth useful legal winner thank yellow';
+const attacker = signAttestation({
+  mnemonic: attackerMnemonic,
+  derivationPath,
+  network: 'testnet',
+  attestationType: 'death_declaration',
+  targetHash,
+});
+assert.notEqual(attacker.pubkey, pubkey, 'attacker key differs from the member key');
+
+// The attacker's attestation passes verifyAttestationRecord cleanly
+// -- which is exactly why the authorized-set gate is required.
+assert.equal(
+  verifyAttestationRecord({
+    attestationType: 'death_declaration',
+    targetHash,
+    targetData,
+    signature: attacker.signature,
+    pubkey: attacker.pubkey,
+    vaultId,
+  }),
+  true,
+  'attacker attestation is internally valid (signature gate alone is not enough)',
+);
+
+const rows = [
+  {
+    attestation_type: 'death_declaration',
+    target_hash: targetHash,
+    target_data: targetData,
+    signature: attacker.signature,
+    pubkey: attacker.pubkey,
+  },
+  {
+    attestation_type: 'death_declaration',
+    target_hash: targetHash,
+    target_data: targetData,
+    signature,
+    pubkey,
+  },
+];
+
+// Only the member's pubkey is authorized for this vault.
+const counted = authorizedAttestations(rows, new Set([pubkey]), vaultId);
+assert.equal(counted.length, 1, 'exactly one authorized signer counts');
+assert.equal(counted[0].pubkey, pubkey, 'the counted row is the authorized member');
+assert.ok(
+  !counted.some((r) => r.pubkey === attacker.pubkey),
+  'an attestation from an unauthorized fresh keypair must NOT count',
+);
+
+// With nobody authorized, the counter is zero -- even though both
+// signatures are cryptographically valid.
+assert.equal(
+  authorizedAttestations(rows, new Set(), vaultId).length,
+  0,
+  'no authorized signers => zero count regardless of signature validity',
 );
 
 console.log('attestation tests passed');

@@ -249,3 +249,67 @@ export function verifyAttestationRecord(opts: {
   );
   return expected !== null && expected === opts.targetHash;
 }
+
+/**
+ * The persisted shape of an attestation, as the governance UI
+ * receives it. Field names are snake_case so this lines up
+ * structurally with a server `vault_attestations` row.
+ */
+export interface AttestationRow {
+  attestation_type: AttestationType;
+  target_hash: string;
+  target_data: Record<string, unknown>;
+  signature: string;
+  pubkey: string;
+}
+
+/**
+ * Reduce attestation rows to those that may count toward a
+ * governance threshold.
+ *
+ * A row survives only if BOTH hold:
+ *   1. verifyAttestationRecord passes -- the signature is valid and
+ *      target_data still hashes to the signed target_hash.
+ *   2. its signer pubkey is in `authorizedPubkeys` -- the vault's
+ *      pre-registered members / designated witnesses.
+ *
+ * Condition 2 is NOT optional. verifyAttestationRecord proves a
+ * record is internally consistent and SIGNED, but a signature is
+ * cheap: anyone can mint a fresh keypair and sign a genuine-looking
+ * attestation pointing at any target_hash. Without the authorized-
+ * pubkey gate, a "distinct valid signatures" counter is inflatable
+ * by an attacker who simply generates keys. The gate is what ties a
+ * counted attestation to a real, authorized signer.
+ *
+ * Rows are returned in input order; de-duplication per signer is
+ * left to the caller (proof-of-life keeps every check-in, the
+ * quorum counters keep one per signer).
+ */
+export function authorizedAttestations<T extends AttestationRow>(
+  rows: readonly T[],
+  authorizedPubkeys: Iterable<string>,
+  vaultId: string,
+): T[] {
+  const allowed =
+    authorizedPubkeys instanceof Set
+      ? (authorizedPubkeys as Set<string>)
+      : new Set(authorizedPubkeys);
+  const kept: T[] = [];
+  for (const row of rows) {
+    if (!allowed.has(row.pubkey)) continue;
+    if (
+      !verifyAttestationRecord({
+        attestationType: row.attestation_type,
+        targetHash: row.target_hash,
+        targetData: row.target_data,
+        signature: row.signature,
+        pubkey: row.pubkey,
+        vaultId,
+      })
+    ) {
+      continue;
+    }
+    kept.push(row);
+  }
+  return kept;
+}
