@@ -160,3 +160,92 @@ export function verifyAttestation(opts: {
     return false;
   }
 }
+
+/**
+ * Recompute the target_hash a stored attestation should carry, from
+ * its own (unsigned) target_data.
+ *
+ * The Schnorr signature commits only to (attestation_type,
+ * target_hash) -- see buildDigest. target_data is persisted next to
+ * the row but is NOT in the digest, so on its own it is forgeable in
+ * transit. target_hash, however, IS in the digest, and it is derived
+ * from the very facts target_data describes. Recomputing the hash
+ * from target_data and comparing it to the signed target_hash makes
+ * target_data tamper-evident: an attacker who edits target_data
+ * cannot also change target_hash without invalidating the signature.
+ *
+ * Returns null when target_data lacks the fields required for its
+ * type (treated as a verification failure by callers).
+ */
+export function recomputeTargetHash(
+  attestationType: AttestationType,
+  targetData: Record<string, unknown>,
+  vaultId: string,
+): string | null {
+  const asString = (v: unknown): string | null =>
+    typeof v === 'string' ? v : null;
+
+  switch (attestationType) {
+    case 'trust_doc':
+      if (!('trust_doc_snapshot' in targetData)) return null;
+      return trustDocHash(targetData.trust_doc_snapshot);
+    case 'descriptor': {
+      const descriptor = asString(targetData.descriptor);
+      const address = asString(targetData.address);
+      if (descriptor === null || address === null) return null;
+      return descriptorAttestationHash(descriptor, address);
+    }
+    case 'proof_of_life': {
+      const signedAt = asString(targetData.signed_at);
+      if (signedAt === null) return null;
+      return proofOfLifeHash(vaultId, signedAt, asString(targetData.note) ?? '');
+    }
+    case 'death_declaration': {
+      const subject = asString(targetData.subject_user_id);
+      const effectiveDate = asString(targetData.effective_date);
+      if (subject === null || effectiveDate === null) return null;
+      return deathDeclarationHash(vaultId, subject, effectiveDate);
+    }
+  }
+  return null;
+}
+
+/**
+ * Full verification of a stored attestation record.
+ *
+ * verifyAttestation() alone proves only that the signature commits
+ * to (attestation_type, target_hash). A governance decision that
+ * also reads target_data -- the death-declaration subject -- or that
+ * counts attestations toward a threshold ("X of N attested") must
+ * additionally confirm target_data was not tampered after signing.
+ * This binds the two: the signature must verify AND target_data must
+ * still hash to the signed target_hash.
+ *
+ * Use this, not verifyAttestation(), wherever an attestation feeds a
+ * threshold or governance decision.
+ */
+export function verifyAttestationRecord(opts: {
+  attestationType: AttestationType;
+  targetHash: string;
+  targetData: Record<string, unknown>;
+  signature: string;
+  pubkey: string;
+  vaultId: string;
+}): boolean {
+  if (
+    !verifyAttestation({
+      attestationType: opts.attestationType,
+      targetHash: opts.targetHash,
+      signature: opts.signature,
+      pubkey: opts.pubkey,
+    })
+  ) {
+    return false;
+  }
+  const expected = recomputeTargetHash(
+    opts.attestationType,
+    opts.targetData,
+    opts.vaultId,
+  );
+  return expected !== null && expected === opts.targetHash;
+}
