@@ -10,17 +10,8 @@
 
 import { secp256k1, schnorr } from "@noble/curves/secp256k1";
 import { sha256 } from "@noble/hashes/sha256";
-import { sha512 } from "@noble/hashes/sha512";
-import { hmac } from "@noble/hashes/hmac";
 import { HDKey } from "@scure/bip32";
 import { mnemonicToSeedSync } from "@scure/bip39";
-
-// Wire @noble/curves with HMAC for BIP32
-HDKey.utils = { hmacSha512: (key: Uint8Array, ...msgs: Uint8Array[]) => {
-  const h = hmac.create(sha512, key);
-  msgs.forEach(m => h.update(m));
-  return h.digest();
-}};
 
 // ── Encoding helpers ──────────────────────────────────────────────────────────
 
@@ -281,7 +272,6 @@ function tapscriptSighash(
   const outData = concat(...tx.outputs.map(out => concat(writeUint64LE(out.amount), varint(out.scriptPubkey.length), out.scriptPubkey)));
   const shaOutputs = sha256(outData);
 
-  const inp = tx.inputs[inputIndex];
   // spend_type: script path (ext_flag=1), no annex -> 0x02.
   const spendType = new Uint8Array([0x02]);
   const inputIndexBytes = writeUint32LE(inputIndex);
