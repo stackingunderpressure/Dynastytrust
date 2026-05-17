@@ -15,8 +15,11 @@ import { hmac } from "@noble/hashes/hmac";
 import { HDKey } from "@scure/bip32";
 import { mnemonicToSeedSync } from "@scure/bip39";
 
-// Wire @noble/curves with HMAC for BIP32
-HDKey.utils = { hmacSha512: (key: Uint8Array, ...msgs: Uint8Array[]) => {
+// NOTE: the installed @scure/bip32 HDKey has no `utils` member, so
+// this assignment is a no-op against the current library. Kept behind
+// a cast (keeps tsc green, runtime unchanged); flagged for removal in
+// the audit report.
+(HDKey as unknown as { utils: unknown }).utils = { hmacSha512: (key: Uint8Array, ...msgs: Uint8Array[]) => {
   const h = hmac.create(sha512, key);
   msgs.forEach(m => h.update(m));
   return h.digest();
@@ -418,8 +421,10 @@ export async function signPsbtWithMnemonic(
   psbtHex: string,
   mnemonic: string,
   derivationPath: string,
-  network: "testnet" | "bitcoin"
+  network: "testnet" | "signet" | "bitcoin"
 ): Promise<SignResult> {
+  // signet shares testnet's BIP32 version bytes, so it falls through
+  // the non-bitcoin branch -- the same mapping lib/attest.ts uses.
   const networkVersions = network === "bitcoin"
     ? { private: 0x0488ade4, public: 0x0488b21e }
     : { private: 0x04358394, public: 0x043587cf };

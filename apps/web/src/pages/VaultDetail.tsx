@@ -16,6 +16,7 @@ import {
   type StipendInterval,
   type DistributionWallet,
   type DistributionTranche,
+  type VaultMessage,
 } from "../lib/api";
 import { supabase } from "../lib/supabase";
 import { listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
@@ -609,9 +610,7 @@ function OverviewTab({
       <TrustDocSection vault={vault} />
       <StipendsSection vault={vault} onSendPrefill={onSendPrefill} />
       <DistributionWalletsSection vault={vault} onSendPrefill={onSendPrefill} />
-      {vault.status !== "draft" && (
-        <UtxosSection vault={vault} onSendPrefill={onSendPrefill} />
-      )}
+      <UtxosSection vault={vault} onSendPrefill={onSendPrefill} />
 
       {/* Spending paths */}
       {paths.map(p => (
@@ -3739,7 +3738,7 @@ function computePhase(vault: Vault, tip: number | null): VaultPhase {
     };
   }
   const paths: string[] = ["Trustees (Path 1) - anytime"];
-  let accent = colors.gold;
+  let accent: string = colors.gold;
   let label = "Normal operation";
   let description =
     `${vault.founder_quorum} of ${vault.founder_keys.length} trustees can sign at any time.`;

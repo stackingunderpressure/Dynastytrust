@@ -51,7 +51,7 @@ export function PsbtQrDisplay({
   useEffect(() => {
     try {
       const bytes = hexToBytes(psbtHex);
-      const ur = UR.fromBuffer(Buffer.from(bytes), 'crypto-psbt');
+      const ur = UR.fromBuffer(Buffer.from(bytes));
       const enc = new UREncoder(ur, fragmentLength, 0, 8);
       encoderRef.current = enc;
       setTotalFragments(enc.fragmentsLength);

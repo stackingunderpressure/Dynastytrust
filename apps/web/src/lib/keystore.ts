@@ -98,7 +98,7 @@ async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey>
     'raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey'],
   );
   return crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt, iterations: 210_000, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt: salt as BufferSource, iterations: 210_000, hash: 'SHA-256' },
     raw, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'],
   );
 }
@@ -123,7 +123,8 @@ async function encryptText(text: string, password: string): Promise<EncryptedBlo
 async function decryptBlob(blob: EncryptedBlob, password: string): Promise<string> {
   const key   = await deriveKey(password, unb64(blob.saltB64));
   const plain = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: unb64(blob.nonceB64) }, key, unb64(blob.ciphertextB64),
+    { name: 'AES-GCM', iv: unb64(blob.nonceB64) as BufferSource }, key,
+    unb64(blob.ciphertextB64) as BufferSource,
   );
   return new TextDecoder().decode(plain);
 }
