@@ -5,6 +5,7 @@ import { useRealtimeRefresh } from "../lib/realtime";
 import { colors, fonts, radii, space } from "../theme";
 import { Button, Input, Label, Textarea } from "../components/ui";
 import { useToast } from "../components/toast";
+import { useConfirm } from "../components/dialog";
 import { RemindersBanner } from "../components/RemindersBanner";
 
 function satsToBtc(sats: number): string {
@@ -86,6 +87,7 @@ function roleStatus(v: Vault): string {
 export default function Dashboard() {
   const navigate = useNavigate();
   const toast = useToast();
+  const confirm = useConfirm();
   const openVault = (v: Vault) => navigate(`/vaults/${v.id}`, { state: { vault: v } });
 
   const [vaults, setVaults] = useState<Vault[]>([]);
@@ -102,9 +104,12 @@ export default function Dashboard() {
     // Soft confirm on the Dashboard: fast path for clearing out test
     // vaults. VaultDetail still has the name-match guard for vaults
     // that actually hold funds.
-    const ok = window.confirm(
-      `Delete "${v.name}"? This removes the vault, its members, and all proposals. It cannot be undone.`,
-    );
+    const ok = await confirm({
+      title: "Delete vault",
+      message: `Delete "${v.name}"? This removes the vault, its members, and all proposals. It cannot be undone.`,
+      confirmLabel: "Delete",
+      danger: true,
+    });
     if (!ok) return;
     setDeletingId(v.id);
     try {

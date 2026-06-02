@@ -36,12 +36,31 @@ import {
   verifyAttestation,
 } from '../lib/attest';
 import { useToast } from './toast';
+import { usePrompt } from './dialog';
 import { useRealtimeRefresh } from '../lib/realtime';
 import { colors, fonts } from '../theme';
 import { Button, Input, Label, Textarea } from './ui';
 
 function shortHash(h: string): string {
   return h.slice(0, 12) + '...' + h.slice(-8);
+}
+
+// Build the password callback signWithLocalKey expects from a prompt dialog.
+function buildPasswordRequester(
+  ask: (opts: {
+    title: string;
+    message: string;
+    password: boolean;
+    confirmLabel: string;
+  }) => Promise<string | null>,
+) {
+  return (label: string) =>
+    ask({
+      title: 'Unlock key',
+      message: `Enter the password for "${label}" to sign.`,
+      password: true,
+      confirmLabel: 'Sign',
+    });
 }
 
 function relativeTime(iso: string): string {
@@ -202,6 +221,9 @@ async function signWithLocalKey(opts: {
   attestationType: AttestationType;
   targetHash: string;
   network: Vault['network'];
+  // Supplied by the calling component so the password is collected through a
+  // styled dialog rather than the native window.prompt.
+  requestPassword: (label: string) => Promise<string | null>;
 }): Promise<{ signature: string; pubkey: string }> {
   if (!opts.pubkey) throw new Error('You have no pubkey on this vault yet');
   const keys = listKeys();
@@ -213,7 +235,9 @@ async function signWithLocalKey(opts: {
       "No local key matches your vault pubkey. Import the mnemonic on this device.",
     );
   }
-  const pw = match.testMnemonic ? undefined : (prompt(`Password for ${match.label}:`) ?? undefined);
+  const pw = match.testMnemonic
+    ? undefined
+    : (await opts.requestPassword(match.label)) ?? undefined;
   if (!match.testMnemonic && !pw) throw new Error('Password required');
   const mnemonic = await revealMnemonic(match.keyId, pw);
   const res = signAttestation({
@@ -298,6 +322,7 @@ function DescriptorPanel({
   onDone: () => void;
 }) {
   const toast = useToast();
+  const reqPw = buildPasswordRequester(usePrompt());
   const [busy, setBusy] = useState(false);
 
   const hasDescriptor = !!vault.descriptor && !!vault.address;
@@ -328,6 +353,7 @@ function DescriptorPanel({
         attestationType: 'descriptor',
         targetHash: currentHash,
         network: vault.network,
+        requestPassword: reqPw,
       });
       await api.attestations.create({
         vault_id: vault.id,
@@ -426,6 +452,7 @@ function TrustDocPanel({
   onDone: () => void;
 }) {
   const toast = useToast();
+  const reqPw = buildPasswordRequester(usePrompt());
   const [busy, setBusy] = useState(false);
 
   const currentHash = useMemo(() => trustDocHash(vault.trust_doc ?? {}), [vault.trust_doc]);
@@ -444,6 +471,7 @@ function TrustDocPanel({
         attestationType: 'trust_doc',
         targetHash: currentHash,
         network: vault.network,
+        requestPassword: reqPw,
       });
       await api.attestations.create({
         vault_id: vault.id,
@@ -526,6 +554,7 @@ function ProofOfLifePanel({
   onDone: () => void;
 }) {
   const toast = useToast();
+  const reqPw = buildPasswordRequester(usePrompt());
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
 
@@ -555,6 +584,7 @@ function ProofOfLifePanel({
         attestationType: 'proof_of_life',
         targetHash: hash,
         network: vault.network,
+        requestPassword: reqPw,
       });
       await api.attestations.create({
         vault_id: vault.id,
@@ -658,6 +688,7 @@ function DeathDeclarationPanel({
   onDone: () => void;
 }) {
   const toast = useToast();
+  const reqPw = buildPasswordRequester(usePrompt());
   const [subject, setSubject] = useState('');
   const [effectiveDate, setEffectiveDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState('');
@@ -684,6 +715,7 @@ function DeathDeclarationPanel({
         attestationType: 'death_declaration',
         targetHash: hash,
         network: vault.network,
+        requestPassword: reqPw,
       });
       await api.attestations.create({
         vault_id: vault.id,
@@ -712,6 +744,7 @@ function DeathDeclarationPanel({
         attestationType: 'death_declaration',
         targetHash: firstSig.target_hash,
         network: vault.network,
+        requestPassword: reqPw,
       });
       await api.attestations.create({
         vault_id: vault.id,

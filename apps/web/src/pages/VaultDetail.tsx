@@ -22,6 +22,7 @@ import { listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
 import { signPsbtWithMnemonic, countSignatures, mergePsbts } from "../lib/psbt-signer";
 import { APP_NAME, broadcastTxUrl, explorerTxUrl } from "../config";
 import { useToast } from "../components/toast";
+import { useConfirm, usePrompt } from "../components/dialog";
 import { LoadingScreen } from "../components/LoadingScreen";
 import { colors, fonts, radii, space } from "../theme";
 import { Button, Input, Label, Textarea } from "../components/ui";
@@ -127,6 +128,8 @@ export default function VaultDetail() {
 
 function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void }) {
   const toast = useToast();
+  const askConfirm = useConfirm();
+  const askPrompt = usePrompt();
   const navigate = useNavigate();
   const [balance, setBalance] = useState<BalanceResult | null>(null);
   const [proposals, setProposals] = useState<Proposal[]>([]);
@@ -221,14 +224,14 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
 
   async function deleteVault() {
     const expected = vault.name;
-    const typed = prompt(
-      `Permanently delete "${expected}"? This cannot be undone.\n\n` +
-      `Any funds still at the vault address stay spendable via the descriptor backup (downloaded from the overview tab) but the vault will no longer appear in this app. Type the vault name to confirm.`,
-    );
-    if (typed !== expected) {
-      if (typed !== null) toast.error("Name did not match. Delete cancelled.");
-      return;
-    }
+    const typed = await askPrompt({
+      title: "Delete vault",
+      message: `Permanently delete "${expected}"? This cannot be undone. Any funds still at the vault address stay spendable via the descriptor backup (downloaded from the overview tab), but the vault will no longer appear in this app. Type the vault name to confirm.`,
+      placeholder: expected,
+      matchValue: expected,
+      confirmLabel: "Delete vault",
+    });
+    if (typed !== expected) return; // cancelled or mismatch (guarded by matchValue)
     setArchiving(true);
     try { await api.vaults.remove(vault.id); onBack(); }
     catch (e) { toast.error(e instanceof Error ? e.message : "Failed to delete vault"); }
@@ -507,6 +510,8 @@ function OverviewTab({
   proposals: Proposal[];
   onOpenTab: (id: string) => void;
 }) {
+  const toast = useToast();
+  const askPrompt = usePrompt();
   // Inheritance vaults get all three spending paths; plain vaults
   // (no heirs, no timelocks) get only the trustee-now path.
   const plain =
@@ -740,11 +745,17 @@ function OverviewTab({
                 // Default to last completed tax year. The server
                 // accepts any year between 2020 and 2099.
                 const lastYear = new Date().getUTCFullYear() - 1;
-                const yearStr = prompt("Tax year to summarize:", String(lastYear));
+                const yearStr = await askPrompt({
+                  title: "Tax summary",
+                  message: "Which tax year should this summary cover?",
+                  defaultValue: String(lastYear),
+                  placeholder: String(lastYear),
+                  confirmLabel: "Generate",
+                });
                 if (!yearStr) return;
                 const year = Number(yearStr);
                 if (!Number.isInteger(year) || year < 2020 || year > 2099) {
-                  alert("Enter a valid 4-digit year between 2020 and 2099.");
+                  toast.error("Enter a valid 4-digit year between 2020 and 2099.");
                   return;
                 }
                 const url = await api.taxSummaryUrl(vault.id, year);
@@ -829,6 +840,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
   onDone: () => void;
   prefill?: SendPrefill | null;
 }) {
+  const askPassword = usePrompt();
   const [step, setStep] = useState<SendStep>("form");
   const [dest, setDest] = useState(prefill?.destination ?? "");
   const [amountBtc, setAmountBtc] = useState(
@@ -977,7 +989,12 @@ function SendTab({ vault, balance, onDone, prefill }: {
       // Get mnemonic
       let pw: string | undefined;
       if (!key.testMnemonic) {
-        const result = prompt("Password for " + key.label + ":");
+        const result = await askPassword({
+          title: "Unlock key",
+          message: `Enter the password for "${key.label}" to sign.`,
+          password: true,
+          confirmLabel: "Sign",
+        });
         if (result === null) {
           setSigning(prev => {
             if (!prev) return prev;
@@ -1741,6 +1758,7 @@ function ProposalCard({ proposal: p, vault }: { proposal: Proposal; vault: Vault
 
 function MembersTab({ vault }: { vault: Vault }) {
   const toast = useToast();
+  const askConfirm = useConfirm();
   const [members, setMembers] = useState<VaultMember[]>([]);
   const [invites, setInvites] = useState<VaultInvite[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1789,7 +1807,7 @@ function MembersTab({ vault }: { vault: Vault }) {
   );
 
   async function revoke(invite: VaultInvite) {
-    if (!confirm("Revoke this invite?")) return;
+    if (!(await askConfirm({ title: "Revoke invite", message: "Revoke this invite? The link will stop working and the recipient won't be able to join with it.", confirmLabel: "Revoke", danger: true }))) return;
     try {
       await api.invites.revoke(invite.id);
       toast.success("Invite revoked");
@@ -1801,7 +1819,7 @@ function MembersTab({ vault }: { vault: Vault }) {
 
   async function removeMember(m: VaultMember) {
     if (m.role === "owner") return;
-    if (!confirm(`Remove ${m.label ?? "member"} from the vault?`)) return;
+    if (!(await askConfirm({ title: "Remove member", message: `Remove ${m.label ?? "this member"} from the vault? If the vault is already compiled their key stays in the on-chain policy; this only removes their app access.`, confirmLabel: "Remove", danger: true }))) return;
     try {
       await api.members.remove(m.id);
       toast.success("Member removed");
@@ -2384,6 +2402,7 @@ type VaultEvent = Awaited<ReturnType<typeof api.vaultEvents.list>>["events"][num
 
 function MessagesTab({ vault }: { vault: Vault }) {
   const toast = useToast();
+  const askConfirm = useConfirm();
   const [members, setMembers] = useState<VaultMember[]>([]);
   const [messages, setMessages] = useState<VaultMessage[]>([]);
   const [myUserId, setMyUserId] = useState<string | null>(null);
@@ -2451,8 +2470,8 @@ function MessagesTab({ vault }: { vault: Vault }) {
     }
   }
 
-  function rekey() {
-    if (!confirm("Regenerate your messaging key? You will lose access to messages sent with your current key.")) return;
+  async function rekey() {
+    if (!(await askConfirm({ title: "Regenerate messaging key", message: "Regenerate your messaging key? You will lose access to messages sent with your current key.", confirmLabel: "Regenerate", danger: true }))) return;
     localStorage.removeItem("dynastytrust:messaging:v1");
     ensureMessagingKey();
     setShowKeyReset(false);
@@ -4231,6 +4250,7 @@ function StipendsSection({
   onSendPrefill: (p: SendPrefill) => void;
 }) {
   const toast = useToast();
+  const askConfirm = useConfirm();
   const [list, setList] = useState<ScheduledStipend[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<string | null>(null);
@@ -4270,7 +4290,7 @@ function StipendsSection({
   ).length;
 
   async function remove(id: string) {
-    if (!confirm("Remove this stipend?")) return;
+    if (!(await askConfirm({ title: "Remove stipend", message: "Remove this scheduled stipend? Pending payouts from it will no longer be suggested.", confirmLabel: "Remove", danger: true }))) return;
     try {
       await api.stipends.remove(id);
       toast.success("Stipend removed");
@@ -4811,6 +4831,7 @@ function TrustRulesEditor({
 
 function RequestsTab({ vault }: { vault: Vault }) {
   const toast = useToast();
+  const askPrompt = usePrompt();
   const navigate = useNavigate();
   const [requests, setRequests] = useState<VaultRequest[]>([]);
   const [members, setMembers] = useState<VaultMember[]>([]);
@@ -4926,8 +4947,15 @@ function RequestsTab({ vault }: { vault: Vault }) {
                 startProposalFromRequest(r);
               }}
               onDecline={() => {
-                const note = prompt("Reason for declining? (optional)") ?? undefined;
-                void resolve(r, "declined", note);
+                void (async () => {
+                  const note = (await askPrompt({
+                    title: "Decline request",
+                    message: "Add a reason for declining (optional). The requester will see this.",
+                    placeholder: "Reason (optional)",
+                    confirmLabel: "Decline",
+                  })) ?? undefined;
+                  await resolve(r, "declined", note);
+                })();
               }}
               onCancel={() => void resolve(r, "cancelled")}
             />

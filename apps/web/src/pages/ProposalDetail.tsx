@@ -18,6 +18,7 @@ import {
 } from "../lib/psbt-signer";
 import { LoadingScreen } from "../components/LoadingScreen";
 import { useToast } from "../components/toast";
+import { useConfirm, usePrompt } from "../components/dialog";
 import { Button, Textarea } from "../components/ui";
 import { useRealtimeRefresh } from "../lib/realtime";
 import { normalizePsbt } from "../lib/psbt-format";
@@ -35,6 +36,8 @@ export default function ProposalDetail() {
   const { vaultId, proposalId } = useParams<{ vaultId: string; proposalId: string }>();
   const navigate = useNavigate();
   const toast = useToast();
+  const confirm = useConfirm();
+  const askPassword = usePrompt();
 
   const [vault, setVault] = useState<Vault | null>(null);
   const [proposal, setProposal] = useState<Proposal | null>(null);
@@ -138,7 +141,14 @@ export default function ProposalDetail() {
     if (!proposal || !vault) return;
     setBusy(true);
     try {
-      const pw = key.testMnemonic ? undefined : prompt("Password for " + key.label + ":") ?? undefined;
+      const pw = key.testMnemonic
+        ? undefined
+        : (await askPassword({
+            title: "Unlock key",
+            message: `Enter the password for "${key.label}" to sign.`,
+            password: true,
+            confirmLabel: "Sign",
+          })) ?? undefined;
       if (!key.testMnemonic && pw == null) return;
       const mnemonic = await revealMnemonic(key.keyId, pw);
       const basePsbt = mergedPsbt || proposal.psbt_hex;
@@ -185,7 +195,7 @@ export default function ProposalDetail() {
 
   async function cancel() {
     if (!proposal) return;
-    if (!confirm("Cancel this proposal?")) return;
+    if (!(await confirm({ title: "Cancel proposal", message: "Cancel this proposal? Collected signatures will be discarded.", confirmLabel: "Cancel proposal", danger: true }))) return;
     try {
       await api.proposals.update(proposal.id, { status: "cancelled" });
       toast.success("Proposal cancelled");
@@ -568,6 +578,7 @@ function DiscussionSection({
   members: VaultMember[];
 }) {
   const toast = useToast();
+  const confirm = useConfirm();
   const [comments, setComments] = useState<ProposalComment[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -629,7 +640,7 @@ function DiscussionSection({
   }
 
   async function remove(id: string) {
-    if (!confirm("Delete this comment?")) return;
+    if (!(await confirm({ title: "Delete comment", message: "Delete this comment?", confirmLabel: "Delete", danger: true }))) return;
     try {
       await api.proposalComments.remove(id);
       toast.success("Deleted");

@@ -6,6 +6,7 @@ import {
   DEFAULT_PERSONAS, type LocalKey, type Network,
 } from "../lib/keystore";
 import { useToast } from "../components/toast";
+import { useConfirm } from "../components/dialog";
 import { colors, fonts, radii, space } from "../theme";
 import { Button, Input, Label, Textarea } from "../components/ui";
 import { QrImage } from "../components/QrImage";
@@ -842,6 +843,7 @@ type ModalState =
 
 export default function KeyManager() {
   const toast = useToast();
+  const confirm = useConfirm();
   const [keys, setKeys] = useState<LocalKey[]>([]);
   const [modal, setModal] = useState<ModalState | null>(null);
   const [filter, setFilter] = useState<"active" | "archived" | "all">("active");
@@ -875,14 +877,23 @@ export default function KeyManager() {
     personaColors[p] = palette[i % palette.length];
   });
 
-  function handleArchive(keyId: string) {
-    if (!confirm("Archive this key?")) return;
+  async function handleArchive(keyId: string) {
+    if (!(await confirm({ title: "Archive key", message: "Archive this key? It will be hidden from the active list but not deleted." }))) return;
     updateKeyStatus(keyId, "archived");
     reload();
     setModal(null);
   }
-  function handleDelete(keyId: string) {
-    if (!confirm("Permanently delete? This cannot be undone.")) return;
+  async function handleDelete(keyId: string) {
+    const key = keys.find(k => k.keyId === keyId);
+    if (
+      !(await confirm({
+        title: "Delete key",
+        message: `Permanently delete ${key?.label ? `"${key.label}"` : "this key"}? This cannot be undone. If this key signs a funded vault, make sure you have its recovery phrase backed up first.`,
+        confirmLabel: "Delete",
+        danger: true,
+      }))
+    )
+      return;
     deleteKey(keyId);
     reload();
     setModal(null);
