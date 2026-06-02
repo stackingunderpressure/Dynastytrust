@@ -2585,9 +2585,19 @@ function MessagesTab({ vault }: { vault: Vault }) {
           onChange={e => setDraft(e.target.value)}
           placeholder={`Message to ${keyedMembers.length} member${keyedMembers.length === 1 ? "" : "s"}...`}
         />
+        {keyedMembers.length === 0 && (
+          <div style={{ fontSize: 12, color: colors.orange, lineHeight: 1.5 }}>
+            {pendingMembers.length > 0
+              ? `Can't send yet -- ${pendingMembers.length} member${pendingMembers.length === 1 ? " hasn't" : "s haven't"} opened this vault to publish a messaging key. Messages are end-to-end encrypted to each recipient, so everyone must visit the vault once first.`
+              : "No other members can receive messages yet. Invite co-signers from the Members tab; each publishes a messaging key the first time they open the vault."}
+          </div>
+        )}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
           <div style={{ fontSize: 11, color: colors.muted }}>
             {keyedMembers.length} recipient{keyedMembers.length === 1 ? "" : "s"}
+            {pendingMembers.length > 0 && keyedMembers.length > 0
+              ? ` (${pendingMembers.length} not ready)`
+              : ""}
           </div>
           <div style={{ display: "flex", gap: 6 }}>
             <Button

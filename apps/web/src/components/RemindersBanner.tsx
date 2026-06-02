@@ -144,6 +144,48 @@ export function RemindersBanner({ vaultId }: RemindersBannerProps) {
   );
 }
 
+/**
+ * useReminderCount -- number of pressing (urgent + warn) reminders across
+ * all the user's vaults, for the nav badge. Returns 0 when the user has
+ * reminders turned off, so the badge respects the same preference as the
+ * banner. Best-effort; failures resolve to 0.
+ */
+export function useReminderCount(): number {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!getRemindersEnabled()) {
+      setCount(0);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.vaults.list(true);
+        const vaults = res.vaults;
+        const networks = Array.from(new Set(vaults.map(v => v.network)));
+        const tips: Record<string, number> = {};
+        await Promise.all(
+          networks.map(async n => {
+            try {
+              tips[n] = await tipHeight(n);
+            } catch {
+              /* skip network we can't reach */
+            }
+          }),
+        );
+        if (cancelled) return;
+        setCount(buildBanner(vaults, tips).length);
+      } catch {
+        /* silent -- badge is best-effort */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return count;
+}
+
 function buildBanner(vaults: Vault[], tips: Record<string, number>): BannerReminder[] {
   const out: BannerReminder[] = [];
   const apr = nextApril15();

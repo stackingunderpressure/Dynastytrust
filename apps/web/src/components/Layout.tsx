@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { APP_NAME, NAV_LINKS } from '../config';
 import { supabase } from '../lib/supabase';
 import { colors, fonts, radii } from '../theme';
+import { useReminderCount } from './RemindersBanner';
 
 interface LayoutProps {
   activeNavId: string;
@@ -11,6 +12,7 @@ interface LayoutProps {
 }
 
 export function Layout({ activeNavId, onSignOut, children }: LayoutProps) {
+  const reminderCount = useReminderCount();
   // Pull the signed-in user's email once and derive a friendly name
   // (local part before @). Supabase's onAuthStateChange keeps it
   // fresh across sign-in / sign-out in the same tab.
@@ -95,6 +97,7 @@ export function Layout({ activeNavId, onSignOut, children }: LayoutProps) {
         <nav className="dt-header-nav">
           {NAV_LINKS.map(link => {
             const active = link.id === activeNavId;
+            const badge = link.id === 'reminders' && reminderCount > 0 ? reminderCount : null;
             return (
               <NavLink
                 key={link.id}
@@ -112,6 +115,21 @@ export function Layout({ activeNavId, onSignOut, children }: LayoutProps) {
                 }}
               >
                 {link.icon} {link.label}
+                {badge != null && (
+                  <span
+                    style={{
+                      marginLeft: 6,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      background: colors.orange,
+                      color: colors.bg,
+                      borderRadius: 9,
+                      padding: '1px 7px',
+                    }}
+                  >
+                    {badge}
+                  </span>
+                )}
               </NavLink>
             );
           })}
