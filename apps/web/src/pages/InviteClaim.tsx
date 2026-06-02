@@ -842,8 +842,10 @@ function HardwareKeyInput({
     }
     const expectPrefix = network === 'bitcoin' ? /^[xyYz]pub/ : /^[tuUv]pub/;
     if (!expectPrefix.test(xpub)) {
+      const want = network === 'bitcoin' ? 'xpub (mainnet)' : 'tpub (testnet/signet)';
+      const got = xpub.slice(0, 4);
       setErr(
-        `This xpub doesn't look like a ${network} key.`,
+        `This vault is on ${network}, so the key should start with ${want}. Yours starts with "${got}". Re-export it from your wallet on the right network.`,
       );
       return;
     }
@@ -881,6 +883,11 @@ function HardwareKeyInput({
           onChange={e => setRaw(e.target.value)}
           placeholder={network === 'bitcoin' ? 'xpub6...' : 'tpub...'}
         />
+        <p style={{ fontSize: 11, color: colors.muted, margin: '4px 0 0' }}>
+          {network === 'bitcoin'
+            ? 'Mainnet vault -- paste an account xpub (starts with xpub).'
+            : `${network} vault -- paste a testnet account xpub (starts with tpub).`}
+        </p>
       </div>
       <div style={{ display: 'flex', gap: 10 }}>
         <div style={{ flex: 1 }}>
