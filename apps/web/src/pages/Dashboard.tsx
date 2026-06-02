@@ -269,7 +269,7 @@ export default function Dashboard() {
                         letterSpacing: "0.1em",
                         padding: "3px 8px",
                         borderRadius: 4,
-                        background: v.network === "bitcoin" ? "#2A1F0A" : "#0A1F14",
+                        background: v.network === "bitcoin" ? colors.badgeMainnet : colors.badgeTestnet,
                         color: v.network === "bitcoin" ? colors.gold : colors.green,
                       }}
                     >
@@ -326,7 +326,7 @@ export default function Dashboard() {
                   {roleStatus(v)}
                 </div>
               )}
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", borderTop: "1px solid #1A1A28", paddingTop: 12 }}>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", borderTop: `1px solid ${colors.divider}`, paddingTop: 12 }}>
                 <span style={{ fontSize: 11, color: colors.muted }}>
                   {v.founder_quorum}/{v.founder_keys.length} founders
                 </span>

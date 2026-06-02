@@ -7,7 +7,7 @@ import {
 } from "../lib/keystore";
 import { useToast } from "../components/toast";
 import { useConfirm } from "../components/dialog";
-import { colors, fonts, radii, space } from "../theme";
+import { colors, fonts, radii, space, personaPalette } from "../theme";
 import { Button, Input, Label, Textarea } from "../components/ui";
 import { QrImage } from "../components/QrImage";
 
@@ -39,7 +39,7 @@ function WordGrid({ words }: { words: string[] }) {
           <div
             key={i}
             style={{
-              background: "#0A0A14",
+              background: colors.inset,
               border: `1px solid ${colors.border}`,
               borderRadius: 6,
               padding: "6px 10px",
@@ -99,7 +99,7 @@ function PersonaPicker({ value, onChange }: { value: string; onChange: (v: strin
               fontSize: 12,
               borderColor: value === p ? colors.gold : colors.border,
               color: value === p ? colors.gold : colors.sub,
-              background: value === p ? "#C9A84C18" : "transparent",
+              background: value === p ? colors.gold + "18" : "transparent",
             }}
           >
             {p}
@@ -194,7 +194,7 @@ function QuickModal({ onDone, onClose }: { onClose: () => void; onDone: (key: Lo
   }
   return (
     <Modal title="Quick test key" onClose={onClose}>
-      <div style={{ padding: "10px 14px", background: "#0A1A14", border: `1px solid ${colors.green}44`, borderRadius: radii.md, marginBottom: 18 }}>
+      <div style={{ padding: "10px 14px", background: colors.successBg, border: `1px solid ${colors.green}44`, borderRadius: radii.md, marginBottom: 18 }}>
         <p style={{ fontSize: 13, color: colors.green, margin: 0 }}>
           No password needed. Mnemonic stored in browser. Testnet only.
         </p>
@@ -232,7 +232,7 @@ function QuickModal({ onDone, onClose }: { onClose: () => void; onDone: (key: Lo
 function TestKeyCreated({ keyData, mnemonic, onClose }: { keyData: LocalKey; mnemonic: string; onClose: () => void }) {
   return (
     <Modal title="Key created" onClose={onClose} wide>
-      <div style={{ padding: "10px 14px", background: "#0A1A14", border: `1px solid ${colors.green}44`, borderRadius: radii.md, marginBottom: 16 }}>
+      <div style={{ padding: "10px 14px", background: colors.successBg, border: `1px solid ${colors.green}44`, borderRadius: radii.md, marginBottom: 16 }}>
         <p style={{ fontSize: 13, color: colors.green, margin: 0 }}>
           <strong>{keyData.label}</strong> created for <strong>{keyData.persona}</strong>. Recovery phrase below - tap
           "Reveal words" to see it.
@@ -353,7 +353,7 @@ function BackupFlow({ keyData, mnemonic, onDone }: { keyData: LocalKey; mnemonic
     return (
       <Modal title="Write down your recovery phrase" onClose={() => {}} wide>
         <StepIndicator current={1} />
-        <div style={{ padding: "10px 14px", background: "#1A0A0A", border: `1px solid ${colors.borderDanger}`, borderRadius: radii.md, marginBottom: 16 }}>
+        <div style={{ padding: "10px 14px", background: colors.dangerBg, border: `1px solid ${colors.borderDanger}`, borderRadius: radii.md, marginBottom: 16 }}>
           <p style={{ fontSize: 13, color: colors.red, margin: 0 }}>
             Write all 24 words on paper in order. Never store digitally or share.
           </p>
@@ -518,11 +518,11 @@ function RevealModal({
       ) : (
         <>
           {isTest ? (
-            <div style={{ padding: "10px 14px", background: "#0A1400", border: `1px solid ${colors.green}44`, borderRadius: radii.md, marginBottom: 14 }}>
+            <div style={{ padding: "10px 14px", background: colors.successBg, border: `1px solid ${colors.green}44`, borderRadius: radii.md, marginBottom: 14 }}>
               <p style={{ fontSize: 12, color: colors.green, margin: 0 }}>Test key - no password needed.</p>
             </div>
           ) : (
-            <div style={{ padding: "10px 14px", background: "#1A0A0A", border: `1px solid ${colors.borderDanger}`, borderRadius: radii.md, marginBottom: 14 }}>
+            <div style={{ padding: "10px 14px", background: colors.dangerBg, border: `1px solid ${colors.borderDanger}`, borderRadius: radii.md, marginBottom: 14 }}>
               <p style={{ fontSize: 12, color: colors.red, margin: 0 }}>Keep this private. Close when done.</p>
             </div>
           )}
@@ -743,7 +743,7 @@ function DetailModal({
 
   return (
     <Modal title={k.label} onClose={onClose} wide>
-      <div style={{ background: "#0A0A14", borderRadius: 10, overflow: "hidden", marginBottom: 14 }}>
+      <div style={{ background: colors.inset, borderRadius: 10, overflow: "hidden", marginBottom: 14 }}>
         {rows.map(([rowLabel, value]) => (
           <div
             key={rowLabel}
@@ -798,7 +798,7 @@ function DetailModal({
               alignItems: "center",
               gap: 8,
               padding: 16,
-              background: "#0A0A14",
+              background: colors.inset,
               borderRadius: radii.md,
               marginBottom: 8,
             }}
@@ -815,7 +815,7 @@ function DetailModal({
             </div>
           </div>
         )}
-        <div style={{ background: "#0A0A14", borderRadius: radii.md, padding: "10px 12px", fontFamily: fonts.mono, fontSize: 11, color: colors.sub, wordBreak: "break-all", lineHeight: 1.6 }}>
+        <div style={{ background: colors.inset, borderRadius: radii.md, padding: "10px 12px", fontFamily: fonts.mono, fontSize: 11, color: colors.sub, wordBreak: "break-all", lineHeight: 1.6 }}>
           {k.xpub}
         </div>
       </div>
@@ -827,7 +827,7 @@ function DetailModal({
               {copied === "pub" ? "Copied" : "Copy"}
             </Button>
           </div>
-          <div style={{ background: "#0A0A14", borderRadius: radii.md, padding: "10px 12px", fontFamily: fonts.mono, fontSize: 11, color: colors.sub, wordBreak: "break-all" }}>
+          <div style={{ background: colors.inset, borderRadius: radii.md, padding: "10px 12px", fontFamily: fonts.mono, fontSize: 11, color: colors.sub, wordBreak: "break-all" }}>
             {k.pubkey}
           </div>
         </div>
@@ -916,7 +916,7 @@ export default function KeyManager() {
     return true;
   });
 
-  const palette = [colors.gold, colors.blue, colors.green, "#B06AE0", "#E06A6A", "#6AB8E0"];
+  const palette = personaPalette;
   const personaColors: Record<string, string> = {};
   Array.from(new Set(keys.map(k => k.persona))).forEach((p, i) => {
     personaColors[p] = palette[i % palette.length];
@@ -1125,7 +1125,7 @@ export default function KeyManager() {
                       height: 38,
                       borderRadius: 9,
                       flexShrink: 0,
-                      background: key.testMnemonic ? "#52C47A14" : "#4A90D914",
+                      background: key.testMnemonic ? colors.green + "14" : colors.blue + "14",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
@@ -1138,17 +1138,17 @@ export default function KeyManager() {
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>{key.label}</span>
                       {key.testMnemonic && (
-                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: "#52C47A22", color: colors.green }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: colors.green + "22", color: colors.green }}>
                           TEST
                         </span>
                       )}
                       {key.status === "archived" && (
-                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: "#5A557022", color: colors.muted }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: colors.muted + "22", color: colors.muted }}>
                           ARCHIVED
                         </span>
                       )}
                       {!key.backedUp && key.origin === "software" && (
-                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: "#E0905022", color: colors.orange }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: colors.orange + "22", color: colors.orange }}>
                           NOT BACKED UP
                         </span>
                       )}

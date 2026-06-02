@@ -94,7 +94,7 @@ export function QrScanner({ onResult, onCancel }: QrScannerProps) {
         <div
           style={{
             padding: '12px 14px',
-            background: '#1A0A0A',
+            background: colors.dangerBg,
             border: `1px solid ${colors.borderDanger}`,
             borderRadius: radii.md,
             color: colors.red,

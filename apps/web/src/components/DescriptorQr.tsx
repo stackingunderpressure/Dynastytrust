@@ -34,7 +34,7 @@ export function DescriptorQr({ descriptor, size = 260, label }: DescriptorQrProp
       errorCorrectionLevel: 'L',
       width: size,
       margin: 2,
-      color: { dark: '#F4F0CE', light: '#0A0A14' },
+      color: { dark: colors.qrModule, light: colors.inset },
     })
       .then(url => { if (!cancelled) { setSrc(url); setErr(null); } })
       .catch(e => { if (!cancelled) setErr(e instanceof Error ? e.message : 'QR failed'); });
@@ -85,7 +85,7 @@ export function DescriptorQr({ descriptor, size = 260, label }: DescriptorQrProp
           alt="Descriptor QR"
           width={size}
           height={size}
-          style={{ background: '#0A0A14', borderRadius: 6 }}
+          style={{ background: colors.inset, borderRadius: 6 }}
         />
       ) : (
         <div style={{ width: size, height: size, background: colors.surface, borderRadius: 6 }} />

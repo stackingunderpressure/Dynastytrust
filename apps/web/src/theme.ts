@@ -21,7 +21,29 @@ export const colors = {
   green: '#52C47A',
   blue: '#4A90D9',
   orange: '#E09050',
+
+  // Semantic dark background tints used by inline-styled message boxes,
+  // insets, and badges. Centralized here so pages stop hand-typing hex.
+  inset: '#0A0A14',        // darkest panel / code / row inset
+  dangerBg: '#1A0A0A',     // danger / error message background
+  successBg: '#0A1A14',    // success message background
+  badgeTestnet: '#0A1F14', // network badge -- testnet / signet
+  badgeMainnet: '#2A1F0A', // network badge -- mainnet (gold tint)
+  goldBg: '#1A1400',       // gold-tinted panel background
+  divider: '#1A1A28',      // subtle divider / border tint
+  qrModule: '#F4F0CE',     // QR "dark" module color on the gold theme
 } as const;
+
+// Categorical hues for distinguishing personas / members at a glance.
+// The first three reuse semantic colors; the rest are distinct extra hues.
+export const personaPalette = [
+  colors.gold,
+  colors.blue,
+  colors.green,
+  '#B06AE0',
+  '#E06A6A',
+  '#6AB8E0',
+] as const;
 
 export const fonts = {
   display: '"Playfair Display", Georgia, serif',

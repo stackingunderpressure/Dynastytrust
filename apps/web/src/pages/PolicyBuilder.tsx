@@ -1108,7 +1108,7 @@ function KeyPicker({
             display: 'flex',
             alignItems: 'center',
             gap: 12,
-            background: '#0A0A14',
+            background: colors.inset,
             borderRadius: radii.md,
             padding: '10px 14px',
             border: `1px solid ${accentColor}44`,
@@ -1195,7 +1195,7 @@ function CopyField({
       </div>
       <div
         style={{
-          background: '#0A0A14',
+          background: colors.inset,
           borderRadius: radii.md,
           padding: '10px 12px',
           fontFamily: fonts.mono,
@@ -1653,7 +1653,7 @@ export default function PolicyBuilder() {
         <div
           style={{
             padding: '14px 18px',
-            background: '#1A1400',
+            background: colors.goldBg,
             border: `1px solid ${colors.goldDim}`,
             borderRadius: 10,
             fontSize: 13,
@@ -2188,7 +2188,7 @@ export default function PolicyBuilder() {
           <div
             style={{
               padding: 12,
-              background: '#1A0A0A',
+              background: colors.dangerBg,
               border: `1px solid ${colors.borderDanger}`,
               borderRadius: radii.md,
               color: colors.red,
@@ -2205,7 +2205,7 @@ export default function PolicyBuilder() {
             <div
               style={{
                 padding: '10px 14px',
-                background: '#0A1400',
+                background: colors.successBg,
                 border: `1px solid ${colors.green}44`,
                 borderRadius: radii.md,
                 color: colors.green,
@@ -2343,7 +2343,7 @@ function BackupNudgeModal({ vault, onDone }: { vault: Vault; onDone: () => void 
 
         <div
           style={{
-            background: '#0A0A14',
+            background: colors.inset,
             border: `1px solid ${colors.border}`,
             borderRadius: radii.md,
             padding: '14px 16px',
@@ -2380,7 +2380,7 @@ function BackupNudgeModal({ vault, onDone }: { vault: Vault; onDone: () => void 
 
         <div
           style={{
-            background: '#0A0A14',
+            background: colors.inset,
             border: `1px solid ${colors.border}`,
             borderRadius: radii.md,
             padding: '14px 16px',

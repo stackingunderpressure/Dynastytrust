@@ -21,7 +21,7 @@ export function QrImage({ data, size = 240 }: QrImageProps) {
       width: size,
       margin: 2,
       errorCorrectionLevel: 'M',
-      color: { dark: '#E8E4D8', light: '#07070F' },
+      color: { dark: colors.text, light: colors.bg },
     })
       .then(url => {
         if (!cancelled) setSrc(url);

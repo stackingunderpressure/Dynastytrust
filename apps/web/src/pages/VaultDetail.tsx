@@ -1192,7 +1192,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
     return (
       <div
         style={{
-          background: "#0A1A0A",
+          background: colors.successBg,
           border: `1px solid ${colors.green}44`,
           borderRadius: 16,
           padding: 32,
@@ -1350,7 +1350,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
                     padding: "12px 14px",
                     borderRadius: 10,
                     marginBottom: 8,
-                    background: signer.status === "signed" ? `${colors.green}0D` : "#0A0A14",
+                    background: signer.status === "signed" ? `${colors.green}0D` : colors.inset,
                     border: `1px solid ${signer.status === "signed" ? `${colors.green}44` : colors.border}`,
                     cursor:
                       signer.status === "pending" || signer.status === "error"
@@ -1921,7 +1921,7 @@ function MembersTab({ vault }: { vault: Vault }) {
             style={{
               fontFamily: fonts.mono,
               fontSize: 11,
-              background: "#0A0A14",
+              background: colors.inset,
               padding: "8px 10px",
               borderRadius: radii.sm,
               wordBreak: "break-all",
@@ -4812,7 +4812,7 @@ function TrustRulesEditor({
           <div
             key={r.id}
             style={{
-              background: "#0A0A14",
+              background: colors.inset,
               border: `1px solid ${colors.border}`,
               borderRadius: radii.md,
               padding: 10,

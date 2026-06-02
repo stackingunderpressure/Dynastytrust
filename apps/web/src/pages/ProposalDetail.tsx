@@ -794,7 +794,7 @@ function CommentRow({
         flexDirection: "column",
         gap: 4,
         padding: "10px 12px",
-        background: "#0A0A14",
+        background: colors.inset,
         border: `1px solid ${colors.border}`,
         borderRadius: radii.md,
       }}
