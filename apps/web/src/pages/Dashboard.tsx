@@ -92,6 +92,7 @@ export default function Dashboard() {
 
   const [vaults, setVaults] = useState<Vault[]>([]);
   const [balances, setBalances] = useState<Record<string, BalanceResult>>({});
+  const [balanceErrors, setBalanceErrors] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -134,9 +135,14 @@ export default function Dashboard() {
         if (!v.address) continue; // drafts have no address yet
         api
           .balance(v.address, v.network)
-          .then(b => setBalances(prev => ({ ...prev, [v.id]: b })))
+          .then(b => {
+            setBalances(prev => ({ ...prev, [v.id]: b }));
+            setBalanceErrors(prev => (prev[v.id] ? { ...prev, [v.id]: false } : prev));
+          })
           .catch(() => {
-            /* balance lookups are best-effort */
+            // Best-effort, but flag it so the card can say "unavailable"
+            // instead of showing a permanent "--" that looks like 0 BTC.
+            setBalanceErrors(prev => ({ ...prev, [v.id]: true }));
           });
       }
     } catch (err) {
@@ -300,6 +306,11 @@ export default function Dashboard() {
                 {bal ? satsToBtc(bal.total_sats) : "--"}
                 <span style={{ fontSize: 13, color: colors.muted }}> BTC</span>
               </div>
+              {!bal && v.address && balanceErrors[v.id] && (
+                <div style={{ fontSize: 11, color: colors.orange, marginBottom: 6 }}>
+                  Balance unavailable -- mempool.space did not respond. Refresh to retry.
+                </div>
+              )}
               {bal?.usd_value != null && (
                 <div style={{ fontSize: 14, color: colors.sub, marginBottom: 8 }}>
                   ${bal.usd_value.toLocaleString("en-US", { maximumFractionDigits: 0 })}

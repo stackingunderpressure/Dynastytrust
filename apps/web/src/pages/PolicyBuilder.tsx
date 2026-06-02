@@ -1279,6 +1279,21 @@ export default function PolicyBuilder() {
     setAllKeys(listKeys().filter(k => k.status === 'active'));
   }, []);
 
+  // Warn before a refresh / tab close discards an in-progress vault the
+  // user has started building but not yet saved.
+  const dirty =
+    (founderKeys.length > 0 || heirKeys.length > 0 || protectorKeys.length > 0) &&
+    compiled === null;
+  useEffect(() => {
+    if (!dirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [dirty]);
+
   // Keep recoveryQ one below founderQ by default so Path 2 is
   // meaningful. Users can override manually.
   useEffect(() => {

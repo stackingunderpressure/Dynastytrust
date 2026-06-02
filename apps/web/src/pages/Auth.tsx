@@ -16,12 +16,13 @@ interface AuthProps {
 }
 
 export default function Auth({ redirectTo }: AuthProps = {}) {
-  const [mode, setMode] = useState<'login' | 'signup'>('login');
+  const [mode, setMode] = useState<'login' | 'signup' | 'reset'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -37,12 +38,18 @@ export default function Auth({ redirectTo }: AuthProps = {}) {
         });
         if (error) throw error;
         setDone(true);
+      } else if (mode === 'reset') {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
+        });
+        if (error) throw error;
+        setResetSent(true);
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Authentication failed');
+      setError(friendlyAuthError(err instanceof Error ? err.message : 'Authentication failed'));
     } finally {
       setBusy(false);
     }
@@ -60,6 +67,61 @@ export default function Auth({ redirectTo }: AuthProps = {}) {
             address then return here to sign in.
           </p>
           <button style={s.link} onClick={() => { setDone(false); setMode('login'); }}>
+            Back to sign in
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (resetSent) {
+    return (
+      <div style={s.page}>
+        <div style={s.card}>
+          <div style={s.logo}>{APP_NAME}</div>
+          <h2 style={s.heading}>Check your email</h2>
+          <p style={s.sub}>
+            If an account exists for{' '}
+            <strong style={{ color: colors.gold }}>{email}</strong>, we sent a
+            password reset link. Open it on this device to choose a new password.
+          </p>
+          <button style={s.link} onClick={() => { setResetSent(false); setMode('login'); }}>
+            Back to sign in
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === 'reset') {
+    return (
+      <div style={s.page}>
+        <div style={s.card}>
+          <div style={s.logo}>{APP_NAME}</div>
+          <h2 style={s.heading}>Reset password</h2>
+          <p style={s.sub}>Enter your account email and we'll send a reset link.</p>
+          <form onSubmit={submit} style={s.form}>
+            <label style={s.label} htmlFor="auth-email">Email</label>
+            <Input
+              id="auth-email"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              required
+              placeholder="you@example.com"
+              style={{ fontSize: 15, padding: '12px 14px' }}
+            />
+            {error && <p style={s.error}>{error}</p>}
+            <Button
+              type="submit"
+              disabled={busy}
+              style={{ marginTop: space[4], padding: '14px', fontSize: 15, letterSpacing: '0.04em' }}
+            >
+              {busy ? 'Working…' : 'Send reset link'}
+            </Button>
+          </form>
+          <button style={{ ...s.link, marginTop: space[4] }} onClick={() => { setMode('login'); setError(null); }}>
             Back to sign in
           </button>
         </div>
@@ -122,6 +184,101 @@ export default function Auth({ redirectTo }: AuthProps = {}) {
             style={{ marginTop: space[4], padding: '14px', fontSize: 15, letterSpacing: '0.04em' }}
           >
             {busy ? 'Working…' : mode === 'login' ? 'Sign in' : 'Create account'}
+          </Button>
+        </form>
+
+        {mode === 'login' && (
+          <button
+            style={{ ...s.link, marginTop: space[4], fontSize: 13 }}
+            onClick={() => { setMode('reset'); setError(null); }}
+          >
+            Forgot password?
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Map Supabase's terse auth errors to friendlier copy.
+function friendlyAuthError(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes('invalid login') || m.includes('invalid credentials'))
+    return 'Email or password is incorrect.';
+  if (m.includes('already registered') || m.includes('already exists'))
+    return 'An account with this email already exists. Try signing in instead.';
+  if (m.includes('email not confirmed'))
+    return 'Confirm your email first -- check your inbox for the confirmation link.';
+  if (m.includes('rate') || m.includes('too many'))
+    return 'Too many attempts. Wait a minute and try again.';
+  return message;
+}
+
+// Shown by RequireAuth when Supabase reports a PASSWORD_RECOVERY session
+// (the user clicked a reset link). Lets them set a new password in-app.
+export function SetNewPassword({ onDone }: { onDone: () => void }) {
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (password !== confirm) {
+      setError('Passwords do not match.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) throw error;
+      onDone();
+    } catch (err: unknown) {
+      setError(friendlyAuthError(err instanceof Error ? err.message : 'Could not update password'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={s.page}>
+      <div style={s.card}>
+        <div style={s.logo}>{APP_NAME}</div>
+        <h2 style={s.heading}>Choose a new password</h2>
+        <p style={s.sub}>Enter a new password for your account.</p>
+        <form onSubmit={submit} style={s.form}>
+          <label style={s.label} htmlFor="new-password">New password</label>
+          <Input
+            id="new-password"
+            type="password"
+            autoComplete="new-password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            required
+            minLength={8}
+            placeholder="••••••••"
+            style={{ fontSize: 15, padding: '12px 14px' }}
+          />
+          <label style={s.label} htmlFor="confirm-password">Confirm password</label>
+          <Input
+            id="confirm-password"
+            type="password"
+            autoComplete="new-password"
+            value={confirm}
+            onChange={e => setConfirm(e.target.value)}
+            required
+            minLength={8}
+            placeholder="••••••••"
+            style={{ fontSize: 15, padding: '12px 14px' }}
+          />
+          {error && <p style={s.error}>{error}</p>}
+          <Button
+            type="submit"
+            disabled={busy}
+            style={{ marginTop: space[4], padding: '14px', fontSize: 15, letterSpacing: '0.04em' }}
+          >
+            {busy ? 'Working…' : 'Update password'}
           </Button>
         </form>
       </div>
