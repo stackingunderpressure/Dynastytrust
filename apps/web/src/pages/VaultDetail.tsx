@@ -138,6 +138,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
   const [showRotate, setShowRotate] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [sendPrefill, setSendPrefill] = useState<SendPrefill | null>(null);
+  const [myMember, setMyMember] = useState<VaultMember | null>(null);
 
   function prefillSend(p: SendPrefill) {
     setSendPrefill(p);
@@ -205,6 +206,30 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
     })();
     return () => { cancelled = true; };
   }, [vault.id]);
+
+  // Track the caller's own membership row so we can nudge signer-role
+  // members who claimed a slot but never attached a key.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const uid = data.session?.user.id;
+        if (!uid) return;
+        const { members } = await api.members.list(vault.id);
+        if (cancelled) return;
+        setMyMember(members.find(m => m.user_id === uid) ?? null);
+      } catch {
+        /* best-effort; Members tab surfaces real errors */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [vault.id, tab]);
+
+  const myMemberNeedsKey =
+    !!myMember &&
+    ["founder", "heir", "protector"].includes(myMember.role) &&
+    !(myMember.xpub && myMember.fingerprint && myMember.pubkey && myMember.derivation_path);
 
   // Live proposal + signature updates for the current vault.
   useRealtimeRefresh(
@@ -388,6 +413,32 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
             )}
           </div>
         </div>
+
+        {/* Missing-key nudge: persistent across tabs for signer roles. */}
+        {myMemberNeedsKey && tab !== "members" && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              flexWrap: "wrap",
+              background: colors.orange + "14",
+              border: `1px solid ${colors.orange}55`,
+              borderRadius: 10,
+              padding: "12px 14px",
+              marginBottom: 16,
+            }}
+          >
+            <div style={{ fontSize: 13, color: colors.text, lineHeight: 1.5 }}>
+              You claimed the <strong>{roleLabel(myMember!.role)}</strong> slot but haven't attached a
+              signing key. The vault can't be compiled or signed by you until you do.
+            </div>
+            <Button size="sm" onClick={() => setTab("members")}>
+              Add your key
+            </Button>
+          </div>
+        )}
 
         {/* Tabs */}
         <div
