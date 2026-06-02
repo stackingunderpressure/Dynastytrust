@@ -352,6 +352,7 @@ function BackupFlow({ keyData, mnemonic, onDone }: { keyData: LocalKey; mnemonic
   if (step === "show")
     return (
       <Modal title="Write down your recovery phrase" onClose={() => {}} wide>
+        <StepIndicator current={1} />
         <div style={{ padding: "10px 14px", background: "#1A0A0A", border: `1px solid ${colors.borderDanger}`, borderRadius: radii.md, marginBottom: 16 }}>
           <p style={{ fontSize: 13, color: colors.red, margin: 0 }}>
             Write all 24 words on paper in order. Never store digitally or share.
@@ -385,8 +386,9 @@ function BackupFlow({ keyData, mnemonic, onDone }: { keyData: LocalKey; mnemonic
 
   return (
     <Modal title="Verify backup" onClose={() => {}}>
+      <StepIndicator current={2} />
       <p style={{ fontSize: 13, color: colors.muted, marginBottom: 20 }}>
-        Enter the words at the positions below.
+        Enter the words at the positions below to confirm you wrote them down.
       </p>
       {positions.map(pos => (
         <div key={pos} style={{ marginBottom: 12 }}>
@@ -401,10 +403,53 @@ function BackupFlow({ keyData, mnemonic, onDone }: { keyData: LocalKey; mnemonic
         </div>
       ))}
       {err && <p style={{ color: colors.red, fontSize: 13 }}>{err}</p>}
-      <Button style={{ width: "100%", marginTop: 8 }} onClick={verify}>
-        Confirm
-      </Button>
+      <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+        <Button variant="ghost" onClick={() => { setErr(null); setStep("show"); }}>
+          Back to phrase
+        </Button>
+        <Button style={{ flex: 1 }} onClick={verify}>
+          Confirm
+        </Button>
+      </div>
     </Modal>
+  );
+}
+
+// Two-step progress caption for the backup flow.
+function StepIndicator({ current }: { current: 1 | 2 }) {
+  const labels = ["Write it down", "Verify"];
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16 }}>
+      {labels.map((label, i) => {
+        const n = (i + 1) as 1 | 2;
+        const active = n === current;
+        const done = n < current;
+        return (
+          <div key={label} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <span
+              style={{
+                width: 20,
+                height: 20,
+                borderRadius: "50%",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 11,
+                fontWeight: 700,
+                background: active || done ? colors.gold : colors.raised,
+                color: active || done ? colors.bg : colors.muted,
+              }}
+            >
+              {n}
+            </span>
+            <span style={{ fontSize: 12, color: active ? colors.text : colors.muted }}>
+              {label}
+            </span>
+            {i === 0 && <span style={{ color: colors.muted, margin: "0 2px" }}>-</span>}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1018,22 +1063,30 @@ export default function KeyManager() {
           }}
         >
           <p style={{ fontSize: 18, fontWeight: 600, color: colors.text, marginBottom: 8 }}>
-            {search ? "No keys match your search" : "No keys yet"}
+            {search ? "No keys match your search" : "Start with a key"}
           </p>
           <p
             style={{
               color: colors.muted,
               fontSize: 14,
-              maxWidth: 320,
+              maxWidth: 380,
               margin: "0 auto 24px",
+              lineHeight: 1.55,
             }}
           >
-            {search ? "Try a different search term." : "Generate test keys for each persona, then compile a vault."}
+            {search
+              ? "Try a different search term."
+              : "A key is one signer in a vault. Each person (founder, heir, protector) holds their own. Keys never leave this browser. Start with a test key to explore, or a secure (password-encrypted) key for real funds -- then compile a vault in the Policy Builder."}
           </p>
           {!search && (
-            <Button style={{ background: colors.green }} onClick={() => setModal({ type: "quick" })}>
-              Generate first key
-            </Button>
+            <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+              <Button style={{ background: colors.green }} onClick={() => setModal({ type: "quick" })}>
+                Generate test key
+              </Button>
+              <Button variant="ghost" onClick={() => setModal({ type: "secure" })}>
+                Generate secure key
+              </Button>
+            </div>
           )}
         </div>
       )}
