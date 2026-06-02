@@ -3,3 +3,4 @@ export { Input, Textarea } from './Input';
 export { Label } from './Label';
 export { Card } from './Card';
 export { Field } from './Field';
+export { Modal } from './Modal';

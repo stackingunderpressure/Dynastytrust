@@ -538,7 +538,20 @@ function CenteredCard({ children }: { children: React.ReactNode }) {
   );
 }
 
+// Turn raw lookup errors into something a recipient can act on.
+function friendlyInviteError(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes('expired'))
+    return 'This invite link has expired. Ask the vault owner to send you a new one.';
+  if (m.includes('claimed') || m.includes('already'))
+    return 'This invite has already been claimed. If that was not you, ask the vault owner for a fresh link.';
+  if (m.includes('not found') || m.includes('missing') || m.includes('invalid'))
+    return 'We could not find this invite. The link may be incomplete -- check that you copied the whole URL, or ask for a new one.';
+  return message;
+}
+
 function ErrorBody({ message }: { message: string }) {
+  const navigate = useNavigate();
   return (
     <div>
       <div
@@ -556,7 +569,12 @@ function ErrorBody({ message }: { message: string }) {
       <div style={{ fontSize: 18, fontWeight: 600, color: colors.text, marginBottom: 8 }}>
         Can't use this invite
       </div>
-      <div style={{ fontSize: 14, color: colors.sub }}>{message}</div>
+      <div style={{ fontSize: 14, color: colors.sub, marginBottom: 22 }}>
+        {friendlyInviteError(message)}
+      </div>
+      <Button variant="ghost" onClick={() => navigate('/vaults')}>
+        Continue to DynastyTrust
+      </Button>
     </div>
   );
 }

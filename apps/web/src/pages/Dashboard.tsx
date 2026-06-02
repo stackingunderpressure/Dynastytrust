@@ -186,9 +186,16 @@ export default function Dashboard() {
       </div>
 
       {loading && <p style={{ color: colors.muted, fontSize: 14 }}>Loading...</p>}
-      {error && <p style={{ color: colors.red, fontSize: 14 }}>{error}</p>}
+      {error && (
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+          <p style={{ color: colors.red, fontSize: 14, margin: 0 }}>{error}</p>
+          <Button variant="ghost" size="sm" onClick={() => { setLoading(true); void load(); }}>
+            Retry
+          </Button>
+        </div>
+      )}
 
-      {!loading && visible.length === 0 && (
+      {!loading && !error && visible.length === 0 && (
         <div
           style={{
             textAlign: "center",
@@ -209,8 +216,18 @@ export default function Dashboard() {
               margin: "0 auto 24px",
             }}
           >
-            Use the Policy Builder tab to compile your first vault.
+            {search
+              ? "Try a different name or address."
+              : "A vault is a Bitcoin wallet governed by your trust policy. Build your first one, or join an existing vault with a trust code."}
           </p>
+          {!search && (
+            <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+              <Button onClick={() => navigate("/policy")}>Build your first vault</Button>
+              <Button variant="ghost" onClick={() => setShowTrustCode(true)}>
+                Join with trust code
+              </Button>
+            </div>
+          )}
         </div>
       )}
 

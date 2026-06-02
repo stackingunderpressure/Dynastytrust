@@ -87,12 +87,20 @@ export default function ProposalDetail() {
 
   if (loading) return <LoadingScreen />;
   if (error || !vault || !proposal) {
+    // Fall back to the vault list when we have no usable vaultId, so the back
+    // button never strands the user on /vaults/ (empty id).
+    const back = vaultId ? `/vaults/${vaultId}` : "/vaults";
     return (
       <Page>
         <p style={{ color: colors.red, fontSize: 14 }}>{error ?? "Proposal not available"}</p>
-        <Button variant="ghost" onClick={() => navigate(`/vaults/${vaultId ?? ""}`)}>
-          Back to vault
-        </Button>
+        <div style={{ display: "flex", gap: 10 }}>
+          <Button variant="ghost" onClick={() => navigate(back)}>
+            {vaultId ? "Back to vault" : "Back to vaults"}
+          </Button>
+          <Button variant="ghost" onClick={() => navigate("/vaults")}>
+            All vaults
+          </Button>
+        </div>
       </Page>
     );
   }
