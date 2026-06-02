@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { supabase } from './lib/supabase';
+import { markIntentionalSignOut } from './lib/session-intent';
 import KeyManager from './pages/KeyManager';
 import PolicyBuilder from './pages/PolicyBuilder';
 import Dashboard from './pages/Dashboard';
@@ -47,7 +48,7 @@ function AuthedApp() {
       <Route
         path="/keys"
         element={
-          <Layout activeNavId={activeNavId} onSignOut={() => supabase.auth.signOut()}>
+          <Layout activeNavId={activeNavId} onSignOut={() => { markIntentionalSignOut(); void supabase.auth.signOut(); }}>
             <PageHeader
               title="Key Manager"
               sub="Generate software keys and import hardware xpubs. Private keys never leave this browser."
@@ -59,7 +60,7 @@ function AuthedApp() {
       <Route
         path="/policy"
         element={
-          <Layout activeNavId={activeNavId} onSignOut={() => supabase.auth.signOut()}>
+          <Layout activeNavId={activeNavId} onSignOut={() => { markIntentionalSignOut(); void supabase.auth.signOut(); }}>
             <PageHeader
               title="Policy Builder"
               sub="Assemble keys into a vault policy and compile to a Bitcoin address via Fly.io."
@@ -71,7 +72,7 @@ function AuthedApp() {
       <Route
         path="/vaults"
         element={
-          <Layout activeNavId={activeNavId} onSignOut={() => supabase.auth.signOut()}>
+          <Layout activeNavId={activeNavId} onSignOut={() => { markIntentionalSignOut(); void supabase.auth.signOut(); }}>
             <PageHeader
               title="Vaults"
               sub="Live balances, spend proposals, and vault details."
@@ -85,7 +86,7 @@ function AuthedApp() {
       <Route
         path="/reminders"
         element={
-          <Layout activeNavId={activeNavId} onSignOut={() => supabase.auth.signOut()}>
+          <Layout activeNavId={activeNavId} onSignOut={() => { markIntentionalSignOut(); void supabase.auth.signOut(); }}>
             <PageHeader
               title="Reminders"
               sub="Role-aware legal + governance reminders. Countdowns to timelocks, tax deadlines, annual reviews."

@@ -284,11 +284,20 @@ export default function ProposalDetail() {
         </Button>
       )}
 
-      {!terminal && !quorumMet && signableKeys.length === 0 && (
-        <div style={{ fontSize: 13, color: colors.muted, textAlign: "center", padding: "10px 0" }}>
-          Waiting on other signers. Your keys either already signed or don't match this vault.
-        </div>
-      )}
+      {!terminal && !quorumMet && signableKeys.length === 0 && (() => {
+        // Tell the user *why* they can't sign: already signed, or no key.
+        const iSigned = localKeys.some(
+          k => vaultMemberFingerprints.has(k.fingerprint) && alreadySignedFingerprints.has(k.fingerprint),
+        );
+        const remaining = Math.max(0, required - collected);
+        return (
+          <div style={{ fontSize: 13, color: colors.muted, textAlign: "center", padding: "10px 0", lineHeight: 1.5 }}>
+            {iSigned
+              ? `You've signed. Waiting on ${remaining} more signature${remaining === 1 ? "" : "s"} to reach the ${required}-of quorum.`
+              : "None of your local keys are signers on this vault. If you should be able to sign, import that seed on this device from the Key Manager."}
+          </div>
+        );
+      })()}
 
       {proposal.txid && (
         <a
