@@ -977,11 +977,12 @@ function SendTab({ vault, balance, onDone, prefill }: {
     const signerEntry = signing.signers[keyIndex];
     const key = signerEntry.key;
 
-    // Update status to signing
+    // Update status to signing, clearing any error from a previous attempt
+    // so the row reads cleanly on retry.
     setSigning(prev => {
       if (!prev) return prev;
       const signers = [...prev.signers];
-      signers[keyIndex] = { ...signers[keyIndex], status: "signing" };
+      signers[keyIndex] = { ...signers[keyIndex], status: "signing", error: undefined };
       return { ...prev, signers };
     });
 
@@ -1300,10 +1301,16 @@ function SendTab({ vault, balance, onDone, prefill }: {
                     marginBottom: 8,
                     background: signer.status === "signed" ? `${colors.green}0D` : "#0A0A14",
                     border: `1px solid ${signer.status === "signed" ? `${colors.green}44` : colors.border}`,
-                    cursor: signer.status === "pending" ? "pointer" : "default",
+                    cursor:
+                      signer.status === "pending" || signer.status === "error"
+                        ? "pointer"
+                        : "default",
                     opacity: signer.status === "signing" ? 0.7 : 1,
                   }}
-                  onClick={() => signer.status === "pending" && void signWithKey(i)}
+                  onClick={() =>
+                    (signer.status === "pending" || signer.status === "error") &&
+                    void signWithKey(i)
+                  }
                 >
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 500, color: colors.text }}>
@@ -1315,7 +1322,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
                     </div>
                     {signer.error && (
                       <div style={{ fontSize: 11, color: colors.red, marginTop: 4 }}>
-                        {signer.error}
+                        {signer.error} -- tap to retry
                       </div>
                     )}
                   </div>
@@ -1410,7 +1417,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
             style={{ background: colors.green, width: "100%", padding: "14px", fontSize: 16 }}
             onClick={() => void broadcast()}
           >
-            {busy ? "Broadcasting..." : "Broadcast transaction"}
+            {busy ? "Broadcasting..." : err ? "Retry broadcast" : "Broadcast transaction"}
           </Button>
         ) : (
           <div style={{ fontSize: 13, color: colors.muted, textAlign: "center", padding: "10px 0" }}>

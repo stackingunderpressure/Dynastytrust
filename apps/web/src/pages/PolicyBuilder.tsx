@@ -795,6 +795,23 @@ function validate(
   return { errors, warnings };
 }
 
+// Translate the compiler's raw error strings into guidance the user can
+// act on from the form. Falls back to the original message when unknown.
+function friendlyCompileError(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes('duplicatepubkeys') || m.includes('duplicate'))
+    return 'The same key is used in more than one spending path. Make sure each founder, heir, protector, and consent slot uses a distinct key.';
+  if (m.includes('invalidquorum') || m.includes('quorum'))
+    return `${message}. Check that every quorum is between 1 and the number of keys in that group.`;
+  if (m.includes('66 digits') || m.includes('pubkey hex'))
+    return 'One of the selected keys is missing its public key. Reopen the key in Key Manager, then rebuild the vault.';
+  if (m.includes('network'))
+    return 'All keys in a vault must be on the same network (all testnet, all signet, or all mainnet).';
+  if (m.includes('failed to fetch') || m.includes('non-json') || m.includes('502') || m.includes('503'))
+    return 'The compiler did not respond. It may be waking from idle -- wait a couple of seconds and try again.';
+  return message;
+}
+
 interface CompiledVault {
   address: string;
   descriptor: string;
@@ -1414,6 +1431,19 @@ export default function PolicyBuilder() {
       const plain = mode === 'plain' || (mode === 'inheritance' && heirKeys.length === 0);
       const hasProtector = !plain && protectorKeys.length > 0;
       const hasConsent = consentKeys.length > 0;
+      // Field-level guards the shared validate() doesn't cover, so the
+      // user gets a message tied to the control instead of a raw server
+      // InvalidQuorum.
+      if (hasProtector && protectorQ > protectorKeys.length) {
+        throw new Error(
+          `Protector quorum (${protectorQ}) exceeds the ${protectorKeys.length} protector key${protectorKeys.length === 1 ? '' : 's'} you added. Lower the quorum or add more protector keys.`,
+        );
+      }
+      if (hasConsent && consentQ > consentKeys.length) {
+        throw new Error(
+          `Beneficiary-consent quorum (${consentQ}) exceeds the ${consentKeys.length} consent key${consentKeys.length === 1 ? '' : 's'} you added. Lower the quorum or add more consent keys.`,
+        );
+      }
       const res = await api.compile({
         name,
         network: network as 'testnet' | 'signet' | 'bitcoin',
@@ -1460,7 +1490,7 @@ export default function PolicyBuilder() {
         setAbsoluteTimelocks(null);
       }
     } catch (e) {
-      setCompErr(e instanceof Error ? e.message : 'Compilation failed');
+      setCompErr(friendlyCompileError(e instanceof Error ? e.message : 'Compilation failed'));
     } finally {
       window.clearTimeout(slowTimer);
       setCompiling(false);
