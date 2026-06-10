@@ -104,48 +104,46 @@ function Bullet({ children }: { children: React.ReactNode }) {
 }
 
 // // -- Inline auth form
-// Same supabase calls as the standalone Auth page, compressed into
-// a card that lives on the landing.
+// Magic-link sign-in, mirroring the standalone Auth page: one email
+// field, no password. signInWithOtp creates the account on first use.
 
 function InlineAuthForm() {
-  const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
+  const [sent, setSent] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      if (mode === 'signup') {
-        const { error } = await supabase.auth.signUp({ email, password });
-        if (error) throw error;
-        setDone(true);
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
-      }
+      const emailRedirectTo =
+        typeof window !== 'undefined' ? window.location.origin : undefined;
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: emailRedirectTo ? { emailRedirectTo } : undefined,
+      });
+      if (error) throw error;
+      setSent(true);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Authentication failed');
+      setError(err instanceof Error ? err.message : 'Could not send link');
     } finally {
       setBusy(false);
     }
   }
 
-  if (done) {
+  if (sent) {
     return (
       <div style={s.authCard}>
         <div style={s.authHeading}>Check your email</div>
         <p style={s.authSub}>
-          We sent a confirmation link to{' '}
-          <strong style={{ color: colors.gold }}>{email}</strong>. Confirm
-          the address, then return here to sign in.
+          We sent a sign-in link to{' '}
+          <strong style={{ color: colors.gold }}>{email}</strong>. Open it on
+          this device to continue.
         </p>
-        <button style={s.linkBtn} onClick={() => { setDone(false); setMode('login'); }}>
-          Back to sign in
+        <button style={s.linkBtn} onClick={() => { setSent(false); setError(null); }}>
+          Use a different email
         </button>
       </div>
     );
@@ -153,22 +151,11 @@ function InlineAuthForm() {
 
   return (
     <div style={s.authCard}>
-      <div style={s.tabs}>
-        <button
-          type="button"
-          onClick={() => setMode('login')}
-          style={{ ...s.tab, ...(mode === 'login' ? s.tabActive : null) }}
-        >
-          Sign in
-        </button>
-        <button
-          type="button"
-          onClick={() => setMode('signup')}
-          style={{ ...s.tab, ...(mode === 'signup' ? s.tabActive : null) }}
-        >
-          Create account
-        </button>
-      </div>
+      <div style={s.authHeading}>Sign in</div>
+      <p style={s.authSub}>
+        One-tap email link -- no password. New here? Your account is created
+        when you open the link.
+      </p>
 
       <form onSubmit={submit} style={s.authForm}>
         <label style={s.fieldLabel} htmlFor="lp-email">Email</label>
@@ -182,25 +169,13 @@ function InlineAuthForm() {
           placeholder="you@example.com"
           style={{ fontSize: 15, padding: '12px 14px' }}
         />
-        <label style={s.fieldLabel} htmlFor="lp-password">Password</label>
-        <Input
-          id="lp-password"
-          type="password"
-          autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-          value={password}
-          onChange={e => setPassword(e.target.value)}
-          required
-          minLength={8}
-          placeholder="at least 8 characters"
-          style={{ fontSize: 15, padding: '12px 14px' }}
-        />
         {error && <p style={s.authError}>{error}</p>}
         <Button
           type="submit"
           disabled={busy}
           style={{ marginTop: space[3], padding: '14px', fontSize: 15 }}
         >
-          {busy ? 'Working...' : mode === 'login' ? 'Sign in' : 'Create account'}
+          {busy ? 'Sending...' : 'Send sign-in link'}
         </Button>
       </form>
 
