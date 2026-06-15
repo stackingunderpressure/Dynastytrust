@@ -923,3 +923,82 @@ one more time: build his everyday multisig plus one moderate timelocked peer leg
 on today's primitives first, with real small amounts, and layer the FROST social
 leg, the rotating membership, and the paid-witness market on top only as trust
 and value grow.
+
+### 11e. Paying witnesses off-chain -- Lightning preimage / PTLC (operator refinement, 2026-06-15)
+
+The operator refined the paid-witness idea past baking outputs into the rescue
+transaction: when a peer signs and gives real attention to his situation, the
+wallet **releases a secret** that pays them -- a Lightning preimage that settles a
+payment, or a piece of a UTXO secret -- so the witness gets paid without an
+on-chain footprint if a channel with liquidity already exists. He named the
+honest frictions himself (timing, liquidity, channel availability) and the
+backstop: even if the off-chain fast path fails, holding the secret means you can
+settle on-chain eventually -- the fast path is the first path that hopefully works
+every time, with on-chain as the fallback. This is right, it has precise names,
+and it is the elegant evolution of section 11d's flag 3.
+
+What is true, named precisely:
+
+1. **A Lightning payment IS a released-secret payment.** Lightning settles via an
+   **HTLC** (Hashed Timelock Contract): funds are locked to "whoever reveals
+   preimage X such that hash(X) = H before block T, else refund." Revealing the
+   preimage is getting paid. So "signing releases a secret that pays the witness"
+   is literally how Lightning works -- the operator described the actual mechanism,
+   not an analogy.
+2. **The atomic "the act of signing reveals the payment secret" has a rigorous
+   form: adaptor signatures + PTLCs.** A **PTLC** (Point Time-Locked Contract) is
+   the Taproot-native successor to the HTLC: instead of a hash preimage the secret
+   is a *scalar* `t` behind a point `T = t*G`, and the payment is claimed by
+   revealing `t`. An **adaptor signature** binds a Schnorr signature to that same
+   `T` so that completing/publishing the signature *reveals* `t` -- meaning the
+   instant the witness's signature lands, the scalar pops out and claims their
+   PTLC payment. That is the cryptographically clean version of "you sign and the
+   signing itself pays you," and it composes natively with the BIP340 Schnorr the
+   vault already uses. The looser hash-HTLC version works too (reveal preimage to
+   claim) but is less atomically bound to the signature.
+3. **Fast path off-chain, on-chain as the backstop -- exactly as he said.** An
+   HTLC/PTLC is enforceable on-chain: if the off-chain settlement does not
+   complete (no route, no liquidity, peer offline), the contract can be closed
+   on-chain and settled by revealing the secret before its timelock. So "even if
+   it was not the fast path, you still own it at the end of the day if you hold the
+   preimage" is correct -- the secret is the bearer of the payment, and Lightning
+   is the happy path over a guaranteed on-chain settlement.
+4. **This removes 11d flag 3's on-chain cost.** Paying a "super high amount of
+   people" by baking outputs into the rescue tx bloats it and hits the dust limit;
+   Lightning witness payments are off-chain, instant, and leave no UTXO footprint,
+   so they scale to a large crowd cleanly -- with on-chain HTLC settlement only as
+   the rare fallback. It is the natural money rail for the Trustee Commons fee
+   market (`docs/trustee-commons.md`) and the SATOSHI substrate.
+
+The honest flags:
+
+- **Neither repo has any Lightning, HTLC, PTLC, or adaptor-signature code today --
+  this is the furthest-out layer, beyond FROST.** (The `preimage` references in
+  `psbt-signer.ts` / tapit-attest are the BIP340 *sighash* preimage, unrelated.)
+  It is, however, already contemplated as a design direction: the Tapit brief
+  `2026-06-04-sovereign-conditional-release-inheritance-roadmap.md` explicitly
+  names "a bearer secret (a Lightning preimage -- revealing it moves [value])" and
+  a "Lightning-preimage money face" tied to SATOSHI. So it is parked thinking, not
+  built primitive.
+- **The frictions he named are real and are why it is the fast path, not the
+  guaranteed one.** Lightning needs inbound liquidity / a viable route to the
+  recipient, HTLCs/PTLCs carry timeouts so a recipient must claim before expiry
+  (needing to be online or run a watchtower), and the rigorous atomic version
+  (PTLCs + adaptor signatures, Taproot channels) is itself still maturing in
+  production Lightning, which is largely HTLC-based today. The simpler shippable
+  shape is a normal Lightning invoice paid once the signature is verified -- less
+  atomic, but the payer is the vault owner who *wants* the rescue, so the
+  incentive is already aligned.
+- **Do not conflate paying with a preimage and handing over a key share.** "Pass a
+  piece of a secret of a UTXO" is a different act from a Lightning payment: a
+  preimage *transfers value*; a key share *transfers control* over coins. Paying a
+  witness should move value (Lightning), not hand them a piece of the vault's
+  spending authority -- blending the two is the kind of mistake the bot exists to
+  catch.
+
+Net: the operator has now sketched the witness-payment rail end to end -- value
+released by a secret, fast off-chain, settle-on-chain as backstop -- and it is
+both correct and already in the parked design notes. It sits at the top of the
+climb (above FROST), so the sequencing holds: bake-into-the-tx witness fees or
+plain invoices first, adaptor-signature/PTLC atomic witness payments much later,
+once the Lightning rail and the FROST social leg beneath it both exist.
