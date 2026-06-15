@@ -455,3 +455,147 @@ palette, per DynastyTrust CLAUDE.md); the bot proposes and the human disposes.
   for the individual's benefit above any group's, company's, or our own --
   including ours. It will honestly help a willing person decide DynastyTrust is
   not for them, and that is the feature, not the bug.
+
+---
+
+## 11. Grounded addendum -- layered UTXO + attestation login (operator idea, 2026-06-15)
+
+The operator sketched a richer architecture and asked that it be bounced around
+all three repos and grounded in **actual code, not memory**. Two agents read the
+real source in both `tapit-attest` copies and the DynastyTrust Rust/TS signing
+path. This section records the idea, what the code actually supports today, and
+the honest walls -- so the bot can build rules around where we do and do not need
+to go, and surface the risk before anyone takes it on.
+
+### The operator's idea, distilled
+
+A person logs into DynastyTrust by **signing an attestation** with their Tapit
+Wallet key (proving control of the key), and keeps that sign-in attestation in
+their own wallet as a queryable record -- "show me when I signed in, and when."
+Then a UTXO is gated in layers: a **fast path** that requires a large *social
+quorum* (say ten people, or "one of a hundred keys in an attestation group"
+PLUS a separate trustee quorum) all coming together -- two legs of one path tied
+together, the group must agree AND the trustees must agree. The fast path alone
+is never enough; the social-quorum leg is one of the signatures that must
+assemble. If the social quorum cannot assemble (people offline, not enough happy
+campers), no harm done -- you fall back to the **slow path**, already set up,
+which unlocks on a timelock. And the layering goes all the way down: longer
+timelocks with progressively easier quorums, so even in a total-failure
+scenario the value is eventually recoverable rather than lost forever. "Layers
+and layers of different things you can do," with the bot navigating them.
+
+### The load-bearing wall the bot MUST teach: on-chain vs off-chain
+
+This is the single most important honest distinction, and it is confirmed
+straight from the code. **A tapit-attest signature is NOT a Bitcoin spend
+signature.** An attestation Schnorr-signs a domain-separated tagged-hash digest
+of an *envelope* (in `tapit-attest`: `taggedHash('tapit/root', metaHash ||
+fieldTreeRoot(claim))`, see `src/core/envelope.ts`; in Dynasty's own
+`apps/web/src/lib/attest.ts`: `SHA256("DT-ATT-v1" || type || 0x00 ||
+target_hash)`). A Taproot spend requires a Schnorr signature over a **BIP341
+tapscript sighash** (`apps/web/src/lib/psbt-signer.ts`). These are different
+preimages *by design* -- `tapit-attest/src/internal/hash.ts` states the domain
+separation exists "so an attestation signature can never be replayed as a
+Bitcoin sighash." Neither `tapit-attest` copy nor the Dynasty compiler ever
+builds, signs, or touches a Bitcoin transaction with an attestation (confirmed:
+`grep -i attest` over `compiler/src/main.rs` returns nothing; the attestation
+code is purely the web/governance layer).
+
+So an attestation -- including a "we all agree" social-quorum attestation or a
+"descriptor" attestation -- is an **off-chain coordination/governance/audit
+artifact**. It is enforced by the app, the database (RLS), and the social
+discipline of the members, NOT by the Bitcoin script. The crucial bridge: it is
+the **same key**. A person's secp256k1 x-only key (the BIP340 shape, identical
+to a Taproot key) can produce both an off-chain attestation AND an on-chain
+tapscript signature. That is what makes the layered design real -- but the two
+roles must never be conflated, and the bot's first job here is to teach that an
+attestation expresses *intent and agreement*, while only a tapscript signature
+*moves a coin*.
+
+### What the code supports today (buildable now)
+
+1. **Two thresh legs ANDed into one spending path already exists.** The
+   "fast path = group agrees AND trustees agree" shape is literally the
+   **consent gate** in `protocol/src/policy_compiler.rs` (lines 224-239):
+   ```
+   let trustee_thresh = format!("thresh({},{})", policy.founder_quorum, founders.join(","));
+   let founder_thresh = if policy.has_consent() {
+       let consent_thresh = format!("thresh({},{})", policy.consent_quorum.unwrap(), consenters.join(","));
+       format!("and({},{})", trustee_thresh, consent_thresh)
+   } else { trustee_thresh };
+   ```
+   The compiler does not care what the two key sets *mean* -- feed the social
+   group as one thresh and the trustees as the other and you have "two legs of
+   one path tied together." The Generational Trust template already turns this on
+   (`consentEnabled: true` in `PolicyBuilder.tsx`). There is **no hard-coded
+   key-count cap** anywhere (`verify()` only checks `0 < quorum <= keys.len()`);
+   the real ceiling is what rust-miniscript and Tapscript will compile and
+   satisfy.
+2. **Fast leaf + timelocked fallback leaves = multileaf Taproot, already the
+   core primitive.** "Fast path now, slow path on a timelock, layered down" maps
+   exactly onto the existing founders-now / recovery / inheritance / protector
+   leaves, each its own Taproot leaf with its own `after(N)` absolute CLTV and
+   its own quorum. Adding "more layers all the way down" = more timelocked leaves
+   with progressively easier quorums. Buildable as additional leaves; no new
+   crypto.
+3. **Login-by-attestation has its primitive already.** The Dynasty `tapit-attest`
+   copy has a nonce-bearing signed request/response (`src/core/recovery.ts`:
+   random `nonce`, Schnorr-sign a tagged `requestDigest`, verifier checks the
+   echoed nonce + signature) -- structurally exactly a sign-in challenge. The
+   wallet copy exposes `signDigest` (for Nostr ids) as the seam. Either is reused
+   for "sign a challenge to prove key control"; no login function exists by that
+   name yet, so it is a small build, not a new primitive.
+4. **Proof-of-when is real and Bitcoin-backed.** Both copies anchor the
+   attestation digest via OpenTimestamps (`anchoring.ts` / `anchor/`). So a
+   signed sign-in attestation, anchored, proves it existed -- with the honest
+   caveat that OTS proves "existed before block N" (a coarse not-after), not a
+   precise wall-clock instant. Good enough for "I signed in around then," not for
+   "at 3:42:07pm."
+
+### The walls the bot must build (risks to surface before taking them on)
+
+- **Big social quorums belong OFF-chain.** A hundred keys in a single on-chain
+  thresh leaf is where the implicit ceiling bites -- tapscript will technically
+  compile a large `thresh`, but witness size, satisfaction cost, and standardness
+  make a 100-key on-chain leg impractical and expensive. The honest design: keep
+  the *large* social quorum as an **off-chain attestation gate** (the group signs
+  "we agree" attestations the app verifies), and keep the **on-chain** script
+  small -- the trustee thresh plus, at most, a small delegate set. The bot should
+  steer a "ten people / a hundred keys" social quorum to the off-chain leg and
+  explain why, rather than letting someone compile an on-chain leaf that may not
+  spend.
+- **"The network recovers it / the minors get it at the very end" needs a name.**
+  A final, very-long-timelock, very-easy leaf (e.g. a single published key after
+  many years) does NOT mean "the network" recovers it -- it means *whoever holds
+  that key* can sweep it after the timelock, and publishing the key makes it a
+  public race. That can be a deliberate, sound design (a true last-resort), but
+  the bot must teach it as exactly what it is: a known, chosen risk, not a magic
+  safety net. This is the "know the risk before you take it on" rule made literal.
+- **Off-chain agreement is not on-chain enforcement.** If the social quorum's
+  agreement lives only in attestations, then the app/DB outage or a hostile
+  server cannot *steal* coins (the script still needs real tapscript sigs), but
+  it CAN stall the fast path -- which is exactly why the timelocked slow path is
+  the honest fallback the operator already intuited. The bot frames the fast path
+  as convenience and the timelock as the guarantee.
+- **One stale-comment bug to flag, not fix here.** `protocol/src/governance.rs`
+  still describes timelocks as "CSV / UTXO age" in its comments, but the on-chain
+  leaves are unambiguously absolute `after()` / OP_CLTV. The off-chain evaluator's
+  framing is stale terminology; if it were ever fed UTXO age instead of absolute
+  chain height it would mis-report unlock timing. Worth a separate cleanup pass.
+
+### How this lands in the bot
+
+This is curriculum rung 6 ("how do I control it") and rung 7 ("who do I trust")
+made deep, plus the section 8 login/attestation seam made concrete. The bot's
+job is to let a willing person design these layers *with* it -- propose the leaf
+structure, show each leg in plain language, tap-to-confirm every key set and
+timelock, and at every step name where enforcement actually lives (Bitcoin
+script vs app/social) and what each layer can and cannot protect against. It
+builds the walls and the rules so the person does not wander into a leaf that
+will not spend or a "last key" they did not understand -- holding the section 2
+no-control spine throughout: it proposes the architecture, the human disposes,
+and no key ever enters its context. The full ceremony (does the bot orchestrate
+attestation signing end-to-end, where the tap-wallet key lives relative to the
+browser keystore, how this lines up with Super Sovereign Mode's local-keypair
+auth) stays the pending operator decision from section 8 -- captured, grounded,
+not yet built.
