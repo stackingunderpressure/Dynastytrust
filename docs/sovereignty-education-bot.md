@@ -678,3 +678,85 @@ small amounts on the primitives that already exist** -- the `and(thresh, thresh)
 consent-gate two-leg pattern plus a timelock fallback, proven with five dollars
 first -- and only once that is trusted do we climb to FROST social legs and more
 elaborate trust structures.
+
+### 11b. Nostr transport + the "behind the banners" UX (operator refinement, 2026-06-15)
+
+The operator described the wire and the surface: the envelope travels on Nostr,
+DynastyTrust collects the pieces (PSBT shares, attestation responses) that were
+"shot out" through the relays, each participant's wallet auto-digests an arriving
+message and prompts a tap-to-confirm, the ceremony completes "behind the banners"
+where nobody ever sees the cryptography, and people do NOT all have to be online
+at the same moment. The strong finding from grounding this in code: **almost all
+of that already exists, and it is built on the Tapit Wallet side, not yet wired
+into DynastyTrust.**
+
+What is real today (Tapit Wallet `src/features/transport/`, `sign-request/`,
+`cosigning/`, and `wallet-core/inboxEnvelopeHandler.ts`):
+
+1. **Encrypted Nostr transport is shipped.** A transport-agnostic
+   publish/subscribe interface over a Nostr WebSocket client; tapit-attest
+   envelopes ride a custom event kind (`TAPIT_ENVELOPE_KIND = 9573`) wrapped in
+   NIP-44 v2 ciphertext addressed to the recipient's pubkey; chat rides NIP-17
+   gift-wrap (kind 1059) with an ephemeral outer key so the relay never even sees
+   the real sender. **Relays only ever see ciphertext** -- the social graph and
+   the contents are private. The default relay set ships and is user-replaceable.
+   The client auto-reconnects, dedupes events across relays, and -- crucially --
+   the wallet key IS the Nostr identity (the same x-only BIP340 key that signs
+   attestations and could sign PSBTs), so there is no second identity to manage.
+2. **The wallet auto-digests on open -- "behind the banners."** `inboxEnvelopeHandler`
+   is exactly the "it automatically digested the message" behavior: an arriving
+   envelope is silently absorbed if the wallet already holds a copy (new
+   signatures are merged into the held envelope automatically), self-addressed
+   copies sync across the user's own devices, secret-piece receipts and peer
+   key-rotation announcements are verified and filed with zero chore, and only a
+   genuinely new envelope that needs a decision surfaces as an inbox row to tap.
+   That silent signature-merge IS the "collect the pieces as they come in"
+   mechanism.
+3. **Tap-to-confirm is the sign-request approval screen.** The `sign-request`
+   feature renders a plain-English approval screen ("the screen IS the product",
+   DESIGN.md section 9) showing who is asking, the callback host, and the concrete
+   thing being signed -- then on approve it signs with the active key, holds the
+   result, and returns it. It already has a `cosign-existing` intent: hand the
+   wallet an already-signed envelope and it ADDS its signature and returns the
+   merged multi-signature envelope, canonical id unchanged. That is precisely
+   "tap to confirm you agree and the ceremony advances," with the hex hidden and
+   the meaning shown.
+4. **Async / not-all-online is by design.** NIP-17 kind 1059 was chosen
+   specifically because public relays persist it for offline retrieval, so a
+   participant who is away receives the message when they next open their wallet
+   and taps then. The ceremony advances as each person shows up; nobody has to be
+   simultaneously present. (Persistent offline outbox + sync-resume polish is a
+   later Tapit cut, but store-and-forward via relays already works.)
+
+The honest gaps and the one nuance:
+
+- **DynastyTrust is not on this wire yet.** Today DynastyTrust coordinates via
+  **Supabase Realtime** (`lib/realtime.ts`, `useRealtimeRefresh` across
+  VaultDetail/ProposalDetail) and the Tapit sign pathway is deeplink/QR in v1.
+  The reserved seam is **NIP-46** (Nostr app-to-wallet signing, noted in the
+  transport manifest as D-11c, "a different transport sharing the same message
+  shapes"). So "DynastyTrust shoots a PSBT out over Nostr and collects the signed
+  pieces back" is the integration to build: DynastyTrust becomes a sign-request
+  requester whose transport is Tapit's existing encrypted Nostr inbox instead of
+  a deeplink. The message shapes already exist; the wire already exists; the work
+  is connecting the two apps across it.
+- **The banner must still show the meaning.** "Nobody sees the cryptography" is
+  the right goal for the hex, but the no-control / tap-to-confirm rail (section 2)
+  requires the banner to show the consequential content in plain language -- what
+  you are agreeing to, who is asking, "you are confirming Dad is alive" or "you
+  are approving a spend of X to Y." Hiding the hex is good; hiding the meaning
+  would turn a verification into a blind tap, and that is the line the education
+  bot must hold.
+- **PSBT multisig is async-friendly; FROST is more session-bound.** The
+  silent-absorb model is perfect for plain PSBT/attestation multisig, where each
+  partial signature merges in whenever it arrives. A FROST signing round has
+  ordering and nonce-freshness constraints, so it rides the same Nostr transport
+  but as a coordinated session rather than a merge-whenever stream -- which is
+  why PSBT/attestation multisig is the async-first target and FROST sessions come
+  later, exactly the sequencing in section 11a.
+
+Net: the transport layer the operator described is largely a solved problem
+sitting in the Tapit repo. The wedge is not building a Nostr stack -- it is
+wiring DynastyTrust's vault ceremonies onto Tapit's existing encrypted inbox and
+sign-request surface so the "tap behind the banners" experience spans both apps,
+which is the section 8 tap-wallet integration seam made concrete on a real wire.
