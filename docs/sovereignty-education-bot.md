@@ -760,3 +760,86 @@ sitting in the Tapit repo. The wedge is not building a Nostr stack -- it is
 wiring DynastyTrust's vault ceremonies onto Tapit's existing encrypted inbox and
 sign-request surface so the "tap behind the banners" experience spans both apps,
 which is the section 8 tap-wallet integration seam made concrete on a real wire.
+
+### 11c. The fixed-descriptor property -- FROST resharing (operator refinement, 2026-06-15)
+
+The operator landed the deepest point yet: with FROST you keep ONE descriptor --
+one aggregate public key -- for the entire life of the timelock, and you rotate
+the social quorum, swap social keys, and change the trustees behind it WITHOUT
+ever changing the public descriptor or the on-chain address. The trustees never
+need to change even if the social leg does; or the trustees themselves can be a
+FROST and run their own ceremony, dealing one trustee seat out to three
+sub-trustees however they like. The signing dance happens whenever -- a tap, a
+screen, it comes back later, you tap eventually, and it assembles itself over
+time into the thing you wanted (or does not, if you do not tap). This is exactly
+right, and it is the single strongest reason FROST belongs in a multi-generational
+vault.
+
+Why it is true, stated precisely:
+
+1. **FROST decouples the on-chain key from the membership -- that is its
+   superpower over plain multisig.** A Taproot leaf that uses a FROST group
+   commits only to the group's *aggregate* public key. The set of share-holders
+   and the threshold can be changed by a resharing ceremony that re-deals shares
+   to a new roster (or a new t-of-n) while the aggregate public key stays
+   identical -- so the descriptor and the funded address never change. Contrast
+   plain Miniscript `thresh`: change one key in the set and the script changes,
+   the leaf changes, the address changes, and you must **move the coins on-chain**
+   to the new address -- a transaction, a fee, a fresh funding, and a risk window,
+   every single time someone churns. Over a 25-year vault where people inevitably
+   move, fall out, lose devices, or die, FROST turns "migrate the whole vault
+   on-chain to rotate a trustee" into "run an off-chain resharing ceremony; the
+   coins never move." That operational difference is enormous and the operator
+   named it exactly.
+
+2. **The honest line: base FROST signing vs FROST resharing.** The Tapit FROST
+   work is operator-locked to a vendored FROST-Secp256k1 build of **RFC 9591**
+   (`2026-05-25-frost-first-and-charter-governance-roadmap.md`, operator decision
+   1) -- but RFC 9591 standardizes the DKG + *signing* at a fixed (t,n). Changing
+   the membership while preserving the group key is a **resharing / proactive
+   secret sharing (PSS) / enrollment** protocol layered on top -- real and known
+   in the literature (share refresh, repairable threshold schemes, dynamic
+   committees) but NOT part of base RFC 9591, and the least standardized, least
+   battle-tested piece of the whole stack. So "same descriptor forever, rotate
+   the humans" is FROST-plus-resharing, an advanced extension the bot must flag
+   as the frontier: powerful, buildable, but the part that most needs a vetted
+   construction and the most caution. Vanilla FROST signing comes first; resharing
+   is the climb after that.
+
+3. **FROST composes -- the trustee seat can itself be a FROST.** A FROST group
+   key can stand in any slot a single pubkey can: the whole leaf, or one "key"
+   inside a Miniscript `thresh`. So one trustee seat in a `thresh(Q, trustees)`
+   recovery leaf can itself be a FROST aggregate of three sub-trustees who reshare
+   independently, and the descriptor stays fixed through all of it -- as long as
+   each FROST group's aggregate key is stable. Caveat the bot teaches: the
+   descriptor is immutable only for positions held by a FROST aggregate; a plain
+   static pubkey sitting in the script still forces an on-chain migration to
+   rotate. Design implication -- put the churn-prone roles (the social quorum,
+   rotating trustees) behind FROST aggregates, and keep the deliberately stable
+   anchors (a founder's own cold key, the timelock structure itself) as fixed
+   script.
+
+4. **The async "assembles over time" UX is grounded in the plan.** The Tapit
+   roadmap already locks DKG rounds to surface as inbox envelopes the operator
+   taps (decision 3) and admission/objection deadlines measured by an
+   OpenTimestamps confirmation reaching a Bitcoin block, not wall-clock (decision
+   2). So the dance literally arrives as inbox taps on a sovereign clock -- exactly
+   "a tap, a screen, comes back later." The honest nuance: a single FROST signing
+   session needs fresh nonces and a bounded session, so "tap whenever and it
+   assembles over time" is true at the human layer (you tap when you next open the
+   wallet) while underneath a coordinator runs one clean, bounded, fresh-nonce
+   session per signing attempt -- nonces are never reused, and a half-assembled
+   session must be **abortable**: the duress/withdraw mechanism from section 11a
+   has to cancel the in-flight session, not merely block the next one, or an
+   attacker who has harvested enough taps could complete it. "It assembles, or it
+   does not if you do not tap" must include "and it tears down cleanly if someone
+   pulls the alarm mid-dance."
+
+Ground truth unchanged: neither repo implements FROST today, and resharing is the
+advanced layer above a primitive that is not there yet -- so this is the far end
+of the climb, not the first cut. But it reframes the whole design: the fixed
+descriptor with rotating membership behind it is *the* reason to do FROST rather
+than plain multisig for the social leg, and it is what lets a vault outlive every
+individual member without ever touching the chain to do it. The bot's job is to
+teach that tradeoff plainly -- the operational freedom FROST buys, against the
+maturity cost of resharing -- so a family chooses it eyes-open.
