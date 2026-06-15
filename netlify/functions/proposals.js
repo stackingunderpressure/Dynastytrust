@@ -24,6 +24,9 @@ async function runGovernanceAudit(vault, proposal) {
     path:              proposal.path,
     amount_sats:       proposal.amount_sats,
     destination:       proposal.destination,
+    // Legacy field name: this is the CURRENT CHAIN TIP HEIGHT (absolute), not
+    // UTXO age. Timelocks are absolute CLTV; the engine compares it to the
+    // stored absolute unlock heights. Pass the chain tip, never UTXO age.
     utxo_age_blocks:   proposal.utxo_age_blocks || 0,
     total_vault_sats:  proposal.total_vault_sats || 0,
     signers:           [],  // no signatures yet on creation

@@ -612,6 +612,9 @@ struct GovernanceStatusRequest {
     founder_quorum: usize, founder_key_count: usize,
     heir_quorum: usize,    heir_key_count: usize,
     recovery_after: u32,   inheritance_after: u32,
+    // Legacy field name: this is the CURRENT CHAIN TIP HEIGHT (absolute), not
+    // UTXO age. Timelocks are absolute CLTV; recovery_after/inheritance_after
+    // are absolute heights, so callers must pass the chain tip here.
     utxo_age_blocks: u32,
 }
 
@@ -642,6 +645,7 @@ struct GovernanceAuditRequest {
     recovery_after: u32,   inheritance_after: u32,
     path: String,
     amount_sats: u64, destination: String,
+    // Legacy field name: CURRENT CHAIN TIP HEIGHT (absolute), not UTXO age.
     utxo_age_blocks: u32, total_vault_sats: u64,
     #[serde(default)]
     signers: Vec<serde_json::Value>,

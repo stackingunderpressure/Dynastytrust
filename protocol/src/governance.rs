@@ -110,10 +110,14 @@ const BLOCKS_PER_DAY: f64 = 144.0;
 
 /// Evaluate which spending paths are active at `current_block`.
 ///
-/// Note: `current_block` here is the age of the UTXO in blocks
-/// (i.e. current_chain_height - utxo_confirmation_height).
-/// For CSV timelocks, what matters is how many blocks have elapsed
-/// since the UTXO was confirmed, not absolute chain height.
+/// `current_block` is the CURRENT CHAIN TIP HEIGHT (absolute). DynastyTrust
+/// timelocks are absolute CLTV (`after(N)` => OP_CHECKLOCKTIMEVERIFY), so a
+/// timelocked path unlocks once the chain tip reaches the absolute height
+/// baked into the leaf -- NOT relative to the UTXO's confirmation age. Do not
+/// pass UTXO age here; pass the chain tip height. (See CLAUDE.md "Timelocks
+/// are absolute CLTV". The wire/DB field that feeds this is still named
+/// `utxo_age_blocks` for back-compat; despite the legacy name it carries the
+/// chain tip height. Renaming that persisted field is a separate migration.)
 pub fn evaluate_vault_status(
     policy: &VaultPolicy,
     current_block: u32,
@@ -202,7 +206,9 @@ pub struct SignerStatus {
 
 /// Evaluate whether a proposed spend on `path` is valid.
 ///
-/// `utxo_age_blocks`: how many blocks old the UTXO is (for CSV timelock checks).
+/// `utxo_age_blocks`: legacy field name -- this is the CURRENT CHAIN TIP HEIGHT
+/// (absolute), not UTXO age. Timelocks are absolute CLTV, so a timelocked path
+/// is satisfied once the tip reaches the stored absolute unlock height.
 /// `signer_statuses`: which signers have already contributed signatures.
 pub fn evaluate_spend_proposal(
     policy: &VaultPolicy,
@@ -244,7 +250,7 @@ pub fn evaluate_spend_proposal(
             SpendingPath::FoundersNow => 0,
         };
         format!(
-            "Timelock not yet satisfied. UTXO must age {needed} more blocks (~{:.0} days).",
+            "Timelock not yet satisfied. Chain must reach the unlock height -- {needed} more blocks (~{:.0} days).",
             needed as f64 / BLOCKS_PER_DAY
         )
     } else {
@@ -363,6 +369,8 @@ pub struct ProposedSpend {
     pub path:             SpendingPath,
     pub amount_sats:      u64,
     pub destination:      String,
+    /// Legacy field name -- carries the CURRENT CHAIN TIP HEIGHT (absolute),
+    /// not UTXO age. Timelocks are absolute CLTV; see `evaluate_spend_proposal`.
     pub utxo_age_blocks:  u32,
     pub signer_statuses:  Vec<SignerStatus>,
     pub total_vault_sats: u64,
@@ -390,7 +398,7 @@ pub fn audit_spend(policy: &VaultPolicy, spend: &ProposedSpend) -> GovernanceAud
     };
     if !timelock_ok {
         add(&mut violations, "GOV-001", "Timelock not satisfied", RuleSeverity::Hard,
-            format!("UTXO age {} blocks < required {}", spend.utxo_age_blocks,
+            format!("Current chain height {} is below the required unlock height {}", spend.utxo_age_blocks,
                 match spend.path {
                     SpendingPath::Recovery    => policy.recovery_after,
                     SpendingPath::Inheritance => policy.inheritance_after,

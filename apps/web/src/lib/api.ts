@@ -508,6 +508,10 @@ export const api = {
   },
 
   governance: {
+    // NOTE: `utxo_age_blocks` is a legacy field name. It carries the CURRENT
+    // CHAIN TIP HEIGHT (absolute), not UTXO age -- timelocks are absolute CLTV,
+    // so the engine compares it against the stored absolute unlock heights.
+    // Pass the chain tip here, never the UTXO confirmation age.
     status: (body: {
       vault_id: string;
       utxo_age_blocks?: number;

@@ -131,6 +131,12 @@ export async function handler(event) {
 // ── JavaScript fallback governance engine ────────────────────────────────────
 // Mirrors the Rust governance engine logic exactly.
 // Used when the compiler service is unavailable (cold start, not deployed, etc.)
+//
+// NOTE on `utxo_age_blocks`: this is a legacy field name. The value is the
+// CURRENT CHAIN TIP HEIGHT (absolute), not UTXO age. Timelocks are absolute
+// CLTV, so recovery_after/inheritance_after are absolute heights and a path
+// unlocks once the tip reaches that height. Renaming the field across the
+// stack (DB column + Rust + this proxy) is a separate migration.
 
 const BLOCKS_PER_DAY = 144;
 
@@ -183,7 +189,7 @@ function jsGovernanceAudit(policy, { path, amount_sats, destination, utxo_age_bl
       ? policy.recovery_after - utxo_age_blocks
       : policy.inheritance_after - utxo_age_blocks;
     violations.push({ rule: { id: 'GOV-001', description: 'Timelock not satisfied', severity: 'hard' },
-      detail: `UTXO age ${utxo_age_blocks} blocks < required. Needs ${needed} more blocks (~${Math.round(needed/BLOCKS_PER_DAY)} days).` });
+      detail: `Current chain height ${utxo_age_blocks} is below the unlock height. Needs ${needed} more blocks (~${Math.round(needed/BLOCKS_PER_DAY)} days).` });
   }
   if (!quorum_ok) {
     violations.push({ rule: { id: 'GOV-002', description: 'Quorum not satisfied', severity: 'hard' },
