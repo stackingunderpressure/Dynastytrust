@@ -599,3 +599,82 @@ attestation signing end-to-end, where the tap-wallet key lives relative to the
 browser keystore, how this lines up with Super Sovereign Mode's local-keypair
 auth) stays the pending operator decision from section 8 -- captured, grounded,
 not yet built.
+
+### 11a. The FROST social leg (operator refinement, 2026-06-15)
+
+The operator refined the social-quorum idea into something sharper: a "fast
+path" where a large group (say 75 of 100 people) each hold a tiny piece, and
+when enough of them show up and "put their key in the hole," a complete
+signature assembles and signs the everyday spend -- but the moment a duress
+signal fires ("he's been kidnapped"), people *withdraw* their pieces, the
+threshold can no longer be met, the fast leg dies, and the coins fall back to a
+timelocked path B (a long recovery lock). Each participant is also an
+attestation -- proof of life, proof of "all is well," a green/red gate -- and
+both Tapit and DynastyTrust could each use whatever signing scheme fits a given
+leg. This is correct and powerful, and the right primitive for it has a name:
+**FROST** (Flexible Round-Optimized Schnorr Threshold signatures).
+
+What is true, and what the bot must teach precisely:
+
+1. **FROST does exactly the "75 of 100 assemble a signature" thing -- without
+   ever reassembling the key.** This is the one correction to the mental model.
+   There are two different "split into 100 pieces" technologies and they must
+   not be blended. *Shamir secret sharing* literally reconstructs the whole
+   private key at one place and moment (the "portal where the key becomes
+   complete") -- and that reconstruction instant is a single point of theft.
+   *FROST* never reconstructs the key: each participant produces a signature
+   **share**, and the shares combine into one valid Schnorr signature, while the
+   private key never exists anywhere, ever. For a *signing* leg you want FROST,
+   not Shamir-reconstruct, because it gives the identical "enough people show up
+   and it unlocks" experience with no moment the full key can be stolen. (Shamir
+   stays the right tool for backing up a *static secret* you need to recover,
+   which is a different job -- the Tapit leak-vs-loss lever.)
+2. **FROST collapses a 100-person quorum to ONE on-chain key -- which solves the
+   problem section 11 flagged.** Earlier we warned that a 100-key `thresh` in one
+   Taproot leaf is impractical on-chain. FROST is the answer: the entire
+   75-of-100 ceremony happens off-chain, and the Bitcoin script sees a single
+   aggregate public key -- `pk(AGG)` -- indistinguishable from a normal
+   single-key spend. The big social quorum lives off-chain (where big quorums
+   belong) and lands on-chain as one key. That is the clean version of "the
+   social leg is the fast path."
+3. **The fast-leg / fallback dance maps straight onto multileaf Taproot.** Leaf 1
+   = `pk(FROST_AGG)`, the everyday/social fast path. Leaf 2+ = `and(after(N),
+   thresh(Q, hardware_recovery_keys))`, the timelocked fallback. If the duress
+   alarm fires and participants withhold their shares, the threshold cannot be
+   reached, leaf 1 simply cannot produce a signature, and the coins are not
+   stuck -- they are protected by falling to the timelock leg. This is the same
+   "fast path is convenience, timelock is the guarantee" shape from section 11,
+   now with FROST as the fast leg.
+4. **Different legs, different schemes -- yes.** Tapscript multileaf does not care
+   how each leaf's key material is produced. The social leg can be FROST; the
+   recovery leg can be a plain Miniscript `thresh` of Coldcard/Sparrow/Nunchuk
+   keys; a third leg something else. Tapit and DynastyTrust can each adopt FROST
+   independently -- it is just a signing protocol over the same secp256k1/BIP340
+   curve both already use; they are not entangled by sharing it.
+5. **The green/red liveness is the attestation layer.** "He's alive, we shook
+   hands at Christmas" is an off-chain proof-of-life attestation; "withdraw your
+   piece" is a participant declining to join the FROST signing round, optionally
+   backed by a duress/revocation attestation. The bot's job is to make that
+   signal legible and turn a duress alarm into "do not sign," holding the
+   no-control spine.
+
+The honest caveats the bot must surface before anyone takes this on: FROST needs
+a distributed key-generation ceremony up front and a coordinated two-round
+signing ceremony each time, it requires `t` participants to actually be live and
+reachable (the same availability-vs-security tradeoff from curriculum rung 3),
+and it has a sharp implementation edge -- nonce reuse or bad nonce handling in a
+FROST signing round can leak a participant's share -- so it must ride a vetted,
+audited library, never a hand-rolled implementation. It is newer and less
+battle-tested in production wallets than plain k-of-n multisig. And because the
+FROST aggregate key is a single leaf, the timelocked fallback leg is the *only*
+backstop if the FROST group is ever permanently lost, so that fallback's design
+carries the whole safety burden. Ground truth today: **neither repo implements
+FROST** -- Tapit and DynastyTrust both sign with plain per-signer BIP340 Schnorr,
+and DynastyTrust enforces quorums with Miniscript `thresh`, not threshold
+signatures. So FROST is a *new primitive to add later*, the "work our way up"
+target. The operator's own sequencing is right and is the rule: the
+lowest-hanging fruit for Tapit + DynastyTrust together is **small quorums and
+small amounts on the primitives that already exist** -- the `and(thresh, thresh)`
+consent-gate two-leg pattern plus a timelock fallback, proven with five dollars
+first -- and only once that is trusted do we climb to FROST social legs and more
+elaborate trust structures.
