@@ -843,3 +843,83 @@ than plain multisig for the social leg, and it is what lets a vault outlive ever
 individual member without ever touching the chain to do it. The bot's job is to
 teach that tradeoff plainly -- the operational freedom FROST buys, against the
 maturity cost of resharing -- so a family chooses it eyes-open.
+
+### 11d. The operator's own vault -- the worked example (2026-06-15)
+
+The operator described his actual setup, and it is the canonical "this is how I
+would really use it" that exercises the whole stack: an everyday multisig he
+alone controls (his hardware wallet + a second hardware wallet + one software
+key) that behaves exactly like any single-sig or multisig he already runs --
+nobody can move his funds but him -- plus a **timelocked social-recovery leg**
+that only becomes available if he gets locked out or goes silent for a set time,
+at which point a large quorum of his peers can come together and unlock one of
+the tapscript legs to rescue him; with more value and more elapsed time he can
+add more layers, as many as he can get participation for, and he could even pay
+the participants (every peer who signs gets, say, 0.01 BTC for being present).
+This is the Lost-Device-Insurance / self-sovereign-with-social-fallback shape,
+and it maps cleanly onto the primitives -- with three honest flags.
+
+The mapping:
+
+- **Everyday leaf (founders-now):** `thresh(Q, [hw1, hw2, software])` -- his two
+  hardware keys plus the software key, his normal multisig, immediate, no
+  timelock. Real and shipped today. Only he can spend.
+- **Social-recovery leaf:** a separate Taproot leaf, `and(after(N), thresh(Q_peers,
+  peers))` -- the peer quorum can spend only after the absolute block height `N`.
+  Real primitive today (it is the recovery/inheritance leaf shape). One design
+  choice the bot must surface: do the peers spend *alone* after the timelock
+  (true rescue if he is genuinely gone), or must one of his own keys also sign
+  (`and(after(N), and(pk(his_backup), thresh(Q_peers, peers)))`) so the peers can
+  *assist* but never collude to take it without him? The second is safer against
+  a peer cartel; the first is what actually rescues him if he is incapacitated.
+  Naming that tradeoff is exactly the bot's "know the risk before you take it on."
+
+The three honest flags:
+
+1. **"If I don't move the coins for a certain amount of time" is NOT a
+   self-resetting on-chain timer.** This is the single most important correction.
+   DynastyTrust timelocks are **absolute** CLTV (`after(N)` = a fixed future block
+   height), not relative CSV that resets every time you touch the coins -- and
+   that is deliberate, because BIP 68 caps relative timelocks at ~65,535 blocks
+   (about 15 months), too short for this. The deadman/inactivity *feeling* is
+   built by **refreshing**: while you are active you periodically move the coins
+   to a fresh vault output with a new, further-out absolute timelock, pushing the
+   recovery date back out ahead of you; if you go silent and stop refreshing, the
+   absolute height eventually passes and the social leg unlocks. So "they come to
+   my rescue only after I have been gone a while" is real, but the mechanism is
+   periodic re-anchoring, not an on-chain countdown -- this is how Liana does it
+   and it matches the CLAUDE.md absolute-CLTV rule. The bot must teach this
+   plainly because "it resets when I touch it" is the number-one misconception.
+2. **A "super high amount of people" quorum belongs behind FROST, not in the
+   raw script.** A large peer `thresh` directly in the leaf hits the on-chain
+   bloat ceiling from section 11. The clean version is the social leg as a FROST
+   aggregate -- the big quorum lives off-chain in the ceremony and lands on-chain
+   as one `pk(AGG)` -- which also gives the fixed-descriptor / rotating-membership
+   property from section 11c so peers can churn over the years without re-funding.
+   Today, with FROST not yet built, the shippable version is a *moderate* on-chain
+   peer `thresh` (small quorum, small amounts -- the operator's own "lowest
+   hanging fruit" sequencing); the large FROST social leg is the climb.
+3. **Paying signers is real and can be trustless -- bake it into the rescue
+   transaction.** "Everyone who signs gets 0.01 BTC for being present" is
+   enforceable without trusting anyone: the rescue transaction's own outputs
+   include a 0.01 BTC payment to each participating signer, and because every
+   signer sees the full PSBT before signing (the tap-to-confirm rail), they sign
+   only because the very transaction they are approving pays them -- the incentive
+   is self-enforcing, no side deal required. The costs the bot must name: paying a
+   large crowd bloats the transaction and its fee, and each payout must clear the
+   dust limit (546 sats), so "a super high amount of people" trades off against
+   on-chain cost. The more elaborate, ongoing version is the Trustee Commons
+   (`docs/trustee-commons.md`): bonded, fee-earning, reputation-tracked
+   participants who get paid per signing and are slashed for misbehavior -- the
+   same incentive, made into a standing market rather than a one-off tx output.
+
+Why this example matters: it is the scenario playbook the roadmap already wants
+(CLAUDE.md "Scenario playbooks", "Role-aware dashboards") and the exact thing the
+education bot narrates -- a real person's vault, each leg explained in plain
+language, every consequential value tapped-to-confirm, and the honest mechanics
+(absolute-timelock refresh, FROST for big quorums, baked-in witness fees) taught
+at the moment they bear on his choice. It also proves the operator's sequencing
+one more time: build his everyday multisig plus one moderate timelocked peer leg
+on today's primitives first, with real small amounts, and layer the FROST social
+leg, the rotating membership, and the paid-witness market on top only as trust
+and value grow.
