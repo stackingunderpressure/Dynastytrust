@@ -609,6 +609,90 @@ const VAULT_TEMPLATES: VaultTemplate[] = [
     },
   },
 
+  {
+    id: 'social-recovery',
+    title: 'Self-Custody + Social Recovery',
+    tagline: '2-of-3 you . 3-of-5 peers after 1yr',
+    useCase:
+      'You alone control the coins day to day with your own multisig (for example two hardware wallets plus one software key, 2-of-3). If you are ever locked out or go silent for a long time, a quorum of people you trust can rescue the funds -- but only after the timelock, and only as a group. Start with small amounts and a handful of close peers; the large-crowd version of this circle belongs off-chain as a FROST aggregate and is the later climb.',
+    config: {
+      mode: 'inheritance',
+      plannedFounders: 3,
+      founderQ: 2,
+      plannedHeirs: 5,
+      heirQ: 3,
+      recoveryAfter: 26_280, // ~6 months -- your own keys, lower-friction self-recovery
+      inheritanceAfter: 52_560, // ~1 year -- the social-recovery leg unlocks for your peer quorum
+    },
+    scenarios: [
+      {
+        title: 'Everyday spending',
+        trigger: 'You move funds normally.',
+        outcome:
+          'Your 2-of-3 signs on Path 1 instantly. No peer is involved and no one but you can move the coins.',
+        actions: [
+          'Spend with any two of your three keys.',
+          'Moving the coins also refreshes the timelock -- see "You come back".',
+        ],
+        severity: 'info',
+      },
+      {
+        title: 'Lose one of your own devices',
+        trigger: 'One of your three keys is lost or destroyed.',
+        outcome:
+          'Your other two keys still sign 2-of-3 on Path 1. After ~6 months your own keys can also spend via the recovery path.',
+        actions: [
+          'Keep spending with the remaining two keys.',
+          'Replace the device, build a fresh vault, and sweep funds to it.',
+        ],
+        severity: 'warn',
+      },
+      {
+        title: 'You are locked out or go silent',
+        trigger:
+          'You lose enough of your own keys, are incapacitated, or simply stop touching the vault for a long time.',
+        outcome:
+          'After ~1 year with no activity, the social-recovery leg unlocks and a 3-of-5 quorum of your trusted peers can move the funds to rescue them.',
+        actions: [
+          'Your peers gather and sign 3-of-5 on the social-recovery path after the timelock.',
+          'They sweep the funds to the destination named in your trust doc.',
+          'Choose peers who will still be reachable years from now, and more than the quorum so a few being unavailable does not strand you.',
+        ],
+        severity: 'warn',
+      },
+      {
+        title: 'A peer goes rogue',
+        trigger: 'One of your five peers tries to take the funds, or you fear collusion.',
+        outcome:
+          'They cannot act: the social leg needs 3 of 5 AND stays locked until the ~1-year timelock passes, giving you a long window to react before any peer quorum could move a sat.',
+        actions: [
+          'While you are active the social leg is simply unspendable -- the timelock is your safety margin.',
+          'If you distrust the circle, move the coins (which resets the clock) and rebuild with a new peer set.',
+        ],
+        severity: 'danger',
+      },
+      {
+        title: 'You come back before the timelock',
+        trigger: 'You were away but return before the social leg unlocks.',
+        outcome:
+          'Nothing was ever at risk. Moving the coins to a fresh vault output pushes the timelock back out ahead of you -- this is how the deadman stays armed without ever firing while you are alive.',
+        actions: [
+          'Spend or re-anchor the vault periodically to refresh the timelock.',
+          'Treat a refresh like checking the batteries in a smoke detector.',
+        ],
+        severity: 'info',
+      },
+    ],
+    trustDoc: {
+      purpose:
+        "Self-custody vault under the holder's sole control day to day (2-of-3 across the holder's own keys), with a timelocked social-recovery path that lets a 3-of-5 quorum of trusted peers rescue the funds only after a long period of holder inactivity. The peers cannot spend while the holder is active.",
+      distribution_rules:
+        'The holder spends at will using any 2 of their 3 keys on Path 1. The social-recovery quorum (3 of 5 peers) may spend ONLY after the social-recovery timelock elapses, and only to move funds to the recovery destination named below -- not for ordinary distributions.',
+      succession_notes:
+        'This template uses peers-spend-alone-after-timelock: once the social leg unlocks, the peer quorum can move funds without the holder. Pick peers who will still be reachable in years, and pick more than the quorum so a few being unavailable does not strand the recovery. The timelock is a safety margin against peer collusion, not an inheritance trigger; while active, the holder keeps it armed by periodically moving / re-anchoring the coins, which pushes the unlock height back out. Name the destination the peers should sweep to, and review the peer set whenever a relationship changes. The large-crowd version of this circle belongs off-chain as a FROST aggregate -- one on-chain key with many people behind it -- so start small and on-chain and climb to FROST as value grows.',
+    },
+  },
+
   // // -- Test-mode templates -------------------------------------
   // Same shapes, timelocks measured in blocks (hours-to-a-day on
   // signet at 10-min blocks) so a full recovery / inheritance /
