@@ -818,6 +818,43 @@ const VAULT_TEMPLATES: VaultTemplate[] = [
     },
     testMode: true,
   },
+  {
+    id: 'test-social-recovery',
+    title: '[TEST] Social Recovery',
+    tagline: '2-of-3 you . 3-of-5 peers . 10 / 30 blocks',
+    useCase:
+      'Software-key sandbox for the Self-Custody + Social Recovery shape. Your own-keys recovery opens in ~10 blocks (~100 min on signet); the 3-of-5 social-recovery leg opens in ~30 blocks (~5 hours). Rehearse the full peer-rescue drill with play money, then rebuild the real vault with production timelocks.',
+    config: {
+      mode: 'inheritance',
+      plannedFounders: 3,
+      founderQ: 2,
+      plannedHeirs: 5,
+      heirQ: 3,
+      recoveryAfter: 10,
+      inheritanceAfter: 30,
+    },
+    scenarios: [
+      {
+        title: 'Rehearse the social rescue without waiting a year',
+        trigger: 'You want to see the peer quorum actually unlock and sweep the funds.',
+        outcome:
+          'The own-keys recovery path opens ~100 min after compile; the 3-of-5 social leg ~5 hours. Enough time to rehearse the whole peer-rescue ceremony end to end.',
+        actions: [
+          'Compile, fund from the signet faucet, send a normal 2-of-3 spend first.',
+          'Wait for tip to cross inheritance_after; have 3 of the 5 peer keys sign the social-recovery path.',
+          'Verify they can sweep to the recovery destination with the holder absent.',
+          'Once satisfied, recompile the production "Self-Custody + Social Recovery" template with real timelocks.',
+        ],
+        severity: 'info',
+      },
+    ],
+    trustDoc: {
+      purpose: 'Signet test sandbox for the Social Recovery shape. Not for real value.',
+      distribution_rules: 'Test distributions only. Reset mnemonics + vault after verification.',
+      succession_notes: 'Test vault. Delete the seeds after you have rehearsed the peer-rescue path.',
+    },
+    testMode: true,
+  },
 ];
 
 interface SelectedKey {
