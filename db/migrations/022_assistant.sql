@@ -77,3 +77,16 @@ create policy "messages_insert_own"
   on assistant_messages for insert with check (
     thread_id in (select id from assistant_threads where user_id = auth.uid())
   );
+
+-- Delete policies for completeness: today nothing deletes threads/messages,
+-- but scoping delete to the owner now means a future "clear my history"
+-- feature cannot accidentally reach across users.
+drop policy if exists "threads_delete_own" on assistant_threads;
+create policy "threads_delete_own"
+  on assistant_threads for delete using (user_id = auth.uid());
+
+drop policy if exists "messages_delete_own" on assistant_messages;
+create policy "messages_delete_own"
+  on assistant_messages for delete using (
+    thread_id in (select id from assistant_threads where user_id = auth.uid())
+  );
