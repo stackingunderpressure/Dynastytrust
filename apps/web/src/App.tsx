@@ -9,6 +9,7 @@ import ProposalDetail from './pages/ProposalDetail';
 import InviteClaim from './pages/InviteClaim';
 import Landing from './pages/Landing';
 import Reminders from './pages/Reminders';
+import ChatWizard from './pages/ChatWizard';
 import { NAV_LINKS } from './config';
 import { Layout } from './components/Layout';
 import { PageHeader } from './components/PageHeader';
@@ -78,6 +79,18 @@ function AuthedApp() {
               sub="Live balances, spend proposals, and vault details."
             />
             <Dashboard />
+          </Layout>
+        }
+      />
+      <Route
+        path="/assistant"
+        element={
+          <Layout activeNavId={activeNavId} onSignOut={() => { markIntentionalSignOut(); void supabase.auth.signOut(); }}>
+            <PageHeader
+              title="Assistant"
+              sub="Sage teaches you Bitcoin vaults in plain language and proposes one to build. You decide with a tap -- no keys ever leave your browser."
+            />
+            <ChatWizard />
           </Layout>
         }
       />

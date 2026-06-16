@@ -15,6 +15,7 @@ export const NAV_LINKS: readonly NavLink[] = [
   { id: 'keys', label: 'Keys', icon: '🔑', path: '/keys' },
   { id: 'policy', label: 'Policy builder', icon: '⚙️', path: '/policy' },
   { id: 'vaults', label: 'Vaults', icon: '🏦', path: '/vaults' },
+  { id: 'assistant', label: 'Assistant', icon: '💬', path: '/assistant' },
   { id: 'reminders', label: 'Reminders', icon: '⏰', path: '/reminders' },
 ] as const;
 

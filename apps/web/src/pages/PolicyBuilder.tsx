@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { listKeys, type LocalKey } from '../lib/keystore';
-import { api, type Vault, type TrustDoc } from '../lib/api';
+import { api, type Vault, type TrustDoc, type VaultProposal } from '../lib/api';
 import { colors, fonts, radii, space } from '../theme';
 import { Button, Input, Label } from '../components/ui';
 import { downloadVaultBackup } from '../lib/descriptor-backup';
@@ -1334,8 +1334,14 @@ function CopyField({
   );
 }
 
+// ~4,380 blocks per month at 10-minute blocks (26,280 blocks = 6 months).
+// Used to translate the assistant's month-based proposal into the
+// builder's block-offset inputs.
+const BLOCKS_PER_MONTH = 4_380;
+
 export default function PolicyBuilder() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [allKeys, setAllKeys] = useState<LocalKey[]>([]);
   const [name, setName] = useState('My Vault');
   const [addrType, setAddrType] = useState<'tr' | 'wsh' | 'tr_multileaf'>('tr_multileaf');
@@ -1398,6 +1404,66 @@ export default function PolicyBuilder() {
 
   useEffect(() => {
     setAllKeys(listKeys().filter(k => k.status === 'active'));
+  }, []);
+
+  // Prefill from the education bot ("Sage"). When the user confirms a
+  // proposal in the Assistant, we navigate here with
+  // location.state.prefill. We seed the template shape + quorums +
+  // timelocks; the user still picks their own keys and taps Compile.
+  // This is the ONLY effect of the handoff -- we never compile or save
+  // on the bot's behalf, and no key material is involved.
+  useEffect(() => {
+    const prefill = (location.state as { prefill?: VaultProposal } | null)?.prefill;
+    if (!prefill || typeof prefill.template !== 'string') return;
+    const t = VAULT_TEMPLATES.find(v => v.id === prefill.template);
+    if (!t) return; // Unknown template id -- open /policy normally.
+
+    const c = t.config;
+    setMode(c.mode);
+    // Seed counts + quorums from the proposal, clamping quorum <= count
+    // so we never produce an invalid state. Fall back to the template
+    // defaults when the proposal omits a sensible value.
+    const fCount = prefill.founder_count > 0 ? prefill.founder_count : c.plannedFounders;
+    const fQ = Math.min(Math.max(prefill.founder_quorum || c.founderQ, 1), Math.max(fCount, 1));
+    setPlannedFounders(fCount);
+    setFQ(fQ);
+
+    const hCount = prefill.heir_count > 0 ? prefill.heir_count : c.plannedHeirs;
+    const hQ = Math.min(Math.max(prefill.heir_quorum || c.heirQ, 1), Math.max(hCount, 1));
+    setPlannedHeirs(hCount);
+    setHQ(hQ);
+
+    // Months -> block offsets. Fall back to the template's own block
+    // values when the proposal doesn't specify a duration.
+    const ra = prefill.recovery_after_months > 0
+      ? prefill.recovery_after_months * BLOCKS_PER_MONTH
+      : c.recoveryAfter;
+    const ia = prefill.inheritance_after_months > 0
+      ? prefill.inheritance_after_months * BLOCKS_PER_MONTH
+      : c.inheritanceAfter;
+    setRecovery(ra);
+    setInherit(ia);
+
+    if (c.protectorEnabled) {
+      setProtectorAfter(c.protectorAfter ?? 26_280);
+      setProtectorQ(c.protectorQ ?? 1);
+    }
+    if (c.consentEnabled) {
+      setConsentQ(c.consentQ ?? 1);
+    }
+
+    setName(t.title);
+    setPendingTrustDoc(t.trustDoc ?? null);
+    // Clear the navigation state so a refresh doesn't re-apply it.
+    window.history.replaceState({}, '');
+    requestAnimationFrame(() => {
+      document.getElementById('founder-keys-section')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    });
+    // Mount-only: read the handoff state once. Setters are stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Warn before a refresh / tab close discards an in-progress vault the

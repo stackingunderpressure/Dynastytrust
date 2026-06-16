@@ -948,5 +948,39 @@ export const api = {
       req<{ ok: true }>(`/vault-attestations?id=${id}`, { method: 'DELETE' }),
   },
 
+  // Education bot ("Sage") -- slice 1. A guided Q&A that teaches a
+  // newcomer and proposes ONE vault for tap-to-confirm. The reply's
+  // optional `proposed_values` is rendered as a confirm card; the
+  // actual vault is built only through the existing PolicyBuilder.
+  // No key material is ever sent here or returned.
+  assistant: {
+    chat: (body: {
+      thread_id: string | null;
+      message: string;
+      mode: 'guided' | 'express';
+      vault_id?: string;
+    }) =>
+      req<{
+        ok: true;
+        thread: { id: string; mode: 'guided' | 'express'; vault_id: string | null };
+        reply: string;
+        proposed_values: VaultProposal | null;
+      }>('/assistant', { method: 'POST', body: JSON.stringify(body) }),
+  },
+
   health: () => fetch('/api/health').then(r => r.json()),
 };
+
+// A structured vault recommendation from the education bot. The
+// PolicyBuilder is the only place a vault is actually compiled + saved;
+// this is a proposal the user confirms with a tap. No key material.
+export interface VaultProposal {
+  template: string;
+  founder_quorum: number;
+  founder_count: number;
+  heir_quorum: number;
+  heir_count: number;
+  recovery_after_months: number;
+  inheritance_after_months: number;
+  summary: string;
+}
