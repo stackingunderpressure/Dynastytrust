@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, type VaultProposal } from '../lib/api';
+import { api, type VaultProposal, type AssistantEyes } from '../lib/api';
+import { listKeys } from '../lib/keystore';
 import { colors, fonts, radii, space } from '../theme';
 import { Button, Textarea } from '../components/ui';
 import { useToast } from '../components/toast';
@@ -43,6 +44,37 @@ function templateTitle(id: string): string {
   return TEMPLATE_TITLES[id] ?? id;
 }
 
+// Assemble the readiness "eyes" from data the client already holds.
+// SAFE FIELDS ONLY -- we read COUNTS and public labels, never key
+// material. From each LocalKey we touch ONLY: status (to count active
+// keys), the PRESENCE of encryptedMnemonic vs testMnemonic (to classify
+// secure vs test -- we never read their values), and backedUp (a flag).
+// We never read xpub, pubkey, fingerprint, or any mnemonic value. From
+// each vault we take ONLY name + network labels (the Vault type carries
+// no template, so template is null). The server re-sanitizes all of this.
+function buildEyes(vaults: { name: string; network: 'testnet' | 'signet' | 'bitcoin' }[]): AssistantEyes {
+  const keys = listKeys().filter(k => k.status === 'active');
+  let secure = 0;
+  let test = 0;
+  let backedUp = 0;
+  for (const k of keys) {
+    // Presence checks only -- the blob/mnemonic VALUES are never read.
+    if (k.encryptedMnemonic) secure += 1;
+    else if (k.testMnemonic) test += 1;
+    if (k.backedUp) backedUp += 1;
+  }
+  return {
+    keys: {
+      key_count: keys.length,
+      secure_key_count: secure,
+      test_key_count: test,
+      backed_up_key_count: backedUp,
+    },
+    vault_count: vaults.length,
+    vaults: vaults.map(v => ({ name: v.name, template: null, network: v.network })),
+  };
+}
+
 const INTRO =
   "Hi, I'm Sage. I'll help you understand Bitcoin vaults and build one that fits your life -- one step at a time, in plain language. I have no control over your money: I only suggest, you decide with a tap. I never see or ask for your seed words, private keys, or passwords -- those live only in your browser. To start, tell me in your own words: who is this Bitcoin for, and who should be able to reach it if something happens to you?";
 
@@ -56,6 +88,10 @@ export default function ChatWizard() {
   ]);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  // Readiness eyes -- COUNTS + labels only, no key material. Seeded
+  // from the keystore (sync) on mount, then enriched with vault
+  // name/network labels once the vault list loads.
+  const [eyes, setEyes] = useState<AssistantEyes>(() => buildEyes([]));
   const listRef = useRef<HTMLDivElement>(null);
 
   // Keep the newest message in view as the conversation grows.
@@ -63,6 +99,26 @@ export default function ChatWizard() {
     const el = listRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, sending]);
+
+  // Load the safe vault labels (name + network only) and fold them
+  // into the eyes. Failures are non-fatal -- Sage just sees the key
+  // counts and zero vaults.
+  useEffect(() => {
+    let alive = true;
+    api.vaults
+      .list(false)
+      .then(res => {
+        if (!alive) return;
+        const safeVaults = res.vaults.map(v => ({ name: v.name, network: v.network }));
+        setEyes(buildEyes(safeVaults));
+      })
+      .catch(() => {
+        /* keep the keystore-only eyes */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   async function send() {
     const text = draft.trim();
@@ -75,6 +131,7 @@ export default function ChatWizard() {
         thread_id: threadId,
         message: text,
         mode,
+        eyes,
       });
       setThreadId(res.thread.id);
       setMessages(prev => [
@@ -156,6 +213,19 @@ export default function ChatWizard() {
         <Button onClick={() => void send()} disabled={sending || !draft.trim()}>
           Send
         </Button>
+      </div>
+
+      <div
+        style={{
+          fontSize: 11,
+          color: colors.muted,
+          fontFamily: fonts.sans,
+          textAlign: 'center',
+        }}
+      >
+        What Sage can see: {eyes.keys.key_count}{' '}
+        {eyes.keys.key_count === 1 ? 'key' : 'keys'}, {eyes.vault_count}{' '}
+        {eyes.vault_count === 1 ? 'vault' : 'vaults'} -- never your seed words or keys.
       </div>
     </div>
   );

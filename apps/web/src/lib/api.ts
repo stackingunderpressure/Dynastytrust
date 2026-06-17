@@ -959,6 +959,13 @@ export const api = {
       message: string;
       mode: 'guided' | 'express';
       vault_id?: string;
+      // Readiness "eyes" -- COUNTS and public labels ONLY. The client
+      // assembles this from the local keystore (counts, never key
+      // material) and the vault list (name/template/network labels).
+      // The server re-sanitizes it against a strict allow-list before
+      // it reaches the model. NEVER put an xpub, pubkey, mnemonic, or
+      // any secret in here.
+      eyes?: AssistantEyes;
     }) =>
       req<{
         ok: true;
@@ -983,4 +990,25 @@ export interface VaultProposal {
   recovery_after_months: number;
   inheritance_after_months: number;
   summary: string;
+}
+
+// Readiness "eyes" the client ships so Sage can ground guidance in the
+// person's real, SAFE setup state. COUNTS and public LABELS ONLY -- this
+// type has NO field for a private key, mnemonic, xpub, pubkey, password,
+// or any secret, and the server re-sanitizes it against an allow-list
+// before it reaches the model. Assembled in ChatWizard from the keystore
+// (counts) and the vault list (name/template/network labels).
+export interface AssistantEyes {
+  keys: {
+    key_count: number;
+    secure_key_count: number;
+    test_key_count: number;
+    backed_up_key_count: number;
+  };
+  vault_count: number;
+  vaults: {
+    name: string;
+    template: string | null;
+    network: 'testnet' | 'signet' | 'bitcoin';
+  }[];
 }

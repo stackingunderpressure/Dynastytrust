@@ -18,8 +18,10 @@
  *   No key material (private key, mnemonic, password, or encrypted
  *   key blob) is EVER placed in the model context, logged, or
  *   accepted in the request. The model context is assembled
- *   server-side from public/safe vault fields only. See the
- *   context-assembly comment below.
+ *   server-side from public/safe vault fields only, plus a strictly
+ *   whitelisted readiness "eyes" digest (COUNTS and public labels
+ *   ONLY -- never xpubs, pubkeys, or any secret). See the
+ *   context-assembly comment and sanitizeEyes() below.
  */
 
 import { getSupabaseAdmin } from "./_supabase.js";
@@ -85,7 +87,131 @@ TIMELOCK RULE OF THUMB (Bitcoin block heights): ~26,280 blocks = 6 months,
 ~52,560 = 1 year, ~105,120 = 2 years, ~157,680 = 3 years, ~262,800 = 5 years.
 `;
 
-function buildSystemPrompt(vaultContext) {
+// ============================================================
+// READINESS EYES -- strict allow-list sanitizer.
+//
+// The CLIENT (ChatWizard) assembles a small `eyes` object from data
+// it already holds locally -- COUNTS derived from the keystore and
+// a thin per-vault label list. This function is the server-side
+// guard: it trusts NOTHING in body.eyes and rebuilds a clean digest
+// from a fixed allow-list, mirroring the VAULT_SAFE_FIELDS
+// discipline. Anything not named here is dropped on the floor, so a
+// future client change cannot leak a new field into the model.
+//
+// The ONLY things that may pass:
+//   - key_count, secure_key_count, test_key_count, backed_up_key_count
+//     (non-negative integer counts, each capped)
+//   - vault_count (non-negative integer count, capped)
+//   - vaults: array (length-capped) of { name, template, network }
+//     where name is a length-capped string, template is a
+//     length-capped string or null, and network is ONLY one of the
+//     three known labels (anything else -> null)
+//
+// There is no path here for an xpub, a pubkey, a fingerprint, a
+// mnemonic, an encrypted blob, or a password -- those field names
+// are never read. Counts and labels only.
+// ============================================================
+const EYES_MAX_VAULTS = 25;
+const EYES_MAX_STR = 80;
+const EYES_MAX_COUNT = 100000;
+const EYES_NETWORKS = new Set(["testnet", "signet", "bitcoin", "mainnet"]);
+
+function safeCount(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.min(Math.floor(n), EYES_MAX_COUNT);
+}
+
+function safeLabel(v, max) {
+  if (typeof v !== "string") return null;
+  const trimmed = v.trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, max);
+}
+
+function sanitizeEyes(raw) {
+  if (!raw || typeof raw !== "object") return null;
+
+  const keys = raw.keys && typeof raw.keys === "object" ? raw.keys : {};
+  const digest = {
+    key_count: safeCount(keys.key_count),
+    secure_key_count: safeCount(keys.secure_key_count),
+    test_key_count: safeCount(keys.test_key_count),
+    backed_up_key_count: safeCount(keys.backed_up_key_count),
+    vault_count: safeCount(raw.vault_count),
+    vaults: [],
+  };
+
+  if (Array.isArray(raw.vaults)) {
+    for (const v of raw.vaults.slice(0, EYES_MAX_VAULTS)) {
+      if (!v || typeof v !== "object") continue;
+      const name = safeLabel(v.name, EYES_MAX_STR);
+      const template = safeLabel(v.template, EYES_MAX_STR);
+      const networkLabel = safeLabel(v.network, EYES_MAX_STR);
+      const network = networkLabel && EYES_NETWORKS.has(networkLabel)
+        ? networkLabel
+        : null;
+      digest.vaults.push({
+        name: name || "(unnamed)",
+        template: template, // may be null -- a template-less / custom vault
+        network,
+      });
+    }
+  }
+
+  return digest;
+}
+
+// Render the sanitized eyes digest into a clearly-labeled prompt
+// section. Counts and labels only -- this text NEVER contains key
+// material because sanitizeEyes() cannot produce any.
+function buildEyesContext(eyes) {
+  if (!eyes) return "";
+  const vaultLines = eyes.vaults.length
+    ? eyes.vaults
+        .map((v) => {
+          const tmpl = v.template ? v.template : "custom/none";
+          const net = v.network ? v.network : "unspecified";
+          return `  - "${v.name}" (template: ${tmpl}, network: ${net})`;
+        })
+        .join("\n")
+    : "  (none yet)";
+
+  return `
+WHAT YOU CAN SEE ABOUT THIS PERSON'S SETUP (safe readiness only -- counts and labels, NEVER keys):
+keys set up: ${eyes.key_count} total (${eyes.secure_key_count} secured with a password, ${eyes.test_key_count} test/practice, ${eyes.backed_up_key_count} backed up)
+vaults already built: ${eyes.vault_count}
+${vaultLines}
+
+Use this to GROUND your guidance in what they actually have. Examples: if a
+plan needs 3 founder keys and they have 2 keys, tell them they will make one
+more in the next step; if they have zero keys, gently start there; if they
+already built a vault, acknowledge it instead of starting from scratch. NEVER
+assume more than these counts and labels show. These are COUNTS and LABELS only
+-- you cannot see and must never ask for or repeat any seed words, private
+keys, xpubs, or passwords. Having a count is not having a key.`;
+}
+
+function modeClause(mode) {
+  if (mode === "express") {
+    return `
+CONVERSATION MODE: EXPRESS.
+Move fast. Ask only the fewest questions you genuinely need to recommend a fit
+-- typically who holds keys and who should inherit or recover. Skip the long
+teaching detours; keep explanations to a sentence or two. As soon as the basics
+are clear, PROPOSE a vault with the proposal block. Bias toward proposing
+sooner rather than later, while staying inside every rail.`;
+  }
+  return `
+CONVERSATION MODE: GUIDED.
+Go one question at a time and teach as you go. After each answer, reflect it
+back in plain words and add one small piece of understanding before asking the
+next question. Do NOT propose a vault until the whole picture is clear (who
+holds keys, who inherits or recovers, and roughly when). Patience over speed;
+the learning is the point.`;
+}
+
+function buildSystemPrompt(vaultContext, eyesContext, mode) {
   return `You are Sage, the education guide inside DynastyTrust -- a Bitcoin
 multi-generational vault platform. DynastyTrust lets a family hold their own
 Bitcoin with governed spending paths (founders now, a timelocked recovery path,
@@ -132,6 +258,8 @@ Rules for the proposal block:
 - summary is one or two plain-English sentences a person can confirm by tapping.
 - Include the block ONLY when you are ready to recommend building. Otherwise omit
   it entirely and keep teaching or asking. Never include more than one block.
+${modeClause(mode)}
+${eyesContext}
 ${vaultContext}`;
 }
 
@@ -157,6 +285,13 @@ export async function handler(event) {
   const mode = body.mode === "express" ? "express" : "guided";
   const threadId = typeof body.thread_id === "string" ? body.thread_id : null;
   const vaultId = typeof body.vault_id === "string" ? body.vault_id : null;
+
+  // Readiness eyes: client-assembled, server-sanitized. We NEVER trust
+  // the raw shape -- sanitizeEyes rebuilds a clean counts-and-labels
+  // digest from a fixed allow-list and discards everything else. The
+  // raw value is never logged. (Eyes are request-time only; they are
+  // NEVER persisted to assistant_threads.)
+  const eyes = sanitizeEyes(body.eyes);
 
   const supabase = getSupabaseAdmin();
 
@@ -189,7 +324,11 @@ export async function handler(event) {
     // ONLY public/safe vault fields (VAULT_SAFE_FIELDS) -- never
     // founder_keys, heir_keys, mnemonics, passwords, or any secret.
     // The request body is also never trusted to carry keys; we ignore
-    // everything except the typed message + mode + ids.
+    // everything except the typed message + mode + ids + the readiness
+    // eyes -- and even the eyes are run through sanitizeEyes(), which
+    // rebuilds a counts-and-labels-only digest from a fixed allow-list
+    // and cannot emit an xpub, pubkey, fingerprint, mnemonic, encrypted
+    // blob, or password. Raw eyes are never logged.
     // ============================================================
     let vaultContext = "";
     const ctxVaultId = vaultId || thread.vault_id;
@@ -241,7 +380,7 @@ You may reference this to teach, but you still propose changes, never apply them
 
     // -- Ask Claude. --
     const raw = await askClaude({
-      system: buildSystemPrompt(vaultContext),
+      system: buildSystemPrompt(vaultContext, buildEyesContext(eyes), mode),
       messages,
       maxTokens: 1024,
     });
