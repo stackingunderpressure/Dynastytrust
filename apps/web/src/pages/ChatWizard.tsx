@@ -5,6 +5,11 @@ import { listKeys } from '../lib/keystore';
 import { colors, fonts, radii, space } from '../theme';
 import { Button, Textarea } from '../components/ui';
 import { useToast } from '../components/toast';
+// Single source of truth: template titles + the opening common-path
+// chips both derive from the same canonical module PolicyBuilder and
+// Sage's brain read, so the chat surface can never drift from the real
+// templates the app supports.
+import { TEMPLATE_TITLES, openingChips } from '../data/vault-templates';
 
 /**
  * ChatWizard.tsx -- the education bot ("Sage"), slice 1.
@@ -24,22 +29,16 @@ interface ChatMessage {
   // Attached to the wizard turn that carried it, so the confirm card
   // renders inline beneath that reply.
   proposal?: VaultProposal | null;
+  // Model-emitted contextual next-step chips, attached to the wizard
+  // turn that carried them. Tapping one sends it as the next message.
+  chips?: string[] | null;
 }
 
 type Mode = 'guided' | 'express';
 
-// Human-readable titles for the template ids the bot may propose.
-// Kept in sync by hand with PolicyBuilder VAULT_TEMPLATES.
-const TEMPLATE_TITLES: Record<string, string> = {
-  'solo-savings': 'Solo Savings',
-  couples: 'Couples',
-  'family-inheritance': 'Family Inheritance',
-  'generational-trust': 'Generational Trust',
-  'business-treasury': 'Business Treasury',
-  'emergency-backup': 'Lost-Device Insurance',
-  'social-recovery': 'Self-Custody + Social Recovery',
-};
-
+// Human-readable titles for the template ids the bot may propose come
+// from the SSOT (TEMPLATE_TITLES is derived from VAULT_TEMPLATES there),
+// so there is no hand-synced map to drift.
 function templateTitle(id: string): string {
   return TEMPLATE_TITLES[id] ?? id;
 }
@@ -120,8 +119,11 @@ export default function ChatWizard() {
     };
   }, []);
 
-  async function send() {
-    const text = draft.trim();
+  // Send a message. With no argument it sends the textarea draft; with
+  // an explicit string it sends that (used by the tap-able chips, which
+  // reuse this exact same path so a chip tap behaves like typing).
+  async function send(explicit?: string) {
+    const text = (explicit ?? draft).trim();
     if (!text || sending) return;
     setDraft('');
     setMessages(prev => [...prev, { sender: 'user', content: text }]);
@@ -136,7 +138,12 @@ export default function ChatWizard() {
       setThreadId(res.thread.id);
       setMessages(prev => [
         ...prev,
-        { sender: 'wizard', content: res.reply, proposal: res.proposed_values },
+        {
+          sender: 'wizard',
+          content: res.reply,
+          proposal: res.proposed_values,
+          chips: res.chips,
+        },
       ]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Sage could not reply');
@@ -158,6 +165,10 @@ export default function ChatWizard() {
   function buildThis(proposal: VaultProposal) {
     navigate('/policy', { state: { prefill: proposal } });
   }
+
+  // True once the person has sent at least one message. Drives the
+  // opening common-path chips, which only show on the fresh screen.
+  const hasUserSpoken = messages.some(m => m.sender === 'user');
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: space[4] }}>
@@ -193,8 +204,17 @@ export default function ChatWizard() {
                 onBuild={() => buildThis(m.proposal!)}
               />
             )}
+            {m.sender === 'wizard' && m.chips && m.chips.length > 0 && !sending && (
+              <ChipRow chips={m.chips} disabled={sending} onPick={c => void send(c)} />
+            )}
           </div>
         ))}
+        {/* Opening common-path chips -- shown only before the first user
+            message, derived from the SSOT's most common templates plus
+            two evergreen helpers. Free-text input always stays available. */}
+        {!hasUserSpoken && !sending && (
+          <ChipRow chips={openingChips()} disabled={sending} onPick={c => void send(c)} />
+        )}
         {sending && (
           <Bubble sender="wizard" text="Sage is thinking..." muted />
         )}
@@ -262,6 +282,57 @@ function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => voi
           </button>
         );
       })}
+    </div>
+  );
+}
+
+// Tap-able chips. Used for both the opening common-path set (derived
+// from the SSOT) and the model-emitted contextual next-step chips. A
+// tap sends the chip text down the normal send() path -- exactly as if
+// the person had typed it -- so there is no second, divergent flow.
+// Styled to match the gold ModeToggle / ConfirmCard look using theme
+// tokens, never raw hex.
+function ChipRow({
+  chips,
+  onPick,
+  disabled,
+}: {
+  chips: string[];
+  onPick: (text: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: space[2],
+        marginTop: space[2],
+      }}
+    >
+      {chips.map((c, i) => (
+        <button
+          key={i}
+          type="button"
+          disabled={disabled}
+          onClick={() => onPick(c)}
+          style={{
+            padding: '7px 14px',
+            borderRadius: radii.lg,
+            border: `1px solid ${colors.goldDim}`,
+            background: colors.gold + '14',
+            color: colors.gold,
+            fontSize: 13,
+            fontFamily: fonts.sans,
+            cursor: disabled ? 'default' : 'pointer',
+            opacity: disabled ? 0.5 : 1,
+            lineHeight: 1.3,
+            textAlign: 'left',
+          }}
+        >
+          {c}
+        </button>
+      ))}
     </div>
   );
 }

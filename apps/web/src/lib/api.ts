@@ -972,6 +972,10 @@ export const api = {
         thread: { id: string; mode: 'guided' | 'express'; vault_id: string | null };
         reply: string;
         proposed_values: VaultProposal | null;
+        // Optional model-emitted contextual next-step chips: 3-5 short,
+        // tap-able strings the UI renders beneath the reply. Extracted
+        // and validated server-side; absent or [] when none. No secrets.
+        chips: string[] | null;
       }>('/assistant', { method: 'POST', body: JSON.stringify(body) }),
   },
 

@@ -27,6 +27,16 @@
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 import { askClaude } from "./_anthropic.js";
+// THE SINGLE SOURCE OF TRUTH for vault template knowledge. The same
+// physical module PolicyBuilder + ChatWizard read on the web side. The
+// Netlify esbuild bundler follows this relative import and bundles the
+// file into the function (verified empirically; this is the same kind of
+// relative ESM import the function already uses for its _ siblings, just
+// reaching into the shared data module). Sage's knowledge IS this data:
+// renderTemplateDigest() turns the canonical array into the teaching
+// prose below, so the model can never invent a shape the app does not
+// support. The file is plain data + pure helpers -- no React, no secret.
+import { renderTemplateDigest } from "../../apps/web/src/data/vault-templates.js";
 
 // How many prior messages to feed back to the model for continuity.
 const HISTORY_LIMIT = 20;
@@ -37,55 +47,14 @@ const HISTORY_LIMIT = 20;
 const VAULT_SAFE_FIELDS =
   "name, network, address, descriptor, miniscript_policy, founder_quorum, heir_quorum, recovery_after, inheritance_after";
 
-// // -- Plain-text digest of the PolicyBuilder VAULT_TEMPLATES.
-// Kept in sync by hand with apps/web/src/pages/PolicyBuilder.tsx
-// VAULT_TEMPLATES. We do NOT import frontend code into a Netlify
-// function -- this is a concise teaching digest of the same shapes
-// and their "what happens if..." scenarios, written for the model.
-const TEMPLATE_DIGEST = `
-VAULT TEMPLATES you can guide a person toward (use the exact template id in a proposal):
-
-1. solo-savings -- "Solo Savings": 1-of-1, no timelocks. One person, one seed.
-   Simplest wallet. No inheritance path. If they lose the seed with no backup,
-   funds are gone; if they die without sharing the seed location, heirs can't recover.
-
-2. couples -- "Couples": 2-of-2, both spouses must sign every spend. No timelocks.
-   If one loses a key, funds are immobile until restored from backup. On divorce
-   or a dead spouse with an inaccessible key, funds freeze unless the other seed
-   was pre-shared.
-
-3. family-inheritance -- "Family Inheritance": 2-of-3 trustees now, recovery after
-   ~6 months, heirs (2-of-3) inherit after ~2 years. The classic multi-generational
-   starter. One trustee dying still leaves 2-of-3. Two trustees colluding CAN spend
-   (no protector here) -- pick trustees who don't share a circle.
-
-4. generational-trust -- "Generational Trust": 3-of-5 trustees, an independent
-   protector who can rescue funds at ~9 months, successors at ~3 years, plus a
-   beneficiary-consent gate on every normal spend. Institutional-grade. If a
-   beneficiary refuses to cosign, normal spends freeze until recovery or protector
-   unlocks. Protector blocks trustee collusion.
-
-5. business-treasury -- "Business Treasury": 3-of-5 directors, no heirs, no timelocks.
-   Corporate cold storage. A director leaving means recompile + sweep. No timelock
-   recovery path -- losing too many keys is permanent.
-
-6. emergency-backup -- "Lost-Device Insurance": same person holds all three keys on
-   three devices, 2-of-3 to spend, after ~6 months 1 key can spend (recovery). Saves
-   the stack if one or two devices are lost. Losing all three is permanent.
-
-7. social-recovery -- "Self-Custody + Social Recovery": you alone control day to day
-   (2-of-3 your own keys), and after ~1 year of inactivity a 3-of-5 quorum of trusted
-   peers can rescue the funds. Peers cannot spend while you are active; the timelock
-   is the safety margin. Moving the coins refreshes the timer (a deadman that never
-   fires while you're alive).
-
-There are also [TEST] variants of several templates with timelocks measured in
-blocks (hours on signet) for sandbox rehearsal -- only mention these if the person
-explicitly wants to practice end-to-end before using real value.
-
-TIMELOCK RULE OF THUMB (Bitcoin block heights): ~26,280 blocks = 6 months,
-~52,560 = 1 year, ~105,120 = 2 years, ~157,680 = 3 years, ~262,800 = 5 years.
-`;
+// // -- Template digest, GENERATED from the single source of truth.
+// renderTemplateDigest() renders apps/web/src/data/vault-templates.js
+// (the same module PolicyBuilder compiles from) into the teaching prose
+// the model reads. There is no hand-synced copy to drift: Sage knows
+// exactly the shapes and "what happens if" scenarios the app supports,
+// down to the real block offsets, because this string is built from the
+// real data. Counts and shapes only -- no key material can appear here.
+const TEMPLATE_DIGEST = renderTemplateDigest();
 
 // ============================================================
 // READINESS EYES -- strict allow-list sanitizer.
@@ -258,6 +227,24 @@ Rules for the proposal block:
 - summary is one or two plain-English sentences a person can confirm by tapping.
 - Include the block ONLY when you are ready to recommend building. Otherwise omit
   it entirely and keep teaching or asking. Never include more than one block.
+
+OPTIONAL TAP-ABLE CHIPS:
+You MAY end your turn with a single fenced \`\`\`chips block containing a JSON
+array of 3 to 5 SHORT next-step suggestions (each a few words, under ~40
+characters) that let the person drill into ANY path the app supports -- a
+template to explore, a "what happens if..." scenario to walk through, or a
+natural next question. Draw them from the templates and scenarios above so they
+always point at something real. Example:
+
+\`\`\`chips
+["What if a trustee dies?","Compare to Generational Trust","How does recovery work?"]
+\`\`\`
+
+Rules for the chips block:
+- It is OPTIONAL. Omit it entirely if no good next step is obvious.
+- Plain JSON array of short strings ONLY. No keys, seed words, or secrets.
+- If you also include a vault-proposal block, put the chips block AFTER it.
+- The chips are tap shortcuts; the person can always type free text instead.
 ${modeClause(mode)}
 ${eyesContext}
 ${vaultContext}`;
@@ -385,9 +372,11 @@ You may reference this to teach, but you still propose changes, never apply them
       maxTokens: 1024,
     });
 
-    // -- Extract the optional vault-proposal block, strip it from the
-    //    visible reply, and parse it defensively. --
-    const { reply, proposed_values } = extractProposal(raw);
+    // -- Extract the optional vault-proposal block AND the optional
+    //    chips block, strip both from the visible reply, and parse them
+    //    defensively. Either or both may be present or absent. --
+    const { reply: replyNoProposal, proposed_values } = extractProposal(raw);
+    const { reply, chips } = extractChips(replyNoProposal);
 
     // -- Persist the wizard's VISIBLE reply (no proposal JSON). --
     await supabase.from("assistant_messages").insert({
@@ -414,6 +403,7 @@ You may reference this to teach, but you still propose changes, never apply them
       thread: { id: thread.id, mode: thread.mode, vault_id: thread.vault_id },
       reply,
       proposed_values,
+      chips,
     });
   } catch (err) {
     // Never leak secrets or internals; askClaude throws clean messages.
@@ -455,4 +445,41 @@ function extractProposal(raw) {
     proposed_values = null;
   }
   return { reply, proposed_values };
+}
+
+// Defensive caps for the optional chips block.
+const CHIPS_MAX = 5;
+const CHIP_MAX_LEN = 60;
+
+// Pull a single ```chips ... ``` fenced block out of the reply. Returns
+// the visible reply (block removed) and a validated array of short
+// strings (or null if absent / malformed). Defensive: anything that
+// isn't a clean array of non-empty short strings is dropped, and the
+// surrounding text is always preserved. No secret can pass through --
+// the values are the model's own short UI labels, capped in length and
+// count, never echoed key material (and the model is told not to put
+// secrets here). Run AFTER extractProposal so the proposal block is
+// already gone.
+function extractChips(raw) {
+  const fence = /```chips\s*([\s\S]*?)```/i;
+  const m = raw.match(fence);
+  if (!m) return { reply: raw.trim(), chips: null };
+
+  const reply = raw.replace(fence, "").trim();
+  let chips = null;
+  try {
+    const parsed = JSON.parse(m[1].trim());
+    if (Array.isArray(parsed)) {
+      const cleaned = parsed
+        .filter((c) => typeof c === "string")
+        .map((c) => c.trim())
+        .filter((c) => c.length > 0)
+        .map((c) => c.slice(0, CHIP_MAX_LEN))
+        .slice(0, CHIPS_MAX);
+      chips = cleaned.length > 0 ? cleaned : null;
+    }
+  } catch {
+    chips = null;
+  }
+  return { reply, chips };
 }
