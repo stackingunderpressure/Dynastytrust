@@ -366,11 +366,32 @@ You may reference this to teach, but you still propose changes, never apply them
     while (messages.length && messages[0].role !== "user") messages.shift();
 
     // -- Ask Claude. --
-    const raw = await askClaude({
+    const { text: raw, model: usageModel, usage } = await askClaude({
       system: buildSystemPrompt(vaultContext, buildEyesContext(eyes), mode),
       messages,
       maxTokens: 1024,
     });
+
+    // -- Record the EXACT token usage for this call (forward-only).
+    //    Best-effort and fully isolated: this is telemetry, never part
+    //    of the chat contract. A failure here must NEVER break or change
+    //    the reply, so it is wrapped in its own try/catch and the result
+    //    is ignored. Counts + model + ids only -- no content, no keys. --
+    try {
+      if (usage) {
+        await supabase.from("assistant_usage").insert({
+          user_id: u.userId,
+          thread_id: thread.id,
+          model: usageModel,
+          input_tokens: usage.input_tokens,
+          output_tokens: usage.output_tokens,
+          cache_read_tokens: usage.cache_read_tokens,
+          cache_creation_tokens: usage.cache_creation_tokens,
+        });
+      }
+    } catch {
+      // Swallow: usage logging never affects the chat reply.
+    }
 
     // -- Extract the optional vault-proposal block AND the optional
     //    chips block, strip both from the visible reply, and parse them

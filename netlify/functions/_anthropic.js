@@ -17,13 +17,21 @@ const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const DEFAULT_MODEL = 'claude-opus-4-8';
 
 /**
- * Make one Claude call and return the concatenated text reply.
+ * Make one Claude call and return the concatenated text reply plus
+ * the exact token usage Anthropic reported and the model id used.
+ *
+ * The usage object is forward-only telemetry for the admin usage
+ * page: COUNTS ONLY -- it never carries message content or any key
+ * material. Cache fields may be absent on a given call; they are
+ * coerced to finite non-negative ints defaulting to 0.
  *
  * @param {object}   args
  * @param {string}   args.system     -- the system prompt
  * @param {Array}    args.messages   -- [{ role: 'user'|'assistant', content: string }]
  * @param {number}   [args.maxTokens]
- * @returns {Promise<string>} concatenated text from the content array
+ * @returns {Promise<{ text: string, model: string, usage: {
+ *   input_tokens: number, output_tokens: number,
+ *   cache_read_tokens: number, cache_creation_tokens: number } }>}
  */
 export async function askClaude({ system, messages, maxTokens = 1024 }) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -80,5 +88,28 @@ export async function askClaude({ system, messages, maxTokens = 1024 }) {
   if (!out) {
     throw new Error('assistant returned an empty reply');
   }
-  return out;
+
+  // Exact per-call token usage. Coerce each field to a finite,
+  // non-negative integer; default 0. The cache fields may be absent
+  // on calls that neither read nor created prompt cache. Counts only
+  // -- no content, no secrets.
+  const usageRaw =
+    payload && payload.usage && typeof payload.usage === 'object'
+      ? payload.usage
+      : {};
+  const usage = {
+    input_tokens: toCount(usageRaw.input_tokens),
+    output_tokens: toCount(usageRaw.output_tokens),
+    cache_read_tokens: toCount(usageRaw.cache_read_input_tokens),
+    cache_creation_tokens: toCount(usageRaw.cache_creation_input_tokens),
+  };
+
+  return { text: out, model, usage };
+}
+
+// Coerce a value to a finite, non-negative integer. Anything else -> 0.
+function toCount(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.floor(n);
 }

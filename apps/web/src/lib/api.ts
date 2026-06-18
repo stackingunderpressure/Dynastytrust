@@ -979,8 +979,40 @@ export const api = {
       }>('/assistant', { method: 'POST', body: JSON.stringify(body) }),
   },
 
+  // Admin-only Sage token-usage report. The admin gate is enforced
+  // SERVER-SIDE in the Netlify function from the verified JWT; this
+  // client call just carries the bearer token. A non-admin caller
+  // gets a 403, which `req` surfaces as a thrown Error the page
+  // catches to render the no-access state. Aggregate counts + an
+  // estimated cost only -- no message content, no PII.
+  admin: {
+    usage: () => req<AdminUsageReport>('/admin-usage'),
+  },
+
   health: () => fetch('/api/health').then(r => r.json()),
 };
+
+// Aggregate token totals for a model or a day. Counts only.
+export interface UsageTotals {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+}
+
+export interface AdminUsageReport {
+  ok: true;
+  totals: UsageTotals;
+  // Per-model breakdown. estimatedCostUsd is null when the model is
+  // not in the server's pricing map (cost unknown, never guessed).
+  byModel: (UsageTotals & { model: string; estimatedCostUsd: number | null })[];
+  // Roughly the last 30 days, most-recent first.
+  byDay: (UsageTotals & { day: string })[];
+  // Sum of priced models only, in USD. An ESTIMATE at list prices.
+  estimatedCostUsd: number;
+  callCount: number;
+  generatedAt: string;
+}
 
 // A structured vault recommendation from the education bot. The
 // PolicyBuilder is the only place a vault is actually compiled + saved;

@@ -10,6 +10,7 @@ import InviteClaim from './pages/InviteClaim';
 import Landing from './pages/Landing';
 import Reminders from './pages/Reminders';
 import ChatWizard from './pages/ChatWizard';
+import Admin from './pages/Admin';
 import { NAV_LINKS } from './config';
 import { Layout } from './components/Layout';
 import { PageHeader } from './components/PageHeader';
@@ -105,6 +106,21 @@ function AuthedApp() {
               sub="Role-aware legal + governance reminders. Countdowns to timelocks, tax deadlines, annual reviews."
             />
             <Reminders />
+          </Layout>
+        }
+      />
+      {/* Admin-only Sage usage report. Discreet: reachable by URL only,
+          deliberately NOT in the main nav. The real gate is server-side
+          in the admin-usage function; a non-admin sees a no-access card. */}
+      <Route
+        path="/admin"
+        element={
+          <Layout activeNavId={activeNavId} onSignOut={() => { markIntentionalSignOut(); void supabase.auth.signOut(); }}>
+            <PageHeader
+              title="Sage Usage"
+              sub="Exact per-call token usage from Anthropic, priced at list rates as an estimate. Admin only."
+            />
+            <Admin />
           </Layout>
         }
       />
