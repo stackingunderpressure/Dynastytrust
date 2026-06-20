@@ -597,7 +597,46 @@ pub fn compile_dynasty_bloc_tr_multileaf(
     policy: DynastyBlocPolicy,
     network: Network,
 ) -> Result<CompiledVault, PolicyError> {
-    verify_bloc(&policy)?;
+    let out = build_bloc_multileaf(&policy)?;
+    let addr = Address::p2tr_tweaked(out.spend_info.output_key(), network);
+    Ok(CompiledVault {
+        miniscript_policy: out.miniscript_policy,
+        descriptor: out.descriptor,
+        address: addr,
+        address_type: AddressType::TrMultileaf,
+    })
+}
+
+/// Stable identifiers for each Bloc spend path. The PSBT builder uses
+/// `path` (+ `quorum` to disambiguate decay rungs) to pick the leaf to
+/// attach and the `locktime` to stamp on the transaction.
+#[derive(Debug, Clone)]
+pub struct BlocLeaf {
+    pub path: String,
+    pub quorum: usize,
+    pub locktime: u32,
+    pub leaf_script: bitcoin::ScriptBuf,
+}
+
+pub const BLOC_PATH_PARENTS_NOW: &str = "parents_now";
+pub const BLOC_PATH_COPARENT_KIDS: &str = "coparent_kids";
+pub const BLOC_PATH_PARENT_SOLO: &str = "parent_solo";
+pub const BLOC_PATH_KIDS_DECAY: &str = "kids_decay";
+
+/// Everything downstream consumers need from a Bloc compile. As with
+/// `build_multileaf`, this is the SOLE source of truth for the Bloc
+/// Taproot tree: the address-compile and the PSBT builder both derive
+/// the spend_info from here, so the merkle root they prove against can
+/// never drift (drift = "Control block verification failed").
+pub struct BlocMultileafOutput {
+    pub spend_info: TaprootSpendInfo,
+    pub leaves: Vec<BlocLeaf>,
+    pub descriptor: String,
+    pub miniscript_policy: String,
+}
+
+pub fn build_bloc_multileaf(policy: &DynastyBlocPolicy) -> Result<BlocMultileafOutput, PolicyError> {
+    verify_bloc(policy)?;
 
     let secp = Secp256k1::verification_only();
     let nums_bytes = hex::decode(NUMS_HEX)
@@ -610,24 +649,39 @@ pub fn compile_dynasty_bloc_tr_multileaf(
     let parents_join = parents.join(",");
     let kids_join = kids.join(",");
 
-    // Path A: parents together.
-    let path_a = format!("thresh({},{})", policy.parents_together_quorum, parents_join);
-    // Path B: one parent + every kid.
-    let path_b = format!(
-        "and(thresh({},{}),thresh({},{}))",
-        policy.coparent_quorum, parents_join, policy.kids_with_parent_quorum, kids_join,
-    );
-    // Path C: a reduced parent quorum alone, after the first timelock.
-    let path_c = format!(
-        "and(after({}),thresh({},{}))",
-        policy.parent_solo_after, policy.parent_solo_quorum, parents_join,
-    );
+    // (path, quorum, locktime, policy_string) for every spend branch,
+    // in the exact leaf order the tree is built. Order is load-bearing:
+    // the descriptor nesting and the add_leaf depth schedule both follow
+    // it, and the PSBT builder relies on leaf_script identity, not order.
+    let mut branches: Vec<(String, usize, u32, String)> = vec![
+        (
+            BLOC_PATH_PARENTS_NOW.to_string(),
+            policy.parents_together_quorum,
+            0,
+            format!("thresh({},{})", policy.parents_together_quorum, parents_join),
+        ),
+        (
+            BLOC_PATH_COPARENT_KIDS.to_string(),
+            policy.kids_with_parent_quorum,
+            0,
+            format!(
+                "and(thresh({},{}),thresh({},{}))",
+                policy.coparent_quorum, parents_join, policy.kids_with_parent_quorum, kids_join,
+            ),
+        ),
+        (
+            BLOC_PATH_PARENT_SOLO.to_string(),
+            policy.parent_solo_quorum,
+            policy.parent_solo_after,
+            format!(
+                "and(after({}),thresh({},{}))",
+                policy.parent_solo_after, policy.parent_solo_quorum, parents_join,
+            ),
+        ),
+    ];
 
-    let mut branch_strs: Vec<String> = vec![path_a, path_b, path_c];
-
-    // Path D+: the decaying kid ladder. Highest quorum at the earliest
-    // height; each rung drops the quorum by one and pushes the height
-    // out by one step.
+    // Decaying kid ladder: highest quorum at the earliest height; each
+    // rung drops the quorum by one and pushes the height out by a step.
     let mut q = policy.kids_decay_start_quorum;
     let mut rung: u32 = 0;
     loop {
@@ -638,7 +692,12 @@ pub fn compile_dynasty_bloc_tr_multileaf(
                     .ok_or_else(|| PolicyError::InvalidBloc("decay height overflow".into()))?,
             )
             .ok_or_else(|| PolicyError::InvalidBloc("decay height overflow".into()))?;
-        branch_strs.push(format!("and(after({}),thresh({},{}))", height, q, kids_join));
+        branches.push((
+            BLOC_PATH_KIDS_DECAY.to_string(),
+            q,
+            height,
+            format!("and(after({}),thresh({},{}))", height, q, kids_join),
+        ));
         if q == policy.kids_decay_floor_quorum {
             break;
         }
@@ -654,10 +713,10 @@ pub fn compile_dynasty_bloc_tr_multileaf(
                 .map_err(|e| PolicyError::Miniscript(format!("compile {s}: {e:?}")))
         };
 
-    let leaves: Vec<Miniscript<PublicKey, miniscript::Tap>> =
-        branch_strs.iter().map(|s| compile_leaf(s)).collect::<Result<_, _>>()?;
+    let compiled: Vec<Miniscript<PublicKey, miniscript::Tap>> =
+        branches.iter().map(|(_, _, _, s)| compile_leaf(s)).collect::<Result<_, _>>()?;
 
-    let n = leaves.len();
+    let n = compiled.len();
     if n < 2 {
         return Err(PolicyError::InvalidBloc("need at least two leaves".into()));
     }
@@ -666,7 +725,7 @@ pub fn compile_dynasty_bloc_tr_multileaf(
     // second-to-last's depth (n-1). Proven shape -- the same schedule
     // the founders/heirs/protector tree uses for 3 and 4 leaves.
     let mut builder = TaprootBuilder::new();
-    for (i, ms) in leaves.iter().enumerate() {
+    for (i, ms) in compiled.iter().enumerate() {
         let depth = if i + 1 < n { (i + 1) as u8 } else { (n - 1) as u8 };
         builder = builder
             .add_leaf(depth, ms.encode())
@@ -675,9 +734,8 @@ pub fn compile_dynasty_bloc_tr_multileaf(
     let spend_info = builder
         .finalize(&secp, internal_key)
         .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
-    let addr = Address::p2tr_tweaked(spend_info.output_key(), network);
 
-    let leaf_descs: Vec<String> = leaves.iter().map(|ms| ms.to_string()).collect();
+    let leaf_descs: Vec<String> = compiled.iter().map(|ms| ms.to_string()).collect();
     let descriptor = format!("tr({},{})", internal_key, nest_leaves(&leaf_descs));
 
     // Round-trip through rust-miniscript so a malformed tree fails here
@@ -686,11 +744,23 @@ pub fn compile_dynasty_bloc_tr_multileaf(
     let _: Descriptor<DescriptorPublicKey> = Descriptor::from_str(&descriptor)
         .map_err(|e| PolicyError::Descriptor(format!("descriptor round-trip: {e:?}")))?;
 
-    Ok(CompiledVault {
-        miniscript_policy: nest_or(&branch_strs),
+    let branch_strs: Vec<String> = branches.iter().map(|(_, _, _, s)| s.clone()).collect();
+    let leaves: Vec<BlocLeaf> = branches
+        .iter()
+        .zip(compiled.iter())
+        .map(|((path, quorum, locktime, _), ms)| BlocLeaf {
+            path: path.clone(),
+            quorum: *quorum,
+            locktime: *locktime,
+            leaf_script: ms.encode(),
+        })
+        .collect();
+
+    Ok(BlocMultileafOutput {
+        spend_info,
+        leaves,
         descriptor,
-        address: addr,
-        address_type: AddressType::TrMultileaf,
+        miniscript_policy: nest_or(&branch_strs),
     })
 }
 
@@ -922,5 +992,47 @@ mod bloc_tests {
         p.parent_solo_after = 10; // below MIN_RECOVERY_BLOCKS
         let err = compile_dynasty_bloc_tr_multileaf(p, Network::Testnet).unwrap_err();
         assert!(matches!(err, PolicyError::RecoveryTooSoon));
+    }
+
+    // Phase 2 anchor: every leaf in the Bloc tree must yield a control
+    // block against the SAME spend_info the address was built from.
+    // This is exactly what the PSBT builder will do per chosen path; if
+    // any leaf failed here, finalize would later die with "Control block
+    // verification failed at index 0".
+    #[test]
+    fn every_leaf_has_a_control_block() {
+        use bitcoin::taproot::LeafVersion;
+        let out = build_bloc_multileaf(&sample(4, 1)).unwrap();
+        // 7 leaves: parents_now, coparent_kids, parent_solo, + 4 decay rungs.
+        assert_eq!(out.leaves.len(), 7);
+        for leaf in &out.leaves {
+            let script_ver = (leaf.leaf_script.clone(), LeafVersion::TapScript);
+            assert!(
+                out.spend_info.control_block(&script_ver).is_some(),
+                "no control block for path {} quorum {}",
+                leaf.path,
+                leaf.quorum,
+            );
+        }
+    }
+
+    #[test]
+    fn leaf_metadata_matches_paths_and_locktimes() {
+        let out = build_bloc_multileaf(&sample(4, 1)).unwrap();
+        // Immediate paths carry locktime 0.
+        let parents_now = out.leaves.iter().find(|l| l.path == BLOC_PATH_PARENTS_NOW).unwrap();
+        assert_eq!(parents_now.locktime, 0);
+        let coparent = out.leaves.iter().find(|l| l.path == BLOC_PATH_COPARENT_KIDS).unwrap();
+        assert_eq!(coparent.locktime, 0);
+        // Parent-solo carries the first timelock.
+        let solo = out.leaves.iter().find(|l| l.path == BLOC_PATH_PARENT_SOLO).unwrap();
+        assert_eq!(solo.locktime, 100_000);
+        // Decay rungs: quorum q sits at start + (start-q)*step.
+        let rungs: Vec<_> = out.leaves.iter().filter(|l| l.path == BLOC_PATH_KIDS_DECAY).collect();
+        assert_eq!(rungs.len(), 4);
+        for r in rungs {
+            let expected = 200_000 + (4 - r.quorum as u32) * 52_560;
+            assert_eq!(r.locktime, expected, "rung quorum {}", r.quorum);
+        }
     }
 }
