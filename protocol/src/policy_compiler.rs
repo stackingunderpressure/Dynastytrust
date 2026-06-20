@@ -630,6 +630,10 @@ pub const BLOC_PATH_KIDS_DECAY: &str = "kids_decay";
 /// never drift (drift = "Control block verification failed").
 pub struct BlocMultileafOutput {
     pub spend_info: TaprootSpendInfo,
+    /// NUMS internal key -- spending is script-path only, so the PSBT
+    /// builder stamps this as tap_internal_key to signal "keypath
+    /// disabled". Exposed here so consumers never re-derive it.
+    pub internal_key: XOnlyPublicKey,
     pub leaves: Vec<BlocLeaf>,
     pub descriptor: String,
     pub miniscript_policy: String,
@@ -758,6 +762,7 @@ pub fn build_bloc_multileaf(policy: &DynastyBlocPolicy) -> Result<BlocMultileafO
 
     Ok(BlocMultileafOutput {
         spend_info,
+        internal_key,
         leaves,
         descriptor,
         miniscript_policy: nest_or(&branch_strs),
