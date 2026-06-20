@@ -3,6 +3,7 @@ import { supabase } from './lib/supabase';
 import { markIntentionalSignOut } from './lib/session-intent';
 import KeyManager from './pages/KeyManager';
 import PolicyBuilder from './pages/PolicyBuilder';
+import BlocBuilder from './pages/BlocBuilder';
 import Dashboard from './pages/Dashboard';
 import VaultDetail from './pages/VaultDetail';
 import ProposalDetail from './pages/ProposalDetail';
@@ -67,6 +68,18 @@ function AuthedApp() {
               sub="Assemble keys into a vault policy and compile to a Bitcoin address via Fly.io."
             />
             <PolicyBuilder />
+          </Layout>
+        }
+      />
+      <Route
+        path="/policy/bloc"
+        element={
+          <Layout activeNavId={activeNavId} onSignOut={() => { markIntentionalSignOut(); void supabase.auth.signOut(); }}>
+            <PageHeader
+              title="Dynasty Bloc"
+              sub="A decaying-multisig family vault: parents now, one parent + kids now, then timelocks for a single parent and for the kids to take over with a multisig that loosens over time."
+            />
+            <BlocBuilder />
           </Layout>
         }
       />

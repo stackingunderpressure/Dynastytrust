@@ -6,58 +6,17 @@ import { colors, fonts, radii, space } from '../theme';
 import { Button, Input, Label } from '../components/ui';
 import { downloadVaultBackup } from '../lib/descriptor-backup';
 import { DescriptorQr } from '../components/DescriptorQr';
+import {
+  upgradeDescriptor,
+  buildKeyOrigins,
+  toPubkeyHex,
+  type SelectedKey,
+} from '../lib/descriptor-keys';
 
 // Bump when docs/terms-of-service.md changes materially. The server
 // records this string with the user_id + timestamp so we have a
 // durable "who accepted which TOS when" audit trail.
 const TOS_VERSION = '1.0';
-
-/**
- * Post-process the compiler's raw-pubkey descriptor into the Nunchuk /
- * Sparrow / Coldcard key-origin form: `pk([fp/path]xpub/0/*)`. The Rust
- * compiler returns `pk(03abcd...)` because it only sees public keys; the
- * browser has the xpub, fingerprint, and derivation path needed to
- * reconstruct the key origin expression.
- *
- * If a key is missing BOTH masterFingerprint and fingerprint it is left
- * as a raw pubkey; hardware wallets will reject that key specifically,
- * but the rest of the descriptor is still upgraded.
- */
-interface KeyOrigin {
-  fingerprint: string;
-  derivationPath: string;
-  xpub: string;
-}
-
-function upgradeDescriptor(descriptor: string, origins: Record<string, KeyOrigin>): string {
-  let result = descriptor;
-  for (const [pubkeyHex, origin] of Object.entries(origins)) {
-    const cleanPath = origin.derivationPath.replace(/^m\//, '');
-    const keyExpr = `[${origin.fingerprint}/${cleanPath}]${origin.xpub}/0/*`;
-    result = result.split(pubkeyHex).join(keyExpr);
-  }
-  return result;
-}
-
-function buildKeyOrigins(keys: SelectedKey[]): Record<string, KeyOrigin> {
-  const map: Record<string, KeyOrigin> = {};
-  for (const k of keys) {
-    const pubkeyHex = toPubkeyHex(k);
-    const fp = k.masterFingerprint ?? k.fingerprint;
-    if (!fp || !k.xpub || !k.derivationPath) continue;
-    map[pubkeyHex] = { fingerprint: fp, derivationPath: k.derivationPath, xpub: k.xpub };
-  }
-  return map;
-}
-
-// Compressed pubkey hex is stored on each key at generation time.
-function toPubkeyHex(k: SelectedKey): string {
-  if (k.pubkey && k.pubkey.length === 66) return k.pubkey;
-  console.error('Key missing pubkey:', k.label, 'pubkey:', k.pubkey, 'length:', k.pubkey?.length);
-  throw new Error(
-    'Key "' + k.label + '" is missing its pubkey. Please go to the Keys tab, delete this key, and generate a new one.',
-  );
-}
 
 function blocksToHuman(b: number): string {
   const days = Math.round((b * 10) / 60 / 24);
@@ -856,18 +815,6 @@ const VAULT_TEMPLATES: VaultTemplate[] = [
     testMode: true,
   },
 ];
-
-interface SelectedKey {
-  pubkey: string;
-  keyId: string;
-  label: string;
-  persona: string;
-  xpub: string;
-  fingerprint: string;
-  masterFingerprint?: string;
-  derivationPath: string;
-  network: string;
-}
 
 type VaultMode = 'plain' | 'inheritance';
 
@@ -1856,6 +1803,33 @@ export default function PolicyBuilder() {
         title="Start from a template"
         sub="Pick a shape that fits, then pick keys and compile. You can add more signers than the template's minimum before compiling."
       >
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 12,
+            flexWrap: 'wrap',
+            padding: '12px 14px',
+            marginBottom: 16,
+            background: colors.input,
+            border: `1px solid ${colors.gold}44`,
+            borderRadius: radii.md,
+          }}
+        >
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', color: colors.gold, textTransform: 'uppercase' }}>
+              Advanced . decaying multisig
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginTop: 2 }}>Dynasty Bloc</div>
+            <div style={{ fontSize: 12, color: colors.muted, lineHeight: 1.4, marginTop: 2 }}>
+              Parents now, one parent + every kid now, then timelocks for a single parent and for the kids to take over with a multisig that decays over time. Custom Taproot policy beyond the founders/heirs shapes below.
+            </div>
+          </div>
+          <Button size="sm" type="button" onClick={() => navigate('/policy/bloc')}>
+            Open Bloc builder -&gt;
+          </Button>
+        </div>
         <div
           style={{
             fontSize: 10,

@@ -13,10 +13,10 @@ use bitcoin::psbt::Psbt;
 use bitcoin::taproot::{LeafVersion, TaprootBuilder};
 use bitcoin::secp256k1::{Secp256k1, XOnlyPublicKey};
 use dynastytrust_protocol::{
-    audit_spend, build_multileaf_spend_info, compile_dynasty_policy,
-    compile_dynasty_policy_tr, compile_dynasty_policy_tr_multileaf,
+    audit_spend, build_multileaf_spend_info, compile_dynasty_bloc_tr_multileaf,
+    compile_dynasty_policy, compile_dynasty_policy_tr, compile_dynasty_policy_tr_multileaf,
     compile_tranche_tr_multileaf, evaluate_spend_proposal,
-    evaluate_vault_status, next_action, DynastyPolicy, ProposedSpend,
+    evaluate_vault_status, next_action, DynastyBlocPolicy, DynastyPolicy, ProposedSpend,
     SignerStatus, SpendingPath, TranchePolicy, VaultPolicy,
 };
 use miniscript::policy::concrete::Policy;
@@ -92,7 +92,7 @@ fn base64_encode(data: &[u8]) -> String {
 async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "ok": true, "service": "dynastytrust-compiler",
-        "endpoints": ["/health","/compile","/compile-tranche","/psbt-binary","/psbt-finalize","/psbt-merge","/governance/status","/governance/audit"]
+        "endpoints": ["/health","/compile","/compile-bloc","/compile-tranche","/psbt-binary","/psbt-finalize","/psbt-merge","/governance/status","/governance/audit"]
     }))
 }
 
@@ -205,6 +205,69 @@ async fn compile_tranche(
         descriptor: compiled.descriptor,
         address: compiled.address.to_string(),
         unlock_block: req.unlock_block,
+    }))
+}
+
+// ── /compile-bloc ──────────────────────────────────────────────────────────────
+// Dynasty Bloc: a decaying-multisig family vault.
+//   A  parents together                                 now
+//   B  one parent + every kid                           now
+//   C  one parent alone                  after parent_solo_after
+//   D+ kids alone, decaying threshold,   after kids_decay_start_after
+// Timelock fields are ABSOLUTE CLTV heights -- the caller (netlify
+// compile-bloc.js) bakes tip + relative-offset before forwarding.
+// `kids_decay_step_blocks` is a duration, not an offset, so it is
+// passed through unchanged.
+
+#[derive(Deserialize)]
+struct CompileBlocRequest {
+    name: Option<String>,
+    network: String,
+    parent_keys: Vec<String>,
+    parents_together_quorum: usize,
+    coparent_quorum: usize,
+    kid_keys: Vec<String>,
+    kids_with_parent_quorum: usize,
+    parent_solo_after: u32,
+    parent_solo_quorum: usize,
+    kids_decay_start_after: u32,
+    kids_decay_step_blocks: u32,
+    kids_decay_start_quorum: usize,
+    kids_decay_floor_quorum: usize,
+}
+
+async fn compile_bloc(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<CompileBlocRequest>,
+) -> Result<Json<CompileResponse>, ApiError> {
+    check_auth(&headers, &state)?;
+    let network = parse_network(&req.network).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+    let parents = parse_pubkeys(&req.parent_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+    let kids = parse_pubkeys(&req.kid_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+    let policy = DynastyBlocPolicy {
+        parent_keys: parents,
+        parents_together_quorum: req.parents_together_quorum,
+        coparent_quorum: req.coparent_quorum,
+        kid_keys: kids,
+        kids_with_parent_quorum: req.kids_with_parent_quorum,
+        parent_solo_after: req.parent_solo_after,
+        parent_solo_quorum: req.parent_solo_quorum,
+        kids_decay_start_after: req.kids_decay_start_after,
+        kids_decay_step_blocks: req.kids_decay_step_blocks,
+        kids_decay_start_quorum: req.kids_decay_start_quorum,
+        kids_decay_floor_quorum: req.kids_decay_floor_quorum,
+    };
+    let compiled = compile_dynasty_bloc_tr_multileaf(policy, network)
+        .map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(CompileResponse {
+        ok: true,
+        name: req.name.unwrap_or_else(|| "Dynasty Bloc".to_string()),
+        network: req.network,
+        address_type: compiled.address_type.to_string(),
+        miniscript_policy: compiled.miniscript_policy,
+        descriptor: compiled.descriptor,
+        address: compiled.address.to_string(),
     }))
 }
 
@@ -704,6 +767,7 @@ async fn main() {
     let app = Router::new()
         .route("/health",            get(health))
         .route("/compile",           post(compile))
+        .route("/compile-bloc",      post(compile_bloc))
         .route("/compile-tranche",   post(compile_tranche))
         .route("/psbt-binary",       post(psbt_binary))
         .route("/psbt-finalize",     post(psbt_finalize))
