@@ -47,7 +47,7 @@ go green (tripwire enforces); one cut per commit; the signing fence is absolute.
 
 ## Cuts
 
-- [ ] **chain: test the timelock countdown labels.**
+- [x] **chain: test the timelock countdown labels.**
   `src/lib/chain.ts` is pure and untested. In a new `src/lib/chain.test.ts` pin
   `blocksToApproxLabel`: `<= 0` is "Available now"; the hours/days/months/years
   bucket boundaries (e.g. a count under one day reads in hours, ~30 days reads in
