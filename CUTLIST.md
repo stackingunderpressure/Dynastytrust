@@ -56,7 +56,7 @@ go green (tripwire enforces); one cut per commit; the signing fence is absolute.
   offset from now, within a tolerance). This is the inheritance-countdown the
   trust overview shows — a wrong label misrepresents when a path unlocks.
 
-- [ ] **config: pin the explorer + broadcast URLs per network.**
+- [x] **config: pin the explorer + broadcast URLs per network.**
   In a new `src/config.test.ts`, pin `explorerTxUrl(network, txid)` and
   `broadcastTxUrl(network)` for all three networks (bitcoin, testnet, signet) to
   their exact expected URLs, so a wrong explorer/broadcast endpoint (which would
