@@ -8,10 +8,14 @@
   "scripts": {
     "build": "npm run build -ws --if-present",
     "dev": "npm run dev --workspace @dynastytrust/web",
-    "test": "node scripts/test-policy.mjs",
+    "test": "node scripts/test-policy.mjs && npm run test --workspace @dynastytrust/web",
     "lint": "npm run lint --workspace @dynastytrust/web",
     "format": "npm run format --workspace @dynastytrust/web",
     "format:check": "npm run format:check --workspace @dynastytrust/web",
-    "typecheck": "npm run typecheck --workspace @dynastytrust/web"
+    "typecheck": "npm run typecheck --workspace @dynastytrust/web",
+    "test:baseline": "node scripts/test-baseline.mjs",
+    "test:baseline:write": "node scripts/test-baseline.mjs --write",
+    "doctrine:check": "node scripts/doctrine-check.mjs",
+    "verify": "npm run typecheck && npm run lint && npm run test && npm run build && npm run test:baseline && npm run doctrine:check"
   }
 }

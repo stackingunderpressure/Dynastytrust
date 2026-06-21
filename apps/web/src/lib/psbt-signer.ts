@@ -116,7 +116,7 @@ function readVarInt(buf: Uint8Array, offset: number): [number, number] {
   throw new Error("64-bit varint not supported");
 }
 
-function parsePsbt(hex: string): ParsedPsbt {
+export function parsePsbt(hex: string): ParsedPsbt {
   const buf = fromHex(hex);
   let pos = 0;
 
@@ -225,11 +225,11 @@ function parseRawTx(buf: Uint8Array): PsbtTx {
 
 // ── BIP341 Tapscript sighash ──────────────────────────────────────────────────
 
-function tapLeafHash(script: Uint8Array, leafVersion: number): Uint8Array {
+export function tapLeafHash(script: Uint8Array, leafVersion: number): Uint8Array {
   return taggedHash("TapLeaf", new Uint8Array([leafVersion]), varint(script.length), script);
 }
 
-function tapscriptSighash(
+export function tapscriptSighash(
   psbt: ParsedPsbt,
   inputIndex: number,
   leafHash: Uint8Array,

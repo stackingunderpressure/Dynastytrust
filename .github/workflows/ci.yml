@@ -1,0 +1,42 @@
+# Fleet guardrail standard — external verifier. Each gate runs with
+# `if: always()` so every status is visible in one run. NOTE: `typecheck`
+# has documented PRE-EXISTING errors (keystore.ts / VaultDetail.tsx /
+# ProposalDetail.tsx) and is expected red until those are fixed; lint, test
+# (incl. the new crypto suite), build, and the two scripts are green.
+# Report-only until promoted to a required check.
+name: gates
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install
+        run: npm install --no-audit --no-fund
+      - name: Typecheck (pre-existing red — see note)
+        if: ${{ always() }}
+        run: npm run typecheck
+      - name: Lint
+        if: ${{ always() }}
+        run: npm run lint
+      - name: Test
+        if: ${{ always() }}
+        run: npm test
+      - name: Build
+        if: ${{ always() }}
+        run: npm run build
+      - name: Test-baseline tripwire
+        if: ${{ always() }}
+        run: node scripts/test-baseline.mjs
+      - name: Doctrine drift-check
+        if: ${{ always() }}
+        run: node scripts/doctrine-check.mjs
