@@ -22,7 +22,7 @@ jobs:
           cache: npm
       - name: Install
         run: npm install --no-audit --no-fund
-      - name: Typecheck (pre-existing red — see note)
+      - name: Typecheck
         if: ${{ always() }}
         run: npm run typecheck
       - name: Lint
