@@ -408,7 +408,7 @@ export async function signPsbtWithMnemonic(
   psbtHex: string,
   mnemonic: string,
   derivationPath: string,
-  network: "testnet" | "bitcoin"
+  network: "testnet" | "signet" | "bitcoin"
 ): Promise<SignResult> {
   const networkVersions = network === "bitcoin"
     ? { private: 0x0488ade4, public: 0x0488b21e }

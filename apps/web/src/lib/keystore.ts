@@ -93,7 +93,7 @@ function saveAll(keys: LocalKey[]): void {
 
 //
 
-async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
+async function deriveKey(password: string, salt: BufferSource): Promise<CryptoKey> {
   const raw = await crypto.subtle.importKey(
     'raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey'],
   );
@@ -106,7 +106,7 @@ async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey>
 function b64(arr: Uint8Array): string {
   return btoa(String.fromCharCode(...arr));
 }
-function unb64(s: string): Uint8Array {
+function unb64(s: string): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(atob(s), c => c.charCodeAt(0));
 }
 

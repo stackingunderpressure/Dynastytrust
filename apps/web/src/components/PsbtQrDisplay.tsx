@@ -51,7 +51,12 @@ export function PsbtQrDisplay({
   useEffect(() => {
     try {
       const bytes = hexToBytes(psbtHex);
-      const ur = UR.fromBuffer(Buffer.from(bytes), 'crypto-psbt');
+      // NOTE: @gandlaf21/bc-ur's UR.fromBuffer(buf) takes ONE arg and tags the
+      // UR as type 'bytes'. The old second arg ('crypto-psbt') was silently
+      // ignored at runtime, so this is behaviour-preserving. Emitting a true
+      // 'crypto-psbt' UR for hardware-wallet import is a separate, HW-tested
+      // change (would be `new UR(buf, 'crypto-psbt')`), not a type cleanup.
+      const ur = UR.fromBuffer(Buffer.from(bytes));
       const enc = new UREncoder(ur, fragmentLength, 0, 8);
       encoderRef.current = enc;
       setTotalFragments(enc.fragmentsLength);
