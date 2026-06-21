@@ -62,7 +62,7 @@ go green (tripwire enforces); one cut per commit; the signing fence is absolute.
   their exact expected URLs, so a wrong explorer/broadcast endpoint (which would
   send a user to the wrong chain's explorer) can't silently ship.
 
-- [ ] **descriptor-backup: characterize vaultBackupText.**
+- [x] **descriptor-backup: characterize vaultBackupText.**
   `src/lib/descriptor-backup.ts:vaultBackupText` is pure and untested. In a new
   `src/lib/descriptor-backup.test.ts` pin that the backup text contains the
   vault's descriptor and the load-bearing fields a restorer needs, and — security
