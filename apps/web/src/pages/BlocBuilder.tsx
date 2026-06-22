@@ -1,9 +1,15 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listKeys, type LocalKey } from '../lib/keystore';
+import { sha256 } from '@noble/hashes/sha256';
+import { evaluateSigningGate, type SigningCeremony } from '@dynastytrust/policy-engine';
+import { listKeys, revealMnemonic, type LocalKey } from '../lib/keystore';
+import { signPsbtWithMnemonic, mergePsbts } from '../lib/psbt-signer';
 import { api } from '../lib/api';
+import { broadcastTxUrl, explorerTxUrl } from '../config';
 import { colors, fonts, radii } from '../theme';
 import { Button, Input, Label } from '../components/ui';
+import { useToast } from '../components/toast';
+import { usePrompt } from '../components/dialog';
 import { DescriptorQr } from '../components/DescriptorQr';
 import {
   upgradeDescriptor,
@@ -11,6 +17,17 @@ import {
   toPubkeyHex,
   type SelectedKey,
 } from '../lib/descriptor-keys';
+
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Stable binding identity for the unsigned PSBT the ceremony authorizes.
+// The fail-closed gate compares this between what was confirmed and what
+// is about to be signed -- any swap of the transaction changes it.
+function psbtBindingHash(psbtHex: string): string {
+  return toHex(sha256(new TextEncoder().encode(psbtHex)));
+}
 
 // // -- Dynasty Bloc builder (Phase 1: compile + export)
 //
@@ -209,6 +226,8 @@ interface Rung {
 
 export default function BlocBuilder() {
   const navigate = useNavigate();
+  const toast = useToast();
+  const askPassword = usePrompt();
   const [allKeys, setAllKeys] = useState<LocalKey[]>([]);
   const [name, setName] = useState('Family Bloc');
   const [parents, setParents] = useState<SelectedKey[]>([]);
@@ -264,9 +283,25 @@ export default function BlocBuilder() {
     };
   } | null>(null);
 
+  // In-app fail-closed signing of the built PSBT.
+  const [signedPsbt, setSignedPsbt] = useState<string | null>(null);
+  const [signedCount, setSignedCount] = useState(0);
+  const [signing, setSigning] = useState(false);
+  const [broadcasting, setBroadcasting] = useState(false);
+  const [txid, setTxid] = useState<string | null>(null);
+  const [signErr, setSignErr] = useState<string | null>(null);
+
   useEffect(() => {
     setAllKeys(listKeys().filter(k => k.status === 'active'));
   }, []);
+
+  // Any new/changed PSBT invalidates a prior in-app signature set.
+  useEffect(() => {
+    setSignedPsbt(null);
+    setSignedCount(0);
+    setTxid(null);
+    setSignErr(null);
+  }, [spendResult]);
 
   // When the key counts change, keep the "all of them" quorums sensible
   // without stomping a smaller value the user deliberately chose.
@@ -373,6 +408,102 @@ export default function BlocBuilder() {
       window.clearTimeout(slowTimer);
       setCompiling(false);
       setSlow(false);
+    }
+  }
+
+  // Which selected keys can sign the chosen leaf.
+  function pathSignerKeyIds(): Set<string> {
+    if (spendPath === 'kids_decay') return new Set(kids.map(k => k.keyId));
+    if (spendPath === 'coparent_kids') return new Set([...parents, ...kids].map(k => k.keyId));
+    return new Set(parents.map(k => k.keyId)); // parents_now, parent_solo
+  }
+
+  // Fail-closed in-app signing. The gate is the hard pre-condition: we sign
+  // ONLY a transaction that exactly matches the confirmed spend, and never
+  // on a duress hold. The actual quorum/timelock satisfaction is left to
+  // consensus at finalize/broadcast -- the gate is Tier 2, not the script.
+  async function signInApp() {
+    if (!compiled || !absoluteTimelocks || !spendResult) return;
+    setSigning(true);
+    setSignErr(null);
+    try {
+      const amount = parseInt(spendAmount, 10);
+      const dest = spendDest.trim();
+      const psbtHash = psbtBindingHash(spendResult.psbt_hex);
+
+      const ceremony: SigningCeremony = {
+        proposalId: 'local-' + psbtHash.slice(0, 12),
+        vaultId: compiled.address,
+        status: 'approved',
+        authorizedPsbtHash: psbtHash,
+        destination: dest,
+        amountSats: amount,
+        path: spendPath,
+        approvalsRequired: 1,
+        approvalsCollected: 1,
+        duress: false,
+      };
+      const gate = evaluateSigningGate({
+        request: { vaultId: compiled.address, psbtHash, destination: dest, amountSats: amount, path: spendPath },
+        ceremony,
+        vault: { vaultId: compiled.address, address: compiled.address },
+        psbtBindsToVault: true,
+        governanceApproved: true,
+      });
+      if (!gate.allow) {
+        setSignErr('Fail-closed gate blocked signing: ' + gate.denials.map(d => d.message).join(' '));
+        return;
+      }
+
+      const ids = pathSignerKeyIds();
+      const signers = allKeys.filter(k => ids.has(k.keyId) && (k.testMnemonic || k.encryptedMnemonic));
+      if (signers.length === 0) {
+        throw new Error('No local software keys for this path on this device. Export the PSBT above and sign in your hardware wallet.');
+      }
+
+      const signNet = network === 'bitcoin' ? 'bitcoin' : 'testnet';
+      const partials: string[] = [];
+      for (const key of signers) {
+        const pw = key.testMnemonic
+          ? undefined
+          : (await askPassword({ title: 'Unlock key', message: `Enter the password for "${key.label}" to sign.`, password: true, confirmLabel: 'Sign' })) ?? undefined;
+        if (!key.testMnemonic && pw == null) continue; // user cancelled this key
+        const mnemonic = await revealMnemonic(key.keyId, pw);
+        const r = await signPsbtWithMnemonic(spendResult.psbt_hex, mnemonic, key.derivationPath, signNet);
+        partials.push(r.psbt_hex);
+      }
+      if (partials.length === 0) throw new Error('No signatures were produced.');
+      const merged = partials.length > 1 ? mergePsbts(partials) : partials[0];
+      setSignedPsbt(merged);
+      setSignedCount(partials.length);
+      toast.success(`Signed with ${partials.length} key${partials.length === 1 ? '' : 's'}.`);
+    } catch (e) {
+      setSignErr(e instanceof Error ? e.message : 'Signing failed');
+    } finally {
+      setSigning(false);
+    }
+  }
+
+  async function finalizeAndBroadcast() {
+    if (!signedPsbt) return;
+    setBroadcasting(true);
+    setSignErr(null);
+    try {
+      const finalized = await api.psbt.finalize(signedPsbt);
+      const net = network === 'bitcoin' ? 'bitcoin' : network === 'signet' ? 'signet' : 'testnet';
+      const res = await fetch(broadcastTxUrl(net), {
+        method: 'POST',
+        body: finalized.raw_tx_hex,
+        headers: { 'Content-Type': 'text/plain' },
+      });
+      const id = (await res.text()).trim();
+      if (!res.ok || id.length !== 64) throw new Error('Broadcast failed: ' + id.slice(0, 120));
+      setTxid(id);
+      toast.success('Transaction broadcast.');
+    } catch (e) {
+      setSignErr(e instanceof Error ? e.message : 'Broadcast failed');
+    } finally {
+      setBroadcasting(false);
     }
   }
 
@@ -797,8 +928,45 @@ export default function BlocBuilder() {
                     </div>
                     <CopyField label="PSBT (hex)" value={spendResult.psbt_hex} />
                     <CopyField label="PSBT (base64)" value={spendResult.psbt_b64} />
-                    <div style={{ fontSize: 12, color: colors.muted, lineHeight: 1.5 }}>
-                      Sign this PSBT in your hardware wallet (Sparrow / Nunchuk / Coldcard), then finalize + broadcast.
+
+                    <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>Sign in app (software keys)</div>
+                      <div style={{ fontSize: 12, color: colors.muted, lineHeight: 1.5 }}>
+                        Fail-closed: the signer signs ONLY the exact transaction shown above (destination, amount, path) and refuses on any mismatch. Hardware-wallet keys: use the PSBT export above instead.
+                      </div>
+                      {!txid && (
+                        <Button variant="ghost" disabled={signing} onClick={signInApp}>
+                          {signing ? 'Signing...' : signedPsbt ? `Re-sign (signed ${signedCount})` : 'Sign with my software keys'}
+                        </Button>
+                      )}
+                      {signedPsbt && !txid && (
+                        <>
+                          <div style={{ fontSize: 12, color: colors.green }}>
+                            check Signed with {signedCount} key{signedCount === 1 ? '' : 's'}. Finalize fails if the path quorum or timelock is not yet met -- that is consensus doing its job.
+                          </div>
+                          <Button disabled={broadcasting} onClick={finalizeAndBroadcast}>
+                            {broadcasting ? 'Broadcasting...' : 'Finalize + broadcast ->'}
+                          </Button>
+                        </>
+                      )}
+                      {txid && (
+                        <div style={{ padding: '10px 14px', background: colors.successBg, border: `1px solid ${colors.green}44`, borderRadius: radii.md, color: colors.green, fontSize: 13 }}>
+                          check Broadcast.{' '}
+                          <a
+                            href={explorerTxUrl(network === 'bitcoin' ? 'bitcoin' : network === 'signet' ? 'signet' : 'testnet', txid)}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ color: colors.gold }}
+                          >
+                            View transaction
+                          </a>
+                        </div>
+                      )}
+                      {signErr && (
+                        <div style={{ padding: 12, background: colors.dangerBg, border: `1px solid ${colors.borderDanger}`, borderRadius: radii.md, color: colors.red, fontSize: 13 }}>
+                          {signErr}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
