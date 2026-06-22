@@ -157,3 +157,13 @@ export {
   type RecoveryResponse,
   type ResponseVerification,
 } from './core/recovery.js';
+
+// Sign-in by attestation (cross-repo parity port of the Tapit primitive)
+export {
+  buildSignInChallenge,
+  answerSignInChallenge,
+  verifySignIn,
+  type SignInChallenge,
+  type SignInAttestation,
+  type SignInVerifyResult,
+} from './core/sign-in.js';
