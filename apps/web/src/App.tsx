@@ -4,6 +4,7 @@ import { markIntentionalSignOut } from './lib/session-intent';
 import KeyManager from './pages/KeyManager';
 import PolicyBuilder from './pages/PolicyBuilder';
 import BlocBuilder from './pages/BlocBuilder';
+import StartVault from './pages/StartVault';
 import Dashboard from './pages/Dashboard';
 import VaultDetail from './pages/VaultDetail';
 import ProposalDetail from './pages/ProposalDetail';
@@ -46,7 +47,19 @@ function AuthedApp() {
 
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/keys" replace />} />
+      <Route path="/" element={<Navigate to="/start" replace />} />
+      <Route
+        path="/start"
+        element={
+          <Layout activeNavId={activeNavId} onSignOut={() => { markIntentionalSignOut(); void supabase.auth.signOut(); }}>
+            <PageHeader
+              title="What do you want to protect?"
+              sub="Pick what fits. We handle the Bitcoin part behind the scenes -- you just choose the outcome you want."
+            />
+            <StartVault />
+          </Layout>
+        }
+      />
       <Route
         path="/keys"
         element={
@@ -121,7 +134,7 @@ function AuthedApp() {
           </Layout>
         }
       />
-      <Route path="*" element={<Navigate to="/keys" replace />} />
+      <Route path="*" element={<Navigate to="/start" replace />} />
     </Routes>
   );
 }

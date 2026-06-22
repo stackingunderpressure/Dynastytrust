@@ -435,7 +435,13 @@ independent way."* The ladder's answer should be visible at a glance.
 
 ## 8. Honest lines this frame must never cross (rails, restated for legs)
 
-Straight from the risk register; nothing here bends them.
+Straight from the risk register; nothing here bends them. The full threat
+model -- where the app adds real security vs. where only consensus
+enforces, and the fail-closed invariants -- lives in
+`docs/threat-model-and-fail-closed.md`. The one invariant that governs
+every cut: the platform must never be a SHORTCUT around the script (never
+let anyone assemble a valid spend with fewer pieces than the script
+requires).
 
 1. **Attestations are not spend signatures.** A heartbeat "we're good" is
    a domain-separated attestation, never a BIP341 sighash. Off-chain
@@ -604,3 +610,119 @@ today's primitive. FROST-as-a-slot, the resharing heartbeat, the
 floor-over-time UX, the leg composer, and the single-user starter ladder
 are the climb -- captured here so the build serves the idea instead of
 narrowing it.
+
+---
+
+## 11g. FROST as the complete backstop, not the everyday path (operator refinement, 2026-06-22)
+
+The operator landed the single best use of FROST, and it sharpens the role
+past sections 3-4: **FROST belongs on the deepest, longest-timelocked
+RECOVERY leg -- the complete backup you hope to God you never use -- not on
+the everyday path.** The everyday path stays the holder's own trusted
+multisig, which should already be fail-proof for them. The FROST leg sits
+beneath it as the last-resort net.
+
+The shape, in his words:
+
+- **The everyday model is the holder's own multisig** (already backed up,
+  already multi-device). It is the path they trust enough to move the coins
+  themselves. The whole point is that the backstop is almost never reached.
+- **The backstop is a large social quorum behind FROST, on a long
+  timelock.** If the holder drops the ball -- loses a key, goes silent --
+  enough of their people each tap "yes," and their shares reassemble /
+  co-sign a recovery key that, AFTER the timelock (5 years, 10 years),
+  can move the coins so the holder can re-organize into a fresh, better
+  vault. A deep-timelocked complete backup beats a single lost signature
+  every time.
+- **This is what makes long-horizon self-custody of appreciating value
+  psychologically possible.** Lock 1 BTC at $70k today; in 10 years it may
+  be $700k. "Do you trust your everyday multisig enough to be the one who
+  moves it?" -- the honest answer for most people is "only if there is a
+  complete backup if I ever fail." The FROST backstop is exactly that
+  permission slip. It converts "I am scared to self-custody big money for a
+  decade" into "I can, because enough of my people can recover me if I
+  drop it."
+
+Refinements the operator added, with the honest mechanism for each:
+
+1. **Compromise -> flag -> skip -> fall to the next-deeper timelock.** If a
+   key or a path is compromised, the social / watchtower layer flags it and
+   the FROST participants WITHHOLD -- so that leg becomes unsatisfiable and
+   the coins fall through to the next, deeper-timelock leg that does not
+   depend on the compromised piece ("you are not getting yours back at 5
+   years; you wait for the 10-year lock, and it is not even that key
+   anymore"). Honest mechanism: this is NOT the script "knowing" a key is
+   compromised -- a key-holder can always try their path on-chain. It works
+   only because the deeper leg requires the honest FROST quorum's
+   participation, which they withhold, making it unsatisfiable; and because
+   the laddered timelocks mean a withheld/blocked leg simply yields to the
+   next one. This is the duress -> withhold -> fall-to-timelock model (Q4)
+   and the watchtower, generalized into a recovery ladder.
+2. **Creative legs only tapscript enables.** A friend can hold a key that
+   becomes live ONLY after, say, 10 years, as the very last rung -- so if
+   everyone else dropped the ball, that one friend's single key still
+   recovers the coins a decade out. Nothing but a timelocked tapscript leaf
+   can express "this key does nothing for 10 years, then everything."
+3. **"Use their math, change the UI."** The right philosophy: adopt a
+   vetted FROST library's cryptography wholesale in the background, and
+   build only the experience on top -- assemble enough of a large quorum to
+   produce one signature. Honest caveat: the MATH is the library; the WORK
+   is the safe orchestration around it -- the ceremony, nonce hygiene, the
+   withhold/flag wiring, resharing -- which is real engineering, not a
+   skin. The principle (never hand-roll the crypto; build the human layer)
+   is exactly right; the effort estimate must respect the orchestration.
+
+Sequencing unchanged (and it fits perfectly): the everyday multisig + a
+moderate timelocked recovery leg ship on today's primitive first; the large
+FROST backstop, the withhold-and-fall ladder, and the 10-year friend-key
+are the climb, on a vetted library, once value and trust justify it. The
+backstop being the LAST thing reached is exactly why it can also be the
+last thing built.
+
+---
+
+## 12. Build status / resume marker (2026-06-22)
+
+WHERE WE ARE. Shipped to `main` (merge `affaea7`), which fired the
+Netlify production build and the Fly.io compiler auto-deploy:
+
+- Dynasty Bloc COMPILE: `/compile-bloc` (Rust + netlify), descriptor
+  round-trip, `/policy/bloc` builder UI with the decay-ladder preview,
+  hardware-wallet export. DONE + on main.
+- Dynasty Bloc SPEND (build + export only): `build_bloc_spend_psbt` +
+  `/psbt-binary-bloc` (Rust + netlify proxy) + the BlocBuilder "Spend
+  from this vault" panel that builds a PSBT for a chosen path/rung and
+  exports it for hardware-wallet signing. DONE + on main. Audited (no
+  blocker); dust-floor + prevout-fetch fixes landed. 28 cargo tests.
+
+VERIFICATION GATE (operator-run, after Fly deploy finishes):
+1. `curl https://dynastytrust-compiler.fly.dev/health` -> "endpoints"
+   must list `/compile-bloc` and `/psbt-binary-bloc`.
+2. In-app: `/policy/bloc` -> pick keys -> Compile gives an address.
+3. Fund on signet/testnet -> the spend panel builds a PSBT.
+
+SECURITY MODEL captured (2026-06-22): `docs/threat-model-and-fail-closed.md`
+(added security on a consensus floor; the never-a-shortcut invariant) and
+`docs/watchtower-spec.md` (the on-chain tripwire).
+
+DONE since:
+- The fail-closed signing GATE -- `evaluateSigningGate` in
+  `packages/policy-engine` -- default-DENY, pure, fully unit-tested.
+- The gate WIRED into in-app Bloc signing (`BlocBuilder`): after building
+  a PSBT, "Sign with my software keys" binds the exact PSBT (sha256),
+  runs the gate as a hard pre-condition, and only on allow signs (reusing
+  the proven ProposalDetail pattern) -> merge -> finalize -> broadcast.
+  `@dynastytrust/policy-engine` is now a web dependency. lint/typecheck/
+  build green; on-chain confirmation pending Fly deploy + signet test.
+
+NEXT, in order (resume here):
+1. Real multi-party ceremony + persistence: a `bloc_policy` jsonb vault +
+   a proposal/approval record + the broadcast (sanctioned) txid set, so
+   the gate is fed a genuine multi-approver ceremony (not the client-built
+   solo one) and proposals surface across members. (Quarterback owns the
+   money-signing.)
+2. The watchtower diff core + poller (watchtower-spec rungs 1-2 first --
+   pure, testable).
+3. The leg composer + floor-over-time visual (frame rung 2): the
+   educate-out-of-bad-choices guardrail made visible. No new cryptography.
+Then the FROST climb (sections 3-4) as a later, vetted-library phase.
