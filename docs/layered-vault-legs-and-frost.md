@@ -241,6 +241,14 @@ Both are real. The family-vault flavor leans dealer; a business or
 adversarial-roster flavor leans DKG. The product should let the founder
 choose with eyes open, not hard-code one.
 
+> **Operator decision (2026-06): offer both, teaching-gated.** Present
+> dealer and DKG as a choice the founder makes *only with the
+> understanding of what each means* -- the education layer explains the
+> "parents are the recovery root vs no one ever holds the whole secret"
+> tradeoff at the moment of choice, then the founder picks. Neither is
+> hard-coded; the choice is never offered as a naked toggle without the
+> teaching beside it.
+
 ---
 
 ## 5. The Dynasty Bloc as the first concrete rung
@@ -331,12 +339,29 @@ shows the *meaning* in plain language, never the hex; the assistant
 proposes, the human disposes, no key ever enters its context. Applied to
 the ladder:
 
-- **The leg inspector.** Each leg shows, in plain language: who can spend,
-  when it unlocks, and -- the operator's motto made visible -- *the new
-  weakness this leg opens and how the design answers it.* Lift the
-  timelock lever and the screen says what changed and what it costs.
-  Choose FROST for a leg and it explains the offline-ceremony tradeoff and
-  the resharing superpower in one breath.
+- **The leg composer (read AND write).** This is the surface the operator
+  chose for question 2: the tree's leaves are the founder's to tweak,
+  fully configurable and fully visible, so they make it fit *them*. Each
+  leaf is an editable cell -- pick its guard (immediate / `after(N)`), its
+  scheme (single key / `k-of-n` multisig / FROST aggregate), and its
+  roster (a named group: the kids, the grandparents, trustees, peers).
+  One leaf can be a FROST of the kids, another a FROST of the
+  grandparents, maybe both, plus the parents' own plain keys on the
+  everyday legs -- as many groups and leaves as the family wants. Every
+  leg shows, in plain language: who can spend, when it unlocks, and -- the
+  motto made visible -- *the new weakness this leg opens and how the
+  design answers it.* Lift the timelock lever and the screen says what
+  changed and what it costs; choose FROST for a leaf and it explains the
+  offline-ceremony tradeoff and the resharing superpower in one breath.
+- **Templates are pre-composed ladders -- the on-ramp, never the ceiling.**
+  The other half of the operator's answer: most people should "just pick
+  the easy template that fits best." A template is a ready-made ladder
+  (the Dynasty Bloc, Family Inheritance, Business Treasury, Self-Sovereign
+  + Social Recovery) that drops in with sane legs already composed. The
+  composer is what you open when you want to tweak one -- swap a leaf's
+  roster to a FROST group, add a grandparent leg, push a timelock. Express
+  users start from a template and never have to open the composer; power
+  users compose from scratch. Same engine, presentation dial over it.
 
 - **The floor-over-time view.** The section 2 curve, drawn: a timeline
   where you watch the security floor descend (and, with FROST resharing,
@@ -427,12 +452,20 @@ value and your comfort justify.
 
 Deliberately left open so the frame is not prematurely closed:
 
-1. **Dealer vs DKG for family FROST legs** (section 4). Offer both? Default
-   which, for which template?
-2. **Decay: script-enforced vs reshare-enforced** (section 5). When the
-   kid set is a FROST aggregate, do we keep coarse on-chain time gates,
-   move decay fully to resharing governance, or let the founder pick per
-   vault?
+1. **Dealer vs DKG for family FROST legs** (section 4). RESOLVED
+   (2026-06): offer both, teaching-gated -- the founder chooses with the
+   tradeoff explained beside the choice. Residual: per-template *default*
+   (family -> dealer, business -> DKG) as the starting point a template
+   pre-selects.
+2. **Decay: script-enforced vs reshare-enforced** (section 5). RESOLVED
+   (2026-06): neither is hard-coded -- the **leg composer** (section 7)
+   lets the founder build it either way, per leaf, fully visible: a leaf
+   can be a script-enforced timelock decay, or a FROST aggregate whose
+   decay is reshare-governed, or both in one tree (e.g. a FROST-of-kids
+   leaf beside a FROST-of-grandparents leaf). Templates pre-compose the
+   common shapes; the composer is there to tweak. Residual: how far down
+   to let the composer go for a first cut without overwhelming a beginner
+   (the express/guided dial answers most of this).
 3. **How much of the floor-over-time model is a teaching visual vs a
    valid(er)** that blocks a footgun (e.g., refuse to compile a vault
    whose floor drops to a single weak phone key with no timelock above
