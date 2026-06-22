@@ -200,6 +200,43 @@ the chain of spending ever breaks.* This is a maintenance cycle:
    reshare to a new roster / new threshold  (descriptor unchanged)
 ```
 
+**The coordination, warning, and communication layer is Tapit, wired to
+DynastyTrust (operator decision, 2026-06 -- "best security fit").** This
+whole loop -- the liveness heartbeat, the FROST signing and resharing
+ceremonies, and the duress signal -- rides the Tapit attestation layer:
+its encrypted Nostr inbox, its silent envelope-merge, and its
+tap-to-confirm sign-request surface (education-bot doc 11b; largely built
+on the Tapit side, not yet wired into DynastyTrust, which coordinates via
+Supabase Realtime today -- so this is the *integration to build*, not a
+new transport). DynastyTrust reads the family's attestation state to
+*catch the state of the family* and raise the warnings; Tapit carries the
+messages and collects the signatures behind the banners.
+
+The duress-vs-reshare edge resolves through that layer by making the two
+**distinct, explicit signals** -- never a guess the app makes:
+
+- A **membership-loss** signal (a phone died, a person is unreachable) is
+  a normal attestation that *permits* a reshare -- but only through the
+  group's own quorum and behind an **objection window measured on a
+  Bitcoin-confirmation clock** (not wall-clock), so a proposed reshare to
+  a new roster can be challenged before it commits.
+- A **duress** signal *dominates everything*: it withdraws participation,
+  **aborts any in-flight signing or reshare session** (the abort rail --
+  it cancels the *current* session, not merely the next), and **blocks new
+  reshares**. You never reshare under duress; the coins simply fall to the
+  timelocked backstop leg, which needs nobody. Bitcoin gives no "freeze"
+  primitive -- the only real enforcement is that the fast/reshare path
+  becomes unsatisfiable and the absolute-CLTV leg underneath is the
+  guarantee.
+
+The "best security fit" default: **when the signal is ambiguous, read it
+as duress.** Refuse the reshare, hold position, let the timelock be the
+guarantee -- a wrongly-blocked reshare costs a delay, while a
+wrongly-permitted one under duress reshares the vault straight into the
+attacker's roster. And the hardest honest line stays bright: these
+attestations *coordinate* -- they decide whether a ceremony proceeds --
+they are never themselves spend signatures and never move a coin alone.
+
 Two consequences worth seeing:
 
 - **The floor can be RE-LIFTED, not only descend.** Section 2 framed the
@@ -372,7 +409,10 @@ the ladder:
   liveness/attestation panel that is honest -- proof-of-life is an
   attestation, never a spend signature (the hardest honest line) -- and
   that turns a failed check into a clear "time to reshare" prompt, not a
-  silent rot.
+  silent rot. This panel is the DynastyTrust face of the Tapit attestation
+  inbox (section 4): green/red liveness that catches the state of the
+  family, the warning when that state slips, and a duress channel that
+  *aborts* a ceremony rather than advancing it.
 
 - **Two speeds, one engine.** Express (click-through for bitcoiners who
   know the mechanics; the expert path is never walled) over Guided (one
@@ -470,10 +510,16 @@ Deliberately left open so the frame is not prematurely closed:
    valid(er)** that blocks a footgun (e.g., refuse to compile a vault
    whose floor drops to a single weak phone key with no timelock above
    it)?
-4. **Heartbeat cadence and authority.** Who can call a reshare, on what
-   signal, and how is a "we're not good" distinguished from a "we're under
-   duress, do NOT reshare to the attacker's roster"? (The abort rail meets
-   the maintenance loop here -- a sharp edge.)
+4. **Heartbeat / duress / reshare authority** (section 4). RESOLVED
+   (2026-06): the coordination, warning, and communication layer is
+   **Tapit wired to DynastyTrust** -- attestation inbox + encrypted Nostr
+   + sign-request surface. Membership-loss and duress are *distinct
+   explicit signals*: loss permits a reshare behind a Bitcoin-clock
+   objection window; duress dominates -- aborts in-flight sessions, blocks
+   reshare, falls to the timelock backstop. Ambiguity defaults to duress
+   ("best security fit"). Attestations coordinate, never sign. Residual:
+   heartbeat cadence, objection-window length, and who in the family roster
+   is authorized to raise each signal.
 5. **Where the ceremony lives.** DynastyTrust on Supabase Realtime today;
    the FROST/Nostr sign-request surface is on the Tapit side. The wedge is
    wiring the two, not building a transport.
