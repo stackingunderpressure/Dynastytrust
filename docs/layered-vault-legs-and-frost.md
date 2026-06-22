@@ -604,3 +604,36 @@ today's primitive. FROST-as-a-slot, the resharing heartbeat, the
 floor-over-time UX, the leg composer, and the single-user starter ladder
 are the climb -- captured here so the build serves the idea instead of
 narrowing it.
+
+---
+
+## 12. Build status / resume marker (2026-06-22)
+
+WHERE WE ARE. Shipped to `main` (merge `affaea7`), which fired the
+Netlify production build and the Fly.io compiler auto-deploy:
+
+- Dynasty Bloc COMPILE: `/compile-bloc` (Rust + netlify), descriptor
+  round-trip, `/policy/bloc` builder UI with the decay-ladder preview,
+  hardware-wallet export. DONE + on main.
+- Dynasty Bloc SPEND (build + export only): `build_bloc_spend_psbt` +
+  `/psbt-binary-bloc` (Rust + netlify proxy) + the BlocBuilder "Spend
+  from this vault" panel that builds a PSBT for a chosen path/rung and
+  exports it for hardware-wallet signing. DONE + on main. Audited (no
+  blocker); dust-floor + prevout-fetch fixes landed. 28 cargo tests.
+
+VERIFICATION GATE (operator-run, after Fly deploy finishes):
+1. `curl https://dynastytrust-compiler.fly.dev/health` -> "endpoints"
+   must list `/compile-bloc` and `/psbt-binary-bloc`.
+2. In-app: `/policy/bloc` -> pick keys -> Compile gives an address.
+3. Fund on signet/testnet -> the spend panel builds a PSBT.
+
+NEXT, in order (resume here):
+1. In-app browser signing of Bloc leaves -- reuse `psbt-signer.ts`
+   (BIP340/341 Schnorr), then merge -> `/psbt-finalize` -> broadcast.
+   (Quarterback owns this -- money-signing crypto is not delegated.)
+2. DB persistence: a `bloc_policy` jsonb column on `vaults` + save/list
+   so Bloc vaults appear in the dashboard and can be reopened.
+3. The leg composer + floor-over-time visual (frame rung 2): the
+   educate-out-of-bad-choices guardrail made visible on today's
+   primitive. Biggest reach, no new cryptography.
+Then the FROST climb (sections 3-4) as a later, vetted-library phase.
