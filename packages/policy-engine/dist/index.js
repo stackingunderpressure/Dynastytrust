@@ -51,3 +51,59 @@ export function validatePolicy(policy) {
 export function summarizePolicy(policy) {
     return `${policy.name} on ${policy.network} with ${policy.members.length} members, ${policy.keys.length} keys, and ${policy.paths.length} policy paths.`;
 }
+export function evaluateSigningGate(input, now = Date.now()) {
+    const denials = [];
+    const deny = (code, message) => denials.push({ code, message });
+    const { request, ceremony, vault, psbtBindsToVault, governanceApproved } = input;
+    // Hard fail-closed gate: with no ceremony there is nothing that
+    // authorizes this spend. Stop here -- do not evaluate anything else.
+    if (!ceremony) {
+        deny('NO_CEREMONY', 'No proposal authorizes this spend. The wallet will not sign an unproposed transaction.');
+        return { allow: false, denials };
+    }
+    // The PSBT must provably belong to this vault, and spend + ceremony +
+    // vault must all name the same vault.
+    if (!psbtBindsToVault) {
+        deny('PSBT_NOT_BOUND', 'The PSBT inputs do not belong to this vault address.');
+    }
+    if (ceremony.vaultId !== vault.vaultId || request.vaultId !== vault.vaultId) {
+        deny('VAULT_MISMATCH', 'The spend, the ceremony, and the vault do not all refer to the same vault.');
+    }
+    // Exact-match binding: we sign ONLY the transaction that was proposed and
+    // approved -- same PSBT digest, destination, amount, and path. This is the
+    // "in sequence / no swap" enforcement and the anti-lying-device backstop.
+    if (request.psbtHash !== ceremony.authorizedPsbtHash) {
+        deny('PSBT_HASH_MISMATCH', 'The transaction being signed does not match the one that was proposed and approved.');
+    }
+    if (request.destination !== ceremony.destination) {
+        deny('DESTINATION_MISMATCH', 'Destination differs from the approved proposal.');
+    }
+    if (request.amountSats !== ceremony.amountSats) {
+        deny('AMOUNT_MISMATCH', 'Amount differs from the approved proposal.');
+    }
+    if (request.path !== ceremony.path) {
+        deny('PATH_MISMATCH', 'Spend path differs from the approved proposal.');
+    }
+    // The ceremony must be in a signable state.
+    const signable = ceremony.status === 'pending' || ceremony.status === 'approved' || ceremony.status === 'signing';
+    if (!signable) {
+        deny('CEREMONY_NOT_SIGNABLE', `Proposal status "${ceremony.status}" is not signable.`);
+    }
+    // Go-for-green: the member approvals threshold must be met.
+    if (ceremony.approvalsCollected < ceremony.approvalsRequired) {
+        deny('NOT_GREEN', `Approvals not complete: ${ceremony.approvalsCollected} of ${ceremony.approvalsRequired}.`);
+    }
+    // Duress dominates: hold position; funds fall to the timelock backstop.
+    if (ceremony.duress) {
+        deny('DURESS_HOLD', 'A duress/hold signal is active. Signing is blocked; the timelock backstop is the guarantee.');
+    }
+    // Expiry, if set.
+    if (typeof ceremony.expiresAt === 'number' && now > ceremony.expiresAt) {
+        deny('CEREMONY_EXPIRED', 'This proposal has expired. Re-propose to sign.');
+    }
+    // Script-mirroring governance, if supplied.
+    if (governanceApproved === false) {
+        deny('GOVERNANCE_REJECTED', 'Governance audit did not approve this spend (timelock/quorum/limits).');
+    }
+    return { allow: denials.length === 0, denials };
+}

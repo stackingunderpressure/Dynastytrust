@@ -84,3 +84,52 @@ export interface PolicyValidationResult {
 }
 export declare function validatePolicy(policy: VaultPolicy): PolicyValidationResult;
 export declare function summarizePolicy(policy: VaultPolicy): string;
+export type CeremonyStatus = 'draft' | 'pending' | 'approved' | 'signing' | 'broadcast' | 'cancelled';
+/** The proposal/ceremony a spend must exactly match to be signable. */
+export interface SigningCeremony {
+    proposalId: string;
+    vaultId: string;
+    status: CeremonyStatus;
+    /** Stable digest of the unsigned PSBT the ceremony authorized. The spend
+     *  being signed MUST carry the identical digest. */
+    authorizedPsbtHash: string;
+    destination: string;
+    amountSats: number;
+    /** Spend path id (e.g. parents_now / kids_decay / recovery). */
+    path: string;
+    /** Go-for-green: approvals required vs collected from the member roster. */
+    approvalsRequired: number;
+    approvalsCollected: number;
+    /** A duress / hold signal dominates everything (Q4). */
+    duress: boolean;
+    /** Optional expiry (epoch ms). */
+    expiresAt?: number;
+}
+/** What the wallet is about to sign, plus the bindings to verify. */
+export interface SigningGateInput {
+    request: {
+        vaultId: string;
+        /** Digest of the unsigned PSBT about to be signed. */
+        psbtHash: string;
+        destination: string;
+        amountSats: number;
+        path: string;
+    };
+    /** The ceremony authorizing this spend. null = no proposal at all -> DENY. */
+    ceremony: SigningCeremony | null;
+    vault: {
+        vaultId: string;
+        address: string;
+    };
+    /** Whether the PSBT's inputs were verified to belong to vault.address.
+     *  The caller computes this; the gate refuses if it is not true. */
+    psbtBindsToVault: boolean;
+    /** Optional script-mirroring governance result (timelock+quorum+dust).
+     *  If explicitly false, the gate denies. undefined = not supplied. */
+    governanceApproved?: boolean;
+}
+export interface SigningGateResult {
+    allow: boolean;
+    denials: ValidationMessage[];
+}
+export declare function evaluateSigningGate(input: SigningGateInput, now?: number): SigningGateResult;
