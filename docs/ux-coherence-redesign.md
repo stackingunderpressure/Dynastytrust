@@ -190,10 +190,15 @@ direction, walked incrementally, with one rule: **every cut from here
 collapses sprawl toward the three journeys; nothing new gets bolted beside
 the old.** Order by leverage:
 
-1. **Front door + nav (highest leverage, lowest risk).** Change where a
-   new user lands (intent question, not `/keys`) and reframe the nav around
-   journeys. This transforms felt coherence WITHOUT touching the 6k-line
-   VaultDetail. Cheapest, biggest impact -- do it first.
+1. **Front door + nav (highest leverage, lowest risk). DONE 2026-06-22.**
+   New `/start` intent screen ("What do you want to protect?" -> four plain
+   outcomes, not a catalog) is now the landing for new users and the `*`
+   fallback -- no one lands on `/keys` cold. Nav reframed to
+   `Home . Start a vault . Learn`; the technical tabs (Keys, Policy builder,
+   Reminders) are still routed but off the top nav. The intent cards route
+   into the existing builders with the matching template pre-applied, so
+   nothing broke. An expert escape hatch to the full builder remains during
+   the transition.
 2. **The unified START flow.** One guided builder that absorbs key
    generation + policy + Bloc + compile + fund, intent-first. The existing
    PolicyBuilder/BlocBuilder/KeyManager become its internals or retire.
