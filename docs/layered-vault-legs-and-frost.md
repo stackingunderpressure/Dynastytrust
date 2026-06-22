@@ -435,7 +435,13 @@ independent way."* The ladder's answer should be visible at a glance.
 
 ## 8. Honest lines this frame must never cross (rails, restated for legs)
 
-Straight from the risk register; nothing here bends them.
+Straight from the risk register; nothing here bends them. The full threat
+model -- where the app adds real security vs. where only consensus
+enforces, and the fail-closed invariants -- lives in
+`docs/threat-model-and-fail-closed.md`. The one invariant that governs
+every cut: the platform must never be a SHORTCUT around the script (never
+let anyone assemble a valid spend with fewer pieces than the script
+requires).
 
 1. **Attestations are not spend signatures.** A heartbeat "we're good" is
    a domain-separated attestation, never a BIP341 sighash. Off-chain
