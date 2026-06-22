@@ -633,13 +633,23 @@ VERIFICATION GATE (operator-run, after Fly deploy finishes):
 2. In-app: `/policy/bloc` -> pick keys -> Compile gives an address.
 3. Fund on signet/testnet -> the spend panel builds a PSBT.
 
+SECURITY MODEL captured (2026-06-22): `docs/threat-model-and-fail-closed.md`
+(added security on a consensus floor; the never-a-shortcut invariant) and
+`docs/watchtower-spec.md` (the on-chain tripwire).
+
+DONE since: the fail-closed signing GATE -- `evaluateSigningGate` in
+`packages/policy-engine` -- the Tier-2 spine that makes the in-app signer
+refuse anything not matching a green, non-duress, vault-bound ceremony.
+Default-DENY, pure, fully unit-tested (`npm test`).
+
 NEXT, in order (resume here):
-1. In-app browser signing of Bloc leaves -- reuse `psbt-signer.ts`
-   (BIP340/341 Schnorr), then merge -> `/psbt-finalize` -> broadcast.
-   (Quarterback owns this -- money-signing crypto is not delegated.)
-2. DB persistence: a `bloc_policy` jsonb column on `vaults` + save/list
-   so Bloc vaults appear in the dashboard and can be reopened.
+1. Wire the fail-closed gate into a real ceremony for Bloc spends:
+   persistence (`bloc_policy` jsonb + a proposal/ceremony record + the
+   broadcast txid set), then the in-app signer calls `evaluateSigningGate`
+   before `psbt-signer.ts` signs -> merge -> finalize -> broadcast, and
+   records the sanctioned txid. (Quarterback owns the money-signing.)
+2. The watchtower diff core + poller (watchtower-spec rungs 1-2 first --
+   pure, testable).
 3. The leg composer + floor-over-time visual (frame rung 2): the
-   educate-out-of-bad-choices guardrail made visible on today's
-   primitive. Biggest reach, no new cryptography.
+   educate-out-of-bad-choices guardrail made visible. No new cryptography.
 Then the FROST climb (sections 3-4) as a later, vetted-library phase.

@@ -51,3 +51,133 @@ export function validatePolicy(policy: VaultPolicy): PolicyValidationResult {
 export function summarizePolicy(policy: VaultPolicy): string {
   return `${policy.name} on ${policy.network} with ${policy.members.length} members, ${policy.keys.length} keys, and ${policy.paths.length} policy paths.`;
 }
+
+// ── Fail-closed signing gate ────────────────────────────────────────────────
+//
+// The Tier-2 spine from docs/threat-model-and-fail-closed.md. The in-app
+// signer calls this IMMEDIATELY BEFORE signing and refuses on any denial.
+// It is NOT consensus (a key-holder can sign off-platform); its job is the
+// governing invariant: our platform must never be a SHORTCUT around the
+// script. It only ever signs a transaction that exactly matches a green,
+// non-duress ceremony bound to this vault -- so deviating gains an attacker
+// nothing our app didn't already require, and trips the checks instead.
+//
+// Default-DENY by construction: allow is true only when there are zero
+// denials. A missing/unknown ceremony is an immediate hard deny.
+
+export type CeremonyStatus =
+  | 'draft' | 'pending' | 'approved' | 'signing' | 'broadcast' | 'cancelled';
+
+/** The proposal/ceremony a spend must exactly match to be signable. */
+export interface SigningCeremony {
+  proposalId: string;
+  vaultId: string;
+  status: CeremonyStatus;
+  /** Stable digest of the unsigned PSBT the ceremony authorized. The spend
+   *  being signed MUST carry the identical digest. */
+  authorizedPsbtHash: string;
+  destination: string;
+  amountSats: number;
+  /** Spend path id (e.g. parents_now / kids_decay / recovery). */
+  path: string;
+  /** Go-for-green: approvals required vs collected from the member roster. */
+  approvalsRequired: number;
+  approvalsCollected: number;
+  /** A duress / hold signal dominates everything (Q4). */
+  duress: boolean;
+  /** Optional expiry (epoch ms). */
+  expiresAt?: number;
+}
+
+/** What the wallet is about to sign, plus the bindings to verify. */
+export interface SigningGateInput {
+  request: {
+    vaultId: string;
+    /** Digest of the unsigned PSBT about to be signed. */
+    psbtHash: string;
+    destination: string;
+    amountSats: number;
+    path: string;
+  };
+  /** The ceremony authorizing this spend. null = no proposal at all -> DENY. */
+  ceremony: SigningCeremony | null;
+  vault: { vaultId: string; address: string };
+  /** Whether the PSBT's inputs were verified to belong to vault.address.
+   *  The caller computes this; the gate refuses if it is not true. */
+  psbtBindsToVault: boolean;
+  /** Optional script-mirroring governance result (timelock+quorum+dust).
+   *  If explicitly false, the gate denies. undefined = not supplied. */
+  governanceApproved?: boolean;
+}
+
+export interface SigningGateResult { allow: boolean; denials: ValidationMessage[]; }
+
+export function evaluateSigningGate(
+  input: SigningGateInput,
+  now: number = Date.now(),
+): SigningGateResult {
+  const denials: ValidationMessage[] = [];
+  const deny = (code: string, message: string) => denials.push({ code, message });
+
+  const { request, ceremony, vault, psbtBindsToVault, governanceApproved } = input;
+
+  // Hard fail-closed gate: with no ceremony there is nothing that
+  // authorizes this spend. Stop here -- do not evaluate anything else.
+  if (!ceremony) {
+    deny('NO_CEREMONY', 'No proposal authorizes this spend. The wallet will not sign an unproposed transaction.');
+    return { allow: false, denials };
+  }
+
+  // The PSBT must provably belong to this vault, and spend + ceremony +
+  // vault must all name the same vault.
+  if (!psbtBindsToVault) {
+    deny('PSBT_NOT_BOUND', 'The PSBT inputs do not belong to this vault address.');
+  }
+  if (ceremony.vaultId !== vault.vaultId || request.vaultId !== vault.vaultId) {
+    deny('VAULT_MISMATCH', 'The spend, the ceremony, and the vault do not all refer to the same vault.');
+  }
+
+  // Exact-match binding: we sign ONLY the transaction that was proposed and
+  // approved -- same PSBT digest, destination, amount, and path. This is the
+  // "in sequence / no swap" enforcement and the anti-lying-device backstop.
+  if (request.psbtHash !== ceremony.authorizedPsbtHash) {
+    deny('PSBT_HASH_MISMATCH', 'The transaction being signed does not match the one that was proposed and approved.');
+  }
+  if (request.destination !== ceremony.destination) {
+    deny('DESTINATION_MISMATCH', 'Destination differs from the approved proposal.');
+  }
+  if (request.amountSats !== ceremony.amountSats) {
+    deny('AMOUNT_MISMATCH', 'Amount differs from the approved proposal.');
+  }
+  if (request.path !== ceremony.path) {
+    deny('PATH_MISMATCH', 'Spend path differs from the approved proposal.');
+  }
+
+  // The ceremony must be in a signable state.
+  const signable = ceremony.status === 'pending' || ceremony.status === 'approved' || ceremony.status === 'signing';
+  if (!signable) {
+    deny('CEREMONY_NOT_SIGNABLE', `Proposal status "${ceremony.status}" is not signable.`);
+  }
+
+  // Go-for-green: the member approvals threshold must be met.
+  if (ceremony.approvalsCollected < ceremony.approvalsRequired) {
+    deny('NOT_GREEN', `Approvals not complete: ${ceremony.approvalsCollected} of ${ceremony.approvalsRequired}.`);
+  }
+
+  // Duress dominates: hold position; funds fall to the timelock backstop.
+  if (ceremony.duress) {
+    deny('DURESS_HOLD', 'A duress/hold signal is active. Signing is blocked; the timelock backstop is the guarantee.');
+  }
+
+  // Expiry, if set.
+  if (typeof ceremony.expiresAt === 'number' && now > ceremony.expiresAt) {
+    deny('CEREMONY_EXPIRED', 'This proposal has expired. Re-propose to sign.');
+  }
+
+  // Script-mirroring governance, if supplied.
+  if (governanceApproved === false) {
+    deny('GOVERNANCE_REJECTED', 'Governance audit did not approve this spend (timelock/quorum/limits).');
+  }
+
+  return { allow: denials.length === 0, denials };
+}
