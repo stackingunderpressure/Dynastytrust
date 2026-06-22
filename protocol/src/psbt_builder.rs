@@ -11,6 +11,10 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use thiserror::Error;
 
+/// Standard dust floor (sats). A change output below this is dropped
+/// into the fee rather than created as a non-standard output.
+pub const DUST_LIMIT_SATS: u64 = 546;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct VaultUTXO {
     pub txid: String,
@@ -196,7 +200,12 @@ pub fn build_bloc_spend_psbt(
     let change_value = inputs_value
         .checked_sub(need)
         .ok_or(PsbtError::InsufficientFunds { inputs: inputs_value, need })?;
-    let has_change = change_value > 0;
+    // Dust floor: a change output below the dust limit is non-standard
+    // and can make the tx unbroadcastable. Drop sub-dust change into the
+    // fee instead -- matching the 546-sat floor the netlify proxy and the
+    // founders/heirs psbt-binary path both use, so the on-screen summary
+    // (change=0) and the actual PSBT agree.
+    let has_change = change_value >= DUST_LIMIT_SATS;
 
     // CLTV path: immediate leaves leave lock_time at 0; timelocked
     // leaves stamp their absolute height so miniscript can satisfy the
@@ -407,5 +416,24 @@ mod bloc_psbt_tests {
         let (policy, req) = request("definitely_not_a_path", 0);
         let err = build_bloc_spend_psbt(&policy, req).unwrap_err();
         assert!(matches!(err, PsbtError::UnknownPath(_)));
+    }
+
+    #[test]
+    fn sub_dust_change_is_dropped_into_fee() {
+        // change = 51_400 - 50_000 - 1_000 = 400 sats, below the 546 dust
+        // floor -> no change output (destination only).
+        let (policy, mut req) = request(crate::policy_compiler::BLOC_PATH_PARENTS_NOW, 0);
+        req.utxos[0].value = 51_400;
+        let psbt = build_bloc_spend_psbt(&policy, req).unwrap();
+        assert_eq!(psbt.unsigned_tx.output.len(), 1, "sub-dust change must be absorbed into fee");
+    }
+
+    #[test]
+    fn at_dust_change_is_kept() {
+        // change = 51_546 - 50_000 - 1_000 = 546 == dust floor -> kept.
+        let (policy, mut req) = request(crate::policy_compiler::BLOC_PATH_PARENTS_NOW, 0);
+        req.utxos[0].value = 51_546;
+        let psbt = build_bloc_spend_psbt(&policy, req).unwrap();
+        assert_eq!(psbt.unsigned_tx.output.len(), 2, "change at the dust floor must be kept");
     }
 }
