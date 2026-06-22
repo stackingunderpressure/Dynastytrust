@@ -13,11 +13,11 @@ use bitcoin::psbt::Psbt;
 use bitcoin::taproot::{LeafVersion, TaprootBuilder};
 use bitcoin::secp256k1::{Secp256k1, XOnlyPublicKey};
 use dynastytrust_protocol::{
-    audit_spend, build_multileaf_spend_info, compile_dynasty_policy,
-    compile_dynasty_policy_tr, compile_dynasty_policy_tr_multileaf,
-    compile_tranche_tr_multileaf, evaluate_spend_proposal,
-    evaluate_vault_status, next_action, DynastyPolicy, ProposedSpend,
-    SignerStatus, SpendingPath, TranchePolicy, VaultPolicy,
+    audit_spend, build_bloc_spend_psbt, build_multileaf_spend_info,
+    compile_dynasty_bloc_tr_multileaf, compile_dynasty_policy, compile_dynasty_policy_tr,
+    compile_dynasty_policy_tr_multileaf, compile_tranche_tr_multileaf, evaluate_spend_proposal,
+    evaluate_vault_status, next_action, BlocSpendRequest, DynastyBlocPolicy, DynastyPolicy,
+    ProposedSpend, SignerStatus, SpendingPath, TranchePolicy, VaultPolicy, VaultUTXO,
 };
 use miniscript::policy::concrete::Policy;
 use miniscript::{psbt::PsbtExt, Miniscript};
@@ -92,7 +92,7 @@ fn base64_encode(data: &[u8]) -> String {
 async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "ok": true, "service": "dynastytrust-compiler",
-        "endpoints": ["/health","/compile","/compile-tranche","/psbt-binary","/psbt-finalize","/psbt-merge","/governance/status","/governance/audit"]
+        "endpoints": ["/health","/compile","/compile-bloc","/compile-tranche","/psbt-binary","/psbt-binary-bloc","/psbt-finalize","/psbt-merge","/governance/status","/governance/audit"]
     }))
 }
 
@@ -205,6 +205,69 @@ async fn compile_tranche(
         descriptor: compiled.descriptor,
         address: compiled.address.to_string(),
         unlock_block: req.unlock_block,
+    }))
+}
+
+// ── /compile-bloc ──────────────────────────────────────────────────────────────
+// Dynasty Bloc: a decaying-multisig family vault.
+//   A  parents together                                 now
+//   B  one parent + every kid                           now
+//   C  one parent alone                  after parent_solo_after
+//   D+ kids alone, decaying threshold,   after kids_decay_start_after
+// Timelock fields are ABSOLUTE CLTV heights -- the caller (netlify
+// compile-bloc.js) bakes tip + relative-offset before forwarding.
+// `kids_decay_step_blocks` is a duration, not an offset, so it is
+// passed through unchanged.
+
+#[derive(Deserialize)]
+struct CompileBlocRequest {
+    name: Option<String>,
+    network: String,
+    parent_keys: Vec<String>,
+    parents_together_quorum: usize,
+    coparent_quorum: usize,
+    kid_keys: Vec<String>,
+    kids_with_parent_quorum: usize,
+    parent_solo_after: u32,
+    parent_solo_quorum: usize,
+    kids_decay_start_after: u32,
+    kids_decay_step_blocks: u32,
+    kids_decay_start_quorum: usize,
+    kids_decay_floor_quorum: usize,
+}
+
+async fn compile_bloc(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<CompileBlocRequest>,
+) -> Result<Json<CompileResponse>, ApiError> {
+    check_auth(&headers, &state)?;
+    let network = parse_network(&req.network).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+    let parents = parse_pubkeys(&req.parent_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+    let kids = parse_pubkeys(&req.kid_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+    let policy = DynastyBlocPolicy {
+        parent_keys: parents,
+        parents_together_quorum: req.parents_together_quorum,
+        coparent_quorum: req.coparent_quorum,
+        kid_keys: kids,
+        kids_with_parent_quorum: req.kids_with_parent_quorum,
+        parent_solo_after: req.parent_solo_after,
+        parent_solo_quorum: req.parent_solo_quorum,
+        kids_decay_start_after: req.kids_decay_start_after,
+        kids_decay_step_blocks: req.kids_decay_step_blocks,
+        kids_decay_start_quorum: req.kids_decay_start_quorum,
+        kids_decay_floor_quorum: req.kids_decay_floor_quorum,
+    };
+    let compiled = compile_dynasty_bloc_tr_multileaf(policy, network)
+        .map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(CompileResponse {
+        ok: true,
+        name: req.name.unwrap_or_else(|| "Dynasty Bloc".to_string()),
+        network: req.network,
+        address_type: compiled.address_type.to_string(),
+        miniscript_policy: compiled.miniscript_policy,
+        descriptor: compiled.descriptor,
+        address: compiled.address.to_string(),
     }))
 }
 
@@ -421,6 +484,105 @@ async fn psbt_binary(
     Ok(Json(PsbtBinaryResponse {
         ok: true, psbt_hex: hex::encode(&psbt_bytes), psbt_b64: base64_encode(&psbt_bytes),
         input_count: req.inputs.len(), output_count, fee_sats: req.fee_sats, has_tap_leaf,
+    }))
+}
+
+// ── /psbt-binary-bloc ────────────────────────────────────────────────────────
+// Build an unsigned PSBT that spends a Dynasty Bloc UTXO via a chosen leaf.
+// Timelock fields are ABSOLUTE CLTV heights (the stored vault values); the
+// caller passes them straight through -- no tip conversion here, unlike
+// /compile-bloc. `path` (+ `quorum` for decay rungs) selects the leaf; the
+// protocol builder rebuilds the SAME tree the address came from, so the
+// attached control block proves against the real merkle root.
+
+#[derive(Deserialize)]
+struct PsbtBinaryBlocRequest {
+    inputs: Vec<UtxoInput>,
+    destination: String,
+    amount_sats: u64,
+    fee_sats: u64,
+    change_address: String,
+    network: String,
+    path: String,
+    #[serde(default)]
+    quorum: usize,
+    parent_keys: Vec<String>,
+    parents_together_quorum: usize,
+    coparent_quorum: usize,
+    kid_keys: Vec<String>,
+    kids_with_parent_quorum: usize,
+    parent_solo_after: u32,
+    parent_solo_quorum: usize,
+    kids_decay_start_after: u32,
+    kids_decay_step_blocks: u32,
+    kids_decay_start_quorum: usize,
+    kids_decay_floor_quorum: usize,
+}
+
+async fn psbt_binary_bloc(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<PsbtBinaryBlocRequest>,
+) -> Result<Json<PsbtBinaryResponse>, ApiError> {
+    check_auth(&headers, &state)?;
+
+    if req.inputs.is_empty() {
+        return Err(api_err(StatusCode::BAD_REQUEST, "No inputs provided"));
+    }
+
+    let parents = parse_pubkeys(&req.parent_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+    let kids = parse_pubkeys(&req.kid_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+
+    let policy = DynastyBlocPolicy {
+        parent_keys: parents,
+        parents_together_quorum: req.parents_together_quorum,
+        coparent_quorum: req.coparent_quorum,
+        kid_keys: kids,
+        kids_with_parent_quorum: req.kids_with_parent_quorum,
+        parent_solo_after: req.parent_solo_after,
+        parent_solo_quorum: req.parent_solo_quorum,
+        kids_decay_start_after: req.kids_decay_start_after,
+        kids_decay_step_blocks: req.kids_decay_step_blocks,
+        kids_decay_start_quorum: req.kids_decay_start_quorum,
+        kids_decay_floor_quorum: req.kids_decay_floor_quorum,
+    };
+
+    let utxos: Vec<VaultUTXO> = req
+        .inputs
+        .iter()
+        .map(|u| VaultUTXO {
+            txid: u.txid.clone(),
+            vout: u.vout,
+            value: u.value_sats,
+            script_pubkey: u.script_pubkey.clone(),
+        })
+        .collect();
+
+    let spend = BlocSpendRequest {
+        utxos,
+        amount: req.amount_sats,
+        fee: req.fee_sats,
+        destination: req.destination,
+        change_address: req.change_address,
+        network: req.network,
+        path: req.path,
+        quorum: req.quorum,
+    };
+
+    let psbt = build_bloc_spend_psbt(&policy, spend)
+        .map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+
+    let output_count = psbt.unsigned_tx.output.len();
+    let input_count = psbt.inputs.len();
+    let psbt_bytes = psbt.serialize();
+    Ok(Json(PsbtBinaryResponse {
+        ok: true,
+        psbt_hex: hex::encode(&psbt_bytes),
+        psbt_b64: base64_encode(&psbt_bytes),
+        input_count,
+        output_count,
+        fee_sats: req.fee_sats,
+        has_tap_leaf: true,
     }))
 }
 
@@ -704,8 +866,10 @@ async fn main() {
     let app = Router::new()
         .route("/health",            get(health))
         .route("/compile",           post(compile))
+        .route("/compile-bloc",      post(compile_bloc))
         .route("/compile-tranche",   post(compile_tranche))
         .route("/psbt-binary",       post(psbt_binary))
+        .route("/psbt-binary-bloc",  post(psbt_binary_bloc))
         .route("/psbt-finalize",     post(psbt_finalize))
         .route("/psbt-merge",        post(psbt_merge))
         .route("/governance/status", post(governance_status))

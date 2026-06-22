@@ -1002,3 +1002,25 @@ both correct and already in the parked design notes. It sits at the top of the
 climb (above FROST), so the sequencing holds: bake-into-the-tx witness fees or
 plain invoices first, adaptor-signature/PTLC atomic witness payments much later,
 once the Lightning rail and the FROST social leg beneath it both exist.
+
+### 11f. The unifying frame -- layered legs + the security floor (2026-06)
+
+Sections 11-11e accreted the pieces (FROST social leg, Nostr transport,
+the worked vault, resharing, witness payments). The operator then asked
+for the matured synthesis that ties them into one open-ended frame rather
+than a list of features. It lives in its own note:
+**`docs/layered-vault-legs-and-frost.md`**.
+
+The frame in one line: a vault is an ordered ladder of **legs**, where a
+leg = guard (timelock) + scheme (single / multisig / FROST) + roster; the
+scheme is pluggable into any leg; and the vault's **security floor** at
+any block height is the assurance of the *weakest reachable* leg --
+so "bring up the floor" (the operator's long-standing motto) becomes a
+curve you sculpt over time. FROST is a slot a leg can hold, not a separate
+product; resharing + a liveness heartbeat make the roster behind a FROST
+leg *living* (rotate members, swap phones, re-lift the floor) without ever
+changing the descriptor or moving coins. The Dynasty Bloc is the first
+rung, built on today's plain-multisig primitive. See the note for the
+worked use cases, the teaching-UX (leg inspector + floor-over-time view),
+the honest lines restated for legs, the build sequencing, and the
+open-questions bounce-back list.

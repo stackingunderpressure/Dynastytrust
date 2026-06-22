@@ -468,6 +468,88 @@ export const api = {
     body: JSON.stringify(body),
   }),
 
+  // Dynasty Bloc: decaying-multisig family vault. Phase 1 is
+  // compile-only (address + descriptor + export); the bloc shape is
+  // not yet persisted to the founders/heirs-shaped vaults table.
+  // Timelock fields are RELATIVE block offsets; the netlify function
+  // bakes tip + offset into absolute CLTV heights before forwarding.
+  compileBloc: (body: {
+    name: string;
+    network: 'testnet' | 'signet' | 'bitcoin';
+    parent_keys: string[];
+    parents_together_quorum: number;
+    coparent_quorum: number;
+    kid_keys: string[];
+    kids_with_parent_quorum: number;
+    parent_solo_after: number;
+    parent_solo_quorum: number;
+    kids_decay_start_after: number;
+    kids_decay_step_blocks: number;
+    kids_decay_start_quorum: number;
+    kids_decay_floor_quorum: number;
+  }) => req<{
+    ok: true;
+    compiled: {
+      address: string;
+      descriptor: string;
+      miniscript_policy: string;
+      network: string;
+      address_type: string;
+    };
+    absolute_timelocks: {
+      parent_solo_after: number;
+      kids_decay_start_after: number;
+      tip_height: number;
+    };
+  }>('/compile-bloc', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  }),
+
+  // Dynasty Bloc spend: builds an unsigned PSBT for one of the bloc's
+  // spend paths. UTXOs are fetched server-side for the compiled
+  // address. Timelock fields are ABSOLUTE block heights (captured from
+  // the compile response's `absolute_timelocks`), NOT relative offsets.
+  // This BUILDS and EXPORTS the PSBT only -- the user signs in their
+  // hardware wallet, then finalizes + broadcasts.
+  psbtBloc: (body: {
+    address: string;
+    network: 'testnet' | 'signet' | 'bitcoin';
+    destination: string;
+    amount_sats: number;
+    fee_rate?: number;
+    path: 'parents_now' | 'coparent_kids' | 'parent_solo' | 'kids_decay';
+    // REQUIRED when path === 'kids_decay': which decay rung's quorum.
+    quorum?: number;
+    parent_keys: string[];
+    kid_keys: string[];
+    parents_together_quorum: number;
+    coparent_quorum: number;
+    kids_with_parent_quorum: number;
+    parent_solo_quorum: number;
+    kids_decay_start_quorum: number;
+    kids_decay_floor_quorum: number;
+    // ABSOLUTE block heights.
+    parent_solo_after: number;
+    kids_decay_start_after: number;
+    kids_decay_step_blocks: number;
+  }) => req<{
+    ok: true;
+    psbt_hex: string;
+    psbt_b64: string;
+    summary: {
+      amount_sats: number;
+      fee_sats: number;
+      change_sats: number;
+      input_count: number;
+      output_count: number;
+      path: string;
+    };
+  }>('/psbt-binary-bloc', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  }),
+
 
   psbt: {
     generate: (body: {
