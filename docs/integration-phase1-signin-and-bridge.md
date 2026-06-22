@@ -15,6 +15,13 @@ moves a coin. A PSBT tapscript signature moves a coin; it is never an
 attestation. The two cuts below sit on opposite sides of that wall, which is
 why they have very different risk profiles.
 
+**No rogue signing (operator directive, 2026-06-22).** Tapit is never a blind
+signing oracle. Before the wallet signs anything an app hands it, it must verify
+the request ties to a matching attested trail it already holds and has verified.
+This is a hard precondition on Cut B (the spend bridge) and a surfaced signal on
+Cut A (sign-in). It is woven into both cuts below and is now a standing line in
+the risk register.
+
 ---
 
 ## Ground truth established this pass
@@ -126,6 +133,19 @@ tapscript machinery that currently exists ONLY in DynastyTrust's
 `tapScriptSig` append). Porting ~500 lines of money-touching code into Tapit and
 trusting it without parity proof would be exactly the "confident wrong answer
 that loses an inheritance" this repo's doctrine forbids.
+
+**Hard precondition (no rogue signing).** Before Tapit will sign a vault PSBT it
+must hold and verify a matching attested trail for that vault: the founder/heir
+keys, the co-signer set, and the policy must trace to attestations the wallet
+already accepted (e.g. an `agreement`-kind vault-membership attestation minted
+when the vault was created and cosigned by the members), NOT to fields supplied
+inside the incoming PSBT request. If the wallet has no verified attested trail
+that matches the PSBT's vault, it REFUSES to sign -- it does not fall back to a
+human tap. This means the bridge needs a vault-membership attestation issued at
+vault creation and held by each member's wallet; the psbt-cosign handler looks
+that up, verifies the PSBT's leaf pubkeys and amount/destination against the
+attested vault, and only then renders the banner for the human tap. Build this
+attestation-trail check as part of B1, before the signing line.
 
 Staged plan (each stage shippable, proven before the next, small amounts first):
 

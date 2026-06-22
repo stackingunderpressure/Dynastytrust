@@ -212,6 +212,19 @@ Each phase is shippable and is proven with small real amounts before the next.
   context; no value commits without a human tap.
 - **Pay with value, not control.** A Lightning preimage moves money; a key share
   moves spending authority -- never substitute one for the other.
+- **No rogue signing -- every signature ties to a matching attested trail.** Tapit
+  is never a blind signing oracle. Before it signs anything an external app hands
+  it, the wallet must verify the request connects to an attestation trail it
+  already holds and has verified: a spend (PSBT cosign) is REFUSED unless the
+  wallet holds a verified attested trail for that exact vault / membership /
+  agreement -- the key, the co-signers, and the policy must trace to attestations
+  the wallet already accepted, not to claims inside the incoming request. For
+  identity/sign-in the wallet surfaces attested-vs-unknown plainly so a first-time
+  login is a conscious choice, never a blind tap, and an unknown counterparty is
+  flagged, never silently trusted. The human tap is the last gate, not the only
+  gate; the wallet does its own verification first. (Operator directive,
+  2026-06-22: "Tapit shouldn't sign if not a matching attested trail. No rogue
+  signing anything.")
 
 ---
 
