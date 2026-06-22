@@ -224,6 +224,64 @@ interface Rung {
   afterBlocks: number;
 }
 
+// One spendable path on the vault's timeline -- who can spend it, how many
+// signatures it needs, and when it becomes reachable.
+interface SpendLeg {
+  label: string;
+  who: string;
+  afterBlocks: number; // 0 = immediate
+  requiredSigners: number;
+  meaning: string;
+  weak?: boolean; // floor warning: a single weak key would be enough
+}
+
+// "What this vault does over time": a plain-language timeline of every
+// spend path, grouped by when it unlocks. The educate-out-of-bad-choices
+// guardrail is the floor warning -- a rung that lets one kid spend alone.
+function BehaviorTimeline({ legs, floorWarning, kidCount }: { legs: SpendLeg[]; floorWarning: boolean; kidCount: number }) {
+  const groups: { afterBlocks: number; legs: SpendLeg[] }[] = [];
+  for (const leg of legs) {
+    const g = groups.find(x => x.afterBlocks === leg.afterBlocks);
+    if (g) g.legs.push(leg);
+    else groups.push({ afterBlocks: leg.afterBlocks, legs: [leg] });
+  }
+  return (
+    <div>
+      {groups.map((g, gi) => {
+        const immediate = g.afterBlocks === 0;
+        const accent = immediate ? colors.gold : colors.blue;
+        return (
+          <div key={gi} style={{ display: 'flex', gap: 12 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <div style={{ width: 12, height: 12, borderRadius: 6, background: accent, marginTop: 5, flex: '0 0 auto' }} />
+              {gi < groups.length - 1 && <div style={{ width: 2, flex: 1, background: colors.border, minHeight: 20 }} />}
+            </div>
+            <div style={{ paddingBottom: 16, flex: 1 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: accent, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                {immediate ? 'Now -- no waiting' : `After ${blocksToHuman(g.afterBlocks)}`}
+              </div>
+              {g.legs.map((leg, li) => (
+                <div key={li} style={{ marginTop: 7 }}>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: leg.weak ? colors.red : colors.text }}>
+                    {leg.label}{leg.weak ? '  (weakest point)' : ''}
+                  </div>
+                  <div style={{ fontSize: 12, color: colors.sub }}>{leg.who}</div>
+                  <div style={{ fontSize: 12, color: colors.muted, lineHeight: 1.4 }}>{leg.meaning}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+      {floorWarning && (
+        <div style={{ marginTop: 6, padding: '10px 14px', borderRadius: radii.md, background: colors.red + '11', border: `1px solid ${colors.red}33`, color: colors.red, fontSize: 12, lineHeight: 1.5 }}>
+          Heads up: the kid ladder eventually lets a SINGLE kid key spend alone (1 of {kidCount}). If the kids hold phone keys, consider a decay floor of 2 or higher -- so no one lost or stolen phone is ever enough on its own.
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function BlocBuilder() {
   const navigate = useNavigate();
   const toast = useToast();
@@ -355,6 +413,48 @@ export default function BlocBuilder() {
     }
     return out;
   }, [kids.length, kidsDecayStartQ, kidsDecayFloorQ, kidsDecayStartAfter, kidsDecayStep]);
+
+  // Every spend path on a single timeline -- the "what this vault does over
+  // time" view. Recomputes live as the levers move, so the user sees the
+  // consequence of each change (verify, don't trust).
+  const behaviorLegs = useMemo<SpendLeg[]>(() => {
+    if (parents.length === 0 || kids.length === 0) return [];
+    const legs: SpendLeg[] = [
+      {
+        label: 'Parents together',
+        who: `${parentsTogetherQ} of ${parents.length} parents`,
+        afterBlocks: 0,
+        requiredSigners: parentsTogetherQ,
+        meaning: 'Your private path -- spend anytime, no kids needed.',
+      },
+      {
+        label: 'One parent + every kid',
+        who: `${coparentQ}-of-${parents.length} parents AND ${kidsWithParentQ}-of-${kids.length} kids`,
+        afterBlocks: 0,
+        requiredSigners: coparentQ + kidsWithParentQ,
+        meaning: 'A parent plus the kids -- spend anytime, together.',
+      },
+      {
+        label: 'One parent alone',
+        who: `${parentSoloQ} of ${parents.length} parents`,
+        afterBlocks: parentSoloAfter,
+        requiredSigners: parentSoloQ,
+        meaning: 'If only one parent is reachable, they can act alone from here.',
+      },
+      ...ladder.map(r => ({
+        label: `Kids alone (${r.q}-of-${kids.length})`,
+        who: `${r.q} of ${kids.length} kids`,
+        afterBlocks: r.afterBlocks,
+        requiredSigners: r.q,
+        meaning: r.q === 1
+          ? 'Any single kid can spend -- the loosest, last-resort rung.'
+          : 'The kids spend together, no parent needed.',
+        weak: r.q === 1,
+      })),
+    ];
+    // Earliest first; within a moment, the stronger (more signers) path first.
+    return legs.sort((a, b) => a.afterBlocks - b.afterBlocks || b.requiredSigners - a.requiredSigners);
+  }, [parents.length, kids.length, parentsTogetherQ, coparentQ, kidsWithParentQ, parentSoloQ, parentSoloAfter, ladder]);
 
   const errors: string[] = [];
   if (parents.length === 0) errors.push('Add at least one parent key.');
@@ -700,6 +800,15 @@ export default function BlocBuilder() {
               ))}
             </div>
           )}
+        </Section>
+      )}
+
+      {behaviorLegs.length > 0 && (
+        <Section
+          title="How this vault behaves over time"
+          sub="Every way these coins can move, and when. As time passes more paths open and fewer signatures are needed -- that is the inheritance loosening on purpose. Watch it change as you adjust the levers above."
+        >
+          <BehaviorTimeline legs={behaviorLegs} floorWarning={kidsDecayFloorQ === 1} kidCount={kids.length} />
         </Section>
       )}
 
