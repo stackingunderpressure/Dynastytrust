@@ -229,9 +229,40 @@ export default function BlocBuilder() {
   const [kidsDecayStep, setKidsDecayStep] = useState(52_560); // ~1 year per rung
 
   const [compiled, setCompiled] = useState<CompiledBloc | null>(null);
+  // ABSOLUTE block heights baked into the compiled descriptor. The
+  // spend flow MUST send these (not the relative offsets above) so the
+  // PSBT's lock_time matches the on-chain script.
+  const [absoluteTimelocks, setAbsoluteTimelocks] = useState<{
+    parent_solo_after: number;
+    kids_decay_start_after: number;
+  } | null>(null);
   const [compiling, setCompiling] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [slow, setSlow] = useState(false);
+
+  // Spend-from-vault flow (Phase 2 entry point: build + export PSBT
+  // only; the user signs in their hardware wallet).
+  const [spendPath, setSpendPath] = useState<
+    'parents_now' | 'coparent_kids' | 'parent_solo' | 'kids_decay'
+  >('parents_now');
+  const [spendRung, setSpendRung] = useState(0); // index into `ladder` for kids_decay
+  const [spendDest, setSpendDest] = useState('');
+  const [spendAmount, setSpendAmount] = useState('');
+  const [spendFeeRate, setSpendFeeRate] = useState('');
+  const [building, setBuilding] = useState(false);
+  const [spendErr, setSpendErr] = useState<string | null>(null);
+  const [spendResult, setSpendResult] = useState<{
+    psbt_hex: string;
+    psbt_b64: string;
+    summary: {
+      amount_sats: number;
+      fee_sats: number;
+      change_sats: number;
+      input_count: number;
+      output_count: number;
+      path: string;
+    };
+  } | null>(null);
 
   useEffect(() => {
     setAllKeys(listKeys().filter(k => k.status === 'active'));
@@ -329,6 +360,13 @@ export default function BlocBuilder() {
       const raw = res.compiled;
       const origins = buildKeyOrigins([...parents, ...kids]);
       setCompiled({ ...raw, descriptor: upgradeDescriptor(raw.descriptor, origins) });
+      setAbsoluteTimelocks({
+        parent_solo_after: res.absolute_timelocks.parent_solo_after,
+        kids_decay_start_after: res.absolute_timelocks.kids_decay_start_after,
+      });
+      // A fresh compile invalidates any previously built spend.
+      setSpendResult(null);
+      setSpendErr(null);
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Compilation failed');
     } finally {
@@ -572,11 +610,203 @@ export default function BlocBuilder() {
             <DescriptorQr descriptor={compiled.descriptor} label="Sparrow-ready QR" size={220} />
             <Button variant="ghost" onClick={downloadBackup}>Download backup (.txt)</Button>
             <div style={{ fontSize: 12, color: colors.muted, lineHeight: 1.5 }}>
-              Import the descriptor into Nunchuk, Sparrow, or Coldcard to watch + fund this vault. Back up every parent and kid seed on metal before funding. Saving to your dashboard and in-app spending arrive in Phase 2.
+              Import the descriptor into Nunchuk, Sparrow, or Coldcard to watch + fund this vault. Back up every parent and kid seed on metal before funding. Saving to your dashboard arrives in Phase 2.
             </div>
           </div>
         )}
       </div>
+
+      {compiled && absoluteTimelocks && (
+        <Section
+          title="Spend from this vault"
+          sub="Build an unsigned PSBT for one spend path, then sign it in your hardware wallet (Sparrow / Nunchuk / Coldcard) and finalize + broadcast there. This screen never touches your keys."
+        >
+          {(() => {
+            const pathOptions: {
+              value: 'parents_now' | 'coparent_kids' | 'parent_solo' | 'kids_decay';
+              label: string;
+            }[] = [
+              { value: 'parents_now', label: 'Parents together (anytime)' },
+              { value: 'coparent_kids', label: 'One parent + every kid (anytime)' },
+              { value: 'parent_solo', label: 'One parent alone (after timelock)' },
+              { value: 'kids_decay', label: 'Kids alone (after timelock)' },
+            ];
+            const amountNum = parseInt(spendAmount, 10);
+            const amountValid = Number.isFinite(amountNum) && amountNum > 0;
+            const feeNum = spendFeeRate.trim() === '' ? undefined : parseFloat(spendFeeRate);
+            const feeValid = feeNum === undefined || (Number.isFinite(feeNum) && feeNum > 0);
+            const destValid = spendDest.trim().length > 0;
+            const rung = spendPath === 'kids_decay' ? ladder[spendRung] : undefined;
+            const decayOk = spendPath !== 'kids_decay' || !!rung;
+
+            // Plain-language description of exactly what this spends.
+            let pathSummary = '';
+            if (spendPath === 'parents_now')
+              pathSummary = `${parentsTogetherQ} of ${parents.length} parents signing together, available now.`;
+            else if (spendPath === 'coparent_kids')
+              pathSummary = `${coparentQ} of ${parents.length} parents plus ${kidsWithParentQ} of ${kids.length} kids, available now.`;
+            else if (spendPath === 'parent_solo')
+              pathSummary = `${parentSoloQ} of ${parents.length} parents alone, after block ${absoluteTimelocks.parent_solo_after.toLocaleString()}.`;
+            else if (spendPath === 'kids_decay' && rung)
+              pathSummary = `${rung.q} of ${kids.length} kids alone, after block ${(absoluteTimelocks.kids_decay_start_after + (spendRung * kidsDecayStep)).toLocaleString()}.`;
+
+            const canBuild =
+              !building && amountValid && feeValid && destValid && decayOk;
+
+            async function buildSpend() {
+              if (!compiled || !absoluteTimelocks) return;
+              setBuilding(true);
+              setSpendErr(null);
+              setSpendResult(null);
+              try {
+                const res = await api.psbtBloc({
+                  address: compiled.address,
+                  network: compiled.network as 'testnet' | 'signet' | 'bitcoin',
+                  destination: spendDest.trim(),
+                  amount_sats: amountNum,
+                  ...(feeNum !== undefined ? { fee_rate: feeNum } : {}),
+                  path: spendPath,
+                  ...(spendPath === 'kids_decay' && rung ? { quorum: rung.q } : {}),
+                  parent_keys: parents.map(toPubkeyHex),
+                  kid_keys: kids.map(toPubkeyHex),
+                  parents_together_quorum: parentsTogetherQ,
+                  coparent_quorum: coparentQ,
+                  kids_with_parent_quorum: kidsWithParentQ,
+                  parent_solo_quorum: parentSoloQ,
+                  kids_decay_start_quorum: kidsDecayStartQ,
+                  kids_decay_floor_quorum: kidsDecayFloorQ,
+                  parent_solo_after: absoluteTimelocks.parent_solo_after,
+                  kids_decay_start_after: absoluteTimelocks.kids_decay_start_after,
+                  kids_decay_step_blocks: kidsDecayStep,
+                });
+                setSpendResult({ psbt_hex: res.psbt_hex, psbt_b64: res.psbt_b64, summary: res.summary });
+              } catch (e) {
+                setSpendErr(e instanceof Error ? e.message : 'Failed to build PSBT');
+              } finally {
+                setBuilding(false);
+              }
+            }
+
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div>
+                  <Label>Spend path</Label>
+                  <select
+                    style={selectStyle}
+                    value={spendPath}
+                    onChange={e => {
+                      setSpendPath(e.target.value as typeof spendPath);
+                      setSpendRung(0);
+                      setSpendResult(null);
+                      setSpendErr(null);
+                    }}
+                  >
+                    {pathOptions.map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {spendPath === 'kids_decay' && (
+                  <div>
+                    <Label>Decay rung</Label>
+                    {ladder.length === 0 ? (
+                      <p style={{ fontSize: 13, color: colors.muted }}>No decay rungs available. Add kid keys and recompile.</p>
+                    ) : (
+                      <select
+                        style={selectStyle}
+                        value={spendRung}
+                        onChange={e => { setSpendRung(parseInt(e.target.value, 10)); setSpendResult(null); setSpendErr(null); }}
+                      >
+                        {ladder.map((r, i) => (
+                          <option key={i} value={i}>
+                            {r.q} of {kids.length} kids -- after block {(absoluteTimelocks.kids_decay_start_after + (i * kidsDecayStep)).toLocaleString()}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                )}
+
+                <div>
+                  <Label>Destination address</Label>
+                  <Input
+                    mono
+                    value={spendDest}
+                    placeholder="bc1... / tb1..."
+                    onChange={e => { setSpendDest(e.target.value); setSpendResult(null); setSpendErr(null); }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                  <div>
+                    <Label>Amount (sats)</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={spendAmount}
+                      placeholder="100000"
+                      onChange={e => { setSpendAmount(e.target.value); setSpendResult(null); setSpendErr(null); }}
+                      style={{ width: 180 }}
+                    />
+                  </div>
+                  <div>
+                    <Label>Fee rate (sat/vB, optional)</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={spendFeeRate}
+                      placeholder="auto"
+                      onChange={e => { setSpendFeeRate(e.target.value); setSpendResult(null); setSpendErr(null); }}
+                      style={{ width: 180 }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ background: colors.inset, border: `1px solid ${colors.border}`, borderRadius: radii.md, padding: '12px 14px' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: colors.gold, marginBottom: 6 }}>Confirm before building</div>
+                  <div style={{ fontSize: 13, color: colors.sub, lineHeight: 1.6 }}>
+                    Send <strong style={{ color: colors.text }}>{amountValid ? amountNum.toLocaleString() : '--'} sats</strong>
+                    {' to '}
+                    <span style={{ fontFamily: fonts.mono, color: colors.text, wordBreak: 'break-all' }}>{destValid ? spendDest.trim() : '(no destination)'}</span>
+                    {' via '}
+                    <strong style={{ color: colors.text }}>{pathSummary || '(select a path)'}</strong>
+                  </div>
+                </div>
+
+                {spendErr && (
+                  <div style={{ padding: 12, background: colors.dangerBg, border: `1px solid ${colors.borderDanger}`, borderRadius: radii.md, color: colors.red, fontSize: 13 }}>
+                    {spendErr}
+                  </div>
+                )}
+
+                <Button disabled={!canBuild} onClick={buildSpend}>
+                  {building ? 'Building...' : 'Build spend PSBT'}
+                </Button>
+
+                {spendResult && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div style={{ padding: '10px 14px', background: colors.successBg, border: `1px solid ${colors.green}44`, borderRadius: radii.md, color: colors.green, fontSize: 13 }}>
+                      check PSBT built -- {spendResult.summary.input_count} input(s), {spendResult.summary.output_count} output(s)
+                    </div>
+                    <div style={{ background: colors.inset, border: `1px solid ${colors.border}`, borderRadius: radii.md, padding: '12px 14px', fontSize: 13, color: colors.sub, lineHeight: 1.7 }}>
+                      <div>Amount: <strong style={{ color: colors.text }}>{spendResult.summary.amount_sats.toLocaleString()} sats</strong></div>
+                      <div>Network fee: <strong style={{ color: colors.text }}>{spendResult.summary.fee_sats.toLocaleString()} sats</strong></div>
+                      <div>Change back to vault: <strong style={{ color: colors.text }}>{spendResult.summary.change_sats.toLocaleString()} sats</strong></div>
+                      <div>Spend path: <strong style={{ color: colors.text }}>{spendResult.summary.path}</strong></div>
+                    </div>
+                    <CopyField label="PSBT (hex)" value={spendResult.psbt_hex} />
+                    <CopyField label="PSBT (base64)" value={spendResult.psbt_b64} />
+                    <div style={{ fontSize: 12, color: colors.muted, lineHeight: 1.5 }}>
+                      Sign this PSBT in your hardware wallet (Sparrow / Nunchuk / Coldcard), then finalize + broadcast.
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </Section>
+      )}
     </div>
   );
 }
