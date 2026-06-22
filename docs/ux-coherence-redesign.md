@@ -7,6 +7,41 @@ in `docs/sovereignty-education-bot.md` and `docs/chat-wizard-mediator.md`.
 
 ---
 
+## The measure (the one test every screen must pass)
+
+Operator refinement, 2026-06-22 -- the governing standard for the whole
+redesign. Every screen, field, button, and default is measured against a
+single sentence:
+
+> **Does this keep the user safe -- from themselves AND from attackers --
+> hide what they do not need to see, show only what they need, and teach
+> what they need to know to be a more aware holder?**
+
+Four parts, each load-bearing:
+
+1. **Safe from themselves.** Fail-closed defaults; no naked footgun is ever
+   a one-click choice; consequences shown before commitment (the behavior
+   timeline, the floor warnings, the backup ritual). The app educates the
+   user OUT of a bad decision rather than letting them stumble into it
+   (`docs/threat-model-and-fail-closed.md`, Q3).
+2. **Safe from attackers.** Tap-to-confirm the REAL destination + amount on
+   the signing device; the fail-closed signing gate; the never-a-shortcut
+   invariant; duress handling; hardware as the trusted display. The
+   platform is never the weak link.
+3. **Hide what they do not need.** The cryptography -- descriptors, PSBTs,
+   sighashes, derivation paths, the jargon -- runs behind the scenes and is
+   never shown. (Section 5.)
+4. **Show only what they need + teach it.** The handful of things
+   sovereignty truly requires -- who can spend and when, where the backups
+   are, what is being signed -- shown in plain words, with Sage woven in to
+   teach the why at the moment it matters (sections 4-5). The goal is an
+   ever more AWARE holder, not a dependent one.
+
+If a screen cannot justify itself against that sentence, it is cut or
+redesigned. This is the lens for sections 1-9 below.
+
+---
+
 ## 0. The operator's verdict (captured)
 
 "I was in the wallet and I do not like the discombobulated pickers and
