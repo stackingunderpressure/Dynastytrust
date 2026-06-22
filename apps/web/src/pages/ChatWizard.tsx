@@ -112,8 +112,13 @@ export default function ChatWizard() {
           flexWrap: 'wrap',
         }}
       >
-        <span style={{ fontSize: 12, color: colors.muted }}>Conversation style:</span>
+        <span style={{ fontSize: 12, color: colors.muted }}>Pace:</span>
         <ModeToggle mode={mode} onChange={setMode} />
+        <span style={{ fontSize: 12, color: colors.muted }}>
+          {mode === 'express'
+            ? 'Fast and concrete -- ask "why?" any time for the deeper lesson.'
+            : 'Take all the education you want -- one step at a time, as deep as you like.'}
+        </span>
       </div>
 
       <div
@@ -162,8 +167,11 @@ export default function ChatWizard() {
 }
 
 function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void }) {
+  // 'guided' is the friendly, education-first pace the doc calls the Rabbit
+  // Hole. The backend mode contract stays 'guided' | 'express'; only the
+  // user-facing label reflects the curriculum's name.
   const opts: { id: Mode; label: string }[] = [
-    { id: 'guided', label: 'Guided' },
+    { id: 'guided', label: 'Rabbit Hole' },
     { id: 'express', label: 'Express' },
   ];
   return (
