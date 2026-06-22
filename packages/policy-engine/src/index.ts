@@ -181,3 +181,70 @@ export function evaluateSigningGate(
 
   return { allow: denials.length === 0, denials };
 }
+
+// ── Ceremony bridge ─────────────────────────────────────────────────────────
+//
+// Maps persisted records (a proposal + its advisory approve-votes + a duress
+// flag) into the SigningCeremony the gate consumes. This is the
+// correctness-critical glue between the database and the fail-closed gate:
+// it counts DISTINCT approvers, maps the proposal status to a signable
+// state, and carries the duress signal. Pure + unit-tested.
+//
+// Status mapping (proposals.status -> CeremonyStatus):
+//   draft     -> draft      (not signable -- not yet submitted)
+//   pending   -> pending    (signable -- awaiting signatures)
+//   signed    -> signing    (signable -- some signatures collected)
+//   broadcast -> broadcast  (terminal)
+//   cancelled -> cancelled  (terminal)
+
+export interface ProposalRecord {
+  proposalId: string;
+  vaultId: string;
+  status: string;
+  destination: string;
+  amountSats: number;
+  path: string;
+}
+
+export interface CeremonyBridgeInput {
+  proposal: ProposalRecord;
+  /** Binding digest of the proposal's unsigned PSBT, computed by the caller
+   *  with the SAME hash used at sign time (single source of truth). */
+  authorizedPsbtHash: string;
+  /** User ids that voted 'approve'. Deduped here. */
+  approveVoterIds: string[];
+  /** Go-for-green threshold (e.g. the path's signing quorum). */
+  approvalsRequired: number;
+  /** A duress / hold signal on the vault or proposal -- dominates. */
+  duress: boolean;
+  expiresAt?: number;
+}
+
+function mapProposalStatus(status: string): CeremonyStatus {
+  switch (status) {
+    case 'pending': return 'pending';
+    case 'signed': return 'signing';
+    case 'broadcast': return 'broadcast';
+    case 'cancelled': return 'cancelled';
+    case 'draft':
+    default: return 'draft';
+  }
+}
+
+export function ceremonyFromProposal(input: CeremonyBridgeInput): SigningCeremony {
+  const { proposal, authorizedPsbtHash, approveVoterIds, approvalsRequired, duress, expiresAt } = input;
+  const ceremony: SigningCeremony = {
+    proposalId: proposal.proposalId,
+    vaultId: proposal.vaultId,
+    status: mapProposalStatus(proposal.status),
+    authorizedPsbtHash,
+    destination: proposal.destination,
+    amountSats: proposal.amountSats,
+    path: proposal.path,
+    approvalsRequired,
+    approvalsCollected: new Set(approveVoterIds).size,
+    duress,
+  };
+  if (typeof expiresAt === 'number') ceremony.expiresAt = expiresAt;
+  return ceremony;
+}

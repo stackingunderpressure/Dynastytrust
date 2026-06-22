@@ -133,3 +133,25 @@ export interface SigningGateResult {
     denials: ValidationMessage[];
 }
 export declare function evaluateSigningGate(input: SigningGateInput, now?: number): SigningGateResult;
+export interface ProposalRecord {
+    proposalId: string;
+    vaultId: string;
+    status: string;
+    destination: string;
+    amountSats: number;
+    path: string;
+}
+export interface CeremonyBridgeInput {
+    proposal: ProposalRecord;
+    /** Binding digest of the proposal's unsigned PSBT, computed by the caller
+     *  with the SAME hash used at sign time (single source of truth). */
+    authorizedPsbtHash: string;
+    /** User ids that voted 'approve'. Deduped here. */
+    approveVoterIds: string[];
+    /** Go-for-green threshold (e.g. the path's signing quorum). */
+    approvalsRequired: number;
+    /** A duress / hold signal on the vault or proposal -- dominates. */
+    duress: boolean;
+    expiresAt?: number;
+}
+export declare function ceremonyFromProposal(input: CeremonyBridgeInput): SigningCeremony;

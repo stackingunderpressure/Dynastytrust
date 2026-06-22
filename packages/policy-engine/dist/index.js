@@ -107,3 +107,31 @@ export function evaluateSigningGate(input, now = Date.now()) {
     }
     return { allow: denials.length === 0, denials };
 }
+function mapProposalStatus(status) {
+    switch (status) {
+        case 'pending': return 'pending';
+        case 'signed': return 'signing';
+        case 'broadcast': return 'broadcast';
+        case 'cancelled': return 'cancelled';
+        case 'draft':
+        default: return 'draft';
+    }
+}
+export function ceremonyFromProposal(input) {
+    const { proposal, authorizedPsbtHash, approveVoterIds, approvalsRequired, duress, expiresAt } = input;
+    const ceremony = {
+        proposalId: proposal.proposalId,
+        vaultId: proposal.vaultId,
+        status: mapProposalStatus(proposal.status),
+        authorizedPsbtHash,
+        destination: proposal.destination,
+        amountSats: proposal.amountSats,
+        path: proposal.path,
+        approvalsRequired,
+        approvalsCollected: new Set(approveVoterIds).size,
+        duress,
+    };
+    if (typeof expiresAt === 'number')
+        ceremony.expiresAt = expiresAt;
+    return ceremony;
+}
