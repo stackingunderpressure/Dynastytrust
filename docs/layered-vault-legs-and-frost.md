@@ -637,17 +637,22 @@ SECURITY MODEL captured (2026-06-22): `docs/threat-model-and-fail-closed.md`
 (added security on a consensus floor; the never-a-shortcut invariant) and
 `docs/watchtower-spec.md` (the on-chain tripwire).
 
-DONE since: the fail-closed signing GATE -- `evaluateSigningGate` in
-`packages/policy-engine` -- the Tier-2 spine that makes the in-app signer
-refuse anything not matching a green, non-duress, vault-bound ceremony.
-Default-DENY, pure, fully unit-tested (`npm test`).
+DONE since:
+- The fail-closed signing GATE -- `evaluateSigningGate` in
+  `packages/policy-engine` -- default-DENY, pure, fully unit-tested.
+- The gate WIRED into in-app Bloc signing (`BlocBuilder`): after building
+  a PSBT, "Sign with my software keys" binds the exact PSBT (sha256),
+  runs the gate as a hard pre-condition, and only on allow signs (reusing
+  the proven ProposalDetail pattern) -> merge -> finalize -> broadcast.
+  `@dynastytrust/policy-engine` is now a web dependency. lint/typecheck/
+  build green; on-chain confirmation pending Fly deploy + signet test.
 
 NEXT, in order (resume here):
-1. Wire the fail-closed gate into a real ceremony for Bloc spends:
-   persistence (`bloc_policy` jsonb + a proposal/ceremony record + the
-   broadcast txid set), then the in-app signer calls `evaluateSigningGate`
-   before `psbt-signer.ts` signs -> merge -> finalize -> broadcast, and
-   records the sanctioned txid. (Quarterback owns the money-signing.)
+1. Real multi-party ceremony + persistence: a `bloc_policy` jsonb vault +
+   a proposal/approval record + the broadcast (sanctioned) txid set, so
+   the gate is fed a genuine multi-approver ceremony (not the client-built
+   solo one) and proposals surface across members. (Quarterback owns the
+   money-signing.)
 2. The watchtower diff core + poller (watchtower-spec rungs 1-2 first --
    pure, testable).
 3. The leg composer + floor-over-time visual (frame rung 2): the
