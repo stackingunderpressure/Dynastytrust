@@ -404,6 +404,14 @@ the ladder:
   where you watch the security floor descend (and, with FROST resharing,
   where you can re-lift it). Drag a lever, see the curve move. This is the
   visual the operator wants -- grounded in a real model, not decoration.
+  And it is the composer's guardrail (Q3): the stance is **educate them
+  out of bad decisions -- we do not offer a regular bad choice.** The
+  curve is not passive wallpaper and not a nanny block; it teaches,
+  consequence-first, the moment a chosen shape would drop the floor
+  somewhere indefensible, and makes the founder prove they understand
+  before proceeding (no naked toggle). Hard refusal is reserved for the
+  genuinely *broken* -- a timelock already in the past, or a sole reachable
+  leg that is one weak key with no backstop -- not for the merely unusual.
 
 - **The heartbeat surface.** "Everyone report back: we're good." A
   liveness/attestation panel that is honest -- proof-of-life is an
@@ -506,10 +514,20 @@ Deliberately left open so the frame is not prematurely closed:
    common shapes; the composer is there to tweak. Residual: how far down
    to let the composer go for a first cut without overwhelming a beginner
    (the express/guided dial answers most of this).
-3. **How much of the floor-over-time model is a teaching visual vs a
-   valid(er)** that blocks a footgun (e.g., refuse to compile a vault
-   whose floor drops to a single weak phone key with no timelock above
-   it)?
+3. **Floor model: teaching visual, warning, or hard block?** (sections 2,
+   7). RESOLVED (2026-06): **educate them out of bad decisions -- we do
+   not offer a regular bad choice.** The stance is neither a passive
+   visual nor a nanny hard-block: the menu itself is curated so a bad
+   shape is never a one-click default, and if a founder steers toward one,
+   the floor model *teaches them out of it* -- consequence-first, in plain
+   language, with the weakness named -- and makes them prove they
+   understand before proceeding (the same "no naked toggle" rule as Q1).
+   Hard-block is reserved narrowly for the genuinely *broken*, not the
+   merely suboptimal: a timelock already in the past (unlocks at funding),
+   or a sole reachable leg that is a single weak key with no backstop above
+   it -- footguns with no legitimate use. Everything defensible-but-unusual
+   stays buildable behind the education gate. Residual: the exact line
+   between "teach + gate" and "refuse," drawn per shape.
 4. **Heartbeat / duress / reshare authority** (section 4). RESOLVED
    (2026-06): the coordination, warning, and communication layer is
    **Tapit wired to DynastyTrust** -- attestation inbox + encrypted Nostr
@@ -523,14 +541,66 @@ Deliberately left open so the frame is not prematurely closed:
 5. **Where the ceremony lives.** DynastyTrust on Supabase Realtime today;
    the FROST/Nostr sign-request surface is on the Tapit side. The wedge is
    wiring the two, not building a transport.
-6. **The everyday-leg floor for non-experts.** Most people are not even
-   comfortable with plain multisig. What is the *simplest* honest bottom
-   rung we can put a beginner on that still has a real backstop -- so the
-   ladder invites them up rather than scaring them off?
+6. **The simplest honest bottom rung for non-experts** (section 11).
+   RESOLVED (2026-06): **one user, but with an intelligent timelock schema
+   -- not a bare hardware device.** The beginner's vault is still a ladder,
+   just with a roster of one: an everyday leg (their key/device) plus a
+   timelocked self-recovery backstop leg (a second device or backup key
+   that can recover after `N`), so it is strictly safer and more redundant
+   than a plain single-sig -- without needing any other person. It ships
+   wrapped in the info + warning layer: the importance of backups, ongoing
+   security concerns, and a maintenance schedule (refresh/re-anchor
+   reminders, seed-restore drills, the "if I erased your phone right now"
+   test). This is the on-ramp that teaches the ladder with zero other
+   people involved -- proving the frame from the very bottom: *everyone is
+   on the ladder from day one; the beginner's ladder just has a roster of
+   one and good hygiene beside it.* See section 11.
+7. **Residual sub-questions** carried from the above: per-template
+   dealer/DKG defaults (Q1); composer depth for a first cut (Q2); the exact
+   teach-vs-refuse line (Q3); heartbeat cadence + objection-window length +
+   who may raise each signal (Q4); the Supabase->Nostr wiring (Q5).
 
 ---
 
-This is the frame. The Dynasty Bloc proved the bottom rung is real and
-buildable on today's primitive. FROST-as-a-slot, the resharing heartbeat,
-and the floor-over-time UX are the climb -- captured here so the build can
-serve the idea instead of narrowing it.
+## 11. The single-user starter ladder (the bottom rung, from Q5)
+
+The product has no "non-ladder" mode. The simplest possible vault is still
+composed of legs -- it just carries a roster of one, so a complete beginner
+who is not yet comfortable with multisig starts on the same frame everyone
+else climbs.
+
+- **Everyday leg:** the user's own key (a hardware device, or a hardware +
+  software pair if they want a small multisig of their own). Immediate, no
+  timelock. Behaves exactly like the single-sig or self-multisig they
+  already understand.
+- **Self-recovery backstop leg:** `and(after(N), backup_key)` -- a second
+  device or a metal-backed backup key they alone hold, reachable after an
+  absolute height. If the everyday device is lost, the backstop recovers
+  the funds without anyone else, and without the bare-single-sig failure
+  mode where one lost seed is total loss. This is the existing
+  Lost-Device-Insurance shape, taught as the *default floor* rather than an
+  advanced option.
+- **The info + maintenance layer is part of the rung, not an add-on.**
+  Backups matter, security is ongoing, and the schema must be tended: the
+  refresh/re-anchor reminder (absolute timelocks do not self-reset -- you
+  walk the floor forward), periodic seed-restore drills, and the
+  plain-language "could you get back to your Bitcoin if this device died
+  right now -- walk me through every independent way" check. This is the
+  confidence-ladder / Reminders surface the roadmap already wants, pointed
+  at the solo user.
+
+Why this is the right bottom rung: it is strictly safer than "just a
+standard hardware device," it needs no second person (the lowest possible
+social friction), and it introduces the ladder, the timelock, and the
+maintenance habit at the gentlest scale -- so when the user later adds an
+heir leg, a FROST-of-kids leg, or a social-recovery leg, they are not
+learning a new tool, only adding rungs to the one they already trust.
+
+---
+
+All six bounce-back questions are now resolved (section 10); the frame is
+matured. The Dynasty Bloc proved the bottom rung is real and buildable on
+today's primitive. FROST-as-a-slot, the resharing heartbeat, the
+floor-over-time UX, the leg composer, and the single-user starter ladder
+are the climb -- captured here so the build serves the idea instead of
+narrowing it.
