@@ -549,4 +549,36 @@ floor back after losing the phone; if both fail, the FROST rings still bring the
 coins home on their timelock. Layered: backup + cohort for identity, rings +
 timelock for the coins, a needs-nobody floor of the ladder so nothing can deadlock.
 
+## Resolved 2026-06-22 -- the anti-loss backstop leaf (the bottom of the ladder)
+
+Operator: imagine a 15-year leaf that any of my signers can open if I go dark and
+no other path recovers -- after the longest timelock, the whole group can act, so
+the coins are safe against COMPLETE loss. This is the explicit floor the ladder
+always terminates in:
+
+- **Broadest access, longest wait, simplest script.** The bottom leaf is
+  `and(after(15y), <broad condition>)` where the condition is intentionally easy to
+  satisfy -- "any one of my signers" (a 1-of-n over the group's keys) or a low
+  threshold of the whole group. After fifteen years, anyone left standing with
+  their key can sweep the coins, so as long as a single group member survives, the
+  Bitcoin is never permanently lost.
+- **Anti-loss is the priority here, over anti-theft -- and that is correct AT THE
+  FLOOR ONLY.** A 1-of-n-after-15-years leaf has low theft resistance (one
+  compromised or coerced member could take it once the timelock passes), but that
+  is the right trade for the DEEPEST backstop: by year fifteen every faster, safer
+  path has had its chance, and the job of the floor is to guarantee the coins are
+  recoverable by someone rather than lost forever. The upper rings carry the
+  security; the floor carries the guarantee.
+- **Keep the floor leaf the simplest, most durable thing in the tree.** Per the
+  honest line "the bottom backstop must never itself be a single fragile thing":
+  prefer plain keys each signer holds (not a complex ceremony) so it survives 15
+  years of lost phones and dead services, and make sure those keys are durably
+  backed up (metal, geographically separate). The broad condition (any-one-of-many)
+  is itself a hedge: it does not depend on any single key surviving.
+- **It composes with everything above.** Refresh/re-vault keeps pushing this floor
+  forward too, so in practice it rarely fires; but it is always there, committed at
+  funding like every other leaf, as the promise that the cascade can never end in
+  total loss. This is the "needs-nobody-but-the-group" floor every other section
+  has been pointing at.
+
 
