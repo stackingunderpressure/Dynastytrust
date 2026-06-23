@@ -135,3 +135,50 @@ anywhere holds the fast legs and pushes everything toward the timelock backstop.
    how the tally is computed and shown.
 5. **Dealer vs DKG** for any future FROST leg stays the teaching-gated founder
    choice already recorded in section 4 -- unaffected by the green layer.
+
+## Resolved 2026-06-22 -- the green-state model (default-green, peers flip red)
+
+Operator decision. Green is the RESTING state, not something re-vouched every
+time:
+
+- **You choose an indicate group** -- the circle of people around you, chosen
+  deliberately (and they are exactly the attested-trail peers; a green/red signal
+  is only counted from someone you hold a verified connection attestation for).
+- **Green by default from the handshake.** When you add someone to your group the
+  connection handshake establishes green; it stays green through further
+  attestations. No constant "vouch I'm calm" ceremony -- frictionless by design.
+- **Each peer is responsible for flipping RED.** Any member of your chosen group
+  can raise red on you if they sense something wrong. Red is the active negative
+  signal; green is the absence of red plus current freshness.
+- **Freshness checks every so often (proof-of-life).** Periodically the group
+  re-confirms you are alive/reachable -- a peer can prompt it ("daughter, check
+  your wallet, prove I'm alive, it's been X since the last check"). If a freshness
+  window lapses, your state DECAYS to no-report (not red): you simply stop counting
+  until you prove alive again. This is the Layer-4 proof-of-life heartbeat made
+  concrete and bidirectional.
+
+So the three states resolve to: GREEN = fresh + no red; NO-REPORT = freshness
+lapsed (absent/unreachable); RED = a chosen-group peer raised it (or you did, as
+self-duress). This resolves open decision 2 (who flips red: any chosen-group peer,
+plus self) and the green-source question (default-green + freshness, not
+per-ceremony peer vouching).
+
+### The honest gap, and the mitigation to decide
+
+Default-green favors availability and friction-free living, but it has one honest
+limitation that "don't trust, verify" demands we name: if you are alive but
+COERCED and none of your peers notices to flip you red, you stay green and the
+fast legs remain available. The freshness check defends the absent/incapacitated
+case (no proof-of-life -> decay to no-report), and any alert peer defends the
+visible-coercion case (flip red), and the timelock backstop is always underneath
+-- but the "alive, coerced, unnoticed" case is the residual risk of a green-by-
+default model.
+
+The clean mitigation, and a real product fork to decide: a **duress code on the
+proof-of-life check**. When prompted to prove you are alive, answering the normal
+way keeps you green; answering with a pre-agreed duress variant proves you are
+alive (so it does not look like absence) while SILENTLY flipping you red. That
+closes the alive-but-coerced gap inside the same heartbeat the family already runs,
+at the cost of a little teaching and a code to remember. It can be optional per
+person. Recommended to include; flagged for the operator's call.
+
