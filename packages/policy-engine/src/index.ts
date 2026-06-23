@@ -108,9 +108,23 @@ export interface SigningGateInput {
   /** Optional script-mirroring governance result (timelock+quorum+dust).
    *  If explicitly false, the gate denies. undefined = not supplied. */
   governanceApproved?: boolean;
+  /** Optional circle-liveness gate (the green ladder). The caller computes
+   *  each circle member's state via the tapit-attest livenessStateFor tally
+   *  and passes the array plus the leg's required green count. The gate stays
+   *  pure -- it does NO crypto and NO network; it only reads the pre-computed
+   *  states. undefined = not supplied = liveness not gated (backward
+   *  compatible, exactly like governanceApproved undefined). */
+  liveness?: { memberStates: LivenessState[]; requiredGreen: number };
 }
 
 export interface SigningGateResult { allow: boolean; denials: ValidationMessage[]; }
+
+/** One circle member's derived liveness state. Mirrors the tapit-attest
+ *  primitive (tapit-attest/src/core/liveness.ts -- LivenessState). Defined
+ *  locally so policy-engine takes no tapit-attest dependency; the caller
+ *  computes each member's state via the tapit-attest livenessStateFor tally
+ *  and passes the resulting array in. */
+export type LivenessState = 'green' | 'no-report' | 'red';
 
 export function evaluateSigningGate(
   input: SigningGateInput,
@@ -119,7 +133,7 @@ export function evaluateSigningGate(
   const denials: ValidationMessage[] = [];
   const deny = (code: string, message: string) => denials.push({ code, message });
 
-  const { request, ceremony, vault, psbtBindsToVault, governanceApproved } = input;
+  const { request, ceremony, vault, psbtBindsToVault, governanceApproved, liveness } = input;
 
   // Hard fail-closed gate: with no ceremony there is nothing that
   // authorizes this spend. Stop here -- do not evaluate anything else.
@@ -177,6 +191,24 @@ export function evaluateSigningGate(
   // Script-mirroring governance, if supplied.
   if (governanceApproved === false) {
     deny('GOVERNANCE_REJECTED', 'Governance audit did not approve this spend (timelock/quorum/limits).');
+  }
+
+  // Circle liveness, if supplied (the green ladder). The caller hands us
+  // pre-computed states; we never touch crypto here. Red dominates: a single
+  // red blocks the leg even when the green count is otherwise met, matching
+  // the tapit-attest meetsGreenQuorum invariant (green >= m AND red === 0).
+  if (liveness) {
+    let greens = 0;
+    let reds = 0;
+    for (const state of liveness.memberStates) {
+      if (state === 'green') greens += 1;
+      else if (state === 'red') reds += 1;
+    }
+    if (reds > 0) {
+      deny('LIVENESS_RED', 'A circle member has raised red; signing is blocked and funds fall to the timelock backstop.');
+    } else if (greens < liveness.requiredGreen) {
+      deny('LIVENESS_NOT_GREEN', `Circle liveness quorum not met: ${greens} of ${liveness.requiredGreen} green.`);
+    }
   }
 
   return { allow: denials.length === 0, denials };

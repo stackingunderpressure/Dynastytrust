@@ -109,6 +109,34 @@ const govReject = evaluateSigningGate({ ...baseInput, governanceApproved: false 
 assert.equal(govReject.allow, false);
 assert.ok(codes(govReject).includes('GOVERNANCE_REJECTED'));
 
+// ── Circle liveness gate (the green ladder) ─────────────────────────────────
+// The gate consumes pre-computed liveness states; it does no crypto. Red
+// dominates: a single red blocks the leg even when greens meet the quorum.
+
+// (a) liveness undefined -> no liveness denial; an otherwise-green spend still allows.
+const noLiveness = evaluateSigningGate(baseInput, NOW);
+assert.equal(noLiveness.allow, true, 'no liveness supplied must still allow a green ceremony');
+assert.ok(!codes(noLiveness).some((c) => c.startsWith('LIVENESS_')), 'no liveness denial when not supplied');
+
+// (b) enough greens, zero reds, quorum met -> no liveness denial.
+const livenessOk = evaluateSigningGate(
+  { ...baseInput, liveness: { memberStates: ['green', 'green', 'no-report'], requiredGreen: 2 } }, NOW);
+assert.equal(livenessOk.allow, true, 'met green quorum with zero reds must allow');
+assert.ok(!codes(livenessOk).some((c) => c.startsWith('LIVENESS_')), 'no liveness denial when quorum met');
+
+// (c) one red present even though greens >= requiredGreen -> LIVENESS_RED (red dominates).
+const livenessRed = evaluateSigningGate(
+  { ...baseInput, liveness: { memberStates: ['green', 'green', 'red'], requiredGreen: 2 } }, NOW);
+assert.equal(livenessRed.allow, false, 'a red must block even with the green count met');
+assert.ok(codes(livenessRed).includes('LIVENESS_RED'));
+assert.ok(!codes(livenessRed).includes('LIVENESS_NOT_GREEN'), 'red dominates -- not the not-green denial');
+
+// (d) greens < requiredGreen, zero reds -> LIVENESS_NOT_GREEN.
+const livenessShort = evaluateSigningGate(
+  { ...baseInput, liveness: { memberStates: ['green', 'no-report', 'no-report'], requiredGreen: 2 } }, NOW);
+assert.equal(livenessShort.allow, false, 'short of the green quorum must deny');
+assert.ok(codes(livenessShort).includes('LIVENESS_NOT_GREEN'));
+
 // ── Ceremony bridge (proposal records -> SigningCeremony) ───────────────────
 const proposalRec = {
   proposalId: 'pr9', vaultId: 'v1', status: 'signed',

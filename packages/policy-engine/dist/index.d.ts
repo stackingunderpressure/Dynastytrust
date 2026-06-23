@@ -127,11 +127,27 @@ export interface SigningGateInput {
     /** Optional script-mirroring governance result (timelock+quorum+dust).
      *  If explicitly false, the gate denies. undefined = not supplied. */
     governanceApproved?: boolean;
+    /** Optional circle-liveness gate (the green ladder). The caller computes
+     *  each circle member's state via the tapit-attest livenessStateFor tally
+     *  and passes the array plus the leg's required green count. The gate stays
+     *  pure -- it does NO crypto and NO network; it only reads the pre-computed
+     *  states. undefined = not supplied = liveness not gated (backward
+     *  compatible, exactly like governanceApproved undefined). */
+    liveness?: {
+        memberStates: LivenessState[];
+        requiredGreen: number;
+    };
 }
 export interface SigningGateResult {
     allow: boolean;
     denials: ValidationMessage[];
 }
+/** One circle member's derived liveness state. Mirrors the tapit-attest
+ *  primitive (tapit-attest/src/core/liveness.ts -- LivenessState). Defined
+ *  locally so policy-engine takes no tapit-attest dependency; the caller
+ *  computes each member's state via the tapit-attest livenessStateFor tally
+ *  and passes the resulting array in. */
+export type LivenessState = 'green' | 'no-report' | 'red';
 export declare function evaluateSigningGate(input: SigningGateInput, now?: number): SigningGateResult;
 export interface ProposalRecord {
     proposalId: string;
