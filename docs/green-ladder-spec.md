@@ -260,4 +260,65 @@ MUST carry longer timelocks (you do not want a broad, lightly-trusted circle mov
 funds fast). And the bottom of the ladder remains a backstop that needs nobody, so
 the cascade always terminates in something that cannot deadlock.
 
+## Resolved 2026-06-22 -- 10 future-dated single-key leaves, provisioned later
+
+Operator question: what stops me having 10 keys, each with a successive-year
+timelock, each leaf one key, where that key can be a FROST aggregate set up later,
+then revoked / reshared into a different ceremony or the next ring? The honest
+answer turns on ONE Bitcoin rule, and within it the design works.
+
+**Nothing stops the structure itself.** A Taproot tree with ten leaves, each
+`and(after(year_k), pk(K_k))`, is fine -- Taproot holds many leaves; the control
+block grows only with log(depth), negligible at ten. Each `K_k` can be a FROST
+aggregate `pk(AGG_k)`. That part is exactly the ladder.
+
+**The one hard rule: a Taproot address commits to ALL leaf pubkeys at funding
+time.** The output key is `Q = P + taggedHash(TapTweak, P || merkle_root)*G`, and
+`merkle_root` commits to every leaf script, each of which contains the literal
+pubkey. So all ten `K_k` must be FIXED and KNOWN the moment you generate the
+funding address. You cannot fund first and decide `K_5` later -- the address has
+already committed to `K_5`. Change any leaf's pubkey and the merkle root changes,
+the address changes, and the only way to "switch" is to MOVE THE COINS on-chain to
+the new address. There is no on-chain "revoke this leaf" primitive; a committed
+leaf is immutable until the coins move.
+
+**How you still get "set it up / change it later" without moving coins: FROST
+resharing.** Resharing (proactive secret sharing) redistributes the shares of the
+SAME secret to a new roster or a new threshold while the aggregate pubkey
+`pk(AGG_k)` stays identical -- so the leaf, the merkle root, and the address are
+unchanged. That is precisely "use a different ceremony later / hand a leaf to the
+next ring" done in place. What it does NOT let you do is swap to a genuinely
+DIFFERENT key; the aggregate key is preserved by construction.
+
+**So "provision year-10's circle later" has two honest paths:**
+
+1. **Placeholder-then-reshare (no coins move).** Fix `K_10 = pk(AGG_10)` now -- even
+   as a trivial 1-of-1 you alone control -- so the address can commit to it today,
+   then RESHARE it into the real friends circle as year 10 approaches. The
+   aggregate key never changes, so the address stays valid. Caveat: until you
+   reshare, that leaf is recoverable only by the placeholder holder (you), which is
+   fine for a far-future ring while you are alive -- but you MUST reshare it into
+   its real circle before its timelock matures, or the placeholder is the only
+   signer when the leaf opens.
+2. **Re-vault (coins move).** Periodically spend to a freshly-committed tree with
+   the newly-decided leaves. This is the plain-multisig path when you are not using
+   FROST: every change to a future leaf is an on-chain move. Simpler crypto, costs
+   a transaction and a re-commit each time.
+
+**"Revoke" has three distinct meanings here, keep them separate.** On-chain: you
+cannot revoke a committed leaf, but you can simply never USE it and let a different
+leaf or a re-vault supersede it. Aggregate key: reshare it to a new circle (the
+next ring) -- same key, new people, address unchanged. Attestation: tapit-attest
+`revocation.ts` can revoke the OFF-CHAIN attestation that binds a circle to a leaf
+as a coordination signal -- it records intent, it does not alter the on-chain leaf.
+
+**Recommended shape:** commit all the future-dated aggregate keys up front
+(placeholder 1-of-1 for the far rings you have not gathered yet), then reshare each
+ring into place as its year approaches, keeping outer rings on longer timelocks and
+a needs-nobody backstop at the floor. That gives you the ten-year ladder you
+described, the freedom to decide and re-decide the people behind each rung over
+time, and a fixed address that never has to move while you do it -- with the single
+discipline that the aggregate KEY of each rung is chosen once, at the start, and
+only its ROSTER changes thereafter.
+
 
