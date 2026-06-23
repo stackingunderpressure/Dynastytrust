@@ -356,4 +356,47 @@ ever matter. If you go dark, the family door becomes openable at T_1, then the
 friends door at T_2, and so on -- the timelocks are what sequence the circles, each
 door waiting its turn, all opening the same pile.
 
+## Resolved 2026-06-22 -- you cannot "shut" a matured door; you advance by re-vaulting
+
+Operator question: once block height passes a door's timelock, that door is
+openable -- how do you shut it in favor of the next period? Honest Bitcoin answer,
+and it corrects a tempting mental model:
+
+- **Absolute CLTV (`after(T)`) is "earliest", never "latest".** It sets a lower
+  bound -- you cannot spend the leaf BEFORE height T -- and there is no opcode for
+  an upper bound. Once height passes T, that door stays openable FOREVER while the
+  coins sit at that address. Bitcoin can make you wait; it cannot forbid you from
+  acting later. So you cannot script a window [T_k, T_{k+1}) that auto-closes.
+- **Doors therefore ACCUMULATE, they do not hand off.** At year 3 the family door
+  (year 1) and the friends door (year 2) are BOTH still open, plus year 3. The
+  ladder is not a single moving window; it is more-and-more doors open as time
+  passes. This is the honest shape and the design must respect it.
+- **The only way to "shut" a door is to MOVE THE COINS.** All the doors guard the
+  same one UTXO. Spend that UTXO through ANY door -- usually your floor door -- and
+  every door on that address instantly dies, because the room behind them is now
+  empty. The coins now live at a NEW address whose tree you rebuild with the
+  windows pushed further out. That re-vault IS "advance to the next period." It is
+  the heartbeat / refresh loop, and it is exactly why CLAUDE.md says the deadman is
+  built by refresh/re-anchor, not an on-chain countdown.
+- **So the cascade is kept honest by acting first + refreshing.** The soonest
+  doors belong to the people you trust MOST precisely so they (or you via the
+  floor) move the coins before the outer, less-intimate doors ever open. If you
+  re-vault on a healthy cadence, an outer door's height arrives onto an address
+  that is already empty.
+- **The honest risk if you do NOT refresh:** a far door, once its height passes,
+  leaves that circle permanently able to spend until the coins move -- stale open
+  doors pile up as standing risk. Mitigation is the refresh cadence: re-vault to a
+  fresh, advanced structure before (or as) each outer door matures, so matured
+  doors never sit open over funds.
+- **No covenant today can force this.** Bitcoin has no active covenant opcode
+  (CTV/CCV not deployed), so you cannot make spending an inner door REQUIRE
+  re-vaulting, nor make a door auto-expire. Advancing the ladder is a voluntary,
+  coordinated refresh -- driven by your floor key or the active inner circle -- not
+  something the script enforces. If covenants ever activate they could enforce
+  auto-advance; do not design as if they exist.
+
+Plain version: you do not close the old door, you empty the room. Your floor door
+lets you re-vault any time, and that refresh is how the whole ladder steps forward
+and stale doors stop mattering.
+
 
