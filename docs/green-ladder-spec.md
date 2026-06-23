@@ -459,4 +459,76 @@ destroying its shares below threshold (guaranteed only if you hold a blocking sh
 or all holders truly delete), you move money by re-vaulting, and you never prune a
 door the funds still need -- the floor is what makes aggressive pruning safe.
 
+## Resolved 2026-06-22 -- rolling burn, the two-action appliance, and recovery if floor + phone are lost
+
+Operator worked example: floor always works; FROST key 1 (10-of-20) active at year
+1, burned as year 1 passes; FROST key 2 (same 10-of-20) active at year 2, burned
+before year 2 ends as key 3 takes over; no on-chain movement for as long as it is
+set up into the future. Plus a constrained wallet for the holders, and the open
+question: what if I lose my floor AND my phone?
+
+**Rolling burn with no on-chain movement -- true, up to the pre-committed
+horizon.** The address commits to ALL leaf keys at funding, so key 1, key 2, key 3,
+... must each be a leaf in the tree FROM THE START. Given that, you roll through
+them with zero on-chain movement: burn key 1's shares as year 1 passes (door dead),
+key 2 is already committed and waiting at year 2, key 3 at year 3, and so on. The
+honest boundary: the ladder is FINITE -- it lasts exactly as many future-dated
+doors as you baked in at funding. Bake ten years, you get ten years on-chain-free;
+year eleven needs ONE re-vault to commit a fresh batch. (The other no-on-chain
+lever is resharing, which rotates the PEOPLE behind a SAME key/door without moving
+coins; your example rotates to DIFFERENT keys, which must be pre-committed.) So:
+"no on-chain movement for as long as it is set up" = for as long as your
+pre-committed ladder reaches; the floor lets you re-vault cheaply to extend it.
+
+**The two-action holder appliance -- strong design, honest limit.** A holder's
+wallet exposing only "sign for the green associate" and "delete for the associate,"
+with no view of the secret and no refuse-to-delete, is exactly right: the holder is
+a custodian appliance, not a party that can hoard, exfiltrate, or extort with the
+share. Honest limit: "cannot see / cannot refuse" is enforced by the app for a
+normal user, not cryptographically against someone with full control of their own
+device, and a delete destroys the honest-client copy but cannot prove no rogue copy
+was ever made. That is fine because the real backstop is unchanged -- one share is
+useless alone; it takes a threshold to do anything, and the timelock gates even
+that. The appliance raises the floor on casual abuse; threshold + timelock are the
+hard guarantee.
+
+**Recovery if you lose floor AND phone -- the key question, answered.** First, this
+is the exact case the rings exist for; you are not lost. But separate two
+recoveries that people conflate:
+
+- **Recovering your Tapit wallet / identity.** Restore from a backup you stored
+  (seed or encrypted snapshot) OR a peer reset (your recovery cohort reconstructs
+  your secret). CRUCIAL POINT: to regain the FLOOR DOOR specifically, recovery must
+  restore the EXACT original key, because the on-chain floor leaf committed to that
+  exact pubkey. A same-seed restore (backup, or a cohort that reconstructs the
+  exact seed) brings the floor key back and you are whole. A succession-style
+  rotation to a NEW key preserves your identity and attestations but does NOT
+  reopen the floor door -- the chain still wants the old pubkey. So design the floor
+  key to derive from the Tapit wallet seed, and make recovery reconstruct that
+  exact seed, so one restore brings back identity AND floor together.
+- **Recovering the vault coins.** Even if the exact floor key is gone for good
+  (backup lost, cohort below threshold), the coins are still recoverable through the
+  FROST recovery rings on their timelock -- that is literally their job. You (or,
+  if you are truly gone, your circle) coordinate the appropriate ring once its year
+  arrives and move the coins to a fresh vault under new keys. The floor is
+  convenience; the rings are the net; the bottom ring needs nobody.
+
+**Two honest design notes that fall out of this:**
+
+- The recovery cohort (who restore your wallet by RETURNING their piece so you
+  reconstruct your seed) plays a DIFFERENT role from the FROST signing circles (who
+  SIGN without ever revealing). Keep them distinct in the UX even if the people
+  overlap: "return a recovery piece to rebuild me" is not "sign for me." The
+  two-action appliance covers the signing circles; recovery is its own flow (Tapit
+  already has social recovery / Shamir for this).
+- A lost phone must hold the floor key ENCRYPTED at rest (secure mode), or whoever
+  finds it has your floor. Same rule as everywhere: keys never sit unencrypted.
+  And if the loss smells like coercion, red/duress + the timelock are the backstop.
+
+Net recovery picture: keep a durable backup of the seed your floor derives from AND
+a recovery cohort that can reconstruct that exact seed -- either one brings the
+floor back after losing the phone; if both fail, the FROST rings still bring the
+coins home on their timelock. Layered: backup + cohort for identity, rings +
+timelock for the coins, a needs-nobody floor of the ladder so nothing can deadlock.
+
 
