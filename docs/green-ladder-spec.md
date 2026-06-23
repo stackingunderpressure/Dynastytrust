@@ -182,3 +182,42 @@ closes the alive-but-coerced gap inside the same heartbeat the family already ru
 at the cost of a little teaching and a code to remember. It can be optional per
 person. Recommended to include; flagged for the operator's call.
 
+## Resolved 2026-06-22 -- the economics of duress (why it is cheap to click)
+
+Operator reframe, and it is the keystone of the whole threat model: **duress is
+meant to be easy to click because clicking it costs you almost nothing and costs
+an attacker everything.** Belongs in `docs/threat-model-and-fail-closed.md`;
+recorded here because it completes the green ladder.
+
+- **Clicking duress = "fall to the timelock option + redo the signers."** A
+  duress signal does not try to spend and does not hand anyone control. It aborts
+  the current (possibly attacker-driven) ceremony and parks everything on the
+  timelocked backstop leg -- the one that needs nobody -- while signalling that a
+  fresh ceremony should redo the signers (a reshare to a clean roster). Per the
+  existing rail you never reshare WHILE under the gun; the reshare is driven later,
+  safely, by the unaffected quorum.
+- **Timing is an independent hard gate.** A leg's signatures are only valid as a
+  spend at the correct timing -- the absolute-CLTV timelock. Gathering signatures
+  early buys nothing; the chain rejects the spend until the lock height. So an
+  attacker who collects shares at the wrong time holds worthless paper.
+- **Coercing at the wrong time yields only a re-ceremony.** Hack or coerce the
+  family before the relevant timelock matures and all you achieve is forcing a new
+  ceremony that rotates the signers out from under you -- you must then re-defeat a
+  brand-new roster, and you still cannot spend until a timelock actually matures.
+  Every duress click resets the board; the attacker can never get ahead of the
+  clock.
+- **The timelock fallback may never fire.** If the family keeps the upper, faster,
+  more-signer legs healthy and reshares as people change (the heartbeat loop), the
+  long-timelock backstop leg may never be needed at all -- it is the floor that is
+  always there precisely so it rarely has to be used.
+
+This is why duress should be one-tap and ubiquitous (the duress code above is one
+such easy, covert trigger): making it cheap to fire is safe BECAUSE the worst case
+is a re-ceremony plus a wait, never a loss. The honest dependency to keep in view:
+this leans on resharing actually working (FROST resharing is frontier -- vetted
+construction only) and on the family actually re-ceremonying after a duress event;
+the absolute-CLTV timing gate, by contrast, is real on-chain consensus and needs
+no one. Net: you cannot rush the timelock, and every coercion attempt only rotates
+the signers, so coercion at the wrong time is economically futile.
+
+
