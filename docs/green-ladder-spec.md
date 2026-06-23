@@ -220,4 +220,44 @@ the absolute-CLTV timing gate, by contrast, is real on-chain consensus and needs
 no one. Net: you cannot rush the timelock, and every coercion attempt only rotates
 the signers, so coercion at the wrong time is economically futile.
 
+## Resolved 2026-06-22 -- concentric trust rings (a FROST circle per rung)
+
+Operator extension: a rung does not have to be one group decaying; it can be a
+WHOLE social circle, and you can stack circles -- "a FROST leaf with my family,
+then a FROST leaf with my friends, etc." This is the case that makes FROST earn
+its place (the family-of-eight case did not need it).
+
+- **Each rung is one circle = one FROST aggregate key.** A circle (family,
+  friends, colleagues, community) runs its own DKG-or-dealer ceremony and collapses
+  to a single on-chain `pk(AGG_circle)` with its own m-of-n threshold. The Taproot
+  tree gets one leaf per circle, so even a twenty-person friends circle is one key
+  on-chain -- which is exactly why FROST: a big circle as a raw `thresh` would be
+  impractical, but as an aggregate it is a single clean leaf.
+- **Rings ordered by timelock = trust distance.** Innermost ring (family) opens
+  first (short or no timelock); each outer ring (friends, then wider) opens at a
+  LONGER absolute-CLTV. The longer you are silent or unable to act, the wider the
+  ring that can recover. This is the inheritance/recovery cascade made literal:
+  family first, and only after a long wait do friends gain the ability to bring the
+  coins back.
+- **Each circle runs its own green/red/proof-of-life loop and its own duress +
+  reshare economics.** A circle stays current by resharing its own roster without
+  moving coins (FROST resharing, fixed aggregate key), and its members keep each
+  other green and can flip red within that circle.
+- **The timelock ordering is the real enforcement of "family before friends."**
+  On-chain the chain only knows: each circle-leaf needs a valid aggregate signature
+  (which requires that circle's threshold off-chain) AND its timelock height. So
+  the sequence of who-can-recover-when is enforced by the ladder of timelocks, not
+  by green; green coordinates within each ring. Honest consequence: once a friends
+  ring's timelock matures, that circle CAN recover whether or not the family acted
+  -- which is the intended cascade, so set each ring's timelock to match how long
+  the inner rings should have exclusively, and choose outer rings knowing they
+  become a real recovery path after their wait.
+
+Honest lines for the rings: every added circle is another aggregate key and
+another ceremony (DKG or dealer, teaching-gated per section 4) -- start with one or
+two rings and climb, per the small-quorums-first spine. Outer, less-intimate rings
+MUST carry longer timelocks (you do not want a broad, lightly-trusted circle moving
+funds fast). And the bottom of the ladder remains a backstop that needs nobody, so
+the cascade always terminates in something that cannot deadlock.
+
 
