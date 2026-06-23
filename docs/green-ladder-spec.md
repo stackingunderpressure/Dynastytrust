@@ -8,6 +8,24 @@ enforcement. Companions: `docs/layered-vault-legs-and-frost.md` (the ladder +
 FROST + heartbeat loop), `docs/build-map-and-cut-lists.md` (risk register),
 `docs/threat-model-and-fail-closed.md` (the fail-closed gate).
 
+## Decisions resolved in the 2026-06-22 design thread (index)
+
+Worked out with the operator in one sitting; sections below, in order: the
+green-state model (default-green from handshake, peers flip red, proof-of-life
+freshness, optional duress code); the economics of duress (cheap to click, leans on
+timelock + reshare, coercion at the wrong time is futile); concentric trust rings
+(a FROST circle per rung, ordered by timelock -- the case FROST earns); ten
+future-dated single-key leaves provisioned later (the committed-pubkey rule;
+provision-later via placeholder-then-reshare, not key-swap); the mental model (one
+address, many doors; pk(AGG) is public, shares never assemble); timelocks are
+earliest-not-latest (doors accumulate; advance by re-vaulting); the control model
+(present-only signing + burn-by-deletion + safety discipline); and the rolling-burn
+horizon + two-action holder appliance + recovery if floor and phone are both lost.
+The honest spine under all of it: Bitcoin enforces only each leaf's signature
+quorum and timelock; everything green/red/liveness is off-chain coordination that
+honest wallets and the fail-closed gate enforce, with a needs-nobody backstop at
+the floor of the ladder so nothing can ever deadlock.
+
 ## What already exists (do NOT rebuild)
 
 Grounded in the actual repo this session:
