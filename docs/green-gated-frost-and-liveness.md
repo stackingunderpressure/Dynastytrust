@@ -69,3 +69,52 @@ first-class, not an afterthought.
 4. How does the green attestation tie to the no-rogue-signing trail -- presumably
    the same attested-trail check: the wallet only counts green vouchers from
    peers it already holds verified attestations for.
+
+## Maturation 2026-06-22 -- the green-weighted decaying-timelock ladder
+
+The operator refined the model into a ladder, which is a generalization of the
+already-shipped Dynasty Bloc decaying-multisig vault with peer liveness as the
+participation axis. The shape:
+
+- **Immediate family are the green signalers, configured as an m-of-n.** Each
+  family member who is set up is one of the n. Green and participation are
+  unified per person: a member who is green is contributing; a member who
+  withdraws green (or goes silent) is not counted toward that leaf's threshold.
+- **Three states, not two.** Green (positive, fresh report), red (a flag / duress
+  -- a HARD stop), and no-report (silence / unreachable -- simply does not count,
+  but is not itself an abort). Example: 5 of 8 reporting green, zero reds, three
+  no-reports. Whether 5 clears a given leaf depends on that leaf's m.
+- **A ladder of leaves trading green-count against time.** The first leaf needs
+  the most green participants and can spend soonest (short or no timelock). Each
+  later leaf needs fewer green participants but carries a longer absolute-CLTV
+  timelock. If the calm-and-uncoerced cohort you can assemble now does not clear
+  the top leaf, recovery decays gracefully down the ladder: fewer people, but a
+  longer wait. This is exactly the Bloc decaying-multisig pattern, now keyed to
+  liveness.
+- **One signer can hold more than one secret.** A signer can hold additional
+  shares that map to later (longer-timelock, fewer-signer) leaves, so the ability
+  to recover concentrates over time onto fewer holders -- the deliberate
+  inheritance/recovery decay.
+- **The ceremony coordinates in the background.** The green polling, the
+  three-state tally per leaf, and the FROST rounds run quietly; the human only
+  sees the meaning and the tap.
+
+### Honest lines for the ladder (do not bend)
+
+- The chain still only enforces, per leaf, the signature threshold (FROST
+  aggregate or k-of-n keys) and the absolute-CLTV timelock. Green/red/no-report
+  is off-chain: it decides WHICH leaf the honest cohort completes and WHEN, by
+  honest wallets refusing to contribute unless green and aborting on red. The
+  chain never sees "green."
+- Security degrades down the ladder BY DESIGN: later leaves need fewer signers,
+  so they trust fewer people. The green gate only really bites while a leaf needs
+  multiple honest wallets; the final fewest-signer leaf can be spent by its
+  holder(s) after its timelock regardless of green. Therefore the late leaves
+  MUST carry long timelocks (long enough that duress cannot cheaply wait them
+  out) and their shareholders are the ultimate trust anchor -- choose them as
+  carefully as the inheritance leaf.
+- Reds must abort the in-flight ceremony with fresh nonces, never just lower a
+  count for next time (the abortable-ceremony rail).
+- Green vouchers count only from family/peers the wallet holds verified
+  attestations for (the no-rogue-signing trail). A green report from an
+  unattested source is ignored, never silently trusted.
