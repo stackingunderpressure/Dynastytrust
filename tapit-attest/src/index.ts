@@ -167,3 +167,20 @@ export {
   type SignInAttestation,
   type SignInVerifyResult,
 } from './core/sign-in.js';
+
+// Liveness: green / no-report / red (cross-repo parity port of the Tapit primitive)
+export {
+  buildProofOfLife,
+  buildDuressFlag,
+  proofOfLifeDigestFor,
+  duressFlagDigestFor,
+  verifyProofOfLife,
+  verifyDuressFlag,
+  livenessStateFor,
+  groupTally,
+  meetsGreenQuorum,
+  type ProofOfLife,
+  type DuressFlag,
+  type LivenessState,
+  type GroupTally,
+} from './core/liveness.js';
