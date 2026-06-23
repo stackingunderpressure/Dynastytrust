@@ -321,4 +321,39 @@ time, and a fixed address that never has to move while you do it -- with the sin
 discipline that the aggregate KEY of each rung is chosen once, at the start, and
 only its ROSTER changes thereafter.
 
+## Mental model -- how a leaf "is timelocked to a FROST circle" (the unsticking)
+
+The trap: imagining each leaf bound to a private key that someone holds. With
+FROST there is NO single private key sitting anywhere. Hold these three frames:
+
+- **One vault address, many doors.** All the leaves live in ONE Taproot tree, so
+  there is ONE address and ONE pile of coins. Each leaf is a separate DOOR into
+  that same pile. A door has two locks ANDed together: a TIME lock (`after(T_k)` --
+  earliest height the door can open) and a SIGNATURE lock (`pk(AGG_k)` -- whose
+  signature opens it). Your floor leaf is the door with no time lock and your own
+  key -- always open to you, so you can always move the coins. The higher doors are
+  the same pile, openable later, by other circles.
+- **`pk(AGG_k)` is a PUBLIC key; the matching private key never exists in one
+  place.** Circle k ran its own DKG, which produced one aggregate public key
+  AGG_k (the only thing that goes in the leaf, on-chain) and gave each member a
+  SHARE -- a private piece. There is no moment where the whole private key for
+  AGG_k is assembled. To open door k, a threshold of circle k's members run a
+  signing ceremony that jointly produces ONE ordinary Schnorr signature valid
+  under AGG_k, without ever reconstructing the full key. The chain just checks
+  "is this a valid signature for AGG_k, and is the height past T_k" -- it cannot
+  tell a FROST-aggregated signature from a plain one.
+- **Each circle is its own independent set of shares.** Family is one DKG ->
+  AGG_1 + the family's shares. Friends is a SEPARATE DKG -> AGG_2 + the friends'
+  shares. The family's shares can ONLY sign for AGG_1; the friends' only for
+  AGG_2. So "different sets of FROST aggregation keys" means different circles,
+  each with its own public key in its own leaf and its own scattered shares --
+  cryptographically unrelated to the others and to your floor key. Reshuffling or
+  red-flagging one circle touches only that circle's door.
+
+Spending semantics that make the ladder work: whoever satisfies a door FIRST moves
+the coins. While you are active you just use your floor door and none of the others
+ever matter. If you go dark, the family door becomes openable at T_1, then the
+friends door at T_2, and so on -- the timelocks are what sequence the circles, each
+door waiting its turn, all opening the same pile.
+
 
