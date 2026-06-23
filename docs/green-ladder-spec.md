@@ -399,4 +399,64 @@ Plain version: you do not close the old door, you empty the room. Your floor doo
 lets you re-vault any time, and that refresh is how the whole ladder steps forward
 and stale doors stop mattering.
 
+## Resolved 2026-06-22 -- the control model: present-only signing + burn-by-deletion
+
+Operator framing: I am in control; the people holding my little secrets can only
+sign what I PRESENT to them, never something they or anyone else created; I request
+a signature only if needed; if not needed I can burn a door by deleting its secrets
+past the timelock from where they live (my peer group and my wallet); the wallet
+deletes the old only when not needed and moves on to the next future timelock;
+otherwise I use the floor I control or wait for a later recovery path my groups can
+reach. This is sound, with two honest refinements.
+
+**Present-only signing -- correct, and this is the no-rogue-signing rail.** A
+peer's honest wallet signs only the exact request you present through the attested
+channel, showing its real meaning, and refuses anything not tied to a vault it
+already holds a verified attestation for. So "they sign for me, not something they
+or someone else made" is enforced at the honest-wallet + attested-trail + tap-to-
+confirm-meaning level. The honest limit: that is coordination-layer enforcement,
+not consensus. The HARD guarantee against a malicious threshold colluding off your
+rails is the threshold itself (they still need t-of-n), the timelock (they still
+cannot spend before the height), and your power to burn or re-vault. Keep both in
+view: honest wallets enforce present-only; threshold + timelock + your floor are
+the backstop if a circle goes rogue.
+
+**Burn-by-deletion -- real, and it is the OFF-CHAIN way to shut a door.** Earlier
+section: you cannot shut a matured door on-chain (timelock is earliest-not-latest).
+But destroying the shares behind a door so the circle can no longer reach its
+threshold makes that door permanently unopenable -- the leaf stays in the tree but
+no valid signature for its key can ever be formed again. So deletion is exactly the
+"shut it" mechanism. Two refinements that decide whether a burn is GUARANTEED:
+
+- It only burns if enough shares are destroyed to drop BELOW threshold AND no
+  recoverable copy survives anywhere -- every relevant peer must truly destroy
+  theirs (backups, cloud sync, a forgotten export are the leak). For a circle of
+  independent peers you cannot, by yourself, guarantee they deleted theirs. For a
+  GUARANTEED unilateral burn, structure the door so YOU hold a share that is
+  necessary to its threshold: then your deletion alone kills it, no trust required.
+- Deletion disables a DOOR, not "the address." Coins still sitting there remain
+  reachable by any OTHER live door and by your floor. To actually relocate funds
+  you re-vault (move the coins); deletion and re-vault are complementary -- delete
+  to neutralize a stale door, re-vault to move and reset the structure.
+
+**Safety discipline (the line that protects against stranding funds).** Never
+delete the shares of a door the coins still DEPEND ON as a needed path. This is
+safe in your model precisely because your floor door is always yours -- you can
+always move the coins yourself -- so pruning outer-ring shares can never lock you
+out as long as the floor stays sacrosanct. The wallet's auto-GC must be
+conservative: delete a share only after it has VERIFIED the coins no longer rely on
+that door (e.g. after a confirmed re-vault to the new structure), never on a timer
+alone -- don't-trust-verify before you destroy key material.
+
+**A real upside: forward security.** Pruning retired shares means a LATER
+compromise of a peer cannot resurrect a dead ring -- the secret is gone, so a door
+you have moved past can never be reopened against you. Deliberate deletion of old
+rings is good hygiene, not just housekeeping.
+
+Net: you in control = floor door always yours; peers sign only what you present
+(rails) with threshold + timelock as the collusion backstop; you shut a door by
+destroying its shares below threshold (guaranteed only if you hold a blocking share
+or all holders truly delete), you move money by re-vaulting, and you never prune a
+door the funds still need -- the floor is what makes aggressive pruning safe.
+
 
