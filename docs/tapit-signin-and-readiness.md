@@ -34,23 +34,29 @@ the same key, and the trail shows when that stops being true.
 `green` = the peer/recovery group is ready and uncompromised. `red` = the peer
 group flagged a wallet as compromised.
 
-**Enforcement scope (operator chose the fullest — "also guide the sweep"):**
+**Enforcement scope (operator decision, corrected 2026-06-24 — GUIDANCE ONLY):**
 
-- A **red** wallet **cannot log into DynastyTrust** and **cannot sign,
-  attest, or agree** through it.
-- A red member's partial signature is **refused toward a proposal's quorum**
-  inside the app — a flagged-compromised co-signer can't push a spend through
-  DynastyTrust's signing flow.
-- When a member goes red, the app **surfaces the sweep-to-a-clean-wallet
+When the operator was given the red-state powers as independent switches
+("click all that apply"), he chose **only "guide the sweep"** — twice. Red is
+therefore a **visible flag that guides, never a hard block**:
+
+- When a wallet goes red, the app **surfaces the sweep-to-a-clean-wallet
   recovery path and a readiness checklist** — the flag becomes a guided "get
   your people green" flow.
+- Red does **NOT** block login. A flagged wallet can still sign in; it just
+  sees the sweep/readiness guidance.
+- Red does **NOT** block in-app signing, attesting, or agreeing, and does
+  **NOT** refuse a signature toward quorum.
+
+This is faithful to the deeper model: DynastyTrust is the **interface that
+makes a compromise visible and guides the recovery, not the security wall.**
+"Maybe you can hack around the interface" — the app's job is to show the flag
+and lead the peer group to sweep, not to pretend it can lock an attacker out.
 
 **The hard line, true across everything:** none of this touches a member's own
-**base multisig spend.** Being red/locked out doesn't stop you from spending —
-it means you get your people back on the same page and green, so that when you
-actually need the recovery / inheritance / protector layers, your peers are
-verified and ready. An attacker may hack around the interface, but they don't
-get the clean signing path, and the compromise is now visible to the group.
+**base multisig spend.** Red means you get your people back on the same page
+and green, so that when you actually need the recovery / inheritance /
+protector layers, your peers are verified and ready.
 
 ## Sign-in flow — link-to-existing-account model
 
@@ -68,9 +74,11 @@ becomes a second, key-based way into the *same* account.
    DynastyTrust callback with the `SignInGrant`.
 3. **Verify server-side.** The callback function calls `verifySignIn` against
    the *stored* challenge (echo + freshness + signature), resolves
-   `pubkey -> user_id`, refuses if the wallet is red (`wallet_is_red`), writes
-   the `wallet_signins` trail row, and establishes a Supabase session for the
-   linked user (admin `generateLink` -> token_hash -> client `verifyOtp`).
+   `pubkey -> user_id`, writes the `wallet_signins` trail row, and establishes
+   a Supabase session for the linked user (admin `generateLink` -> token_hash
+   -> client `verifyOtp`). If the wallet is red (`wallet_is_red`) the login
+   still succeeds, but the response carries a `red` flag so the UI can surface
+   the sweep/readiness guidance — guidance, not a block.
 
 The wallet half of this is **already built and gated** (see "Status").
 
@@ -112,19 +120,24 @@ shared-vault co-members so the peer group can see each other's readiness.
    Tapit," and a "link your wallet" surface for a logged-in user.
 5. **Green/red UI** — set/clear a peer flag, show each member's state in the
    vault; the readiness checklist.
-6. **The gate** — `requireUser` (or a wrapper) refuses a red wallet's session;
-   `proposals.js` refuses a red member's signature toward quorum at the
-   `runGovernanceAudit` chokepoint; **base spend is never gated.**
+6. **The guidance surface (NOT a gate)** — when a wallet is red, the app
+   surfaces the sweep/readiness flow. There is **no** hard block on login,
+   signing, or quorum, and **base spend is never gated.** `wallet_is_red` is
+   read by the UI to decide whether to show the guidance, not by `requireUser`
+   or `proposals.js` to refuse anything.
 7. **The sweep flow** — when a member goes red, surface the sweep-to-clean
-   recovery path.
-8. **Tests** — the gate and the verify path are money-touching; they ship with
-   tests against real proposal/auth flows. No greenwashing.
+   recovery path and the "get your people green" checklist.
+8. **Tests** — the verify path and session-mint are money-touching; they ship
+   with tests against real auth flows. No greenwashing.
 
 ## Decisions on record
 
 - Sign-in model: **link to existing account** (keep email login; bind the key).
-- Red enforcement: **login + in-app signing + refuse-toward-quorum + guided
-  sweep**, never base spend.
+- Red enforcement: **guidance only** — surface the sweep + readiness checklist
+  when a wallet is flagged. No hard block on login, signing, or quorum; base
+  spend never gated. (Corrected 2026-06-24 from an earlier too-aggressive
+  "fullest" reading; the operator chose only "guide the sweep" on the
+  click-all-that-apply switches.)
 - Source of truth for the crypto: the standardized `tapit-attest` (canonical in
   tapit-wallet, byte-identical in DynastyTrust; see
   `tapit-attest/STANDARDIZATION.md`). Never re-implement the verify.

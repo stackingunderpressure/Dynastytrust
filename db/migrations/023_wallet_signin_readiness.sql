@@ -5,8 +5,10 @@
 -- Adds the data foundation for: signing into DynastyTrust by proving
 -- control of a Tapit wallet key (linked to an existing account), the
 -- visible "same wallet as last time" sign-in trail, and the peer-group
--- green/red readiness flag that gates LOGIN and IN-APP PARTICIPATION
--- only -- never a member's own base multisig spend.
+-- green/red readiness flag. Red is GUIDANCE ONLY (operator decision
+-- 2026-06-24): when a wallet is flagged the app surfaces the sweep /
+-- readiness flow. It does NOT block login, signing, or quorum, and never
+-- touches a member's own base multisig spend.
 --
 -- Idempotent. Run in Supabase SQL Editor after 022_assistant.sql.
 -- ============================================================
@@ -16,8 +18,9 @@
 -- Binding happens once, while already logged in, by proving key control
 -- (sign-in flow). `pubkey` is the x-only Schnorr key the wallet proves.
 -- `readiness` is the peer-group flag: 'green' (ready / uncompromised) or
--- 'red' (peer-flagged compromised). Red blocks login + in-app signing;
--- it does NOT touch the user's own multisig spend.
+-- 'red' (peer-flagged compromised). Red is GUIDANCE ONLY -- it surfaces the
+-- sweep / readiness flow; it does NOT block login or signing, and never
+-- touches the user's own multisig spend.
 -- ------------------------------------------------------------
 create table if not exists wallet_identities (
   user_id              uuid primary key references auth.users(id) on delete cascade,
@@ -135,10 +138,11 @@ create policy "member_flags_visible"
   );
 
 -- ------------------------------------------------------------
--- Helper: is this user's wallet currently red? Used server-side (and by
--- the login gate) to refuse login + in-app participation for a flagged
--- wallet. Returns false when the user has no bound wallet (binding is
--- optional; an unbound user just uses email login as before).
+-- Helper: is this user's wallet currently red? Read by the UI / verify
+-- response to decide whether to SURFACE the sweep + readiness guidance for a
+-- flagged wallet. Guidance only -- it does NOT refuse login or signing.
+-- Returns false when the user has no bound wallet (binding is optional; an
+-- unbound user just uses email login as before).
 -- ------------------------------------------------------------
 create or replace function wallet_is_red(target_user uuid)
 returns boolean
