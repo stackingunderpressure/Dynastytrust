@@ -6,10 +6,13 @@
  * grant to the server, which verifies the proof and (for sign-in) mints a
  * session token we redeem here into a real Supabase session.
  *
- * Transport contract with the wallet (DT side defined here; the wallet's
- * /sign handler is the matching cut in tapit-wallet):
- *   request:  <WALLET>/sign?req=<b64url(JSON{intent,challenge,return_url})>
- *   response: <return_url>?tapit_grant=<b64url(JSON{attestation})>&tapit_mode=...
+ * Transport contract with the wallet (this is the tapit-wallet sign-request
+ * protocol; DT is the consumer):
+ *   request:  <WALLET>/sign?req=<b64url(JSON{intent:'sign-in',origin,callback,challenge})>
+ *   response: <callback>?grant=<base64(JSON{v,attestation})>
+ *   The callback carries our own ?tapit_mode= so we know signin vs link, and
+ *   MUST land on a RequireAuth-covered path (not the public Landing at "/"),
+ *   so we route it through /keys.
  *
  * GREEN/RED is guidance only -- a red wallet still signs in; we surface the
  * sweep / readiness flow. Nothing here touches base multisig spend.
@@ -52,8 +55,17 @@ export async function startTapitFlow(mode: TapitMode): Promise<void> {
   if (!res.ok || !payload.challenge) {
     throw new Error(payload.error ?? 'Could not start Tapit sign-in');
   }
-  const returnUrl = `${window.location.origin}/?tapit_mode=${mode}`;
-  const req = b64urlEncode({ intent: 'sign-in', challenge: payload.challenge, return_url: returnUrl });
+  // Land the wallet's redirect on /keys so RequireAuth's callback handler
+  // runs (the public Landing at "/" would not). tapit_mode rides along so
+  // the callback knows signin vs link; the wallet preserves it and appends
+  // ?grant=.
+  const callback = `${window.location.origin}/keys?tapit_mode=${mode}`;
+  const req = b64urlEncode({
+    intent: 'sign-in',
+    origin: 'DynastyTrust',
+    callback,
+    challenge: payload.challenge,
+  });
   window.location.href = `${WALLET_SIGN_URL}?req=${req}`;
 }
 
@@ -68,7 +80,7 @@ export interface TapitCallback {
  */
 export function readTapitCallback(): TapitCallback | null {
   const params = new URLSearchParams(window.location.search);
-  const raw = params.get('tapit_grant');
+  const raw = params.get('grant');
   if (!raw) return null;
   const mode: TapitMode = params.get('tapit_mode') === 'link' ? 'link' : 'signin';
   try {
@@ -127,7 +139,7 @@ export async function completeTapitCallback(cb: TapitCallback): Promise<TapitRes
 
 export function clearTapitCallbackUrl(): void {
   const url = new URL(window.location.href);
-  url.searchParams.delete('tapit_grant');
+  url.searchParams.delete('grant');
   url.searchParams.delete('tapit_mode');
   window.history.replaceState({}, '', url.pathname + url.search + url.hash);
 }
