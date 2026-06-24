@@ -32,20 +32,31 @@
  *   conservative reading wins by construction: the only way to be green is
  *   to actually be green per the verified primitive.
  *
- * DEFERRED SEAM (the NEXT cut, deliberately NOT built here)
- *   The next slice feeds `proofs` and `redFlags` from a VERIFIED Supabase
- *   store: circle members submit their signed proof-of-life / duress-flag
- *   signals, and the SERVER verifies each signature ON WRITE (an unverifiable
- *   signal is rejected before it is ever stored). At sign time the caller
- *   loads the vault's VaultLivenessConfig (the circle x-only pubkeys + the
- *   per-path required-green map + the ttl), loads the latest stored signals,
- *   calls assembleLivenessGateInput(...) here, and passes the result straight
- *   into evaluateSigningGate alongside the existing ceremony / psbt-binding /
- *   governance inputs. The config itself (circle + requiredGreenByPath) will
- *   come from vault config -- a Bloc policy leg / a vault_members liveness
- *   circle -- wired in that same later cut. None of that storage, endpoint,
- *   or signing wiring exists yet, by design; this module leaves a clean,
- *   documented seam for it.
+ * THE STORE + LOADER NOW EXIST (built in the ingest cut)
+ *   The VERIFIED Supabase store and the config loader that this module was
+ *   designed to consume are now in place:
+ *     - netlify/functions/liveness.js: circle members POST their signed
+ *       proof-of-life / duress-flag signals; the SERVER verifies each signature
+ *       ON WRITE (verifyLivenessSignalForStorage in _liveness.js) so an
+ *       unverifiable signal is rejected before it is ever stored. GET returns
+ *       the vault's held signals as { proofs, redFlags } -- exactly the shape
+ *       this module's `proofs` and `redFlags` args expect.
+ *     - netlify/functions/_liveness.js loadVaultLivenessConfig(vault): reads +
+ *       validates vault.bloc_policy.liveness into a VaultLivenessConfig, or
+ *       null when absent/malformed (null = not liveness-gated, the safe
+ *       default). The config (circle + requiredGreenByPath + ttlSeconds) lives
+ *       under bloc_policy.liveness; see db/migrations/024_liveness_signals.sql.
+ *
+ * THE FINAL SEAM (the LAST wire, deliberately NOT made in this cut)
+ *   At sign time in apps/web VaultDetail, the one remaining wire is: GET the
+ *   vault's signals from /api/liveness, get its VaultLivenessConfig via
+ *   loadVaultLivenessConfig(vault), call assembleLivenessGateInput({ config,
+ *   path, proofs, redFlags }) here, and pass the returned object as the
+ *   `liveness` field into evaluateSigningGate alongside the existing ceremony /
+ *   psbt-binding / governance inputs. Only then does the gate deny
+ *   LIVENESS_RED / LIVENESS_NOT_GREEN for real. That wire is intentionally NOT
+ *   made yet; the signing path is untouched this cut, leaving a clean,
+ *   documented seam.
  */
 
 import { livenessStateFor } from 'tapit-attest';
