@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { APP_NAME } from '../config';
 import { colors, fonts, radii, space } from '../theme';
 import { Button, Input } from '../components/ui';
+import { startTapitFlow } from '../lib/wallet-signin';
 
 interface AuthProps {
   /**
@@ -51,6 +52,19 @@ export default function Auth({ redirectTo }: AuthProps = {}) {
     } catch (err: unknown) {
       setError(friendlyAuthError(err instanceof Error ? err.message : 'Authentication failed'));
     } finally {
+      setBusy(false);
+    }
+  }
+
+  // Sign in by proving control of a linked Tapit wallet key. On success this
+  // navigates to the wallet, so we only clear busy on failure.
+  async function tapit() {
+    setBusy(true);
+    setError(null);
+    try {
+      await startTapitFlow('signin');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not start Tapit sign-in');
       setBusy(false);
     }
   }
@@ -186,6 +200,29 @@ export default function Auth({ redirectTo }: AuthProps = {}) {
             {busy ? 'Working…' : mode === 'login' ? 'Sign in' : 'Create account'}
           </Button>
         </form>
+
+        {mode === 'login' && (
+          <>
+            <div style={s.orRow}>
+              <span style={s.orLine} />
+              <span style={s.orText}>or</span>
+              <span style={s.orLine} />
+            </div>
+            <Button
+              variant="ghost"
+              type="button"
+              disabled={busy}
+              onClick={() => void tapit()}
+              style={{ width: '100%', padding: '14px', fontSize: 15 }}
+            >
+              Sign in with Tapit
+            </Button>
+            <p style={s.tapitHint}>
+              Prove control of a wallet key you've linked. New here? Sign in with
+              email first, then link your wallet.
+            </p>
+          </>
+        )}
 
         {mode === 'login' && (
           <button
@@ -336,6 +373,29 @@ const s: Record<string, CSSProperties> = {
     borderRadius: 10,
     padding: 4,
     marginBottom: 28,
+  },
+  orRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: space[3],
+    margin: `${space[5]}px 0 ${space[4]}px`,
+  },
+  orLine: {
+    flex: 1,
+    height: 1,
+    background: colors.border,
+  },
+  orText: {
+    fontSize: 12,
+    color: colors.muted,
+    textTransform: 'uppercase',
+    letterSpacing: '0.08em',
+  },
+  tapitHint: {
+    fontSize: 12,
+    color: colors.muted,
+    lineHeight: 1.5,
+    marginTop: space[3],
   },
   tab: {
     flex: 1,
