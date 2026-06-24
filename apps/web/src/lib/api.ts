@@ -315,6 +315,33 @@ export interface VaultInvite {
 
 //
 
+export type Readiness = 'green' | 'red';
+
+export interface MemberReadiness {
+  user_id: string;
+  vault_id: string;
+  label: string | null;
+  linked: boolean;
+  readiness: Readiness;
+  reason: string | null;
+}
+
+export interface MemberFlag {
+  id: string;
+  created_at: string;
+  vault_id: string | null;
+  subject_user_id: string;
+  actor_user_id: string;
+  kind: 'flag' | 'clear';
+  reason: string | null;
+}
+
+export interface ReadinessState {
+  me: { linked: boolean; readiness: Readiness; reason: string | null };
+  peers: MemberReadiness[];
+  flags: MemberFlag[];
+}
+
 export const api = {
   vaults: {
     list: (showArchived = false) =>
@@ -810,6 +837,23 @@ export const api = {
 
     remove: (id: string) =>
       req<{ ok: true }>(`/members?id=${id}`, { method: 'DELETE' }),
+  },
+
+  // Green/red peer readiness. Guidance only -- it drives the sweep /
+  // readiness prompts, never a block on login, signing, or spend.
+  readiness: {
+    get: () => req<{ ok: true } & ReadinessState>(`/wallet-readiness`),
+
+    flag: (body: {
+      subject_user_id: string;
+      vault_id: string;
+      kind: 'flag' | 'clear';
+      reason?: string;
+    }) =>
+      req<{ ok: true; kind: 'flag' | 'clear'; readiness: 'green' | 'red'; readiness_updated: boolean }>(
+        `/wallet-readiness`,
+        { method: 'POST', body: JSON.stringify(body) },
+      ),
   },
 
   invites: {

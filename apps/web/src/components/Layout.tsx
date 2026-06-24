@@ -4,6 +4,7 @@ import { APP_NAME, NAV_LINKS } from '../config';
 import { supabase } from '../lib/supabase';
 import { colors, fonts, radii } from '../theme';
 import { useReminderCount } from './RemindersBanner';
+import { ReadinessBanner } from './ReadinessBanner';
 
 interface LayoutProps {
   activeNavId: string;
@@ -135,7 +136,10 @@ export function Layout({ activeNavId, onSignOut, children }: LayoutProps) {
           })}
         </nav>
       </header>
-      <main className="dt-page-main">{children}</main>
+      <main className="dt-page-main">
+        <ReadinessBanner />
+        {children}
+      </main>
     </div>
   );
 }
