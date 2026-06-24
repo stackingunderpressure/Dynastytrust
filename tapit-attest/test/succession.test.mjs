@@ -1,113 +1,65 @@
-/** Hash-linked key-succession chain: build, verify, tamper detection. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-
 import {
   generateKeypair,
   createSuccessionLink,
   verifySuccessionChain,
-  envelopeId,
 } from '../dist/index.js';
 
-function buildChain(identity, keys) {
-  const links = [];
-  let prev = null;
-  for (let i = 0; i < keys.length - 1; i++) {
-    const link = createSuccessionLink({
-      identity,
-      index: i,
-      prevLink: prev,
-      fromKey: keys[i].publicKey,
-      toKey: keys[i + 1].publicKey,
-      fromPrivateKey: keys[i].privateKey,
-    });
-    links.push(link);
-    prev = envelopeId(link);
-  }
-  return links;
-}
-
-test('a valid chain verifies and yields the current key', () => {
-  const id = 'did:example:dynasty';
-  const keys = [generateKeypair(), generateKeypair(), generateKeypair()];
-  const links = buildChain(id, keys);
-  const result = verifySuccessionChain(links);
+test('a single genesis link verifies and reports the current key', () => {
+  const k1 = generateKeypair();
+  const k2 = generateKeypair();
+  const link = createSuccessionLink({ fromPrivateKey: k1.privateKey, toKey: k2.publicKey });
+  assert.equal(link.prevHash, '');
+  const result = verifySuccessionChain([link]);
   assert.equal(result.valid, true);
-  assert.equal(result.genesisKey, keys[0].publicKey);
-  assert.equal(result.currentKey, keys[2].publicKey);
+  assert.equal(result.currentKey, k2.publicKey);
 });
 
-test('a single-link chain verifies', () => {
-  const keys = [generateKeypair(), generateKeypair()];
-  const links = buildChain('id', keys);
-  assert.equal(verifySuccessionChain(links).valid, true);
-});
-
-test('an empty chain is rejected', () => {
-  assert.equal(verifySuccessionChain([]).valid, false);
-});
-
-test('a reordered chain breaks the hash link', () => {
-  const keys = [generateKeypair(), generateKeypair(), generateKeypair()];
-  const links = buildChain('id', keys);
-  const swapped = [links[1], links[0]];
-  assert.equal(verifySuccessionChain(swapped).valid, false);
-});
-
-test('a link signed by the wrong key is rejected', () => {
-  const id = 'id';
-  const a = generateKeypair();
-  const b = generateKeypair();
-  const impostor = generateKeypair();
-  // Genesis link claims fromKey = a but is signed by an impostor.
-  const bad = createSuccessionLink({
-    identity: id,
-    index: 0,
-    prevLink: null,
-    fromKey: a.publicKey,
-    toKey: b.publicKey,
-    fromPrivateKey: impostor.privateKey,
+test('a three-key hash-linked chain verifies end to end', () => {
+  const k1 = generateKeypair();
+  const k2 = generateKeypair();
+  const k3 = generateKeypair();
+  const link1 = createSuccessionLink({ fromPrivateKey: k1.privateKey, toKey: k2.publicKey });
+  const link2 = createSuccessionLink({
+    fromPrivateKey: k2.privateKey,
+    toKey: k3.publicKey,
+    previous: link1,
   });
-  assert.equal(verifySuccessionChain([bad]).valid, false);
+  const result = verifySuccessionChain([link1, link2]);
+  assert.equal(result.valid, true);
+  assert.equal(result.currentKey, k3.publicKey);
 });
 
-test('genesis link must not reference a prevLink', () => {
-  const a = generateKeypair();
-  const b = generateKeypair();
+test('createSuccessionLink rejects a wrong-key continuation', () => {
+  const k1 = generateKeypair();
+  const k2 = generateKeypair();
+  const stranger = generateKeypair();
+  const link1 = createSuccessionLink({ fromPrivateKey: k1.privateKey, toKey: k2.publicKey });
   assert.throws(() =>
     createSuccessionLink({
-      identity: 'id',
-      index: 0,
-      prevLink: 'deadbeef',
-      fromKey: a.publicKey,
-      toKey: b.publicKey,
-      fromPrivateKey: a.privateKey,
+      fromPrivateKey: stranger.privateKey,
+      toKey: generateKeypair().publicKey,
+      previous: link1,
     }),
   );
 });
 
-test('a chain with a discontinuous key handoff is rejected', () => {
-  const id = 'id';
-  const k0 = generateKeypair();
+test('tampering with an earlier link breaks the chain hash', () => {
   const k1 = generateKeypair();
   const k2 = generateKeypair();
-  const stranger = generateKeypair();
-  const link0 = createSuccessionLink({
-    identity: id,
-    index: 0,
-    prevLink: null,
-    fromKey: k0.publicKey,
-    toKey: k1.publicKey,
-    fromPrivateKey: k0.privateKey,
+  const k3 = generateKeypair();
+  const link1 = createSuccessionLink({ fromPrivateKey: k1.privateKey, toKey: k2.publicKey });
+  const link2 = createSuccessionLink({
+    fromPrivateKey: k2.privateKey,
+    toKey: k3.publicKey,
+    previous: link1,
   });
-  // link1 should hand off FROM k1, but instead starts from a stranger.
-  const link1 = createSuccessionLink({
-    identity: id,
-    index: 1,
-    prevLink: envelopeId(link0),
-    fromKey: stranger.publicKey,
-    toKey: k2.publicKey,
-    fromPrivateKey: stranger.privateKey,
-  });
-  assert.equal(verifySuccessionChain([link0, link1]).valid, false);
+  const tampered = { ...link1, issuedAt: '1999-01-01T00:00:00.000Z' };
+  const result = verifySuccessionChain([tampered, link2]);
+  assert.equal(result.valid, false);
+});
+
+test('an empty chain is invalid', () => {
+  assert.equal(verifySuccessionChain([]).valid, false);
 });

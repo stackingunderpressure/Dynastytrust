@@ -1,202 +1,225 @@
-/**
- * Peer-rebuild recovery foundations.
- *
- * Because every attestation is dual-stored (sync.ts) and self-
- * verifying (its signatures stand on their own), a wallet that loses
- * its local store can rebuild it from peers. The peer does not have
- * to be trusted: every record it returns is re-verified on arrival.
- *
- * v1 ships the DATA FOUNDATIONS -- the signed request/response
- * message shapes and the verify + rebuild functions. The full
- * recovery UX (peer discovery, requiring N corroborating peers,
- * quarantine of suspect records) is a named v1.1 slot
- * (`orchestrateRecovery` below).
- */
-
 import { schnorr } from '@noble/curves/secp256k1';
-import { taggedHash, TAGS } from '../internal/hash.js';
-import { canonicalJson } from '../internal/canonical.js';
-import { fromHex, randomBytes, toHex, utf8 } from '../internal/hex.js';
-import { isPublicKey, isSignature, publicKeyFromPrivate } from './keys.js';
-import { loadVerified, MemoryStore, type StoredAttestation } from './sync.js';
+import type { Attestation } from '../types.js';
+import { bytesToHex, canonicalJson, hexToBytes, isHex, taggedHash, utf8ToBytes } from '../internal.js';
+import { envelopeId } from './envelope.js';
+import { verifyEnvelope } from './keys.js';
+import type { AttestationStore } from './sync.js';
+import { MemoryStore, toRecord } from './sync.js';
 
+/** A signed request asking peers to return their copies of a subject's attestations. */
 export interface RecoveryRequest {
-  readonly type: 'recovery_request';
-  readonly v: 1;
-  /** x-only public key of the wallet asking to be rebuilt. */
-  readonly requester: string;
-  /** Identity / subject whose attestations are being recovered. */
-  readonly subject: string;
-  /** Random hex nonce; the response must echo it. */
-  readonly nonce: string;
-  readonly issuedAt: string;
-  /** Schnorr signature by `requester` over the message digest. */
-  readonly sig: string;
+  v: 1;
+  /** The identity whose history is being rebuilt. */
+  subject: string;
+  /** x-only public key of the requester. */
+  requester: string;
+  issuedAt: string;
+  /** The requester's signature over the request digest. */
+  signature: string;
 }
 
+/** A peer's signed response carrying every attestation it holds for the subject. */
 export interface RecoveryResponse {
-  readonly type: 'recovery_response';
-  readonly v: 1;
+  v: 1;
+  request: RecoveryRequest;
   /** x-only public key of the responding peer. */
-  readonly responder: string;
-  readonly subject: string;
-  /** Echoes the request nonce, binding response to request. */
-  readonly nonce: string;
-  readonly records: readonly StoredAttestation[];
-  readonly issuedAt: string;
-  /** Schnorr signature by `responder` over the message digest. */
-  readonly sig: string;
+  responder: string;
+  issuedAt: string;
+  attestations: Attestation[];
+  /** The responder's signature over the response digest. */
+  signature: string;
 }
 
-function requestDigest(r: Omit<RecoveryRequest, 'sig'>): Uint8Array {
-  return taggedHash(TAGS.recovery, utf8(canonicalJson(r as unknown)));
+type RequestBase = Omit<RecoveryRequest, 'signature'>;
+type ResponseBase = Omit<RecoveryResponse, 'signature'>;
+
+function requestBase(request: RecoveryRequest): RequestBase {
+  return {
+    v: request.v,
+    subject: request.subject,
+    requester: request.requester,
+    issuedAt: request.issuedAt,
+  };
 }
 
-function responseDigest(r: Omit<RecoveryResponse, 'sig'>): Uint8Array {
-  return taggedHash(TAGS.recovery, utf8(canonicalJson(r as unknown)));
+function responseBase(response: RecoveryResponse): ResponseBase {
+  return {
+    v: response.v,
+    request: response.request,
+    responder: response.responder,
+    issuedAt: response.issuedAt,
+    attestations: response.attestations,
+  };
+}
+
+function requestDigest(base: RequestBase): Uint8Array {
+  return taggedHash('tapit/recovery-request', utf8ToBytes(canonicalJson(base)));
+}
+
+function responseDigest(base: ResponseBase): Uint8Array {
+  return taggedHash('tapit/recovery-response', utf8ToBytes(canonicalJson(base)));
 }
 
 /** Build a signed recovery request. */
-export function buildRecoveryRequest(opts: {
+export function buildRecoveryRequest(input: {
   subject: string;
-  privateKey: string | Uint8Array;
-  nonce?: string;
+  requesterPrivateKey: string;
   issuedAt?: string;
 }): RecoveryRequest {
-  const unsigned: Omit<RecoveryRequest, 'sig'> = {
-    type: 'recovery_request',
+  if (!isHex(input.requesterPrivateKey, 32)) {
+    throw new Error('requesterPrivateKey must be 32-byte hex');
+  }
+  const priv = hexToBytes(input.requesterPrivateKey);
+  const base: RequestBase = {
     v: 1,
-    requester: publicKeyFromPrivate(opts.privateKey),
-    subject: opts.subject,
-    nonce: opts.nonce ?? toHex(randomBytes(16)),
-    issuedAt: opts.issuedAt ?? new Date().toISOString(),
+    subject: input.subject,
+    requester: bytesToHex(schnorr.getPublicKey(priv)),
+    issuedAt: input.issuedAt ?? new Date().toISOString(),
   };
-  const priv = typeof opts.privateKey === 'string' ? fromHex(opts.privateKey) : opts.privateKey;
-  return { ...unsigned, sig: toHex(schnorr.sign(requestDigest(unsigned), priv)) };
+  return { ...base, signature: bytesToHex(schnorr.sign(requestDigest(base), priv)) };
 }
 
-/** Verify a recovery request's signature. */
-export function verifyRecoveryRequest(req: RecoveryRequest): boolean {
+/** Verify a recovery request's signature. Never throws. */
+export function verifyRecoveryRequest(request: RecoveryRequest): boolean {
+  if (!isHex(request.signature, 64) || !isHex(request.requester, 32)) return false;
   try {
-    if (!isPublicKey(req.requester) || !isSignature(req.sig)) return false;
-    const { sig, ...unsigned } = req;
-    return schnorr.verify(fromHex(sig), requestDigest(unsigned), fromHex(req.requester));
+    return schnorr.verify(
+      hexToBytes(request.signature),
+      requestDigest(requestBase(request)),
+      hexToBytes(request.requester),
+    );
   } catch {
     return false;
   }
 }
 
-/** Build a signed recovery response that answers `request`. */
-export function buildRecoveryResponse(opts: {
-  request: RecoveryRequest;
-  records: readonly StoredAttestation[];
-  privateKey: string | Uint8Array;
-  issuedAt?: string;
-}): RecoveryResponse {
-  const unsigned: Omit<RecoveryResponse, 'sig'> = {
-    type: 'recovery_response',
-    v: 1,
-    responder: publicKeyFromPrivate(opts.privateKey),
-    subject: opts.request.subject,
-    nonce: opts.request.nonce,
-    records: opts.records,
-    issuedAt: opts.issuedAt ?? new Date().toISOString(),
-  };
-  const priv = typeof opts.privateKey === 'string' ? fromHex(opts.privateKey) : opts.privateKey;
-  return { ...unsigned, sig: toHex(schnorr.sign(responseDigest(unsigned), priv)) };
-}
-
-export interface ResponseVerification {
-  /** Response signature valid AND nonce matches the request. */
-  readonly valid: boolean;
-  /** Records that individually re-verified (well-formed + signed). */
-  readonly verifiedRecords: readonly StoredAttestation[];
-  /** Ids of records that failed re-verification. */
-  readonly rejected: readonly string[];
-  readonly reason?: string;
-}
-
 /**
- * Verify a recovery response against the request that triggered it.
- * The responder signature and nonce echo are checked first; then
- * EVERY returned record is independently re-verified, so a hostile
- * peer cannot smuggle in a forged attestation.
+ * Build a signed recovery response. Pulls every attestation involving the
+ * subject — both where the subject IS the subject and where it is a
+ * signer — out of the responder's store (the dual-storage index).
  */
-export async function verifyRecoveryResponse(
-  request: RecoveryRequest,
-  response: RecoveryResponse,
-): Promise<ResponseVerification> {
-  if (response.nonce !== request.nonce) {
-    return { valid: false, verifiedRecords: [], rejected: [], reason: 'nonce mismatch' };
+export async function buildRecoveryResponse(input: {
+  request: RecoveryRequest;
+  store: AttestationStore;
+  responderPrivateKey: string;
+  issuedAt?: string;
+}): Promise<RecoveryResponse> {
+  if (!verifyRecoveryRequest(input.request)) {
+    throw new Error('recovery request signature is invalid');
   }
-  if (response.subject !== request.subject) {
-    return { valid: false, verifiedRecords: [], rejected: [], reason: 'subject mismatch' };
+  if (!isHex(input.responderPrivateKey, 32)) {
+    throw new Error('responderPrivateKey must be 32-byte hex');
   }
-  let sigOk = false;
-  try {
-    if (isPublicKey(response.responder) && isSignature(response.sig)) {
-      const { sig, ...unsigned } = response;
-      sigOk = schnorr.verify(
-        fromHex(sig),
-        responseDigest(unsigned),
-        fromHex(response.responder),
-      );
-    }
-  } catch {
-    sigOk = false;
+  const priv = hexToBytes(input.responderPrivateKey);
+  const subject = input.request.subject;
+  const found = [
+    ...(await input.store.bySubject(subject)),
+    ...(await input.store.bySigner(subject)),
+  ];
+  const seen = new Set<string>();
+  const attestations: Attestation[] = [];
+  for (const record of found) {
+    if (seen.has(record.id)) continue;
+    seen.add(record.id);
+    attestations.push(record.envelope);
   }
-  if (!sigOk) {
-    return { valid: false, verifiedRecords: [], rejected: [], reason: 'bad responder signature' };
-  }
+  const base: ResponseBase = {
+    v: 1,
+    request: input.request,
+    responder: bytesToHex(schnorr.getPublicKey(priv)),
+    issuedAt: input.issuedAt ?? new Date().toISOString(),
+    attestations,
+  };
+  return { ...base, signature: bytesToHex(schnorr.sign(responseDigest(base), priv)) };
+}
 
-  const verifiedRecords: StoredAttestation[] = [];
-  const rejected: string[] = [];
-  for (const record of response.records) {
-    // Re-verify by round-tripping through a throwaway store.
-    const scratch = new MemoryStore();
-    await scratch.put(record);
-    const ok = await loadVerified(scratch, record.id);
-    if (ok && ok.envelope.subject === request.subject) {
-      verifiedRecords.push(ok);
-    } else {
-      rejected.push(record.id);
-    }
-  }
-  return { valid: true, verifiedRecords, rejected };
+export interface RecoveryVerifyResult {
+  /** True when the response envelope and its embedded request are authentic. */
+  valid: boolean;
+  /** Only the self-verifying attestations from the response. */
+  attestations: Attestation[];
+  errors: string[];
 }
 
 /**
- * Rebuild a subject's attestation set from one or more verified
- * recovery responses, de-duplicated by id, into a fresh store.
+ * Verify a recovery response. The response envelope is checked, and every
+ * attestation inside is checked independently — each one is
+ * self-verifying, so a tampered or unsigned attestation is dropped and
+ * the rebuilt wallet stays trustless regardless of peer honesty.
+ */
+export function verifyRecoveryResponse(response: RecoveryResponse): RecoveryVerifyResult {
+  const errors: string[] = [];
+  if (!isHex(response.signature, 64) || !isHex(response.responder, 32)) {
+    return { valid: false, attestations: [], errors: ['malformed responder signature'] };
+  }
+  let valid = true;
+  let responderOk = false;
+  try {
+    responderOk = schnorr.verify(
+      hexToBytes(response.signature),
+      responseDigest(responseBase(response)),
+      hexToBytes(response.responder),
+    );
+  } catch {
+    responderOk = false;
+  }
+  if (!responderOk) {
+    errors.push('responder signature is invalid');
+    valid = false;
+  }
+  if (!verifyRecoveryRequest(response.request)) {
+    errors.push('embedded recovery request signature is invalid');
+    valid = false;
+  }
+  const attestations: Attestation[] = [];
+  for (const attestation of response.attestations) {
+    if (verifyEnvelope(attestation).valid) {
+      attestations.push(attestation);
+    } else {
+      errors.push(`dropped tampered or unsigned attestation ${envelopeId(attestation)}`);
+    }
+  }
+  return { valid, attestations, errors };
+}
+
+export interface RebuildResult {
+  store: MemoryStore;
+  attestations: Attestation[];
+  errors: string[];
+}
+
+/**
+ * Rebuild a wallet from peer recovery responses. Every returned
+ * attestation is self-verifying, so the rebuilt wallet is trustless — no
+ * need to trust any individual peer didn't tamper. Honest limit: this
+ * recovers SHARED attestations (the reputation-bearing ones); purely
+ * private, never-shared attestations rely on the encrypted backup.
  */
 export async function rebuildFromResponses(
-  request: RecoveryRequest,
-  responses: readonly RecoveryResponse[],
-): Promise<{ store: MemoryStore; recovered: number; rejected: readonly string[] }> {
+  responses: RecoveryResponse[],
+): Promise<RebuildResult> {
   const store = new MemoryStore();
-  const rejected: string[] = [];
-  let recovered = 0;
+  const errors: string[] = [];
+  const merged = new Map<string, Attestation>();
   for (const response of responses) {
-    const result = await verifyRecoveryResponse(request, response);
-    rejected.push(...result.rejected);
-    if (!result.valid) continue;
-    for (const record of result.verifiedRecords) {
-      if (!(await store.get(record.id))) {
-        await store.put(record);
-        recovered++;
-      }
+    const result = verifyRecoveryResponse(response);
+    errors.push(...result.errors);
+    for (const attestation of result.attestations) {
+      merged.set(envelopeId(attestation), attestation);
     }
   }
-  return { store, recovered, rejected };
+  for (const attestation of merged.values()) {
+    await store.put(toRecord(attestation));
+  }
+  return { store, attestations: [...merged.values()], errors };
 }
 
 /**
- * v1.1+ SLOT -- full recovery orchestration.
- *
- * Will add peer discovery, a quorum of corroborating peers before a
- * record is accepted, and quarantine of records only one peer holds.
- * v1 ships the message shapes + verification above.
+ * v1.1 SLOT — recovery orchestration: peer discovery, requiring N
+ * corroborating peers before trusting a record, quarantine of
+ * single-source attestations. v1 ships the signed request/response
+ * message shapes plus verify + rebuild.
  */
-export function orchestrateRecovery(_request: RecoveryRequest): never {
-  throw new Error('orchestrateRecovery: v1.1 slot, not implemented in v1');
+export function orchestrateRecovery(): never {
+  throw new Error('orchestrateRecovery is a v1.1 slot — not implemented in v1');
 }

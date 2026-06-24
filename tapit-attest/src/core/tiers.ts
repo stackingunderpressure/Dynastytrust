@@ -1,101 +1,113 @@
-/**
- * The three trust tiers -- expressed purely as configuration.
- *
- * routine / notable / high-stakes are NOT three code paths. They are
- * one struct of dials. `evaluateTier` runs the same logic for every
- * tier; only the numbers differ. If a tier ever needs its own branch,
- * that is a bug -- add a dial instead.
- *
- * The dials:
- *   requiredSigners    minimum distinct valid signatures
- *   minSignerWeight    minimum summed signer weight (see weighting.ts)
- *   finalityWindowMs   how long an attestation stays `pending` before
- *                      it becomes `final` (see revocation.ts)
- *   requireCoSign      true => a single signer is never enough
- */
-
-export type TierName = 'routine' | 'notable' | 'high_stakes';
+import type { Attestation, TierName } from '../types.js';
 
 export interface TierConfig {
-  readonly name: TierName;
-  readonly requiredSigners: number;
-  readonly minSignerWeight: number;
-  readonly finalityWindowMs: number;
-  readonly requireCoSign: boolean;
+  /** Minimum count of distinct signers. */
+  requiredSigners: number;
+  /** Minimum summed weight of the distinct signers. */
+  minSignerWeight: number;
+  /** How long an attestation stays `pending` before it can be `final`. */
+  finalityWindowMs: number;
+  /** Whether a lone signer is ever enough. */
+  requireCoSign: boolean;
 }
 
-const HOUR = 3_600_000;
-const DAY = 24 * HOUR;
+const DAY = 86_400_000;
 
-/** Default dial settings. Callers may override per-attestation. */
+/** The three tiers as configuration dials on one primitive. */
 export const DEFAULT_TIERS: Record<TierName, TierConfig> = {
   routine: {
-    name: 'routine',
     requiredSigners: 1,
-    minSignerWeight: 1,
-    finalityWindowMs: HOUR,
+    minSignerWeight: 0,
+    finalityWindowMs: DAY,
     requireCoSign: false,
   },
   notable: {
-    name: 'notable',
     requiredSigners: 2,
-    minSignerWeight: 3,
-    finalityWindowMs: DAY,
+    minSignerWeight: 10,
+    finalityWindowMs: 7 * DAY,
     requireCoSign: true,
   },
   high_stakes: {
-    name: 'high_stakes',
     requiredSigners: 3,
-    minSignerWeight: 6,
-    finalityWindowMs: 7 * DAY,
+    minSignerWeight: 100,
+    finalityWindowMs: 30 * DAY,
     requireCoSign: true,
   },
 };
 
-export function isTierName(v: unknown): v is TierName {
-  return v === 'routine' || v === 'notable' || v === 'high_stakes';
+/** Resolve a tier's config, with optional per-call overrides. */
+export function tierConfig(tier: TierName, overrides: Partial<TierConfig> = {}): TierConfig {
+  return { ...DEFAULT_TIERS[tier], ...overrides };
 }
 
-export function tierConfig(tier: TierName, overrides?: Partial<TierConfig>): TierConfig {
-  return { ...DEFAULT_TIERS[tier], ...overrides, name: tier };
-}
+export type TierStatus = 'pending' | 'final' | 'insufficient';
 
 export interface TierEvaluation {
-  readonly ok: boolean;
-  readonly signerCount: number;
-  readonly totalWeight: number;
-  readonly reasons: readonly string[];
+  tier: TierName;
+  status: TierStatus;
+  distinctSigners: number;
+  summedWeight: number;
+  /** Human-readable reasons the attestation is not yet `final`. */
+  reasons: string[];
+}
+
+export interface EvaluateOptions {
+  /** Evaluation time, ms since epoch; defaults to now. */
+  now?: number;
+  /** Per-signer weight lookup; missing signers count as weight 0. */
+  signerWeights?: Record<string, number>;
+  /** Config overrides applied on top of the tier defaults. */
+  config?: Partial<TierConfig>;
 }
 
 /**
- * Check a set of valid signers against a tier's dials.
- *
- * `signerWeights` is the already-verified set of signers mapped to
- * their weight. Signature verification happens upstream; this is
- * pure arithmetic over the dials so it is trivially recomputable.
+ * Evaluate an attestation against its tier. The logic is identical for
+ * all three tiers — the tier only selects which config dials apply. If
+ * this function ever needs a per-tier branch, that is a bug
+ * (ATTESTATION_PRIMITIVE_SPEC §3).
  */
-export function evaluateTier(
-  config: TierConfig,
-  signerWeights: ReadonlyMap<string, number>,
-): TierEvaluation {
-  const signerCount = signerWeights.size;
-  let totalWeight = 0;
-  for (const w of signerWeights.values()) totalWeight += w;
+export function evaluateTier(a: Attestation, options: EvaluateOptions = {}): TierEvaluation {
+  const cfg = tierConfig(a.tier, options.config);
+  const weights = options.signerWeights ?? {};
+  const now = options.now ?? Date.now();
+  const distinct = [...new Set(a.signatures.map((s) => s.signer))];
+  const summedWeight = distinct.reduce((sum, signer) => sum + (weights[signer] ?? 0), 0);
 
   const reasons: string[] = [];
-  if (signerCount < config.requiredSigners) {
-    reasons.push(
-      `needs ${config.requiredSigners} signers, has ${signerCount}`,
-    );
+  if (distinct.length < cfg.requiredSigners) {
+    reasons.push(`needs ${cfg.requiredSigners} signer(s), has ${distinct.length}`);
   }
-  if (totalWeight < config.minSignerWeight) {
-    reasons.push(
-      `needs weight ${config.minSignerWeight}, has ${totalWeight}`,
-    );
+  if (summedWeight < cfg.minSignerWeight) {
+    reasons.push(`needs signer weight ${cfg.minSignerWeight}, has ${summedWeight}`);
   }
-  if (config.requireCoSign && signerCount < 2) {
-    reasons.push('tier requires a co-signer');
+  if (cfg.requireCoSign && distinct.length < 2) {
+    reasons.push('tier requires co-signing (2+ distinct signers)');
+  }
+  if (reasons.length > 0) {
+    return {
+      tier: a.tier,
+      status: 'insufficient',
+      distinctSigners: distinct.length,
+      summedWeight,
+      reasons,
+    };
   }
 
-  return { ok: reasons.length === 0, signerCount, totalWeight, reasons };
+  const remaining = cfg.finalityWindowMs - (now - Date.parse(a.issuedAt));
+  if (remaining > 0) {
+    return {
+      tier: a.tier,
+      status: 'pending',
+      distinctSigners: distinct.length,
+      summedWeight,
+      reasons: [`within finality window (${remaining}ms remaining)`],
+    };
+  }
+  return {
+    tier: a.tier,
+    status: 'final',
+    distinctSigners: distinct.length,
+    summedWeight,
+    reasons: [],
+  };
 }

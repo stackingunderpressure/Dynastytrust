@@ -1,65 +1,53 @@
-/**
- * Signer weighting.
- *
- * Not every signer counts equally. A weight table maps a public key
- * to a weight; an attestation's weight is the sum over its VALID
- * signers. The computation is deliberately pure and recomputable --
- * given the same envelope and table, anyone derives the same number,
- * with no hidden server state. This is what `evaluateTier` consumes.
- *
- * v1 ships the recomputable sum. The richer engine -- recency decay,
- * corroboration graphs, per-kind weighting -- is a named v1.1 slot
- * (`WeightingPolicy` / `advancedWeighting` below).
- */
+import type { Attestation, AttestationKind } from '../types.js';
+import { verifyEnvelope } from './keys.js';
 
-import { verifyEnvelope } from './sign.js';
-import type { AttestationEnvelope } from './envelope.js';
-
-/** Public key -> weight. Keys absent from the table default to 1. */
-export type WeightTable = ReadonlyMap<string, number>;
-
-export interface WeightResult {
-  readonly totalWeight: number;
-  /** Valid signer -> weight applied. */
-  readonly perSigner: ReadonlyMap<string, number>;
-  /** Signers whose signature did not verify -- contribute nothing. */
-  readonly ignoredSigners: readonly string[];
+export interface WeightInput {
+  /** The subject whose weight is being computed. */
+  subject: string;
+  /** Attestations to draw from; only those about `subject` are counted. */
+  attestations: Attestation[];
+  /** Per-signer weight lookup; missing signers contribute 0. */
+  signerWeights: Record<string, number>;
+  /** Count only signers whose signature actually verifies. Default true. */
+  requireValidSignature?: boolean;
 }
 
 /**
- * Compute an attestation's weight from a weight table. Only signers
- * whose signature verifies contribute. Unknown signers default to a
- * weight of 1 so an attestation is never silently worth zero.
+ * v1 weighting — a recomputable sum. A subject's weight is the summed
+ * weight of every DISTINCT signer who has vouched for that subject across
+ * the given attestations. Recomputable: identical inputs always yield the
+ * identical number, nothing cached or path-dependent. The richer engine
+ * is the v1.1 slot below.
  */
-export function computeWeight(
-  env: AttestationEnvelope,
-  table: WeightTable = new Map(),
-): WeightResult {
-  const verification = verifyEnvelope(env);
-  const perSigner = new Map<string, number>();
-  let totalWeight = 0;
-  for (const signer of verification.validSigners) {
-    const w = table.get(signer) ?? 1;
-    perSigner.set(signer, w);
-    totalWeight += w;
+export function computeWeight(input: WeightInput): number {
+  const requireValid = input.requireValidSignature ?? true;
+  const signers = new Set<string>();
+  for (const attestation of input.attestations) {
+    if (attestation.subject !== input.subject) continue;
+    if (requireValid) {
+      for (const result of verifyEnvelope(attestation).signers) {
+        if (result.valid) signers.add(result.signer);
+      }
+    } else {
+      for (const s of attestation.signatures) signers.add(s.signer);
+    }
   }
-  return {
-    totalWeight,
-    perSigner,
-    ignoredSigners: verification.invalidSigners,
-  };
+  let total = 0;
+  for (const signer of signers) total += input.signerWeights[signer] ?? 0;
+  return total;
 }
 
 /**
- * v1.1+ SLOT -- the full weighting engine.
- *
- * Will fold in recency decay, corroboration-graph centrality, and
- * per-kind weighting. v1 callers should use `computeWeight`.
+ * v1.1 SLOT — the full weighting engine: recency decay,
+ * corroboration-graph centrality, per-kind weighting. v1 ships
+ * `computeWeight` (the recomputable sum) only.
  */
 export interface WeightingPolicy {
-  weightFor(signer: string, env: AttestationEnvelope): number;
+  recencyHalfLifeMs?: number;
+  perKindMultiplier?: Partial<Record<AttestationKind, number>>;
+  corroborationBonus?: number;
 }
 
 export function advancedWeighting(_policy: WeightingPolicy): never {
-  throw new Error('advancedWeighting: v1.1 slot, not implemented in v1');
+  throw new Error('advancedWeighting is a v1.1 slot — not implemented in v1');
 }

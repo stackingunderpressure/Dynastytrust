@@ -1,82 +1,77 @@
-/** Revocation state machine: pending -> final, pending -> void. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-
 import {
   generateKeypair,
-  identityAttestation,
   signEnvelope,
+  credentialAttestation,
   envelopeId,
   createRevocation,
-  revocationTarget,
+  isRevocation,
+  verifyEnvelope,
   RevocationLedger,
+  repudiate,
 } from '../dist/index.js';
 
-function attestation(tier) {
-  const kp = generateKeypair();
-  const draft = identityAttestation({ subject: 's', tier, fields: { k: 1 } });
-  return signEnvelope(draft, kp.privateKey);
-}
+const targetId = () => {
+  const signed = signEnvelope(
+    credentialAttestation({ subject: 'did:example:ada', tier: 'routine', fields: { x: 1 } }),
+    generateKeypair().privateKey,
+  );
+  return envelopeId(signed);
+};
 
-test('a fresh attestation is pending', () => {
-  const env = attestation('routine');
-  const id = envelopeId(env);
-  const ledger = new RevocationLedger();
-  ledger.register(id, env.tier, env.issuedAt);
-  assert.equal(ledger.statusOf(id, new Date(env.issuedAt)), 'pending');
+test('a revocation is a signed meta attestation', () => {
+  const revocation = createRevocation({
+    targetId: targetId(),
+    reason: 'issued in error',
+    revokerPrivateKey: generateKeypair().privateKey,
+  });
+  assert.equal(revocation.kind, 'meta');
+  assert.equal(isRevocation(revocation), true);
+  assert.equal(verifyEnvelope(revocation).valid, true);
 });
 
-test('pending becomes final after the finality window', () => {
-  const env = attestation('routine'); // routine window = 1 hour
-  const id = envelopeId(env);
+test('the ledger tracks pending → final and reports a target as revoked', () => {
+  const id = targetId();
   const ledger = new RevocationLedger();
-  ledger.register(id, env.tier, env.issuedAt);
-  const later = new Date(Date.parse(env.issuedAt) + 2 * 3_600_000);
-  assert.equal(ledger.statusOf(id, later), 'final');
-});
-
-test('a revocation within the window voids the attestation', () => {
-  const env = attestation('high_stakes'); // long window
-  const id = envelopeId(env);
-  const ledger = new RevocationLedger();
-  ledger.register(id, env.tier, env.issuedAt);
-
-  const revoker = generateKeypair();
   const revocation = createRevocation({
     targetId: id,
-    subject: env.subject,
-    privateKey: revoker.privateKey,
-    reason: 'key compromised',
+    reason: 'superseded',
+    revokerPrivateKey: generateKeypair().privateKey,
   });
-  assert.equal(revocationTarget(revocation), id);
-
-  const now = new Date(Date.parse(env.issuedAt) + 1000);
-  assert.equal(ledger.applyRevocation(revocation, now), 'void');
-  assert.equal(ledger.statusOf(id, now), 'void');
+  const revId = ledger.record(revocation);
+  assert.equal(ledger.revocationState(revId), 'pending');
+  assert.equal(ledger.isRevoked(id), true);
+  ledger.finalize(revId);
+  assert.equal(ledger.revocationState(revId), 'final');
+  assert.equal(ledger.targetState(id), 'final');
 });
 
-test('a final attestation cannot be revoked', () => {
-  const env = attestation('routine');
-  const id = envelopeId(env);
+test('voiding a revocation clears the target', () => {
+  const id = targetId();
   const ledger = new RevocationLedger();
-  ledger.register(id, env.tier, env.issuedAt);
-
-  const revoker = generateKeypair();
-  const revocation = createRevocation({
-    targetId: id,
-    subject: env.subject,
-    privateKey: revoker.privateKey,
-  });
-  const tooLate = new Date(Date.parse(env.issuedAt) + 10 * 3_600_000);
-  assert.throws(() => ledger.applyRevocation(revocation, tooLate));
+  const revId = ledger.record(
+    createRevocation({
+      targetId: id,
+      reason: 'withdrawn',
+      revokerPrivateKey: generateKeypair().privateKey,
+    }),
+  );
+  ledger.void(revId);
+  assert.equal(ledger.revocationState(revId), 'void');
+  assert.equal(ledger.isRevoked(id), false);
+  assert.throws(() => ledger.finalize(revId), /void/);
 });
 
-test('idsByStatus partitions the ledger', () => {
-  const env = attestation('high_stakes');
-  const id = envelopeId(env);
+test('the ledger rejects a non-revocation attestation', () => {
   const ledger = new RevocationLedger();
-  ledger.register(id, env.tier, env.issuedAt);
-  const now = new Date(Date.parse(env.issuedAt) + 1000);
-  assert.deepEqual(ledger.idsByStatus('pending', now), [id]);
-  assert.deepEqual(ledger.idsByStatus('void', now), []);
+  const notRevocation = signEnvelope(
+    credentialAttestation({ subject: 'x', tier: 'routine', fields: {} }),
+    generateKeypair().privateKey,
+  );
+  assert.throws(() => ledger.record(notRevocation), /not a revocation/);
+});
+
+test('repudiate is a v1.1 slot and throws', () => {
+  assert.throws(() => repudiate(), /v1\.1 slot/);
 });

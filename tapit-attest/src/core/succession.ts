@@ -1,157 +1,146 @@
+import { schnorr } from '@noble/curves/secp256k1';
+import type { Signature } from '../types.js';
+import { bytesToHex, canonicalJson, hexToBytes, isHex, taggedHash, utf8ToBytes } from '../internal.js';
+
 /**
- * The hash-linked key-succession chain.
- *
- * Keys rotate -- a signer loses a device, upgrades hardware, or
- * pre-emptively hands control to a successor. A succession chain is
- * an ordered list of `meta` attestations, each one signed by the
- * RETIRING key, declaring "key A is succeeded by key B". Each link
- * commits to the id of the previous link, so the chain is
- * tamper-evident: rewrite any link and every later `prevLink`
- * breaks.
- *
- * This lets a verifier start from a long-known genesis key and walk
- * forward to the current key without trusting any server.
+ * One link in a key-succession chain. Each link retires `fromKey` in
+ * favour of `toKey` and references the hash of the previous link's
+ * record — a hash-linked chain (K1 → K2 → K3). Altering or removing an
+ * old link breaks every hash after it: tamper-evident lineage.
  */
-
-import {
-  attestationDigest,
-  envelopeId,
-  type AttestationEnvelope,
-} from './envelope.js';
-import { findLeafValue } from './field-tree.js';
-import { metaAttestation } from './builders.js';
-import { signEnvelope, verifySignature } from './sign.js';
-import { isPublicKey } from './keys.js';
-import { toHex } from '../internal/hex.js';
-import type { TierName } from './tiers.js';
-
-/** A succession link is just a `meta` / key_succession attestation. */
-export type SuccessionLink = AttestationEnvelope;
-
-export interface BuildLinkOptions {
-  /** Stable identity id the chain belongs to (the same across links). */
-  readonly identity: string;
-  /** 0-based position in the chain. */
-  readonly index: number;
-  /** envelopeId of the previous link, or null for the genesis link. */
-  readonly prevLink: string | null;
-  /** x-only public key being retired (must match the signing key). */
-  readonly fromKey: string;
-  /** x-only public key taking over. */
-  readonly toKey: string;
-  /** Private key for `fromKey` -- proves the retiring key authorized it. */
-  readonly fromPrivateKey: string | Uint8Array;
-  readonly tier?: TierName;
-  readonly issuedAt?: string;
-}
-
-/** Build and sign one succession link. */
-export function createSuccessionLink(opts: BuildLinkOptions): SuccessionLink {
-  if (!isPublicKey(opts.fromKey) || !isPublicKey(opts.toKey)) {
-    throw new Error('fromKey and toKey must be x-only public keys');
-  }
-  if (opts.index < 0 || !Number.isInteger(opts.index)) {
-    throw new Error('index must be a non-negative integer');
-  }
-  if (opts.index === 0 && opts.prevLink !== null) {
-    throw new Error('genesis link must have prevLink = null');
-  }
-  if (opts.index > 0 && !opts.prevLink) {
-    throw new Error('non-genesis link must reference a prevLink');
-  }
-  const draft = metaAttestation({
-    op: 'key_succession',
-    subject: opts.identity,
-    tier: opts.tier ?? 'high_stakes',
-    issuedAt: opts.issuedAt,
-    fields: {
-      index: opts.index,
-      prevLink: opts.prevLink ?? '',
-      fromKey: opts.fromKey,
-      toKey: opts.toKey,
-    },
-  });
-  return signEnvelope(draft, opts.fromPrivateKey, { role: 'retiring_key' });
-}
-
-export interface ChainVerification {
-  readonly valid: boolean;
-  /** The current active key once the chain is walked, if valid. */
-  readonly currentKey: string | null;
-  /** The genesis (oldest) key, if valid. */
-  readonly genesisKey: string | null;
-  readonly reason?: string;
-}
-
-function readLink(link: SuccessionLink): {
-  index: number;
-  prevLink: string;
+export interface SuccessionLink {
+  v: 1;
+  /** x-only public key being retired. */
   fromKey: string;
+  /** x-only public key taking over. */
   toKey: string;
-} | null {
-  const op = findLeafValue(link.claim, ['claim', 'op']);
-  if (op !== 'key_succession') return null;
-  const index = findLeafValue(link.claim, ['claim', 'payload', 'index']);
-  const prevLink = findLeafValue(link.claim, ['claim', 'payload', 'prevLink']);
-  const fromKey = findLeafValue(link.claim, ['claim', 'payload', 'fromKey']);
-  const toKey = findLeafValue(link.claim, ['claim', 'payload', 'toKey']);
-  if (
-    typeof index !== 'number' ||
-    typeof prevLink !== 'string' ||
-    typeof fromKey !== 'string' ||
-    typeof toKey !== 'string'
-  ) {
-    return null;
+  /** Hex hash of the previous link's record; '' for the genesis link. */
+  prevHash: string;
+  /** ISO 8601. */
+  issuedAt: string;
+  /** At minimum the retiring key signs; the new key / vouchers may co-sign. */
+  signatures: Signature[];
+}
+
+type SuccessionBase = Pick<SuccessionLink, 'v' | 'fromKey' | 'toKey' | 'prevHash' | 'issuedAt'>;
+
+function baseOf(link: SuccessionLink): SuccessionBase {
+  return {
+    v: link.v,
+    fromKey: link.fromKey,
+    toKey: link.toKey,
+    prevHash: link.prevHash,
+    issuedAt: link.issuedAt,
+  };
+}
+
+/** The digest the retiring key (and any co-signers) sign. */
+function linkDigest(base: SuccessionBase): Uint8Array {
+  return taggedHash('tapit/succession', utf8ToBytes(canonicalJson(base)));
+}
+
+/** Hash of a complete link record — what the *next* link references as `prevHash`. */
+export function successionLinkHash(link: SuccessionLink): string {
+  return bytesToHex(taggedHash('tapit/succession-record', utf8ToBytes(canonicalJson(link))));
+}
+
+export interface SuccessionInput {
+  /** Private key of the key being retired — it must sign the link. */
+  fromPrivateKey: string;
+  /** x-only public key taking over. */
+  toKey: string;
+  /** The previous link, omitted for the genesis link. */
+  previous?: SuccessionLink;
+  /** ISO 8601; defaults to now. */
+  issuedAt?: string;
+  /** Optional co-signers (the new key, vouchers) — private keys. */
+  coSignPrivateKeys?: string[];
+}
+
+/** Create a signed succession link. */
+export function createSuccessionLink(input: SuccessionInput): SuccessionLink {
+  if (!isHex(input.fromPrivateKey, 32)) throw new Error('fromPrivateKey must be 32-byte hex');
+  if (!isHex(input.toKey, 32)) throw new Error('toKey must be 32-byte hex');
+  const fromPriv = hexToBytes(input.fromPrivateKey);
+  const fromKey = bytesToHex(schnorr.getPublicKey(fromPriv));
+  if (input.previous && input.previous.toKey !== fromKey) {
+    throw new Error("fromKey must equal the previous link's toKey");
   }
-  return { index, prevLink, fromKey, toKey };
+  const base: SuccessionBase = {
+    v: 1,
+    fromKey,
+    toKey: input.toKey,
+    prevHash: input.previous ? successionLinkHash(input.previous) : '',
+    issuedAt: input.issuedAt ?? new Date().toISOString(),
+  };
+  const digest = linkDigest(base);
+  const signatures: Signature[] = [
+    { signer: fromKey, sig: bytesToHex(schnorr.sign(digest, fromPriv)) },
+  ];
+  for (const coSignKey of input.coSignPrivateKeys ?? []) {
+    if (!isHex(coSignKey, 32)) throw new Error('coSignPrivateKey must be 32-byte hex');
+    const coPriv = hexToBytes(coSignKey);
+    const signer = bytesToHex(schnorr.getPublicKey(coPriv));
+    if (!signatures.some((s) => s.signer === signer)) {
+      signatures.push({ signer, sig: bytesToHex(schnorr.sign(digest, coPriv)) });
+    }
+  }
+  return { ...base, signatures };
+}
+
+export interface SuccessionVerifyResult {
+  valid: boolean;
+  /** The active key at the end of a valid chain; null if the chain is invalid. */
+  currentKey: string | null;
+  errors: string[];
+}
+
+function safeVerify(sig: string, digest: Uint8Array, publicKey: string): boolean {
+  if (!isHex(sig, 64) || !isHex(publicKey, 32)) return false;
+  try {
+    return schnorr.verify(hexToBytes(sig), digest, hexToBytes(publicKey));
+  } catch {
+    return false;
+  }
 }
 
 /**
- * Verify a full succession chain in order. Checks, for every link:
- *  - it is a meta / key_succession attestation
- *  - its index equals its position
- *  - its prevLink equals the previous link's envelopeId
- *  - it is signed by the key it declares as `fromKey`
- *  - its `fromKey` equals the previous link's `toKey`
- *  - the claimRoot still matches the signed digest
+ * Verify a key-succession chain end to end: every link is signed by its
+ * retiring key, every co-signature is valid, every `prevHash` matches the
+ * prior link's record, and each link's `fromKey` is the prior link's
+ * `toKey`. This is what proves reputation earned under an old key carries
+ * forward to a new one.
  */
-export function verifySuccessionChain(links: readonly SuccessionLink[]): ChainVerification {
-  if (links.length === 0) {
-    return { valid: false, currentKey: null, genesisKey: null, reason: 'empty chain' };
+export function verifySuccessionChain(chain: SuccessionLink[]): SuccessionVerifyResult {
+  const errors: string[] = [];
+  if (chain.length === 0) {
+    return { valid: false, currentKey: null, errors: ['empty succession chain'] };
   }
-
-  let prevId: string | null = null;
-  let prevToKey: string | null = null;
-  let genesisKey: string | null = null;
-
-  for (let i = 0; i < links.length; i++) {
-    const link = links[i];
-    const parsed = readLink(link);
-    if (!parsed) {
-      return { valid: false, currentKey: null, genesisKey, reason: `link ${i}: not a key_succession attestation` };
+  for (let i = 0; i < chain.length; i++) {
+    const link = chain[i];
+    const digest = linkDigest(baseOf(link));
+    const fromSig = link.signatures.find((s) => s.signer === link.fromKey);
+    if (!fromSig) {
+      errors.push(`link ${i}: not signed by the retiring key`);
+    } else if (!safeVerify(fromSig.sig, digest, link.fromKey)) {
+      errors.push(`link ${i}: invalid retiring-key signature`);
     }
-    if (parsed.index !== i) {
-      return { valid: false, currentKey: null, genesisKey, reason: `link ${i}: index mismatch` };
+    for (const s of link.signatures) {
+      if (!safeVerify(s.sig, digest, s.signer)) {
+        errors.push(`link ${i}: invalid signature from ${s.signer}`);
+      }
     }
-    const expectedPrev = prevId ?? '';
-    if (parsed.prevLink !== expectedPrev) {
-      return { valid: false, currentKey: null, genesisKey, reason: `link ${i}: broken prevLink` };
+    if (i === 0) {
+      if (link.prevHash !== '') errors.push('link 0: genesis link must have an empty prevHash');
+    } else {
+      if (link.prevHash !== successionLinkHash(chain[i - 1])) {
+        errors.push(`link ${i}: prevHash does not match the previous link`);
+      }
+      if (link.fromKey !== chain[i - 1].toKey) {
+        errors.push(`link ${i}: fromKey does not match the previous link's toKey`);
+      }
     }
-    const signedByFromKey = link.signatures.find((s) => s.signer === parsed.fromKey);
-    if (!signedByFromKey || !verifySignature(link, signedByFromKey)) {
-      return { valid: false, currentKey: null, genesisKey, reason: `link ${i}: not signed by retiring key` };
-    }
-    // Guard against a tampered claim tree -- the digest must still bind.
-    if (link.anchor && link.anchor.digest !== toHex(attestationDigest(link))) {
-      return { valid: false, currentKey: null, genesisKey, reason: `link ${i}: anchor digest mismatch` };
-    }
-    if (i > 0 && parsed.fromKey !== prevToKey) {
-      return { valid: false, currentKey: null, genesisKey, reason: `link ${i}: fromKey does not match previous toKey` };
-    }
-    if (i === 0) genesisKey = parsed.fromKey;
-    prevId = envelopeId(link);
-    prevToKey = parsed.toKey;
   }
-
-  return { valid: true, currentKey: prevToKey, genesisKey };
+  const valid = errors.length === 0;
+  return { valid, currentKey: valid ? chain[chain.length - 1].toKey : null, errors };
 }
