@@ -4,6 +4,7 @@ import { tipHeight } from '../lib/chain';
 import { colors } from '../theme';
 import { Button } from '../components/ui';
 import { useToast } from '../components/toast';
+import { GroupReadiness } from '../components/GroupReadiness';
 
 /**
  * Reminders.tsx -- role-aware legal + governance reminders.
@@ -451,6 +452,8 @@ export default function Reminders() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 880 }}>
       <Toggle enabled={enabled} onToggle={toggle} />
+
+      <GroupReadiness />
 
       {reminders.length === 0 ? (
         <div
