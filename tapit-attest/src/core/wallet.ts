@@ -39,6 +39,11 @@ import {
   type RecoveryRequest,
   type RecoveryResponse,
 } from './recovery.js';
+import {
+  answerSignInChallenge,
+  type SignInAttestation,
+  type SignInChallenge,
+} from './sign-in.js';
 
 /**
  * The serializable whole of a wallet — keys, key history, and every
@@ -177,6 +182,25 @@ export class Wallet {
    */
   signDigest(digest: Uint8Array): string {
     return signDigestPrimitive(digest, this.#keypair.privateKey);
+  }
+
+  // --- sign-in by attestation (TA-1) ---
+
+  /**
+   * Prove control of the active key by answering a relying party's
+   * sign-in challenge. The private key never leaves the wallet — only
+   * the resulting attestation (the active public key plus a Schnorr
+   * signature over the challenge digest) travels. The relying party
+   * verifies it with `verifySignIn` against the exact challenge it
+   * issued. This is the seam an outside app (e.g. DynastyTrust) uses to
+   * authenticate a person by their key instead of a password. See
+   * core/sign-in.ts for the security model.
+   */
+  signIn(challenge: SignInChallenge): SignInAttestation {
+    return answerSignInChallenge({
+      challenge,
+      signerPrivateKey: this.#keypair.privateKey,
+    });
   }
 
   // --- peer encryption (NIP-44 v2) ---
