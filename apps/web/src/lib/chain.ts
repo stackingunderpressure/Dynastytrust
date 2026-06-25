@@ -32,12 +32,15 @@ export async function tipHeight(network: Network): Promise<number> {
 }
 
 /**
- * Convert a BIP65/BIP68-style "after(N)" block count into a
- * human-readable countdown relative to the current tip.
- * `afterBlocks` here is the absolute block height the policy uses
- * (in our schema recovery_after / inheritance_after are stored as
- * block counts measured from the vault's first confirmed spend,
- * but the UI treats them as countdowns-from-now for simplicity).
+ * Convert a "blocks from now" count (the caller must already have
+ * subtracted the current chain tip) into a human-readable countdown.
+ * Block time is ~10 minutes.
+ *
+ * Schema note: recovery_after / inheritance_after / protector_after
+ * are stored as ABSOLUTE CLTV block heights (BIP65 /
+ * OP_CHECKLOCKTIMEVERIFY) -- NOT relative CSV offsets and NOT
+ * measured from the vault's first spend. Subtract the live tip
+ * (tipHeight) to get the remaining blocks before calling this.
  */
 export function blocksToApproxLabel(blocks: number): string {
   if (blocks <= 0) return 'Available now';
