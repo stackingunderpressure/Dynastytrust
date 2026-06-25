@@ -7,6 +7,7 @@ import { Button, Input, Label, Textarea } from "../components/ui";
 import { useToast } from "../components/toast";
 import { useConfirm } from "../components/dialog";
 import { RemindersBanner } from "../components/RemindersBanner";
+import { tipHeight } from "../lib/chain";
 
 function satsToBtc(sats: number): string {
   return (sats / 1e8).toFixed(8).replace(/\.?0+$/, "") || "0";
@@ -18,6 +19,47 @@ function blocksToLabel(blocks: number): string {
   if (days < 30) return "~" + days + "d";
   if (days < 365) return "~" + Math.round(days / 30) + "mo";
   return "~" + (days / 365).toFixed(1) + "yr";
+}
+
+// Timelocks are stored as ABSOLUTE CLTV block heights. To show a
+// human countdown we must subtract the current chain tip for the
+// vault's network -- otherwise an absolute height like 920,000
+// renders as a ~17yr duration. Mirrors VaultDetail/Reminders.
+function blocksFromNow(
+  abs: number | null | undefined,
+  network: string,
+  tips: Record<string, number>,
+): number | null {
+  if (!abs) return null; // 0 / null == no timelock
+  const tip = tips[network];
+  if (tip == null) return null; // tip still loading
+  return Math.max(0, abs - tip);
+}
+
+// "unlocks in ~6mo" / "unlocked now" / loading -- for role-status copy.
+function unlockPhrase(
+  abs: number | null | undefined,
+  network: string,
+  tips: Record<string, number>,
+): string {
+  if (!abs) return "no timelock";
+  const d = blocksFromNow(abs, network, tips);
+  if (d == null) return "unlock time loading...";
+  if (d <= 0) return "unlocked now";
+  return `unlocks in ${blocksToLabel(d)}`;
+}
+
+// Short footer label: "~6mo" / "now" / loading dots / "--".
+function unlockShort(
+  abs: number | null | undefined,
+  network: string,
+  tips: Record<string, number>,
+): string {
+  if (!abs) return "--";
+  const d = blocksFromNow(abs, network, tips);
+  if (d == null) return "...";
+  if (d <= 0) return "now";
+  return blocksToLabel(d);
 }
 
 // Role-aware rendering. Each vault card surfaces the caller's role
@@ -60,18 +102,18 @@ function rolePriority(role: string | null | undefined): number {
   }
 }
 
-function roleStatus(v: Vault): string {
+function roleStatus(v: Vault, tips: Record<string, number>): string {
   switch (v.my_role) {
     case "owner":
     case "founder":
       return "You can sign now";
     case "heir":
       return v.inheritance_after
-        ? `Inheritance unlocks in ${blocksToLabel(v.inheritance_after)}`
+        ? `Inheritance ${unlockPhrase(v.inheritance_after, v.network, tips)}`
         : "Successor on standby";
     case "protector":
       return v.protector_after
-        ? `Protector path unlocks in ${blocksToLabel(v.protector_after)}`
+        ? `Protector path ${unlockPhrase(v.protector_after, v.network, tips)}`
         : "Protector role (no timelock)";
     case "beneficiary":
       return v.consent_quorum
@@ -91,6 +133,9 @@ export default function Dashboard() {
   const openVault = (v: Vault) => navigate(`/vaults/${v.id}`, { state: { vault: v } });
 
   const [vaults, setVaults] = useState<Vault[]>([]);
+  // Per-network chain tip, to convert absolute CLTV heights into
+  // human countdowns. Keyed by network; absent until fetched.
+  const [tips, setTips] = useState<Record<string, number>>({});
   const [balances, setBalances] = useState<Record<string, BalanceResult>>({});
   const [balanceErrors, setBalanceErrors] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
@@ -131,6 +176,20 @@ export default function Dashboard() {
       // was removed in favor of explicit delete.
       const { vaults } = await api.vaults.list(true);
       setVaults(vaults);
+      // Fetch the chain tip for each network present so timelock
+      // countdowns subtract it (absolute height -> "unlocks in Y").
+      // Non-blocking; cards show "..." until each network resolves.
+      const networks = Array.from(new Set(vaults.map(v => v.network)));
+      void Promise.all(
+        networks.map(async n => {
+          try {
+            const h = await tipHeight(n);
+            setTips(prev => ({ ...prev, [n]: h }));
+          } catch {
+            /* tip unavailable; countdowns stay "..." rather than wrong */
+          }
+        }),
+      );
       for (const v of vaults) {
         if (!v.address) continue; // drafts have no address yet
         api
@@ -173,7 +232,7 @@ export default function Dashboard() {
   return (
     <div style={{ fontFamily: fonts.sans }}>
       <RemindersBanner />
-      <RoleSummary vaults={vaults} />
+      <RoleSummary vaults={vaults} tips={tips} />
       <PendingFeed />
       {drafts.length > 0 && <DraftsSection drafts={drafts} />}
 
@@ -321,9 +380,9 @@ export default function Dashboard() {
                   ? `${v.address.slice(0, 14)}...${v.address.slice(-8)}`
                   : "Draft -- awaiting compile"}
               </div>
-              {roleStatus(v) && (
+              {roleStatus(v, tips) && (
                 <div style={{ fontSize: 12, color: roleAccent(v.my_role), marginBottom: 12 }}>
-                  {roleStatus(v)}
+                  {roleStatus(v, tips)}
                 </div>
               )}
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", borderTop: `1px solid ${colors.divider}`, paddingTop: 12 }}>
@@ -334,7 +393,7 @@ export default function Dashboard() {
                   {v.heir_quorum}/{v.heir_keys.length} heirs
                 </span>
                 <span style={{ fontSize: 11, color: colors.muted }}>
-                  Recovery {blocksToLabel(v.recovery_after)}
+                  Recovery {unlockShort(v.recovery_after, v.network, tips)}
                 </span>
               </div>
               <div style={{ display: "flex", gap: 8, marginTop: 12 }} onClick={e => e.stopPropagation()}>
@@ -700,7 +759,7 @@ function ModalShell({
 // for heirs), so the user sees what's coming without drilling
 // into each vault.
 
-function RoleSummary({ vaults }: { vaults: Vault[] }) {
+function RoleSummary({ vaults, tips }: { vaults: Vault[]; tips: Record<string, number> }) {
   if (vaults.length === 0) return null;
 
   // Bucket vaults by caller's role (owners count as trustees).
@@ -738,8 +797,8 @@ function RoleSummary({ vaults }: { vaults: Vault[] }) {
   }
   if (byRole.heir.length) {
     const soonest = byRole.heir
-      .map(v => v.inheritance_after)
-      .filter(n => n > 0)
+      .map(v => blocksFromNow(v.inheritance_after, v.network, tips))
+      .filter((n): n is number => n != null && n > 0)
       .sort((a, b) => a - b)[0];
     cards.push({
       label: "Successor",
@@ -752,8 +811,8 @@ function RoleSummary({ vaults }: { vaults: Vault[] }) {
   }
   if (byRole.protector.length) {
     const soonest = byRole.protector
-      .map(v => v.protector_after ?? 0)
-      .filter(n => n > 0)
+      .map(v => blocksFromNow(v.protector_after, v.network, tips))
+      .filter((n): n is number => n != null && n > 0)
       .sort((a, b) => a - b)[0];
     cards.push({
       label: "Protector",
