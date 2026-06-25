@@ -10,6 +10,7 @@ import { useConfirm } from "../components/dialog";
 import { colors, fonts, radii, space, personaPalette } from "../theme";
 import { Button, Input, Label, Textarea } from "../components/ui";
 import { QrImage } from "../components/QrImage";
+import { WalletLinkCard } from "../components/WalletLinkCard";
 
 // Shared select styling (kept inline since the UI primitives only cover
 // inputs, textareas, labels, and buttons right now).
@@ -975,6 +976,7 @@ export default function KeyManager() {
 
   return (
     <div style={{ fontFamily: fonts.sans }}>
+      <WalletLinkCard />
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
         <Button style={{ background: colors.green, fontSize: 14 }} onClick={() => setModal({ type: "quick" })}>
           + Quick key
