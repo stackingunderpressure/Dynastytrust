@@ -152,6 +152,50 @@ Each rung must be safe on its own terms: the early/high-quorum rungs lean on
 intervene/re-anchor first." The dangerous combination is a SMALL quorum at a
 NEAR date -- never place a low rung early.
 
+## Everyday leg + per-rung key type + secret access (2026-06-26)
+
+**FROST is a per-leaf SLOT, not a whole-wallet choice.** Each leaf
+independently picks how its key is produced: a single buried key, a plain
+tapscript `thresh`, or a FROST aggregate. So "3y single key, 6y FROST-30,
+9y FROST-10, everyday = your choice" is all expressible -- mix freely.
+
+**Recommendation: do NOT default the everyday (no-timelock) leg to FROST.**
+- FROST signing is interactive (a 2-round live ceremony) and its security
+  rests entirely on never reusing a nonce. Nonce-handling risk scales with
+  how OFTEN you sign. The backstop signs ~once a decade; the everyday leg
+  signs constantly -- so FROST puts the highest nonce exposure exactly where
+  you can least afford a bug. (`layered-vault-legs-and-frost.md` s3 already
+  says everyday legs want plain async PSBT, not FROST.)
+- The real upside of FROST-everyday is PRIVACY (spends look like single-sig,
+  never leaking structure/roster). If that is the goal, **MuSig2** (BIP327)
+  is the purpose-built tool for the everyday "make our multisig look like one
+  key" key-path case; FROST is for t-of-n where you specifically want a
+  threshold on the daily leg.
+- Verdict: everyday default = plain Taproot multisig (or MuSig2 for the
+  privacy). Offer FROST-everyday as an explicit ADVANCED / max-privacy mode,
+  not the floor.
+
+**"Only you can retrieve the secret" -- where that property actually lives.**
+A raw share is just bytes; whoever holds it has it. There is no crypto-level
+"only the owner can pull it back" on a bare share. The "only you" guarantee
+lives in the PEOPLE: a FROST participant signs only for a recovery request it
+can AUTHENTICATE as the owner (or the heirs). An attacker must fool a whole
+quorum of people who know you -- that is the web of trust doing the security
+work, and it is why a large early-rung quorum is strong.
+- Make "is this really him?" rigorous by authenticating the recovery request
+  against a SEPARATE sovereign identity key (the tapit-wallet attestation
+  key), NOT the spend keys that were lost.
+- TRAP to avoid: never encrypt the recovery shares to the very key you might
+  lose -- the backstop must not die with the key it exists to rescue you from.
+
+**Re-anchor cadence (operator, confirmed correct).** Background FROST
+resharing keeps each aggregate key STABLE, so a periodic sweep (~every 3y)
+rebuilds the identical leaves with fresh absolute heights -- same people,
+same "places," new dates, one tx per period, fees minimized. Two distinct
+modes: HEALTHY you re-anchors from the everyday leg to keep the clock fresh;
+DISASTER you cannot re-anchor (the everyday leg is gone) -- you hold position,
+gather your pieces, and ride the nearest rung until its height passes.
+
 ## Provenance
 
 Operator's idea, recurring and maturing. First logged as the FROST social
