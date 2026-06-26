@@ -242,6 +242,68 @@ Honest cautions:
 Then Leaf 1+ = the 3y / 6y / 9y decaying-quorum rungs (single key or FROST
 per the dial above), all under the same Taproot output.
 
+## How this maps onto a trustee-structured trust (2026-06-26)
+
+The sovereign model (you, your reduced quorum, your social backstop) maps
+onto a formal trust by reading LAYERS as ROLES and TIME as SUCCESSION.
+
+**Leaf 0 (everyday) = the TRUSTEE quorum.** What was "your 2-of-3 devices"
+becomes the trustees' multisig (e.g. 3-of-5 trustees), optionally gated by a
+BENEFICIARY CONSENT signature so beneficiaries hold veto power without custody
+burden. This is the active fiduciary management path. (= Generational Trust
+template Path 1.)
+
+**The decaying rungs = the SUCCESSION + ESCALATION ladder.** What was "fewer
+of my keys over time" becomes "a different role steps in at each horizon":
+- reduced-quorum trustee rung (a trustee died / lost a key -> the rest act
+  after a wait),
+- protector rung (oversight intervenes if trustees go rogue/silent),
+- inheritance rung (heirs/successors take over after long silence),
+- far social rung (a broad family/witness FROST circle -- the floor).
+The crowd-size <-> time substitution now spans GENERATIONS of fiduciaries:
+30 years out the original trustees are likely dead, so the protocol asks for
+fewer of whoever remains plus more elapsed time as proof. That is exactly the
+multi-generational trust problem, solved by the same dial.
+
+**The FROST social backstop = "the trust survives even if every named party
+is gone."** The nightmare of a generational trust is all trustees AND heirs
+unreachable (catastrophe, estrangement, keys lost across a family). The far-
+horizon witness FROST turns "coins lost forever" into "the extended trusted
+circle can recover after a long wait." A genuine never-lose-it inheritance
+floor that no custodial trust offers.
+
+**Re-anchoring becomes a TRUSTEE FIDUCIARY DUTY.** Someone must perform the
+periodic sweep + reshare to keep timelocks fresh and rosters alive. In a trust
+that someone is the active trustees, and the duty is written into the trust
+document: "trustees shall re-anchor every N years and confirm the witness
+roster." The elegant part: the SAME mechanism that handles trustee FAILURE
+also enforces trustee MAINTENANCE -- if trustees stop re-anchoring (death,
+abandonment, bad faith), the escalation rungs simply open on schedule and the
+next role takes over. Silence becomes legible (heartbeat) and self-healing.
+
+**Two enforcement layers that must agree.** The legal trust DOCUMENT defines
+duties, distribution rules, jurisdiction, who-may-act-when. The Taproot SCRIPT
+enforces who-may-SIGN-when. They are kept consistent by the attestation layer
+(every party Schnorr-signs the trust-doc hash -- "the chain enforces the
+script; the attestation layer enforces the story", Landing.tsx). Legal changes
+(add/remove a trustee, a court order) flow on-chain by RE-ANCHORING with a new
+roster / reshared FROST set -- the address stays put if the aggregate keys do.
+
+**Anti-collusion ordering is clearer here.** In a fiduciary context you
+genuinely want a protector (or beneficiary-triggered path) able to FRONT-RUN
+rogue trustees' no-consent recovery path -- so protector-BEFORE-recovery (the
+template's 9-month value) is the right reading for the trustee case, not the
+sovereign case's ambiguity.
+
+**Honest limit -- the chain enforces SIGNING, not the LAW.** A court can
+reassign or remove a trustee; the chain won't know until someone re-anchors
+with the new roster. The on-chain vault is the enforcement TEETH; the trust
+document is still the law. Do not sell the vault as replacing the legal
+instrument -- sell it as the part that makes the document self-executing
+between the rare moments a court is involved. Reconciling jurisdiction,
+disputes, and trustee removal across the legal/chain boundary is genuinely
+hard and partly outside the software's control.
+
 ## Provenance
 
 Operator's idea, recurring and maturing. First logged as the FROST social
