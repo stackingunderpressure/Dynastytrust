@@ -196,6 +196,52 @@ modes: HEALTHY you re-anchors from the everyday leg to keep the clock fresh;
 DISASTER you cannot re-anchor (the everyday leg is gone) -- you hold position,
 gather your pieces, and ride the nearest rung until its height passes.
 
+## Everyday leg -- concrete composition (2026-06-26)
+
+Leaf 0 (no timelock) = a **2-of-3** over three heterogeneous keys:
+- **HW1** -- air-gapped, QR-only hardware wallet (no USB/BT).
+- **HW2** -- a DIFFERENT vendor/model air-gapped QR hardware wallet.
+- **SW** -- a software key on the phone behind Face ID: convenient daily leg.
+
+Valid signing sets: {HW1,HW2}, {HW1,SW}, {HW2,SW}.
+
+What's good (strongly endorsed):
+- **2-of-3 is the personal-custody sweet spot:** survives losing any one key
+  with zero loss of funds or convenience. No single point of failure.
+- **Two DIFFERENT hardware wallets** defeats single-vendor failure modes
+  (firmware bug, supply-chain, model-specific CVE). Heterogeneity is real
+  security. (Repo target HW: Coldcard etc. -- pick two unlike devices.)
+- **Air-gap QR signing** removes USB/BT/malware-on-host attack classes; fits
+  the browser-first PSBT flow.
+- **Emergent property -- a hardware signature is ALWAYS required, for free.**
+  With only ONE software key in a 2-of-3, every reaching set
+  ({HW1,SW},{HW2,SW},{HW1,HW2}) contains at least one hardware wallet. So
+  "you must sign physically with a hardware device" needs no extra policy --
+  it falls out of the math. Do NOT add a second software key, or {SW1,SW2}
+  becomes spendable and you lose this guarantee.
+
+Honest cautions:
+- The **SW/Face-ID key is the weakest leg** (hot, on a networked phone). The
+  2-of-3 is what makes that acceptable: popping the phone yields 1 of the 2
+  needed. Its real protection is encryption at rest (Secure Enclave), not
+  Face ID per se -- biometrics can be physically compelled, so consider a
+  PIN/passphrase option for coercion/legal scenarios.
+- **Timelocks do NOT defend the everyday leg against COERCION.** Leaf 0 has
+  no timelock; it's always spendable. The rungs only help against key LOSS.
+  Coercion resistance comes from GEOGRAPHICALLY SPLITTING HW1/HW2 so no single
+  grab (home + phone) yields two keys. Convenience vs coercion is the real
+  dial here -- choose the split deliberately.
+- **Seed backups are their own 2-key surface** -- store the three backups
+  split, never two together.
+- **Taproot dependency:** to share ONE address with the timelock leaves, Leaf
+  0 must be a Taproot SCRIPT-PATH `thresh(2, [HW1,HW2,SW])` leaf. Confirm the
+  specific air-gap devices sign Taproot script-path multisig (newer firmware;
+  verify per device) -- this is a real, checkable prerequisite, not an
+  assumption.
+
+Then Leaf 1+ = the 3y / 6y / 9y decaying-quorum rungs (single key or FROST
+per the dial above), all under the same Taproot output.
+
 ## Provenance
 
 Operator's idea, recurring and maturing. First logged as the FROST social
