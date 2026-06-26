@@ -106,6 +106,52 @@ worst single actor cannot move anyone's coins alone.
 - Make the absolute-reset-by-re-anchoring caveat a first-class teaching beat
   plus a reminder.
 
+## The quorum-vs-time dial (refinement, 2026-06-26)
+
+The social backstop is not one FROST leg -- it is a LADDER of FROST legs
+where quorum size and timelock SUBSTITUTE for each other as proof of
+legitimacy. Bigger crowd buys speed; smaller crowd pays in time. Example:
+
+- Leaf @ 3 years: `and(after(3y), pk(FROST_AGG_75))` -- need 75 people
+- Leaf @ 6 years: `and(after(6y), pk(FROST_AGG_30))` -- need 30 people
+- Leaf @ 9 years: `and(after(9y), pk(FROST_AGG_10))` -- need 10 people
+
+Each rung is its own tapscript leaf with its OWN FROST aggregate key -- a
+75-of-n, a 30-of-n, and a 10-of-n are three different DKGs producing three
+different aggregate keys, so each of your ~100 people holds three shares
+and participates in three reshare cadences. (Real coordination cost; two
+rungs may be plenty.)
+
+**The recovery dynamic.** Your network is kept live by the heartbeat --
+everyone was "green" the day before, already set up. The moment you lose
+your everyday access you start rallying signatures immediately; you do NOT
+cold-start. Whatever is the biggest crowd you can actually staff selects
+which rung you reach. More people -> earlier rung -> in sooner. Few people
+-> you fall to a later, lower-quorum rung -> you wait. "Ten signatures but
+wait fifteen years, versus a hundred signatures and maybe wait two."
+
+**The one nuance to internalize:** absolute timelocks anchor the wait to
+VAULT CREATION (or the last re-anchor), NOT to the moment you lost access.
+So the clock only stays short if you periodically re-anchor (sweep to a
+fresh vault with new heights) -- which you are already doing for FROST
+resharing. Re-anchoring is therefore load-bearing, not optional.
+
+**Floor decay = a re-anchor deadline.** Once a rung's height passes it
+stays open forever, so over time the security floor drops to the LOWEST
+staffed rung. Either you re-anchor before the lowest rung's date arrives,
+or you accept that lowest rung (e.g. 10 people, far out) as your permanent
+floor. For INHERITANCE that decay is a feature, not a bug: prolonged
+silence is itself evidence you are gone, so the protocol asks for fewer
+people but more elapsed time. Crowd-size and time are both forms of "prove
+this is legitimate," and they trade off cleanly.
+
+**Attacker symmetry (the honest caveat).** An adversary gets the same dial.
+Each rung must be safe on its own terms: the early/high-quorum rungs lean on
+"you cannot coerce 75 independent people"; the late/low-quorum rungs lean on
+"the timelock is far enough that the real owner or heirs would notice and
+intervene/re-anchor first." The dangerous combination is a SMALL quorum at a
+NEAR date -- never place a low rung early.
+
 ## Provenance
 
 Operator's idea, recurring and maturing. First logged as the FROST social
