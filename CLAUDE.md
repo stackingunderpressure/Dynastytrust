@@ -155,7 +155,9 @@ Monorepo root
 |       `-- governance.rs              Spend path evaluation
 |-- packages/policy-engine/            Shared TS policy validation
 |-- db/migrations/                     Supabase SQL migrations
-`-- scripts/test-policy.mjs            Policy-engine test runner (`npm test`)
+`-- scripts/
+    |-- test-policy.mjs                Policy-engine test runner (`npm test`)
+    `-- test-rung-digest.mjs           Sage grounding/citation binding (`npm test`)
 ```
 
 **Deployments:**
@@ -326,7 +328,7 @@ Before pushing:
 npm run lint        # eslint -- 0 errors required, warnings allowed
 npm run typecheck   # tsc --noEmit -- pre-existing errors in keystore/psbt-signer
 npm run build       # vite build -- must succeed
-npm test            # node scripts/test-policy.mjs
+npm test            # test-policy.mjs + test-rung-digest.mjs (Sage grounding)
 ```
 
 Each script proxies to the workspace via root `package.json`. Run from the

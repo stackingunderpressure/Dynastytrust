@@ -14,6 +14,11 @@
  *       VERBATIM in assistant.js -- so the deep, load-bearing Bitcoin claims
  *       Sage may surface are the grounded text, never a paraphrase that could
  *       drift into a subtle falsehood in a money-touching vault.
+ *   (c) every `sourcePointers` entry in literacy.ts appears VERBATIM in
+ *       assistant.js -- so the "cite-the-source" half of the grounding rail can
+ *       only name a provenance that actually exists in the source of truth. A
+ *       citation Sage cannot ground in this list is one she must not make; this
+ *       check refuses a made-up or drifted source.
  *
  * Standalone runner (repo pattern, like test-literacy.mjs). NOT wired into
  * `npm test`. Run directly:  node scripts/test-rung-digest.mjs
@@ -78,6 +83,37 @@ for (const s of [...whyItWorks, ...theCrypto]) {
   checked++;
 }
 
+// (c) every sourcePointers array element bound verbatim into the citation
+// corpus. Capture each `sourcePointers: [ ... ]` block, then each single-quoted
+// element inside it (house rule: no apostrophes in these strings).
+function collectSourcePointers() {
+  const blockRe = /sourcePointers:\s*\[([^\]]*)\]/g;
+  const out = [];
+  let block;
+  while ((block = blockRe.exec(lit)) !== null) {
+    const elemRe = /'([^']*)'/g;
+    let e;
+    while ((e = elemRe.exec(block[1])) !== null) out.push(e[1]);
+  }
+  return out;
+}
+
+const sourcePointers = collectSourcePointers();
+assert.ok(
+  sourcePointers.length >= 10,
+  `expected at least 10 sourcePointers in literacy.ts, got ${sourcePointers.length}`,
+);
+
+let sources = 0;
+for (const s of sourcePointers) {
+  assert.ok(s.length > 0, 'empty sourcePointers entry in literacy.ts');
+  assert.ok(
+    asst.includes(s),
+    `assistant.js RUNG_SOURCES is missing a grounded citation verbatim (drift):\n  "${s}"`,
+  );
+  sources++;
+}
+
 console.log(
-  `rung-digest sync OK -- 10 rungs referenced, ${checked} deeper-layer strings bound verbatim`,
+  `rung-digest sync OK -- 10 rungs referenced, ${checked} deeper-layer strings and ${sources} citation sources bound verbatim`,
 );

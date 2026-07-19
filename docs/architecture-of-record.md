@@ -116,8 +116,19 @@ for Sage:
 Progress (2026-07-19): Sage's deeper rung layers (`whyItWorks` + `theCrypto`)
 are now folded into her context verbatim and strictly gated (surfaced only on an
 explicit go-deeper), and `scripts/test-rung-digest.mjs` binds every deep string
-to `literacy.ts` char-for-char so the digest cannot silently drift. Next cut: the
-hard grounded-or-abstain + cite-the-source rail.
+to `literacy.ts` char-for-char so the digest cannot silently drift.
+
+Progress (2026-07-19, cont.): the hard grounded-or-abstain + cite-the-source
+rail is now in place. Sage's system prompt carries a dedicated GROUNDING RAIL
+(ground every substantive claim in the vetted corpus; cite the rung/doc/BIP a
+load-bearing claim rests on; abstain -- "I would rather not guess, let us verify
+that together" -- the moment a question leaves grounded ground; never invent a
+citation, BIP number, block height, or code). The citation corpus (`RUNG_SOURCES`
+in `assistant.js`) is copied verbatim from the `sourcePointers` in `literacy.ts`,
+and `test-rung-digest.mjs` now binds every citation source back to the source of
+truth char-for-char (so Sage can only name a provenance that actually exists).
+That binding test is wired into `npm test`, since `assistant.js` sits outside the
+web app's typecheck/lint/build graph and this is its enforcing gate.
 
 ## 7. The wedge, and what we deliberately do NOT build
 
