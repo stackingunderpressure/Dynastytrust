@@ -87,11 +87,15 @@ TIMELOCK RULE OF THUMB (Bitcoin block heights): ~26,280 blocks = 6 months,
 
 // // -- Compact digest of the Rabbit Hole curriculum (rungs 0-9).
 // Kept in sync BY HAND with apps/web/src/lib/literacy.ts (the source of
-// truth). We deliberately include ONLY the plain-English `consequence` and
-// the Socratic question for each rung -- NEVER the deeper `theCrypto` layer,
-// which stays behind a "go deeper" tap and out of the default context. This
-// is the real curriculum the bot teaches from so it does not free-associate
-// Bitcoin facts; it consumes the ladder rather than reinventing it.
+// truth). RUNG_DIGEST carries the plain-English `consequence` and the Socratic
+// question for each rung -- the DEFAULT teaching layer. The deeper `whyItWorks`
+// and `theCrypto` layers live below in RUNG_DEEPER, verbatim and strictly
+// gated, so a curious owner who drills into the machinery gets the GROUNDED
+// text rather than an improvised claim (a wrong machinery claim in a money
+// vault is exactly what we refuse). This is the real curriculum the bot teaches
+// from so it does not free-associate Bitcoin facts; it consumes the ladder
+// rather than reinventing it. scripts/test-rung-digest.mjs binds both sections
+// to literacy.ts so this hand-sync cannot silently drift.
 const RUNG_DIGEST = `
 THE RABBIT HOLE -- the curriculum ladder (rungs 0-9). Teach the CONSEQUENCE
 (what happens), in plain jargon-free language, one rung at a time. Ask the
@@ -154,6 +158,51 @@ to come here, and wanting to keep going is the sign of a careful owner. Ask: do
 you want to verify the machinery yourself rather than trust the summaries?
 `;
 
+// // -- The DEEPER layers of every rung (whyItWorks + theCrypto), copied
+// VERBATIM from apps/web/src/lib/literacy.ts so a Node test can bind them
+// back to the source char-for-char. These are GATED: Sage must never
+// volunteer them. She surfaces whyItWorks only when a person explicitly asks
+// to go a step deeper, and theCrypto only on a further explicit ask for the
+// actual machinery. Keeping them in context means that when a curious owner
+// drills down she teaches from the grounded text and never improvises a
+// technical claim. scripts/test-rung-digest.mjs enforces the verbatim match.
+const RUNG_DEEPER = `
+DEEPER LAYERS -- DO NOT VOLUNTEER. Default to silence on everything in this
+section. Always lead with the plain consequence from the ladder above. Give a
+rung's why-it-works ONLY after the person explicitly asks to go a step deeper,
+and its the-crypto layer ONLY on a further explicit ask for the actual Bitcoin
+machinery. Never surface a term from this section unasked. If someone drills
+into the machinery, teach ONLY from the grounded text below -- do not improvise
+or guess a technical claim; if the answer is not here, say you would rather not
+guess and point them to verify it themselves than invent it.
+
+Rung 0 why-it-works: Money is just a way to move the work you do now into the future. The medium you choose decides how much of that work survives the trip and who can skim it on the way.
+
+Rung 1 why-it-works: Other stores of value sit inside someone else: a bank can freeze an account, an institution can change the rules, inflation can quietly drain cash. Bitcoin lives on a network no single party controls, so the only person who has to agree to move it is you.
+
+Rung 2 why-it-works: When you alone control the value, you alone carry every failure mode. There is no institution absorbing your mistakes -- which is exactly the freedom and exactly the cost.
+
+Rung 3 why-it-works: No single backup survives every disaster, so you spread the risk across independent copies and across people, and you add time-based doors so a lost piece is recoverable rather than fatal.
+
+Rung 4 why-it-works: Once spending takes an agreed-on number of separate approvals, you can write rules about WHO and WHEN that a single secret could never encode -- shared control, delayed control, control that survives any one person.
+Rung 4 the-crypto: This is k-of-n multisig: a spending condition thresh(k, [key1..keyn]) where any k of the n keys satisfies it. DynastyTrust compiles these as Miniscript thresh() expressions.
+
+Rung 5 why-it-works: The lock is tied to how far the Bitcoin network has counted forward, not to a wall clock, so it cannot be faked or rushed. You pick a future point; once the network passes it, the door opens, and not one moment sooner.
+Rung 5 the-crypto: Absolute CLTV: after(N) compiles to OP_CHECKLOCKTIMEVERIFY at a fixed block height. DynastyTrust uses absolute (not relative older()/CSV) because BIP 68 caps relative timelocks near 65,535 blocks (~15 months), too short for multi-year inheritance. The Netlify layer adds tip + offset so the leaf bakes in a real future height; see THESIS.md section 3 and CLAUDE.md.
+
+Rung 6 why-it-works: Each door is a separate rule with its own waiting period and its own list of who can open it. They live side by side, so the situation decides which door is the right one to use.
+Rung 6 the-crypto: Three Taproot leaves in a tr_multileaf descriptor: founders-now thresh(Q, founder_keys); recovery and(after(R), thresh(Q, founder_keys)); inheritance and(after(I), thresh(Q_h, heir_keys)); optional protector leaf. The bot narrates the per-template "what happens if..." playbooks in PolicyBuilder VAULT_TEMPLATES.
+
+Rung 7 why-it-works: Bitcoin enforces the actual spending rules; the app only coordinates the surrounding information. Knowing which part is enforced by math and which part is just convenience is what lets you decide how little you need to trust anyone, including us.
+Rung 7 the-crypto: Bitcoin enforces the script; DynastyTrust coordinates only the metadata. Compromising the server never moves a coin. The honest endpoint is Super Sovereign Mode (database on your own laptop). See docs/trustee-commons.md and docs/super-sovereign-mode.md.
+
+Rung 8 why-it-works: A signature is bound to the exact text it was made over. Alter the text and the signature no longer matches, so anyone checking it sees instantly that something changed -- proof that does not depend on trusting whoever is showing it to you.
+Rung 8 the-crypto: tapit-attest: a Schnorr/secp256k1 signature over a domain-separated tagged-hash digest of an envelope (e.g. SHA256("DT-ATT-v1" || type || 0x00 || target_hash) in lib/attest.ts). An attestation is NOT a Bitcoin spend signature -- different preimage by design, so it can never be replayed as a sighash. Kinds: trust_doc, proof_of_life, death_declaration; anchorable via OpenTimestamps.
+
+Rung 9 why-it-works: Everything on the higher rungs is a plain-language summary of these exact rules. Coming down here is how you verify for yourself that the summaries are true rather than taking anyone word for it -- the ultimate "do not trust, verify."
+Rung 9 the-crypto: BIP 341 tapscript sighash; BIP 340 Schnorr signatures; key-origin descriptors pk([fp/path]xpub/0/*); x-only pubkeys at the leaf; the NUMS internal key; the /0/0 child-key parity that makes Nunchuk/Sparrow imports agree on the first address; rust-miniscript round-trip verification on compile. See THESIS.md, protocol/, and lib/psbt-signer.ts.
+`;
+
 // Mode-specific behavior. The dial is a presentation layer over the SINGLE
 // guided flow (sovereignty-education-bot.md section 3), not a fork: the bot
 // teaches from the same curriculum either way and only changes pace + how much
@@ -209,6 +258,8 @@ THE FIVE FLAVORS that guide every recommendation:
 5. Build it like a serious Bitcoiner would respect.
 
 ${RUNG_DIGEST}
+
+${RUNG_DEEPER}
 
 ${modeInstructions(mode)}
 
