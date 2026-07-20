@@ -200,6 +200,25 @@ touching the compile/PSBT core.
   verified by static gates, the new guardrail, and reading, not by exercising it
   in a browser. Worth a manual pass on device before funding a real vault.
 
-**Still open: slices 2-5** (remove the gallery / move the "what if" playbooks,
-the advanced-governance drawer, timelock presets-first, the developer toggle for
-test shapes + drop the Bloc promo).
+**2026-07-20 -- Slice 2 shipped.**
+
+- The 11-card, 22-button gallery is gone. When a shape arrives prefilled from
+  `/start` or Sage (the normal path) the page shows a compact "Building: X"
+  summary with that shape's what-if playbook; a cold expert with no shape picks
+  from a single "Vault shape" dropdown. "Change shape" reopens the chooser.
+- The failure-mode "what if..." teaching is preserved but shown ONCE, tied to
+  the chosen shape (one `ScenarioToggle`), instead of a toggle on every card.
+- The four signet [TEST] shapes are hidden behind a "Show rehearsal shapes"
+  toggle -- a first-time family never sees them.
+- The big gold Dynasty Bloc promo card is gone; the Bloc builder is now a quiet
+  one-line link for the expert who needs it (and it is still on `/start`).
+- Guardrail extended: the `TemplateCard` gallery must not return and the chooser
+  must track the chosen shape via `templateId`. Line budget ratcheted 2700 ->
+  2650. Gates green: build pass, lint pass (7 pre-existing warnings), npm test
+  pass, typecheck unchanged (14 pre-existing, none in PolicyBuilder). Runtime
+  still not driven in-sandbox -- verified by static gates + guardrail + reading.
+
+**Still open: slices 3-5** (the advanced-governance drawer for recovery
+quorum / protector / consent + demote the vault-type and address-type controls,
+timelock presets-first with raw blocks behind Advanced, and a final pass on any
+remaining redundancy).

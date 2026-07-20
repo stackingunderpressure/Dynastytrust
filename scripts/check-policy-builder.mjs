@@ -37,7 +37,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const pbPath = join(here, '..', 'apps', 'web', 'src', 'pages', 'PolicyBuilder.tsx');
 const src = await readFile(pbPath, 'utf8');
 
-const LINE_BUDGET = 2700;
+const LINE_BUDGET = 2650;
 
 function present(needle) {
   return src.includes(needle);
@@ -91,7 +91,20 @@ assert.ok(
   'PolicyBuilder: the single unified "Create your vault" flow must be present',
 );
 
-// 8. Line budget -- no re-bloat.
+// 8. The 11-card / 22-button gallery must not return. A shape is chosen via
+//    the compact chooser (or arrives prefilled from /start or Sage), tracked in
+//    templateId; the failure-mode teaching is one ScenarioToggle on the chosen
+//    shape, not a per-card grid.
+assert.ok(
+  !present('<TemplateCard'),
+  'PolicyBuilder: the 11-card template gallery (TemplateCard grid) must not return -- use the compact chooser',
+);
+assert.ok(
+  present('setTemplateId('),
+  'PolicyBuilder: the shape chooser must track the chosen shape via templateId',
+);
+
+// 9. Line budget -- no re-bloat.
 const lines = src.split('\n').length;
 assert.ok(
   lines <= LINE_BUDGET,

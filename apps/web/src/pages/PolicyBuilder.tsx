@@ -977,11 +977,11 @@ function SlotHint({
   );
 }
 
-// // -- Template card + scenario playbook
-// Each template exposes "Use this template" (applies the config
-// and scrolls to the key picker) and "What if..." (expands a list
-// of concrete failure-mode scenarios so the user can read what
-// happens in each case before picking).
+// // -- Scenario playbook
+// The failure-mode "what if..." playbook for the CHOSEN shape. In the old
+// gallery every one of 11 cards carried its own toggle (22 buttons); now the
+// teaching content is shown once, tied to the shape the user actually picked
+// (ScenarioToggle below the shape summary).
 
 function severityAccent(s: Scenario['severity']): string {
   switch (s) {
@@ -991,67 +991,22 @@ function severityAccent(s: Scenario['severity']): string {
   }
 }
 
-function TemplateCard({
-  template,
-  onApply,
-}: {
-  template: VaultTemplate;
-  onApply: () => void;
-}) {
-  const [openScenarios, setOpenScenarios] = useState(false);
-
+// One collapsible "What if..." control for the chosen template's scenarios.
+function ScenarioToggle({ scenarios }: { scenarios: Scenario[] }) {
+  const [open, setOpen] = useState(false);
+  if (!scenarios.length) return null;
   return (
-    <div
-      style={{
-        textAlign: 'left',
-        padding: '12px 14px',
-        background: colors.input,
-        border: `1px solid ${colors.border}`,
-        borderRadius: radii.md,
-        color: colors.text,
-        fontFamily: fonts.sans,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-      }}
-    >
-      <span
-        style={{
-          fontSize: 10,
-          fontWeight: 700,
-          letterSpacing: '0.1em',
-          color: colors.gold,
-          textTransform: 'uppercase',
-        }}
+    <div>
+      <Button
+        variant="ghost"
+        size="sm"
+        type="button"
+        style={{ fontSize: 11, padding: '4px 10px' }}
+        onClick={() => setOpen(o => !o)}
       >
-        {template.tagline}
-      </span>
-      <span style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>
-        {template.title}
-      </span>
-      <span style={{ fontSize: 12, color: colors.muted, lineHeight: 1.4 }}>
-        {template.useCase}
-      </span>
-      <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-        <Button
-          size="sm"
-          type="button"
-          style={{ fontSize: 11, padding: '4px 10px' }}
-          onClick={onApply}
-        >
-          Use this template
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          type="button"
-          style={{ fontSize: 11, padding: '4px 10px' }}
-          onClick={() => setOpenScenarios(o => !o)}
-        >
-          {openScenarios ? 'Hide' : `What if... (${template.scenarios.length})`}
-        </Button>
-      </div>
-      {openScenarios && <ScenarioList scenarios={template.scenarios} />}
+        {open ? 'Hide what-if scenarios' : `What if... (${scenarios.length})`}
+      </Button>
+      {open && <ScenarioList scenarios={scenarios} />}
     </div>
   );
 }
@@ -1355,6 +1310,12 @@ export default function PolicyBuilder() {
   const [allKeys, setAllKeys] = useState<LocalKey[]>([]);
   const [name, setName] = useState('My Vault');
   const [addrType, setAddrType] = useState<'tr' | 'wsh' | 'tr_multileaf'>('tr_multileaf');
+  // The chosen shape. null => show the compact shape chooser; set => show the
+  // "Building: X" summary + that shape's what-if playbook (no 11-card gallery).
+  const [templateId, setTemplateId] = useState<string | null>(null);
+  // Rehearsal (signet, short-timelock) shapes are hidden behind this toggle so
+  // a first-time family never sees the [TEST] variants in the chooser.
+  const [showTestShapes, setShowTestShapes] = useState(false);
   const [founderKeys, setFK] = useState<SelectedKey[]>([]);
   const [heirKeys, setHK] = useState<SelectedKey[]>([]);
   const [founderQ, setFQ] = useState(1);
@@ -1463,6 +1424,7 @@ export default function PolicyBuilder() {
     }
 
     setName(t.title);
+    setTemplateId(t.id);
     setPendingTrustDoc(t.trustDoc ?? null);
     // Clear the navigation state so a refresh doesn't re-apply it.
     window.history.replaceState({}, '');
@@ -1629,6 +1591,7 @@ export default function PolicyBuilder() {
       setConsentQ(1);
     }
     setName(t.title);
+    setTemplateId(t.id);
     setCompiled(null);
     // Remember the template's trust-doc boilerplate so save() can
     // attach it once the vault exists.
@@ -1875,97 +1838,106 @@ export default function PolicyBuilder() {
         </div>
       )}
 
-      <Section
-        title="Start from a template"
-        sub="Pick a shape that fits, then pick keys and compile. You can add more signers than the template's minimum before compiling."
-      >
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 12,
-            flexWrap: 'wrap',
-            padding: '12px 14px',
-            marginBottom: 16,
-            background: colors.input,
-            border: `1px solid ${colors.gold}44`,
-            borderRadius: radii.md,
-          }}
-        >
-          <div style={{ flex: 1, minWidth: 220 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', color: colors.gold, textTransform: 'uppercase' }}>
-              Advanced . decaying multisig
+      {/* Shape chooser. Normal path: a shape arrives prefilled from /start or
+          Sage, so we show a compact "Building: X" summary + that shape's
+          what-if playbook -- NOT an 11-card, 22-button gallery. Cold expert
+          with no shape yet: a single dropdown, rehearsal (signet) shapes behind
+          a toggle, and a quiet link to the Bloc builder for decaying multisig. */}
+      {(() => {
+        const chosen = templateId ? VAULT_TEMPLATES.find(v => v.id === templateId) : null;
+        if (chosen) {
+          return (
+            <Section title="Vault shape">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 12,
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', color: colors.gold, textTransform: 'uppercase' }}>
+                      {chosen.tagline}
+                    </div>
+                    <div style={{ fontSize: 16, fontWeight: 600, color: colors.text, marginTop: 2 }}>
+                      Building: {chosen.title}
+                    </div>
+                    <div style={{ fontSize: 12, color: colors.muted, lineHeight: 1.4, marginTop: 2 }}>
+                      {chosen.useCase}
+                    </div>
+                  </div>
+                  <Button variant="ghost" size="sm" type="button" onClick={() => setTemplateId(null)}>
+                    Change shape
+                  </Button>
+                </div>
+                <ScenarioToggle scenarios={chosen.scenarios} />
+              </div>
+            </Section>
+          );
+        }
+        return (
+          <Section
+            title="Start from a template"
+            sub="Pick the shape that fits. You choose keys and compile in the steps below."
+          >
+            <Label>Vault shape</Label>
+            <select
+              style={selectStyle}
+              value=""
+              onChange={e => {
+                const t = VAULT_TEMPLATES.find(v => v.id === e.target.value);
+                if (t) applyTemplate(t);
+              }}
+            >
+              <option value="">Choose a shape...</option>
+              <optgroup label="Production">
+                {VAULT_TEMPLATES.filter(t => !t.testMode).map(t => (
+                  <option key={t.id} value={t.id}>
+                    {t.title} -- {t.tagline}
+                  </option>
+                ))}
+              </optgroup>
+              {showTestShapes && (
+                <optgroup label="Rehearsal (signet, short timelocks)">
+                  {VAULT_TEMPLATES.filter(t => t.testMode).map(t => (
+                    <option key={t.id} value={t.id}>
+                      {t.title} -- {t.tagline}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
+            <label
+              style={{
+                display: 'flex',
+                gap: 8,
+                alignItems: 'center',
+                marginTop: 10,
+                fontSize: 12,
+                color: colors.muted,
+                cursor: 'pointer',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={showTestShapes}
+                onChange={e => setShowTestShapes(e.target.checked)}
+              />
+              Show rehearsal shapes (signet, short timelocks -- to test paths end to end before using real value)
+            </label>
+            <div style={{ marginTop: 12, fontSize: 12, color: colors.muted, lineHeight: 1.5 }}>
+              Passing it down to your kids with a multisig that decays over time?{' '}
+              <button type="button" onClick={() => navigate('/policy/bloc')} style={secondaryLinkStyle}>
+                Open the Bloc builder
+              </button>
+              .
             </div>
-            <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginTop: 2 }}>Dynasty Bloc</div>
-            <div style={{ fontSize: 12, color: colors.muted, lineHeight: 1.4, marginTop: 2 }}>
-              Parents now, one parent + every kid now, then timelocks for a single parent and for the kids to take over with a multisig that decays over time. Custom Taproot policy beyond the founders/heirs shapes below.
-            </div>
-          </div>
-          <Button size="sm" type="button" onClick={() => navigate('/policy/bloc')}>
-            Open Bloc builder -&gt;
-          </Button>
-        </div>
-        <div
-          style={{
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: '0.1em',
-            color: colors.muted,
-            textTransform: 'uppercase',
-            marginBottom: 8,
-          }}
-        >
-          Production
-        </div>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-            gap: 10,
-            marginBottom: 16,
-          }}
-        >
-          {VAULT_TEMPLATES.filter(t => !t.testMode).map(t => (
-            <TemplateCard key={t.id} template={t} onApply={() => applyTemplate(t)} />
-          ))}
-        </div>
-        <div
-          style={{
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: '0.1em',
-            color: colors.orange,
-            textTransform: 'uppercase',
-            marginBottom: 8,
-            paddingTop: 12,
-            borderTop: `1px solid ${colors.border}`,
-          }}
-        >
-          Test mode -- signet + short timelocks
-        </div>
-        <div
-          style={{
-            fontSize: 12,
-            color: colors.muted,
-            marginBottom: 10,
-            lineHeight: 1.5,
-          }}
-        >
-          Same shapes, but timelocks in blocks (hours-to-a-day on signet) so recovery / inheritance / protector paths can actually be exercised end-to-end. Once verified, recompile the production template with real durations.
-        </div>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-            gap: 10,
-          }}
-        >
-          {VAULT_TEMPLATES.filter(t => t.testMode).map(t => (
-            <TemplateCard key={t.id} template={t} onApply={() => applyTemplate(t)} />
-          ))}
-        </div>
-      </Section>
+          </Section>
+        );
+      })()}
 
       <Section
         title="Vault type"
