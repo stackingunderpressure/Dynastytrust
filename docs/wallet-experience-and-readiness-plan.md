@@ -267,3 +267,31 @@ A green run of 1-6 is the bar for "the wallet experience works end to end";
 Slices 1-4 are small and independent; 5 is the one genuinely new subsystem; 6 is
 the payoff. None require rebuilding a wallet -- they harden the seam and close
 honest gaps.
+
+---
+
+## 8. Progress
+
+**2026-07-20 -- Slice 1 (harden browser signing) landed, minus the signet run.**
+
+- Added `@scure/btc-signer` (v2.2.0), the audited signer from the same author as
+  the `@noble`/`@scure` packages already in use.
+- Rewrote `apps/web/src/lib/psbt-signer.ts` so the public `signPsbtWithMnemonic`,
+  `mergePsbts`, and `countSignatures` prefer btc-signer (Taproot script-path AND
+  P2WSH -> compatible with every vault shape), and fall back to the proven
+  hand-rolled Taproot signer only when the library declines a PSBT, so today's
+  working path can never regress. Both paths are fail-closed (zero signatures
+  throws). Finalization stays server-side in rust-miniscript.
+- New executable gate `scripts/test-psbt-signer.mjs` (wired into `npm test`)
+  proves, without a live network, that btc-signer signs + finalizes + extracts a
+  valid tx for: Taproot single pk() leaf, a multi-leaf tree (signs the correct
+  leaf, rejects a non-signer), P2WSH miniscript, and a full quorum round-trip
+  (fromPSBT -> sign x2 -> PSBTCombine -> 2 sigs -> finalize) that mirrors exactly
+  what the app's sign+merge does. Plus a BIP340-over-BIP341 sighash cross-check.
+- Gates: build pass, lint pass (7 pre-existing warnings), npm test pass,
+  typecheck unchanged (14 pre-existing, none in psbt-signer).
+- REMAINING for slice 1 (needs the live environment): one signet round-trip
+  proving a PSBT built by our Rust compiler finalizes through rust-miniscript
+  after btc-signer signs it -- the one interop boundary a sandbox can't exercise.
+  Until that passes, the legacy fallback stays and mainnet gets caution. This is
+  step 4 of the section 6 test matrix.

@@ -8,6 +8,7 @@
  * Each spending path is a separate Taproot leaf; signing uses the script path.
  */
 
+import * as btc from "@scure/btc-signer";
 import { secp256k1, schnorr } from "@noble/curves/secp256k1";
 import { sha256 } from "@noble/hashes/sha256";
 import { HDKey } from "@scure/bip32";
@@ -401,10 +402,12 @@ export interface SignResult {
 }
 
 /**
- * Sign a PSBT with a private key derived from a mnemonic.
- * Signs all inputs where the key's pubkey appears in tap_leaf_script.
+ * LEGACY hand-rolled Taproot script-path signer. Retained as an automatic
+ * fallback behind the audited @scure/btc-signer path (see signPsbtWithMnemonic
+ * below) so a quirk in a compiler-produced PSBT can never REGRESS the working
+ * path. Signs all inputs where the key's /0/0 pubkey appears in tap_leaf_script.
  */
-export async function signPsbtWithMnemonic(
+async function signPsbtLegacy(
   psbtHex: string,
   mnemonic: string,
   derivationPath: string,
@@ -476,9 +479,10 @@ export async function signPsbtWithMnemonic(
 }
 
 /**
- * Count how many signatures are present in a PSBT.
+ * LEGACY signature counter (tap_script_sig only). Fallback behind the
+ * btc-signer countSignatures below.
  */
-export function countSignatures(psbtHex: string): number {
+function countSignaturesLegacy(psbtHex: string): number {
   try {
     const parsed = parsePsbt(psbtHex);
     return parsed.inputs.reduce((sum, inp) => sum + (inp.tapScriptSigs?.length ?? 0), 0);
@@ -488,9 +492,10 @@ export function countSignatures(psbtHex: string): number {
 }
 
 /**
- * Merge multiple PSBTs by combining their tap_script_sigs.
+ * LEGACY merge (tap_script_sig only). Fallback behind the btc-signer mergePsbts
+ * below.
  */
-export function mergePsbts(psbtHexes: string[]): string {
+function mergePsbtsLegacy(psbtHexes: string[]): string {
   if (psbtHexes.length === 0) throw new Error("No PSBTs to merge");
   const first = parsePsbt(psbtHexes[0]);
   for (let p = 1; p < psbtHexes.length; p++) {
@@ -507,4 +512,110 @@ export function mergePsbts(psbtHexes: string[]): string {
     }
   }
   return serializePsbt(first);
+}
+
+// ── Audited signer (@scure/btc-signer) -- primary path ──────────────────────────
+//
+// The public API below prefers @scure/btc-signer, the reviewed library from the
+// same author as @noble/curves + @scure/bip32 (already dependencies). It signs
+// Taproot script-path AND P2WSH, so this signer is compatible with every vault
+// shape the compiler can emit (the "all vaults" requirement), and we stop
+// depending on hand-rolled sighash math for money.
+//
+// SAFETY: each public function tries the audited library first and falls back to
+// the proven legacy implementation ONLY when the library declines the PSBT, so a
+// compiler-PSBT quirk can never regress today's working Taproot flow. Both paths
+// are fail-closed -- zero signatures throws rather than returning an empty/bad
+// PSBT. The library path is proven end-to-end (build -> sign -> combine ->
+// finalize -> extract, Taproot single/multi-leaf + P2WSH) by
+// scripts/test-psbt-signer.mjs, which runs in `npm test`. The one boundary that
+// still needs a live signet round-trip -- that a PSBT built by OUR Rust compiler
+// finalizes through rust-miniscript after btc-signer signs it -- is why the
+// legacy fallback stays until that run confirms the library on real vault PSBTs.
+
+const BTC_PSBT_OPTS = { allowUnknownOutputs: true, allowUnknownInputs: true } as const;
+
+// Derive the /0/0 receive-chain child private key -- the key whose pubkey is
+// embedded in the leaf scripts (Nunchuk parity). Same derivation the legacy
+// path uses.
+function deriveSigningKey(
+  mnemonic: string,
+  derivationPath: string,
+  network: "testnet" | "bitcoin",
+): Uint8Array {
+  const networkVersions = network === "bitcoin"
+    ? { private: 0x0488ade4, public: 0x0488b21e }
+    : { private: 0x04358394, public: 0x043587cf };
+  const seed = mnemonicToSeedSync(mnemonic);
+  const root = HDKey.fromMasterSeed(seed, networkVersions);
+  const account = root.derive(derivationPath);
+  const child00 = account.deriveChild(0).deriveChild(0);
+  if (!child00.privateKey) throw new Error("Could not derive private key");
+  return child00.privateKey;
+}
+
+/**
+ * Sign a PSBT with the /0/0 key derived from a mnemonic. Prefers the audited
+ * @scure/btc-signer (Taproot script-path + P2WSH); falls back to the proven
+ * legacy Taproot signer only if the library signs nothing. Fail-closed: throws
+ * if neither path can sign.
+ */
+export async function signPsbtWithMnemonic(
+  psbtHex: string,
+  mnemonic: string,
+  derivationPath: string,
+  network: "testnet" | "bitcoin",
+): Promise<SignResult> {
+  try {
+    const privKey = deriveSigningKey(mnemonic, derivationPath, network);
+    const tx = btc.Transaction.fromPSBT(fromHex(psbtHex), BTC_PSBT_OPTS);
+    let added = 0;
+    try {
+      // Allow Taproot SIGHASH_DEFAULT and P2WSH SIGHASH_ALL.
+      added = tx.sign(privKey, [btc.SigHash.DEFAULT, btc.SigHash.ALL]);
+    } catch {
+      // "No inputs signed" (this key isn't in the PSBT) or any library refusal.
+      added = 0;
+    }
+    if (added > 0) {
+      return { psbt_hex: toHex(tx.toPSBT()), signaturesAdded: added };
+    }
+  } catch {
+    // Library couldn't parse this PSBT -- fall through to the legacy signer so
+    // the working Taproot path is never regressed.
+  }
+  return signPsbtLegacy(psbtHex, mnemonic, derivationPath, network);
+}
+
+/**
+ * Count signatures present in a PSBT (Taproot tap_script_sig / tap_key_sig and
+ * P2WSH partial sigs). Falls back to the legacy tap_script_sig counter.
+ */
+export function countSignatures(psbtHex: string): number {
+  try {
+    const tx = btc.Transaction.fromPSBT(fromHex(psbtHex), BTC_PSBT_OPTS);
+    let n = 0;
+    for (let i = 0; i < tx.inputsLength; i++) {
+      const inp = tx.getInput(i);
+      n += inp.tapScriptSig?.length ?? 0;
+      n += inp.partialSig?.length ?? 0;
+      if (inp.tapKeySig) n += 1;
+    }
+    return n;
+  } catch {
+    return countSignaturesLegacy(psbtHex);
+  }
+}
+
+/**
+ * Merge partially-signed PSBTs into one (combines Taproot AND P2WSH partial
+ * sigs). Falls back to the legacy tap_script_sig-only merge.
+ */
+export function mergePsbts(psbtHexes: string[]): string {
+  if (psbtHexes.length === 0) throw new Error("No PSBTs to merge");
+  try {
+    return toHex(btc.PSBTCombine(psbtHexes.map(fromHex)));
+  } catch {
+    return mergePsbtsLegacy(psbtHexes);
+  }
 }
