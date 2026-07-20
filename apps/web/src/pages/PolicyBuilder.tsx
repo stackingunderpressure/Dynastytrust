@@ -901,6 +901,20 @@ const selectStyle: CSSProperties = {
   boxSizing: 'border-box',
 };
 
+// Quiet, underlined text button for the "force the other path" secondary
+// action in the single creation flow. Not a primary Button -- it must read as
+// the road-less-taken next to the one recommended action.
+const secondaryLinkStyle: CSSProperties = {
+  background: 'none',
+  border: 'none',
+  color: colors.muted,
+  cursor: 'pointer',
+  fontSize: 13,
+  fontFamily: fonts.sans,
+  textDecoration: 'underline',
+  padding: 0,
+};
+
 // Visual "N of M slots filled" header shown inside each key-picker
 // section. Tells the user how many signers the current template
 // expects and lets them add more above that number or fewer below.
@@ -1281,6 +1295,55 @@ function CopyField({
   );
 }
 
+// Slot-count field: how many signers/heirs the vault will have IN TOTAL.
+// This is the "plan" -- filled slots are keys you hold now, empty slots are
+// co-signers you will invite. Kept next to the key picker (not in a separate
+// "save as draft" section) so the count and the keys live together as one
+// model. Accepts an empty string mid-edit so the cursor doesn't snap back to
+// the minimum while typing; clamps on blur.
+function PlannedCountField({
+  label,
+  hint,
+  value,
+  onChange,
+  min,
+}: {
+  label: string;
+  hint?: string;
+  value: number;
+  onChange: (n: number) => void;
+  min: number;
+}) {
+  return (
+    <div style={{ marginBottom: 12, maxWidth: 260 }}>
+      <Label>{label}</Label>
+      <Input
+        type="number"
+        inputMode="numeric"
+        min={min}
+        value={Number.isFinite(value) ? String(value) : ''}
+        onChange={e => {
+          const raw = e.target.value;
+          if (raw === '') {
+            onChange(NaN);
+          } else {
+            const n = parseInt(raw, 10);
+            if (!isNaN(n)) onChange(n);
+          }
+        }}
+        onBlur={() => {
+          if (!Number.isFinite(value) || value < min) onChange(min);
+        }}
+      />
+      {hint && (
+        <div style={{ fontSize: 12, color: colors.muted, marginTop: 4, lineHeight: 1.4 }}>
+          {hint}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ~4,380 blocks per month at 10-minute blocks (26,280 blocks = 6 months).
 // Used to translate the assistant's month-based proposal into the
 // builder's block-offset inputs.
@@ -1440,6 +1503,19 @@ export default function PolicyBuilder() {
   const network = [...founderKeys, ...heirKeys][0]?.network ?? 'testnet';
   const { errors, warnings } = validate(mode, founderKeys, heirKeys, founderQ, heirQ, recovery, inherit);
   const canCompile = errors.length === 0 && founderKeys.length > 0;
+
+  // One model, one next step. The slots are the plan: a filled slot is a key
+  // you hold in the browser now, an empty slot is a co-signer you will invite.
+  // When every planned slot is filled we default to Compile & review; when any
+  // slot is still empty we default to Save draft & invite. The user can always
+  // force the other path via a secondary link -- but only one primary action is
+  // ever shown, instead of the old two competing "Save as draft" / "Compile
+  // immediately" sections.
+  const plannedF = Number.isFinite(plannedFounders) ? plannedFounders : 1;
+  const plannedH = Number.isFinite(plannedHeirs) ? plannedHeirs : 0;
+  const foundersFilled = founderKeys.length >= Math.max(1, plannedF);
+  const heirsFilled = mode === 'plain' || plannedH <= 0 || heirKeys.length >= plannedH;
+  const readyToCompile = canCompile && foundersFilled && heirsFilled;
 
   function addKey(keyId: string, role: 'founder' | 'heir' | 'protector' | 'consent') {
     const k = allKeys.find(k => k.keyId === keyId);
@@ -1954,7 +2030,10 @@ export default function PolicyBuilder() {
             >
               <option value="tr_multileaf">Taproot multileaf (recommended)</option>
               <option value="wsh">SegWit P2WSH</option>
-              <option value="tr">Taproot single leaf</option>
+              {/* Taproot single leaf (tr) is intentionally NOT offered: with
+                  founder keys appearing in both the founders-now and recovery
+                  paths it trips DuplicatePubKeys (see CLAUDE.md known issues).
+                  tr_multileaf is the only safe multi-path Taproot shape. */}
             </select>
           </div>
         </div>
@@ -1969,6 +2048,13 @@ export default function PolicyBuilder() {
             : 'Day-to-day spending -- available immediately'
         }
       >
+        <PlannedCountField
+          label={mode === 'plain' ? 'How many signers in total?' : 'How many founders in total?'}
+          hint="Fill a slot with a key you hold now, or leave it open to invite a co-signer later."
+          value={plannedFounders}
+          onChange={setPlannedFounders}
+          min={1}
+        />
         <SlotHint
           targetCount={plannedFounders}
           filledCount={founderKeys.length}
@@ -2024,6 +2110,13 @@ export default function PolicyBuilder() {
 
       {mode === 'inheritance' && (
         <Section title="Heir keys" sub="Inheritance path -- unlocks after timelock">
+          <PlannedCountField
+            label="How many heirs in total?"
+            hint="Leave slots open to invite heirs later; set 0 if this vault has no inheritance path."
+            value={plannedHeirs}
+            onChange={setPlannedHeirs}
+            min={0}
+          />
           <SlotHint targetCount={plannedHeirs} filledCount={heirKeys.length} role="heir" />
           <KeyPicker
             selected={heirKeys}
@@ -2255,96 +2348,19 @@ export default function PolicyBuilder() {
         </div>
       )}
 
-      {/* Save as draft -- collect xpubs via invites, compile later */}
+      {/* One creation flow: the slots ARE the plan. When every planned slot is
+          filled with a key held in the browser we default to Compile & review;
+          otherwise Save draft & invite. Only ONE primary action is ever shown;
+          a quiet secondary link forces the other path. This replaces the old
+          two competing "Save as draft" + "Compile immediately" sections. */}
       <Section
-        title="Save as draft"
-        sub="Creates the vault shape now. Invite co-signers from the Members tab; they provide their own xpubs. You press Compile once every slot is filled."
+        title="Create your vault"
+        sub={
+          readyToCompile
+            ? 'Every slot is filled with a key you hold. Compile the vault, review the address and descriptor, then save.'
+            : 'Save the vault shape now and invite co-signers from the Members tab -- they add their own keys. Compile once every slot is filled.'
+        }
       >
-        <div style={{ display: 'flex', gap: 14, marginBottom: 14 }}>
-          <div style={{ flex: 1 }}>
-            <Label>{mode === 'plain' ? 'Planned signer count' : 'Planned founder count'}</Label>
-            <Input
-              type="number"
-              inputMode="numeric"
-              min={1}
-              value={Number.isFinite(plannedFounders) ? String(plannedFounders) : ''}
-              onChange={e => {
-                // Accept empty string during edit so the cursor doesn't
-                // snap back to 1 while the user is typing. Clamp on blur.
-                const raw = e.target.value;
-                if (raw === '') {
-                  setPlannedFounders(NaN);
-                } else {
-                  const n = parseInt(raw, 10);
-                  if (!isNaN(n)) setPlannedFounders(n);
-                }
-              }}
-              onBlur={() => {
-                if (!Number.isFinite(plannedFounders) || plannedFounders < 1) {
-                  setPlannedFounders(1);
-                }
-              }}
-            />
-          </div>
-          {mode === 'inheritance' && (
-          <div style={{ flex: 1 }}>
-            <Label>Planned heir count</Label>
-            <Input
-              type="number"
-              inputMode="numeric"
-              min={0}
-              value={Number.isFinite(plannedHeirs) ? String(plannedHeirs) : ''}
-              onChange={e => {
-                const raw = e.target.value;
-                if (raw === '') {
-                  setPlannedHeirs(NaN);
-                } else {
-                  const n = parseInt(raw, 10);
-                  if (!isNaN(n)) setPlannedHeirs(n);
-                }
-              }}
-              onBlur={() => {
-                if (!Number.isFinite(plannedHeirs) || plannedHeirs < 0) {
-                  setPlannedHeirs(0);
-                }
-              }}
-            />
-          </div>
-          )}
-        </div>
-        {draftErr && <p style={{ color: colors.red, fontSize: 13, margin: 0, marginBottom: 10 }}>{draftErr}</p>}
-        <Button disabled={draftSaving} onClick={saveDraft}>
-          {draftSaving ? 'Saving draft...' : 'Save draft vault'}
-        </Button>
-      </Section>
-
-      {/* Advanced: compile immediately with all keys selected above */}
-      <div
-        style={{
-          background: colors.surface,
-          border: `1px solid ${colors.border}`,
-          borderRadius: 12,
-          padding: 20,
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <div>
-            <div style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>Compile immediately</div>
-            <div style={{ fontSize: 13, color: colors.muted, marginTop: 2 }}>
-              Have every xpub in your browser already? Sends all keys to the Fly.io compiler and returns the finished descriptor.
-            </div>
-          </div>
-          <Button disabled={!canCompile || compiling} onClick={compile}>
-            {compiling
-              ? slowHint
-                ? 'Waking compiler...'
-                : 'Compiling...'
-              : compiled
-                ? 'Recompile'
-                : 'Compile ->'}
-          </Button>
-        </div>
-
         {compileErr && (
           <div
             style={{
@@ -2360,6 +2376,43 @@ export default function PolicyBuilder() {
             {compileErr}
           </div>
         )}
+        {draftErr && <p style={{ color: colors.red, fontSize: 13, margin: 0, marginBottom: 10 }}>{draftErr}</p>}
+
+        {!compiled && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-start' }}>
+            {readyToCompile ? (
+              <>
+                <Button disabled={compiling} onClick={compile}>
+                  {compiling ? (slowHint ? 'Waking compiler...' : 'Compiling...') : 'Compile & review ->'}
+                </Button>
+                <button
+                  type="button"
+                  onClick={saveDraft}
+                  disabled={draftSaving}
+                  style={secondaryLinkStyle}
+                >
+                  {draftSaving ? 'Saving draft...' : 'Prefer to invite co-signers first? Save as a draft'}
+                </button>
+              </>
+            ) : (
+              <>
+                <Button disabled={draftSaving} onClick={saveDraft}>
+                  {draftSaving ? 'Saving draft...' : 'Save draft & invite co-signers'}
+                </Button>
+                {canCompile && (
+                  <button
+                    type="button"
+                    onClick={compile}
+                    disabled={compiling}
+                    style={secondaryLinkStyle}
+                  >
+                    {compiling ? (slowHint ? 'Waking compiler...' : 'Compiling...') : 'Have every key already? Compile now'}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
         {compiled && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -2371,9 +2424,23 @@ export default function PolicyBuilder() {
                 borderRadius: radii.md,
                 color: colors.green,
                 fontSize: 13,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 10,
+                flexWrap: 'wrap',
               }}
             >
-              check Compiled -- {compiled.network.toUpperCase()} . {compiled.address_type.toUpperCase()}
+              <span>check Compiled -- {compiled.network.toUpperCase()} . {compiled.address_type.toUpperCase()}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={compiling}
+                onClick={compile}
+                style={{ fontSize: 11, padding: '3px 10px' }}
+              >
+                {compiling ? 'Recompiling...' : 'Recompile'}
+              </Button>
             </div>
             <CopyField label="Bitcoin address" value={compiled.address} />
             <CopyField label="Output descriptor (Nunchuk/Sparrow)" value={compiled.descriptor} multiline />
@@ -2433,7 +2500,7 @@ export default function PolicyBuilder() {
             </Button>
           </div>
         )}
-      </div>
+      </Section>
 
       {savedVault && (
         <BackupNudgeModal

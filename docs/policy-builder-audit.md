@@ -168,3 +168,38 @@ a disclosure and the teaching content moved to where the shape is actually chose
 
 Each step is independent, keeps gates green, and shrinks the page without
 touching the compile/PSBT core.
+
+---
+
+## 6. Progress
+
+**2026-07-20 -- Slice 1 shipped + guardrail installed.**
+
+- The two competing save flows are merged. "Save as draft" and "Compile
+  immediately" are gone; in their place is one "Create your vault" section with a
+  single readiness-driven primary action: when every planned slot holds a key you
+  hold it defaults to "Compile & review," otherwise "Save draft & invite
+  co-signers," with a quiet secondary link to force the other path. The
+  createDraft / compile / save capabilities themselves are unchanged -- only how
+  they are triggered.
+- The planned-count inputs moved out of the old draft section and up into the key
+  pickers ("How many founders in total?" / "How many heirs in total?"), so the
+  slots ARE the plan -- a filled slot is a key you hold, an empty slot is a
+  co-signer to invite. One model, not two.
+- Footgun removed: the `tr` single-leaf address option is no longer offered
+  (tr_multileaf and wsh remain); it was the documented DuplicatePubKeys trap.
+- New gate `scripts/check-policy-builder.mjs`, wired into `npm test`, locks in
+  the invariants so this cannot regress: safe address default, no single-leaf
+  option, compile sends save:false, save records the TOS version, no alert(),
+  both creation paths preserved, the merged flow stays merged, and a 2,700-line
+  budget to stop re-bloat.
+- Gates: build pass, lint pass (7 pre-existing warnings, none new), npm test pass
+  (policy + rung-digest + policy-builder guardrail), typecheck unchanged (14
+  pre-existing errors, none in PolicyBuilder). Runtime was NOT driven -- the
+  sandbox has no Supabase/compiler and `/policy` is behind auth -- so the flow is
+  verified by static gates, the new guardrail, and reading, not by exercising it
+  in a browser. Worth a manual pass on device before funding a real vault.
+
+**Still open: slices 2-5** (remove the gallery / move the "what if" playbooks,
+the advanced-governance drawer, timelock presets-first, the developer toggle for
+test shapes + drop the Bloc promo).
