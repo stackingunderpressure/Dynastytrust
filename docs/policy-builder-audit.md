@@ -218,7 +218,30 @@ touching the compile/PSBT core.
   pass, typecheck unchanged (14 pre-existing, none in PolicyBuilder). Runtime
   still not driven in-sandbox -- verified by static gates + guardrail + reading.
 
-**Still open: slices 3-5** (the advanced-governance drawer for recovery
-quorum / protector / consent + demote the vault-type and address-type controls,
-timelock presets-first with raw blocks behind Advanced, and a final pass on any
-remaining redundancy).
+**2026-07-20 -- Slice 3 shipped.**
+
+- New `Collapsible` primitive (a Section that hides its body behind a click)
+  powers progressive disclosure.
+- Vault type + address type moved into an "Advanced settings" drawer, open by
+  default only when no shape was chosen (so a cold expert can still set the
+  mode) and collapsed once a template implies them. The shape decides these;
+  they are no longer asked as two always-open sections.
+- Recovery quorum, protector, and beneficiary consent are consolidated into one
+  "Advanced governance" drawer, open by default only when the chosen template
+  actually uses a protector or consent gate (Generational Trust) -- a plain
+  Family Inheritance never opens it. The recovery-quorum control moved out of
+  the founder section into this drawer.
+- Guardrail extended: a `Collapsible` must exist, the "Advanced governance"
+  drawer must exist, and "Vault type" / "Protector (optional)" / "Beneficiary
+  consent (optional)" must no longer be always-open Sections.
+- Honest note on the line budget: the file GREW (2628 -> 2726) because
+  disclosure wrappers cost lines even as on-screen controls dropped. Raw line
+  count is the wrong proxy for clutter, so the budget is now a coarse
+  anti-doubling backstop (2800) and the structural invariants are the real
+  guard. Gates green: build pass, lint pass (7 pre-existing warnings), npm test
+  pass, typecheck unchanged (14 pre-existing, none in PolicyBuilder). Runtime
+  still not driven in-sandbox.
+
+**Still open: slices 4-5** (timelocks presets-first with raw blocks behind
+Advanced; a final pass on any remaining redundancy). Worth a manual on-device
+pass on the whole builder before funding a real vault.

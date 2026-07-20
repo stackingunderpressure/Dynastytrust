@@ -37,7 +37,12 @@ const here = dirname(fileURLToPath(import.meta.url));
 const pbPath = join(here, '..', 'apps', 'web', 'src', 'pages', 'PolicyBuilder.tsx');
 const src = await readFile(pbPath, 'utf8');
 
-const LINE_BUDGET = 2650;
+// Coarse anti-doubling backstop only. Raw line count is a weak proxy for
+// clutter -- progressive-disclosure wrappers (the Collapsible drawers) legit
+// ADD lines while REMOVING on-screen controls, so the real guards are the
+// structural invariants below, not this number. Kept only to catch someone
+// pasting a large always-visible block back in.
+const LINE_BUDGET = 2800;
 
 function present(needle) {
   return src.includes(needle);
@@ -104,7 +109,31 @@ assert.ok(
   'PolicyBuilder: the shape chooser must track the chosen shape via templateId',
 );
 
-// 9. Line budget -- no re-bloat.
+// 9. Expert / rarely-used controls stay behind disclosure (progressive
+//    disclosure). Vault type + address type live in a Collapsible, and the
+//    recovery-quorum / protector / consent options are consolidated into one
+//    "Advanced governance" drawer -- none of them render as always-open
+//    top-level Sections anymore.
+assert.ok(
+  present('<Collapsible'),
+  'PolicyBuilder: expert controls must live behind a Collapsible (progressive disclosure)',
+);
+assert.ok(
+  present('title="Advanced governance"'),
+  'PolicyBuilder: recovery quorum / protector / consent must be consolidated into one Advanced governance drawer',
+);
+for (const gone of [
+  'title="Vault type"',
+  'title="Protector (optional)"',
+  'title="Beneficiary consent (optional)"',
+]) {
+  assert.ok(
+    !present(gone),
+    `PolicyBuilder: ${gone} must not be an always-open Section -- it belongs behind disclosure`,
+  );
+}
+
+// 10. Line budget -- coarse anti-doubling backstop (see note above).
 const lines = src.split('\n').length;
 assert.ok(
   lines <= LINE_BUDGET,

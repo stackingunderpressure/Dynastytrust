@@ -1081,6 +1081,62 @@ function Section({
   );
 }
 
+// A Section that hides its body behind a click. Expert / rarely-touched
+// controls (vault type, address type, and the advanced-governance options)
+// live in these so the default form stays calm. `defaultOpen` seeds the
+// initial state; callers that need it to re-seed when a template changes pass
+// a `key` so React remounts it.
+function Collapsible({
+  title,
+  sub,
+  defaultOpen,
+  children,
+}: {
+  title: string;
+  sub?: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(!!defaultOpen);
+  return (
+    <div
+      style={{
+        background: colors.surface,
+        border: `1px solid ${colors.border}`,
+        borderRadius: 12,
+        padding: 20,
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        style={{
+          width: '100%',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 12,
+          background: 'none',
+          border: 'none',
+          padding: 0,
+          cursor: 'pointer',
+          textAlign: 'left',
+          fontFamily: fonts.sans,
+        }}
+      >
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>{title}</div>
+          {sub && <div style={{ fontSize: 13, color: colors.muted, marginTop: 2 }}>{sub}</div>}
+        </div>
+        <span style={{ fontSize: 12, color: colors.muted, whiteSpace: 'nowrap' }}>
+          {open ? 'Hide' : 'Show'}
+        </span>
+      </button>
+      {open && <div style={{ marginTop: 16 }}>{children}</div>}
+    </div>
+  );
+}
+
 function QuorumPicker({
   max,
   value,
@@ -1478,6 +1534,18 @@ export default function PolicyBuilder() {
   const foundersFilled = founderKeys.length >= Math.max(1, plannedF);
   const heirsFilled = mode === 'plain' || plannedH <= 0 || heirKeys.length >= plannedH;
   const readyToCompile = canCompile && foundersFilled && heirsFilled;
+
+  // Advanced-governance drawer (recovery quorum, protector, consent) opens by
+  // default only when the chosen shape actually uses a protector or a consent
+  // gate, or the user has already added those keys. A plain Family Inheritance
+  // never opens it. The drawer is keyed on this so applying such a template
+  // remounts it open.
+  const chosenTemplate = templateId ? VAULT_TEMPLATES.find(v => v.id === templateId) : null;
+  const usesAdvancedGov =
+    !!chosenTemplate?.config.protectorEnabled ||
+    !!chosenTemplate?.config.consentEnabled ||
+    protectorKeys.length > 0 ||
+    consentKeys.length > 0;
 
   function addKey(keyId: string, role: 'founder' | 'heir' | 'protector' | 'consent') {
     const k = allKeys.find(k => k.keyId === keyId);
@@ -1939,77 +2007,90 @@ export default function PolicyBuilder() {
         );
       })()}
 
-      <Section
-        title="Vault type"
-        sub="Plain is a normal wallet -- single-sig or multisig, spendable any time. Inheritance adds a timelocked recovery path for founders and a later inheritance path for heirs."
-      >
-        <div
-          style={{
-            display: 'flex',
-            gap: 4,
-            background: colors.input,
-            borderRadius: radii.md,
-            padding: 4,
+      <Section title="Vault settings">
+        <Label>Vault name</Label>
+        <Input
+          value={name}
+          onChange={e => {
+            setName(e.target.value);
+            setCompiled(null);
           }}
-        >
-          {(['plain', 'inheritance'] as const).map(m => {
-            const active = mode === m;
-            return (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setMode(m)}
-                style={{
-                  flex: 1,
-                  padding: '10px 0',
-                  border: 'none',
-                  borderRadius: radii.sm,
-                  background: active ? colors.border : 'transparent',
-                  color: active ? colors.text : colors.muted,
-                  fontSize: 13,
-                  fontFamily: fonts.sans,
-                  cursor: 'pointer',
-                }}
-              >
-                {m === 'plain' ? 'Plain (no timelocks)' : 'Inheritance vault'}
-              </button>
-            );
-          })}
-        </div>
+        />
       </Section>
 
-      <Section title="Vault settings">
-        <div style={{ display: 'flex', gap: 14 }}>
-          <div style={{ flex: 2 }}>
-            <Label>Vault name</Label>
-            <Input
-              value={name}
-              onChange={e => {
-                setName(e.target.value);
-                setCompiled(null);
-              }}
-            />
+      {/* Vault type and address type are DERIVED from the chosen shape, not
+          asked twice. They live here as an override for the expert (open by
+          default only when no shape was chosen so a cold expert can still set
+          the mode). Address type stays tr_multileaf -- the single-leaf footgun
+          is not offered at all. */}
+      <Collapsible
+        key={templateId ? 'settings-derived' : 'settings-cold'}
+        title="Advanced settings"
+        sub="Vault type and address format. The shape you picked already sets these -- only change them if you know why."
+        defaultOpen={!templateId}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <Label>Vault type</Label>
+          <div
+            style={{
+              display: 'flex',
+              gap: 4,
+              background: colors.input,
+              borderRadius: radii.md,
+              padding: 4,
+              marginTop: 4,
+            }}
+          >
+            {(['plain', 'inheritance'] as const).map(m => {
+              const active = mode === m;
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => {
+                    setMode(m);
+                    setCompiled(null);
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '10px 0',
+                    border: 'none',
+                    borderRadius: radii.sm,
+                    background: active ? colors.border : 'transparent',
+                    color: active ? colors.text : colors.muted,
+                    fontSize: 13,
+                    fontFamily: fonts.sans,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {m === 'plain' ? 'Plain (no timelocks)' : 'Inheritance vault'}
+                </button>
+              );
+            })}
           </div>
-          <div style={{ flex: 1 }}>
-            <Label>Address type</Label>
-            <select
-              style={selectStyle}
-              value={addrType}
-              onChange={e => {
-                setAddrType(e.target.value as typeof addrType);
-                setCompiled(null);
-              }}
-            >
-              <option value="tr_multileaf">Taproot multileaf (recommended)</option>
-              <option value="wsh">SegWit P2WSH</option>
-              {/* Taproot single leaf (tr) is intentionally NOT offered: with
-                  founder keys appearing in both the founders-now and recovery
-                  paths it trips DuplicatePubKeys (see CLAUDE.md known issues).
-                  tr_multileaf is the only safe multi-path Taproot shape. */}
-            </select>
+          <div style={{ fontSize: 12, color: colors.muted, marginTop: 6, lineHeight: 1.4 }}>
+            Plain is a normal wallet, spendable any time. Inheritance adds a timelocked recovery path and a later inheritance path.
           </div>
         </div>
-      </Section>
+        <div>
+          <Label>Address type</Label>
+          <select
+            style={selectStyle}
+            value={addrType}
+            onChange={e => {
+              setAddrType(e.target.value as typeof addrType);
+              setCompiled(null);
+            }}
+          >
+            <option value="tr_multileaf">Taproot multileaf (recommended)</option>
+            <option value="wsh">SegWit P2WSH</option>
+            {/* Taproot single leaf (tr) is intentionally NOT offered: with
+                founder keys appearing in both the founders-now and recovery
+                paths it trips DuplicatePubKeys (see CLAUDE.md known issues).
+                tr_multileaf is the only safe multi-path Taproot shape. */}
+          </select>
+        </div>
+      </Collapsible>
 
       <Section
         id="founder-keys-section"
@@ -2051,33 +2132,6 @@ export default function PolicyBuilder() {
             color={colors.gold}
           />
         )}
-        {mode === 'inheritance' && founderKeys.length > 0 && (
-          <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${colors.border}` }}>
-            <div style={{ fontSize: 13, fontWeight: 500, color: colors.text, marginBottom: 4 }}>
-              Recovery quorum after timelock
-            </div>
-            <div style={{ fontSize: 12, color: colors.muted, marginBottom: 10 }}>
-              How many trustees are needed to spend via the recovery path once the timelock
-              elapses. Set below the normal quorum so Path 2 actually unlocks something (e.g.
-              3-of-3 normally, 2-of-3 after 3 months as insurance against a lost device).
-            </div>
-            <QuorumPicker
-              max={founderKeys.length}
-              value={recoveryQ}
-              onChange={q => {
-                setRecoveryQ(q);
-                setCompiled(null);
-              }}
-              color={colors.blue}
-            />
-            {recoveryQ >= founderQ && (
-              <div style={{ fontSize: 11, color: colors.orange, marginTop: 8 }}>
-                Warning: recovery quorum equals the normal quorum, so Path 2 grants no new
-                capability -- anyone who could sign Path 2 could already sign Path 1 today.
-              </div>
-            )}
-          </div>
-        )}
       </Section>
 
       {mode === 'inheritance' && (
@@ -2113,92 +2167,136 @@ export default function PolicyBuilder() {
       )}
 
       {mode === 'inheritance' && (
-        <Section
-          title="Protector (optional)"
-          sub="An independent party -- typically an estate attorney or family advisor -- who can spend after their own timelock if the trustees go rogue. Longer than the recovery timelock so trustees recover first; shorter than the inheritance timelock so the protector can intervene before succession."
+        <Collapsible
+          key={usesAdvancedGov ? 'gov-open' : 'gov-closed'}
+          title="Advanced governance"
+          sub="Recovery quorum, an optional protector, and an optional beneficiary-consent gate. Most vaults leave these at their defaults."
+          defaultOpen={usesAdvancedGov}
         >
-          <KeyPicker
-            selected={protectorKeys}
-            available={availForProtector}
-            onAdd={id => addKey(id, 'protector')}
-            onRemove={id => removeKey(id, 'protector')}
-            role="protector"
-            accentColor={colors.blue}
-          />
-          {protectorKeys.length > 0 && (
-            <>
-              <QuorumPicker
-                max={protectorKeys.length}
-                value={protectorQ}
-                onChange={q => {
-                  setProtectorQ(q);
-                  setCompiled(null);
-                }}
-                color={colors.blue}
-              />
-              <div style={{ marginTop: 14 }}>
-                <Label>Protector timelock (blocks)</Label>
-                <div style={{ fontSize: 12, color: colors.muted, marginBottom: 6 }}>
-                  Should sit between the recovery timelock and the inheritance
-                  timelock. ~26,280 blocks = 6 months.
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+            {/* Recovery quorum after the timelock. */}
+            {founderKeys.length > 0 && (
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+                  Recovery quorum after timelock
                 </div>
-                <Input
-                  type="number"
-                  min={recovery + 1}
-                  value={protectorAfter}
-                  onChange={e => {
-                    setProtectorAfter(Math.max(recovery + 1, parseInt(e.target.value) || recovery + 1));
+                <div style={{ fontSize: 12, color: colors.muted, marginBottom: 10 }}>
+                  How many founders are needed to spend via the recovery path once the timelock
+                  elapses. Set below the normal quorum so Path 2 actually unlocks something (e.g.
+                  3-of-3 normally, 2-of-3 after 3 months as insurance against a lost device).
+                </div>
+                <QuorumPicker
+                  max={founderKeys.length}
+                  value={recoveryQ}
+                  onChange={q => {
+                    setRecoveryQ(q);
                     setCompiled(null);
                   }}
+                  color={colors.blue}
                 />
-                {protectorAfter <= recovery && (
-                  <div style={{ fontSize: 11, color: colors.orange, marginTop: 6 }}>
-                    Protector timelock must exceed recovery ({recovery.toLocaleString()}).
-                  </div>
-                )}
-                {protectorAfter >= inherit && (
-                  <div style={{ fontSize: 11, color: colors.orange, marginTop: 6 }}>
-                    Warning: protector path unlocks after or with inheritance -- it may be redundant.
+                {recoveryQ >= founderQ && (
+                  <div style={{ fontSize: 11, color: colors.orange, marginTop: 8 }}>
+                    Warning: recovery quorum equals the normal quorum, so Path 2 grants no new
+                    capability -- anyone who could sign Path 2 could already sign Path 1 today.
                   </div>
                 )}
               </div>
-            </>
-          )}
-        </Section>
-      )}
+            )}
 
-      {mode === 'inheritance' && (
-        <Section
-          title="Beneficiary consent (optional)"
-          sub="Adds a beneficiary-cosign gate on the trustees-now path. Every normal spend then requires trustees AND this many beneficiary signatures. The timelocked recovery / inheritance / protector paths are intentionally unaffected -- they exist so funds can still move when a beneficiary refuses to cosign. Use when a beneficiary should have veto power over day-to-day spends without being responsible for custody."
-        >
-          <KeyPicker
-            selected={consentKeys}
-            available={availForConsent}
-            onAdd={id => addKey(id, 'consent')}
-            onRemove={id => removeKey(id, 'consent')}
-            role="consent"
-            accentColor={colors.gold}
-          />
-          {consentKeys.length > 0 && (
-            <>
-              <QuorumPicker
-                max={consentKeys.length}
-                value={consentQ}
-                onChange={q => {
-                  setConsentQ(q);
-                  setCompiled(null);
-                }}
-                color={colors.gold}
-              />
-              <div style={{ fontSize: 11, color: colors.orange, marginTop: 10 }}>
-                Every spend on Path 1 will need trustees + {consentQ} beneficiary
-                signature{consentQ === 1 ? '' : 's'}. If a beneficiary won't cosign,
-                trustees must wait for the recovery timelock to spend.
+            {/* Protector (optional). */}
+            <div style={{ paddingTop: 22, borderTop: `1px solid ${colors.border}` }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+                Protector (optional)
               </div>
-            </>
-          )}
-        </Section>
+              <div style={{ fontSize: 12, color: colors.muted, marginBottom: 10, lineHeight: 1.4 }}>
+                An independent party -- typically an estate attorney or family advisor -- who can spend after their own timelock if the trustees go rogue. Longer than the recovery timelock so trustees recover first; shorter than the inheritance timelock so the protector can intervene before succession.
+              </div>
+              <KeyPicker
+                selected={protectorKeys}
+                available={availForProtector}
+                onAdd={id => addKey(id, 'protector')}
+                onRemove={id => removeKey(id, 'protector')}
+                role="protector"
+                accentColor={colors.blue}
+              />
+              {protectorKeys.length > 0 && (
+                <>
+                  <QuorumPicker
+                    max={protectorKeys.length}
+                    value={protectorQ}
+                    onChange={q => {
+                      setProtectorQ(q);
+                      setCompiled(null);
+                    }}
+                    color={colors.blue}
+                  />
+                  <div style={{ marginTop: 14 }}>
+                    <Label>Protector timelock (blocks)</Label>
+                    <div style={{ fontSize: 12, color: colors.muted, marginBottom: 6 }}>
+                      Should sit between the recovery timelock and the inheritance
+                      timelock. ~26,280 blocks = 6 months.
+                    </div>
+                    <Input
+                      type="number"
+                      min={recovery + 1}
+                      value={protectorAfter}
+                      onChange={e => {
+                        setProtectorAfter(Math.max(recovery + 1, parseInt(e.target.value) || recovery + 1));
+                        setCompiled(null);
+                      }}
+                    />
+                    {protectorAfter <= recovery && (
+                      <div style={{ fontSize: 11, color: colors.orange, marginTop: 6 }}>
+                        Protector timelock must exceed recovery ({recovery.toLocaleString()}).
+                      </div>
+                    )}
+                    {protectorAfter >= inherit && (
+                      <div style={{ fontSize: 11, color: colors.orange, marginTop: 6 }}>
+                        Warning: protector path unlocks after or with inheritance -- it may be redundant.
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Beneficiary consent (optional). */}
+            <div style={{ paddingTop: 22, borderTop: `1px solid ${colors.border}` }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+                Beneficiary consent (optional)
+              </div>
+              <div style={{ fontSize: 12, color: colors.muted, marginBottom: 10, lineHeight: 1.4 }}>
+                Adds a beneficiary-cosign gate on the trustees-now path. Every normal spend then requires trustees AND this many beneficiary signatures. The timelocked recovery / inheritance / protector paths are intentionally unaffected -- they exist so funds can still move when a beneficiary refuses to cosign. Use when a beneficiary should have veto power over day-to-day spends without being responsible for custody.
+              </div>
+              <KeyPicker
+                selected={consentKeys}
+                available={availForConsent}
+                onAdd={id => addKey(id, 'consent')}
+                onRemove={id => removeKey(id, 'consent')}
+                role="consent"
+                accentColor={colors.gold}
+              />
+              {consentKeys.length > 0 && (
+                <>
+                  <QuorumPicker
+                    max={consentKeys.length}
+                    value={consentQ}
+                    onChange={q => {
+                      setConsentQ(q);
+                      setCompiled(null);
+                    }}
+                    color={colors.gold}
+                  />
+                  <div style={{ fontSize: 11, color: colors.orange, marginTop: 10 }}>
+                    Every spend on Path 1 will need trustees + {consentQ} beneficiary
+                    signature{consentQ === 1 ? '' : 's'}. If a beneficiary won't cosign,
+                    trustees must wait for the recovery timelock to spend.
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </Collapsible>
       )}
 
       {mode === 'inheritance' && (
