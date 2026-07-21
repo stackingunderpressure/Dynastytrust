@@ -352,7 +352,7 @@ id, vault_id, path, destination, amount_sats, fee_sats, status,
 psbt_hex, psbt_b64, txid, memo, governance_audit, created_at
 
 -- vault_events table
-id, vault_id, event_type, data (jsonb), created_at
+id, vault_id, user_id, event_type, metadata (jsonb), created_at
 
 -- signer_sessions table
 id, proposal_id, signer_fingerprint, signed_at, psbt_partial_hex

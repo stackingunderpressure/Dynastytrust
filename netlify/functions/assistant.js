@@ -221,8 +221,8 @@ that is not here, and never invent a BIP number, a doc name, or a section.
 
 Rung 0 -- Why store value into the future at all: docs/sovereignty-education-bot.md rung 0; operator firewood-vs-apples parable
 Rung 1 -- Why Bitcoin, specifically: docs/manifesto.md why-it-exists; docs/manifesto.md what-this-is-not
-Rung 2 -- Self-custody and its weaknesses: docs/manifesto.md normie-section; tapit attack-list.md
-Rung 3 -- Redundancy beats every weakness: tapit 2026-06-05-sovereignty-literacy-education-spec.md (the two levers)
+Rung 2 -- Self-custody and its weaknesses: docs/sovereignty-education-bot.md rung 2; docs/manifesto.md normie-section; tapit attack-list.md
+Rung 3 -- Redundancy beats every weakness: docs/sovereignty-education-bot.md rung 3; tapit 2026-06-05-sovereignty-literacy-education-spec.md (the two levers)
 Rung 4 -- Things you could never do before: docs/manifesto.md why-it-exists; THESIS.md section 2
 Rung 5 -- Locking value up: timelocks: THESIS.md section 3; CLAUDE.md timelock rule
 Rung 6 -- How do I control it: the three paths: VAULT_TEMPLATES playbooks in PolicyBuilder.tsx

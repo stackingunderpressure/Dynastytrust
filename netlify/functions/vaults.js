@@ -224,6 +224,29 @@ export async function handler(event) {
     if (error) return json(500, { error: error.message });
     if (!data) return json(404, { error: "Vault not found" });
 
+    // Audit trail: a trust-doc amendment is a material legal event and must
+    // appear in the chronological log (docs/policy-builder-audit.md gap). We
+    // record WHICH fields changed, never the trust-doc contents themselves, so
+    // the timeline shows the amendment without duplicating the document. Emit a
+    // dedicated trust_doc_updated when the trust doc changed; otherwise a
+    // generic vault_updated for name/archived. Best-effort like the other
+    // event writes -- never fail the update on a logging error.
+    {
+      const changed = Object.keys(updates);
+      const eventType = changed.includes("trust_doc")
+        ? "trust_doc_updated"
+        : "vault_updated";
+      await supabase
+        .from("vault_events")
+        .insert({
+          vault_id: id,
+          user_id: u.userId,
+          event_type: eventType,
+          metadata: { fields_changed: changed },
+        })
+        .then(() => {}, () => { /* logging is best-effort */ });
+    }
+
     return json(200, { ok: true, vault: data });
   }
 

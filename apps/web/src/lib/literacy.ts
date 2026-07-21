@@ -77,7 +77,7 @@ export const RUNGS: Record<number, RungLesson> = {
       'When you alone control the value, you alone carry every failure mode. There is no institution absorbing your mistakes -- which is exactly the freedom and exactly the cost.',
     socraticQuestion:
       'Name every way you could lose access to your own money. Which of those failures are you actually prepared for today?',
-    sourcePointers: ['docs/manifesto.md normie-section', 'tapit attack-list.md'],
+    sourcePointers: ['docs/sovereignty-education-bot.md rung 2', 'docs/manifesto.md normie-section', 'tapit attack-list.md'],
   },
   3: {
     rung: 3,
@@ -88,7 +88,7 @@ export const RUNGS: Record<number, RungLesson> = {
       'No single backup survives every disaster, so you spread the risk across independent copies and across people, and you add time-based doors so a lost piece is recoverable rather than fatal.',
     socraticQuestion:
       'For your own access: does it hurt if someone SEES it, or only if you LOSE it -- and how many independent ways back do you have right now?',
-    sourcePointers: ['tapit 2026-06-05-sovereignty-literacy-education-spec.md (the two levers)'],
+    sourcePointers: ['docs/sovereignty-education-bot.md rung 3', 'tapit 2026-06-05-sovereignty-literacy-education-spec.md (the two levers)'],
   },
   4: {
     rung: 4,
