@@ -295,3 +295,17 @@ honest gaps.
   after btc-signer signs it -- the one interop boundary a sandbox can't exercise.
   Until that passes, the legacy fallback stays and mainnet gets caution. This is
   step 4 of the section 6 test matrix.
+
+**2026-07-20 -- Slice 2 (signer registration guidance) landed.** The hardware-
+signing section of VaultDetail now carries a BIP-grounded one-time registration
+note: register the vault on the device first (descriptor / BSMS import for
+Sparrow/Coldcard per BIP-129, wallet-policy registration for Ledger per BIP-388)
+so the device verifies addresses and refuses to blind-sign an unknown script.
+This is the education + the correct per-device path, leveraging the existing
+descriptor/BSMS export; a fuller per-device artifact-generation wizard can follow
+if real hardware testing shows it's needed. Gates green (build, lint, npm test;
+typecheck unchanged).
+
+**2026-07-20 -- Slice 3 (audit gap) + education vetting landed** (separate
+commit): trust_doc edits now write a trust_doc_updated event; test-literacy is in
+npm test; rungs 2/3 gained locally-verifiable in-repo citations.

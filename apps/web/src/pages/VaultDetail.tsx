@@ -1401,6 +1401,31 @@ function SendTab({ vault, balance, onDone, prefill }: {
           <div style={{ fontSize: 12, color: colors.muted, marginBottom: 14 }}>
             Export to Sparrow, Nunchuk, or Coldcard. Paste / scan the signed PSBT back here.
           </div>
+          {/* One-time signer registration. A hardware device will not sign a
+              miniscript/multisig it has not been shown first; registering the
+              policy lets it verify addresses and refuse to blind-sign an
+              unknown script -- a security feature, not friction. */}
+          <div
+            style={{
+              background: colors.inset,
+              border: `1px solid ${colors.border}`,
+              borderRadius: 8,
+              padding: "10px 12px",
+              marginBottom: 14,
+              fontSize: 11.5,
+              color: colors.muted,
+              lineHeight: 1.5,
+            }}
+          >
+            <strong style={{ color: colors.sub }}>First time on this device?</strong>{" "}
+            Register this vault once so the device recognizes the policy and can
+            verify your addresses (it will refuse to blind-sign an unknown
+            script). Use the descriptor / BSMS export from the vault overview.
+            Sparrow: import the descriptor as a watch-only wallet. Coldcard:
+            import the descriptor / miniscript config, or the BSMS file (BIP-129).
+            Ledger: register the wallet policy (BIP-388). After that, the sign
+            round-trip below just works.
+          </div>
           <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
             <Button
               variant="ghost"
