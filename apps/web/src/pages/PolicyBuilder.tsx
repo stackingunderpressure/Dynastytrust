@@ -1355,6 +1355,75 @@ function PlannedCountField({
   );
 }
 
+// One timelock row: a human duration + preset buttons as the PRIMARY control,
+// with the exact block-height input tucked behind an "advanced" reveal so a
+// family never has to reason in blocks. blocksToHuman renders the friendly
+// value; the raw height is available for experts who need a specific height.
+function TimelockRow({
+  label,
+  sub,
+  val,
+  min,
+  onChange,
+}: {
+  label: string;
+  sub: string;
+  val: number;
+  min: number;
+  onChange: (n: number) => void;
+}) {
+  const [showExact, setShowExact] = useState(false);
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 500, color: colors.text }}>{label}</div>
+          <div style={{ fontSize: 12, color: colors.muted, marginTop: 2 }}>{sub}</div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: colors.gold, fontFamily: fonts.display }}>
+            {blocksToHuman(val)}
+          </div>
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+        {PRESETS.filter(p => p.blocks >= min).map(p => (
+          <Button
+            key={p.blocks}
+            variant="ghost"
+            size="sm"
+            onClick={() => onChange(p.blocks)}
+            style={{
+              padding: '5px 11px',
+              fontSize: 12,
+              ...(val === p.blocks ? { borderColor: colors.gold, color: colors.gold } : null),
+            }}
+          >
+            {p.label}
+          </Button>
+        ))}
+      </div>
+      <button type="button" onClick={() => setShowExact(s => !s)} style={secondaryLinkStyle}>
+        {showExact ? 'Hide exact block height' : 'Set an exact block height (advanced)'}
+      </button>
+      {showExact && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+          <Input
+            type="number"
+            value={val}
+            min={min}
+            onChange={e => onChange(Math.max(min, parseInt(e.target.value) || min))}
+            style={{ width: 130 }}
+          />
+          <span style={{ fontSize: 12, color: colors.muted }}>
+            blocks (~10 min each) -- {val.toLocaleString()} now
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ~4,380 blocks per month at 10-minute blocks (26,280 blocks = 6 months).
 // Used to translate the assistant's month-based proposal into the
 // builder's block-offset inputs.
@@ -2300,80 +2369,30 @@ export default function PolicyBuilder() {
       )}
 
       {mode === 'inheritance' && (
-      <Section title="Timelocks">
-        {[
-          {
-            label: 'Recovery after',
-            sub: 'Founder recovery path -- for lost devices',
-            val: recovery,
-            set: setRecovery,
-            min: 26_000,
-          },
-          {
-            label: 'Inheritance after',
-            sub: 'Heir inheritance -- the dynasty transfer window',
-            val: inherit,
-            set: setInherit,
-            min: recovery + 1,
-          },
-        ].map(({ label, sub, val, set, min }) => (
-          <div key={label} style={{ marginBottom: 18 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 500, color: colors.text }}>{label}</div>
-                <div style={{ fontSize: 12, color: colors.muted, marginTop: 2 }}>{sub}</div>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div
-                  style={{
-                    fontSize: 16,
-                    fontWeight: 700,
-                    color: colors.gold,
-                    fontFamily: fonts.display,
-                  }}
-                >
-                  {blocksToHuman(val)}
-                </div>
-                <div style={{ fontSize: 11, color: colors.muted }}>
-                  {val.toLocaleString()} blocks
-                </div>
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-              {PRESETS.filter(p => p.blocks >= min).map(p => (
-                <Button
-                  key={p.blocks}
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    set(p.blocks);
-                    setCompiled(null);
-                  }}
-                  style={{
-                    padding: '5px 11px',
-                    fontSize: 12,
-                    ...(val === p.blocks ? { borderColor: colors.gold, color: colors.gold } : null),
-                  }}
-                >
-                  {p.label}
-                </Button>
-              ))}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <Input
-                type="number"
-                value={val}
-                min={min}
-                onChange={e => {
-                  set(Math.max(min, parseInt(e.target.value) || min));
-                  setCompiled(null);
-                }}
-                style={{ width: 130 }}
-              />
-              <span style={{ fontSize: 12, color: colors.muted }}>blocks (~10 min each)</span>
-            </div>
-          </div>
-        ))}
+      <Section
+        title="Timelocks"
+        sub="How long each timelocked path waits before it can open. Pick a preset; exact block heights are under 'advanced' if you need one."
+      >
+        <TimelockRow
+          label="Recovery after"
+          sub="Founder recovery path -- for lost devices"
+          val={recovery}
+          min={26_000}
+          onChange={n => {
+            setRecovery(n);
+            setCompiled(null);
+          }}
+        />
+        <TimelockRow
+          label="Inheritance after"
+          sub="Heir inheritance -- the dynasty transfer window"
+          val={inherit}
+          min={recovery + 1}
+          onChange={n => {
+            setInherit(n);
+            setCompiled(null);
+          }}
+        />
       </Section>
       )}
 

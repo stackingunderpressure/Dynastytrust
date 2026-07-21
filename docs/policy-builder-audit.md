@@ -242,6 +242,16 @@ touching the compile/PSBT core.
   pass, typecheck unchanged (14 pre-existing, none in PolicyBuilder). Runtime
   still not driven in-sandbox.
 
-**Still open: slices 4-5** (timelocks presets-first with raw blocks behind
-Advanced; a final pass on any remaining redundancy). Worth a manual on-device
-pass on the whole builder before funding a real vault.
+**2026-07-20 -- Slice 4 shipped.** Timelocks now lead with the human duration
+(`blocksToHuman`) + preset buttons as the primary control; the raw block-height
+input is tucked behind a per-row "Set an exact block height (advanced)" reveal,
+extracted into a `TimelockRow` component. A family never has to reason in blocks;
+the exact height stays available for experts. Gates green (build, lint, npm test;
+typecheck unchanged).
+
+**Slice 5 (redundancy sweep):** after slices 1-4 the major redundancy is gone --
+the two competing save flows, the 11-card gallery, the duplicate vault-type
+toggle, the always-open protector/consent/recovery-quorum, and the raw-blocks
+jargon are all resolved. Remaining structure is intentional (expert overrides in
+the Advanced drawers). No further redundancy sweep needed beyond a manual
+on-device pass before funding a real vault.
