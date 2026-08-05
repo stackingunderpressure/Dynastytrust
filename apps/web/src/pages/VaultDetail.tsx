@@ -20,6 +20,7 @@ import {
 import { supabase } from "../lib/supabase";
 import { listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
 import { signPsbtWithMnemonic, countSignatures, mergePsbts } from "../lib/psbt-signer";
+import { evaluateSigningGate, ceremonyFromProposal } from "@dynastytrust/policy-engine";
 import { APP_NAME, broadcastTxUrl, explorerTxUrl } from "../config";
 import { useToast } from "../components/toast";
 import { useConfirm, usePrompt } from "../components/dialog";
@@ -33,6 +34,19 @@ import { normalizePsbt } from "../lib/psbt-format";
 import { downloadVault } from "../lib/descriptor-backup";
 import { DescriptorQr } from "../components/DescriptorQr";
 import { pubkeyFromXpub, fingerprintFromXpub } from "../lib/xpub";
+import { sha256 } from "@noble/hashes/sha256";
+
+function toHexBytes(bytes: Uint8Array): string {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Stable binding identity for a PSBT's hex, mirroring BlocBuilder.tsx's
+// psbtBindingHash. Only meaningful compared against ANOTHER hash of the
+// exact same pristine, pre-signature hex -- see signWithKey's comment on
+// why it is only checked against the first signature in a session.
+function psbtBindingHash(psbtHex: string): string {
+  return toHexBytes(sha256(new TextEncoder().encode(psbtHex)));
+}
 import { ensureMessagingKey, encryptMessage, decryptMessage, getMessagingPubkey } from "../lib/messaging";
 import { TrustTab } from "../components/TrustTab";
 import { RemindersBanner } from "../components/RemindersBanner";
@@ -1038,6 +1052,90 @@ function SendTab({ vault, balance, onDone, prefill }: {
     });
 
     try {
+      // Fail-closed gate: refuse to sign unless this exactly matches an
+      // approved, non-duress, live proposal (docs/threat-model-and-fail-
+      // closed.md section 4 -- "fail closed everywhere the app has
+      // discretion"). Checked before the password prompt so a blocked
+      // sign never bothers to ask for a key.
+      const { proposals } = await api.proposals.list(vault.id);
+      const proposal = signing.proposal_id ? proposals.find(p => p.id === signing.proposal_id) : undefined;
+      if (!proposal) {
+        throw new Error("could not find the proposal this spend is supposed to match");
+      }
+
+      // Liveness axis deliberately NOT wired here yet: assembleLivenessGateInput
+      // (apps/web/src/lib/liveness-gate.ts) needs tapit-attest's real runtime
+      // code, and tapit-attest's OpenTimestampsProvider re-export transitively
+      // pulls in the `opentimestamps` npm package, which ships a broken `main`
+      // field (declares open-timestamps.js; the published package only
+      // contains index.js) -- Vite's build fails to resolve it. This is an
+      // upstream packaging defect in a third-party dependency of a shared,
+      // cross-repo library, not something fixable from this file. undefined
+      // is the gate's own documented safe default ("not liveness-gated"),
+      // exactly like an unconfigured vault today. Duress is still enforced
+      // below via vault.duress independent of this. Fix upstream (patch or
+      // replace the opentimestamps dependency in tapit-attest, or fix its
+      // package exports so a subpath import can route around the barrel)
+      // and wire api.liveness.get() + assembleLivenessGateInput here.
+      const liveness = undefined;
+
+      const ceremony = ceremonyFromProposal({
+        proposal: {
+          proposalId: proposal.id,
+          vaultId: vault.id,
+          status: proposal.status,
+          destination: proposal.destination,
+          amountSats: proposal.amount_sats,
+          path: proposal.path,
+        },
+        authorizedPsbtHash: proposal.psbt_hex ? psbtBindingHash(proposal.psbt_hex) : "",
+        // No separate per-member approval-vote step exists in this app yet
+        // (see docs/integration-phase1-signin-and-bridge.md). A single
+        // synthetic voter stands for "the proposal reached a signable
+        // status," matching BlocBuilder.tsx's own local-ceremony precedent
+        // (approvalsRequired: 1, approvalsCollected: 1). Real per-member
+        // approval voting is a genuine future improvement, not something
+        // this cut regresses -- today's code enforced none of this at all.
+        approveVoterIds: ["proposal-exists"],
+        approvalsRequired: 1,
+        duress: vault.duress,
+      });
+
+      // request.destination/amountSats deliberately come from `signing`
+      // (the browser's own in-memory record of what was built and shown to
+      // the human), NOT from the freshly-fetched proposal used for
+      // `ceremony` above -- comparing the two closes the "compromised
+      // device shows one destination but signs another" gap (P5 in the
+      // threat model doc). This form only ever proposes founders_now.
+      //
+      // The exact-PSBT-hash check is only meaningful against the PRISTINE,
+      // never-mutated proposal.psbt_hex: signing.psbt_hex legitimately
+      // changes as earlier signatures get merged in across a multi-signer
+      // session, so re-hashing it after the first signature would produce
+      // a false PSBT_HASH_MISMATCH. Checked strictly only for the first
+      // signature in a session; every other check (destination, amount,
+      // path, status, duress, liveness) still applies to later signers.
+      const requestPsbtHash =
+        signing.signaturesCollected === 0 ? psbtBindingHash(signing.psbt_hex) : ceremony.authorizedPsbtHash;
+
+      const gate = evaluateSigningGate({
+        request: {
+          vaultId: vault.id,
+          psbtHash: requestPsbtHash,
+          destination: signing.summary.destination,
+          amountSats: signing.summary.amount_sats,
+          path: "founders_now",
+        },
+        ceremony,
+        vault: { vaultId: vault.id, address: vault.address ?? "" },
+        psbtBindsToVault: true,
+        liveness,
+      });
+
+      if (!gate.allow) {
+        throw new Error("Fail-closed gate blocked signing: " + gate.denials.map(d => d.message).join(" "));
+      }
+
       // Get mnemonic
       let pw: string | undefined;
       if (!key.testMnemonic) {

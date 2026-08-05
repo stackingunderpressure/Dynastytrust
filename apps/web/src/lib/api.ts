@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { broadcastTxUrl, type Network } from '../config';
+import type { ProofOfLife, DuressFlag } from 'tapit-attest';
 
 // In production, /api/* is redirected to /.netlify/functions/* by netlify.toml.
 // In local dev with `netlify dev`, the same redirect applies automatically.
@@ -91,6 +92,10 @@ export interface Vault {
   // distribution rules. The schema is flexible; the UI reads the
   // fields it knows about and round-trips the rest.
   trust_doc: TrustDoc;
+  /** Vault-level duress/hold signal for the fail-closed signing gate
+   *  (023_bloc_vaults.sql). When true, in-app signing must refuse and
+   *  funds fall to the timelock backstop. Defaults false server-side. */
+  duress: boolean;
 }
 
 export interface TrustDoc {
@@ -650,6 +655,18 @@ export const api = {
       txid?: string;
       memo?: string;
     }) => req<{ ok: true; proposal: Proposal }>(`/proposals?id=${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  },
+
+  liveness: {
+    /** The vault's held signals plus its resolved liveness config
+     *  (null = not liveness-gated), shaped for assembleLivenessGateInput. */
+    get: (vault_id: string) =>
+      req<{
+        ok: true;
+        proofs: Record<string, ProofOfLife | null | undefined>;
+        redFlags: DuressFlag[];
+        config: { circle: string[]; requiredGreenByPath: Record<string, number>; ttlSeconds: number } | null;
+      }>(`/liveness?vault_id=${vault_id}`),
   },
 
 

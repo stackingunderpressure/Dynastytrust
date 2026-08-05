@@ -35,7 +35,7 @@
 
 import { requireUser, json } from './_auth.js';
 import { getSupabaseAdmin } from './_supabase.js';
-import { verifyLivenessSignalForStorage } from './_liveness.js';
+import { verifyLivenessSignalForStorage, loadVaultLivenessConfig } from './_liveness.js';
 
 /** Active member/owner check (owners are auto-seeded as active members). */
 async function isActiveMember(supabase, vaultId, userId) {
@@ -85,7 +85,18 @@ export async function handler(event) {
       }
     }
 
-    return json(200, { ok: true, proofs, redFlags });
+    // Resolve the vault's liveness config server-side (the caller should
+    // not have to duplicate loadVaultLivenessConfig's validation). null
+    // when the vault has none configured -- the safe "not liveness-gated"
+    // default, never a fabricated green.
+    const { data: vault } = await supabase
+      .from('vaults')
+      .select('bloc_policy')
+      .eq('id', vault_id)
+      .maybeSingle();
+    const config = loadVaultLivenessConfig(vault || {});
+
+    return json(200, { ok: true, proofs, redFlags, config });
   }
 
   // -- POST: verify-on-write then store.
