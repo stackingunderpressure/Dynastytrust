@@ -35,16 +35,25 @@ export async function handler(event) {
   if (!vault_id) return json(400, { error: 'Missing: vault_id' });
   if (!psbts || psbts.length < 2) return json(400, { error: 'Provide at least 2 PSBTs in the psbts array' });
 
-  // Auth: verify vault belongs to user
+  // Auth: any active member of the vault may merge PSBTs, not just
+  // the owner -- same membership check proposals.js / psbt-binary.js use.
   const supabase = getSupabaseAdmin();
   const { data: vault } = await supabase
     .from('vaults')
     .select('id, name, founder_quorum, heir_quorum')
     .eq('id', vault_id)
-    .eq('user_id', u.userId)
-    .single();
+    .maybeSingle();
 
   if (!vault) return json(404, { error: 'Vault not found' });
+
+  const { data: membership } = await supabase
+    .from('vault_members')
+    .select('id')
+    .eq('vault_id', vault_id)
+    .eq('user_id', u.userId)
+    .eq('status', 'active')
+    .maybeSingle();
+  if (!membership) return json(403, { error: 'Not a member of this vault' });
 
   if (!COMPILER_URL) {
     return json(503, { error: 'COMPILER_URL not configured. Deploy the Fly.io compiler to enable PSBT merging.' });
@@ -65,7 +74,10 @@ export async function handler(event) {
       return json(res.status, { error: data.error || 'Merge failed' });
     }
 
-    // Update proposal with merged PSBT if proposal_id provided
+    // Update proposal with merged PSBT if proposal_id provided. Scoped
+    // by vault_id (already membership-checked above), not user_id --
+    // any active member merging signatures may update the shared
+    // proposal record, not only whoever originally created it.
     if (proposal_id) {
       const isFullySigned = data.signature_count >= vault.founder_quorum;
       await supabase
@@ -75,7 +87,7 @@ export async function handler(event) {
           status: isFullySigned ? 'signed' : 'pending',
         })
         .eq('id', proposal_id)
-        .eq('user_id', u.userId);
+        .eq('vault_id', vault_id);
 
       // Log merge event
       await supabase.from('vault_events').insert({

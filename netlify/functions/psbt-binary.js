@@ -61,16 +61,25 @@ export async function handler(event) {
   if (!destination) return json(400, { error: 'Missing: destination' });
   if (!amount_sats || amount_sats < 546) return json(400, { error: 'amount_sats must be >= 546' });
 
-  // Load vault
+  // Load vault. Any active member may build a PSBT, not just the
+  // owner -- same membership check proposals.js GET/PATCH/POST use.
   const supabase = getSupabaseAdmin();
   const { data: vault, error } = await supabase
     .from('vaults')
     .select('id, name, address, network, descriptor, address_type, recovery_after, inheritance_after, recovery_quorum, founder_quorum, heir_quorum, founder_keys, heir_keys, consent_keys, consent_quorum, protector_keys, protector_quorum, protector_after')
     .eq('id', vault_id)
-    .eq('user_id', u.userId)
-    .single();
+    .maybeSingle();
 
   if (error || !vault) return json(404, { error: 'Vault not found' });
+
+  const { data: membership } = await supabase
+    .from('vault_members')
+    .select('id')
+    .eq('vault_id', vault_id)
+    .eq('user_id', u.userId)
+    .eq('status', 'active')
+    .maybeSingle();
+  if (!membership) return json(403, { error: 'Not a member of this vault' });
 
   // vault.founder_keys / heir_keys / consent_keys are stored as
   // xpubs; the Fly.io /psbt-binary leaf-script rebuilder expects

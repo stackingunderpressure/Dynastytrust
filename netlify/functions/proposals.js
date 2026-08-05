@@ -94,15 +94,24 @@ export async function handler(event) {
     if (!destination) return json(400, { error: 'Missing: destination' });
     if (!amount_sats || amount_sats < 546) return json(400, { error: 'amount_sats must be >= 546' });
 
-    // Load vault for governance audit
+    // Load vault. Any active member may propose a spend, not just
+    // the owner -- same membership check GET/PATCH already use.
     const { data: vault } = await supabase
       .from('vaults')
       .select('*')
       .eq('id', vault_id)
-      .eq('user_id', u.userId)
-      .single();
+      .maybeSingle();
 
     if (!vault) return json(404, { error: 'Vault not found' });
+
+    const { data: membership } = await supabase
+      .from('vault_members')
+      .select('id')
+      .eq('vault_id', vault_id)
+      .eq('user_id', u.userId)
+      .eq('status', 'active')
+      .maybeSingle();
+    if (!membership) return json(403, { error: 'Not a member of this vault' });
 
     // Run governance audit
     const audit = await runGovernanceAudit(vault, { path, destination, amount_sats, utxo_age_blocks, total_vault_sats });
