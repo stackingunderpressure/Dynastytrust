@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type Vault, type BalanceResult } from "../lib/api";
 import { useRealtimeRefresh } from "../lib/realtime";
-import { colors, fonts, radii, space } from "../theme";
-import { Button, Input, Label, Textarea } from "../components/ui";
+import { colors, fonts, space } from "../theme";
+import { Button, Input, Label } from "../components/ui";
 import { useToast } from "../components/toast";
 import { useConfirm } from "../components/dialog";
 import { RemindersBanner } from "../components/RemindersBanner";
@@ -95,7 +95,6 @@ export default function Dashboard() {
   const [balanceErrors, setBalanceErrors] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showCreate, setShowCreate] = useState(false);
   const [showTrustCode, setShowTrustCode] = useState(false);
   const [search, setSearch] = useState("");
   const [renaming, setRenaming] = useState<Vault | null>(null);
@@ -191,7 +190,7 @@ export default function Dashboard() {
         >
           Join with trust code
         </Button>
-        <Button size="sm" onClick={() => setShowCreate(true)}>
+        <Button size="sm" onClick={() => navigate("/policy")}>
           + Add vault
         </Button>
       </div>
@@ -391,16 +390,6 @@ export default function Dashboard() {
         })}
       </div>
 
-      {showCreate && (
-        <CreateVaultModal
-          onClose={() => setShowCreate(false)}
-          onCreated={v => {
-            setShowCreate(false);
-            void load();
-            openVault(v);
-          }}
-        />
-      )}
       {showTrustCode && (
         <TrustCodeModal onClose={() => setShowTrustCode(false)} />
       )}
@@ -468,152 +457,6 @@ function RenameModal({
           </Button>
           <Button type="submit" disabled={busy}>
             {busy ? "Saving..." : "Save"}
-          </Button>
-        </div>
-      </form>
-    </ModalShell>
-  );
-}
-
-function CreateVaultModal({
-  onClose,
-  onCreated,
-}: {
-  onClose: () => void;
-  onCreated: (v: Vault) => void;
-}) {
-  const [name, setName] = useState("My Vault");
-  const [network, setNetwork] = useState<"testnet" | "bitcoin">("testnet");
-  const [address, setAddress] = useState("");
-  const [descriptor, setDescriptor] = useState("");
-  const [policy, setPolicy] = useState("");
-  const [founderKeys, setFK] = useState("");
-  const [heirKeys, setHK] = useState("");
-  const [founderQ, setFQ] = useState(2);
-  const [heirQ, setHQ] = useState(1);
-  const [recovery, setRecovery] = useState(26000);
-  const [inherit, setInherit] = useState(52560);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      const { vault } = await api.vaults.create({
-        name,
-        network,
-        address,
-        descriptor,
-        miniscript_policy: policy,
-        founder_quorum: founderQ,
-        heir_quorum: heirQ,
-        recovery_after: recovery,
-        inheritance_after: inherit,
-        founder_keys: founderKeys.split("\n").map(k => k.trim()).filter(Boolean),
-        heir_keys: heirKeys.split("\n").map(k => k.trim()).filter(Boolean),
-      });
-      onCreated(vault);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <ModalShell onClose={onClose} maxWidth={680}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <h2 style={{ fontSize: 20, fontWeight: 600, color: colors.text, fontFamily: fonts.display, margin: 0 }}>
-          Add vault manually
-        </h2>
-        <button
-          onClick={onClose}
-          style={{ background: "none", border: "none", color: colors.muted, fontSize: 18, cursor: "pointer" }}
-        >
-          x
-        </button>
-      </div>
-      <p style={{ fontSize: 13, color: colors.muted, marginBottom: 20, lineHeight: 1.5 }}>
-        Paste in a pre-compiled vault. Use Policy Builder to compile one automatically.
-      </p>
-      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <div style={{ display: "flex", gap: 12 }}>
-          <div style={{ flex: 2 }}>
-            <Label>Name</Label>
-            <Input value={name} onChange={e => setName(e.target.value)} required />
-          </div>
-          <div style={{ flex: 1 }}>
-            <Label>Network</Label>
-            <select
-              value={network}
-              onChange={e => setNetwork(e.target.value as "testnet" | "bitcoin")}
-              style={{
-                width: "100%",
-                padding: "11px 13px",
-                background: colors.input,
-                border: `1px solid ${colors.border}`,
-                borderRadius: radii.md,
-                color: colors.text,
-                fontSize: 14,
-                fontFamily: fonts.sans,
-                boxSizing: "border-box",
-              }}
-            >
-              <option value="testnet">Testnet</option>
-            <option value="signet">Signet</option>
-              <option value="bitcoin">Mainnet</option>
-            </select>
-          </div>
-        </div>
-        <div>
-          <Label>Bitcoin address</Label>
-          <Input mono value={address} onChange={e => setAddress(e.target.value)} required />
-        </div>
-        <div>
-          <Label>Output descriptor</Label>
-          <Textarea mono value={descriptor} onChange={e => setDescriptor(e.target.value)} required rows={3} />
-        </div>
-        <div>
-          <Label>Miniscript policy</Label>
-          <Textarea mono value={policy} onChange={e => setPolicy(e.target.value)} required rows={2} />
-        </div>
-        <div style={{ display: "flex", gap: 12 }}>
-          <div style={{ flex: 1 }}>
-            <Label>Founder keys (one per line)</Label>
-            <Textarea mono value={founderKeys} onChange={e => setFK(e.target.value)} rows={3} />
-          </div>
-          <div style={{ flex: 1 }}>
-            <Label>Heir keys (one per line)</Label>
-            <Textarea mono value={heirKeys} onChange={e => setHK(e.target.value)} rows={3} />
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 12 }}>
-          <div style={{ flex: 1 }}>
-            <Label>Founder quorum</Label>
-            <Input type="number" min={1} value={founderQ} onChange={e => setFQ(+e.target.value)} />
-          </div>
-          <div style={{ flex: 1 }}>
-            <Label>Heir quorum</Label>
-            <Input type="number" min={1} value={heirQ} onChange={e => setHQ(+e.target.value)} />
-          </div>
-          <div style={{ flex: 1 }}>
-            <Label>Recovery (blocks)</Label>
-            <Input type="number" value={recovery} onChange={e => setRecovery(+e.target.value)} />
-          </div>
-          <div style={{ flex: 1 }}>
-            <Label>Inheritance (blocks)</Label>
-            <Input type="number" value={inherit} onChange={e => setInherit(+e.target.value)} />
-          </div>
-        </div>
-        {error && <p style={{ color: colors.red, fontSize: 13 }}>{error}</p>}
-        <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" disabled={busy}>
-            {busy ? "Creating..." : "Create vault"}
           </Button>
         </div>
       </form>
