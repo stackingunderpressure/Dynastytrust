@@ -21,6 +21,7 @@ import { supabase } from "../lib/supabase";
 import { listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
 import { signPsbtWithMnemonic, countSignatures, mergePsbts } from "../lib/psbt-signer";
 import { startTapitCosign, TAPIT_COSIGN_RESULT_KEY, type TapitCosignResult } from "../lib/tapit-cosign";
+import { assembleLivenessGateInput } from "../lib/liveness-gate";
 import { evaluateSigningGate, ceremonyFromProposal } from "@dynastytrust/policy-engine";
 import { APP_NAME, broadcastTxUrl, explorerTxUrl } from "../config";
 import { useToast } from "../components/toast";
@@ -1064,21 +1065,37 @@ function SendTab({ vault, balance, onDone, prefill }: {
         throw new Error("could not find the proposal this spend is supposed to match");
       }
 
-      // Liveness axis deliberately NOT wired here yet: assembleLivenessGateInput
-      // (apps/web/src/lib/liveness-gate.ts) needs tapit-attest's real runtime
-      // code, and tapit-attest's OpenTimestampsProvider re-export transitively
-      // pulls in the `opentimestamps` npm package, which ships a broken `main`
-      // field (declares open-timestamps.js; the published package only
-      // contains index.js) -- Vite's build fails to resolve it. This is an
-      // upstream packaging defect in a third-party dependency of a shared,
-      // cross-repo library, not something fixable from this file. undefined
-      // is the gate's own documented safe default ("not liveness-gated"),
-      // exactly like an unconfigured vault today. Duress is still enforced
-      // below via vault.duress independent of this. Fix upstream (patch or
-      // replace the opentimestamps dependency in tapit-attest, or fix its
-      // package exports so a subpath import can route around the barrel)
-      // and wire api.liveness.get() + assembleLivenessGateInput here.
-      const liveness = undefined;
+      // Liveness axis (2026-08-06): the previously-documented blocker --
+      // tapit-attest's OpenTimestampsProvider re-export transitively pulling
+      // in a broken `opentimestamps` npm package that failed to resolve under
+      // Vite -- no longer reproduces (verified directly: importing
+      // assembleLivenessGateInput here and running `npm run build` succeeds
+      // cleanly). Node's own module resolution already falls back to
+      // `index.js` when a package's declared `main` file is missing, and the
+      // installed Vite/Rollup version now does the same. Wired for real: GET
+      // the vault's held signals + resolved circle config, then fold them
+      // into the gate exactly as liveness-gate.ts's own doc comment
+      // prescribes. `config: null` (no liveness circle configured on this
+      // vault) is the gate's own documented safe default -- undefined,
+      // "not liveness-gated" -- same as before this wire. A FAILED fetch is
+      // different from an absent config: we cannot tell whether this vault
+      // has a circle we simply failed to see, so per the fail-closed
+      // doctrine ("missing a piece -> build nothing",
+      // docs/threat-model-and-fail-closed.md section 4) this blocks signing
+      // rather than silently bypassing the liveness axis. Duress is still
+      // enforced below via vault.duress independent of this.
+      let liveness: ReturnType<typeof assembleLivenessGateInput>;
+      try {
+        const { config, proofs, redFlags } = await api.liveness.get(vault.id);
+        liveness = config
+          ? assembleLivenessGateInput({ config, path: "founders_now", proofs, redFlags })
+          : undefined;
+      } catch (e) {
+        throw new Error(
+          "Could not confirm this vault's liveness status -- refusing to sign until it can be verified: " +
+            (e instanceof Error ? e.message : "network error"),
+        );
+      }
 
       const ceremony = ceremonyFromProposal({
         proposal: {
