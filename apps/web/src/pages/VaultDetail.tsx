@@ -552,7 +552,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
         )}
         {tab === "members" && <MembersTab vault={vault} />}
         {tab === "activity" && <ActivityTab vault={vault} />}
-        {tab === "requests" && <RequestsTab vault={vault} />}
+        {tab === "requests" && <RequestsTab vault={vault} onSendPrefill={prefillSend} />}
         {tab === "messages" && <MessagesTab vault={vault} />}
         {tab === "trust" && <TrustTab vault={vault} />}
       </main>
@@ -882,6 +882,11 @@ interface SendPrefill {
   memo?: string;
   name?: string;
   selected_utxos?: { txid: string; vout: number }[];
+  // Set when this send was started from a beneficiary's distribution
+  // request (RequestsTab). On successful broadcast the request is
+  // marked fulfilled and linked to the resulting proposal so the
+  // audit trail closes the loop back to the actual payment.
+  request_id?: string;
 }
 
 interface SigningState {
@@ -1312,6 +1317,23 @@ function SendTab({ vault, balance, onDone, prefill }: {
       // Update proposal
       if (signing.proposal_id) {
         await api.proposals.update(signing.proposal_id, { status: "broadcast", txid });
+
+        // Close the loop on a beneficiary's distribution request: it
+        // was pending/approved while this proposal was being built,
+        // now the payment actually happened, so mark it fulfilled and
+        // link it to the proposal that paid it. Non-fatal -- the funds
+        // already moved; a failure here is an audit-trail gap to fix
+        // later, not a reason to hide the successful broadcast.
+        if (prefill?.request_id) {
+          try {
+            await api.vaultRequests.update(prefill.request_id, {
+              status: "fulfilled",
+              linked_proposal_id: signing.proposal_id,
+            });
+          } catch {
+            /* non-fatal: broadcast already happened */
+          }
+        }
       }
 
       // Advance the stipend's next_due_at by its interval so the
@@ -5083,10 +5105,9 @@ function TrustRulesEditor({
 // a request; trustees approve -> creates a draft proposal
 // pre-filled with the amount + rule, or decline with a note.
 
-function RequestsTab({ vault }: { vault: Vault }) {
+function RequestsTab({ vault, onSendPrefill }: { vault: Vault; onSendPrefill: (p: SendPrefill) => void }) {
   const toast = useToast();
   const askPrompt = usePrompt();
-  const navigate = useNavigate();
   const [requests, setRequests] = useState<VaultRequest[]>([]);
   const [members, setMembers] = useState<VaultMember[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -5139,12 +5160,24 @@ function RequestsTab({ vault }: { vault: Vault }) {
   }
 
   function startProposalFromRequest(r: VaultRequest) {
-    // The Send tab reads state via form inputs; we can't prefill
-    // directly without a refactor, so we just navigate there and
-    // let the trustee paste the amount. Future improvement:
-    // pass amount + rule + reason via location state.
-    navigate(`/vaults/${vault.id}`, { state: { vault, sendPrefill: r } });
-    toast.info("Create the proposal in the Send tab with this request's details");
+    // There's no destination address on a distribution request --
+    // only the trustee decides where funds actually go -- so amount
+    // and context prefill, the address stays for the trustee to
+    // enter. request_id rides along so a successful broadcast can
+    // close the loop: mark this request fulfilled and link it to
+    // the proposal that paid it (see SendTab's broadcast()).
+    onSendPrefill({
+      amount_sats: r.amount_sats,
+      rule_id: r.rule_id,
+      name: r.rule_name ?? undefined,
+      memo: r.reason
+        ? `Distribution: ${r.reason}`
+        : r.recipient_name
+          ? `Distribution for ${r.recipient_name}`
+          : "Distribution request",
+      request_id: r.id,
+    });
+    toast.info("Request loaded into the Send tab -- enter the destination address to finish.");
   }
 
   if (loading) return <p style={{ color: colors.muted, fontSize: 14 }}>Loading...</p>;
