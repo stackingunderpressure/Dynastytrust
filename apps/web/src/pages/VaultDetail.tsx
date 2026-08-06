@@ -16,6 +16,7 @@ import {
   type StipendInterval,
   type DistributionWallet,
   type DistributionTranche,
+  type BlocPolicy,
 } from "../lib/api";
 import { supabase } from "../lib/supabase";
 import { listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
@@ -37,6 +38,8 @@ import { downloadVault } from "../lib/descriptor-backup";
 import { DescriptorQr } from "../components/DescriptorQr";
 import { pubkeyFromXpub, fingerprintFromXpub } from "../lib/xpub";
 import { sha256 } from "@noble/hashes/sha256";
+import { blocDecayLadder } from "../lib/blocks";
+import { BehaviorTimeline, type SpendLeg, selectStyle } from "../components/vault-builder";
 
 function toHexBytes(bytes: Uint8Array): string {
   return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
@@ -579,6 +582,8 @@ function OverviewTab({
 }) {
   const toast = useToast();
   const askPrompt = usePrompt();
+  const isBloc = vault.bloc_policy != null;
+
   // Inheritance vaults get all three spending paths; plain vaults
   // (no heirs, no timelocks) get only the trustee-now path.
   const plain =
@@ -595,13 +600,31 @@ function OverviewTab({
   // renders as ~11.7 years from genesis).
   const [chainTip, setChainTip] = useState<number | null>(null);
   useEffect(() => {
-    if (plain) return;
+    // Bloc vaults render their own overview (BlocOverviewTab, below)
+    // which fetches its own tip -- skip the redundant fetch here.
+    if (plain || isBloc) return;
     let cancelled = false;
     tipHeight(vault.network)
       .then(h => !cancelled && setChainTip(h))
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [plain, vault.network]);
+  }, [plain, isBloc, vault.network]);
+
+  // Dynasty Bloc vaults don't use the founders/heirs/recovery/inheritance
+  // shape at all -- everything below this point (paths, VaultPhaseCard,
+  // TimelockCountdown, SuccessionBanner, ActionGuide, StipendsSection)
+  // assumes that shape and would render nonsense (0-of-0 quorums, a
+  // "recovery unlocks at block 0" countdown) against a Bloc vault's empty
+  // founder_keys/heir_keys. Isolating Bloc into its own small overview
+  // rather than threading bloc_policy checks through all of those --
+  // narrower blast radius, zero regression risk to the standard-vault
+  // overview that's already shipped and working. Declared after every
+  // hook in this component so the early return never changes hook order
+  // (react-hooks/rules-of-hooks).
+  if (vault.bloc_policy) {
+    return <BlocOverviewTab vault={vault} copy={copy} copied={copied} onSendPrefill={onSendPrefill} />;
+  }
+
   const blocksFromNow = (abs: number | null | undefined) => {
     if (!abs || abs <= 0) return 0;
     if (chainTip == null) return abs; // fall back while tip is loading
@@ -865,6 +888,147 @@ function OverviewTab({
   );
 }
 
+// Same rung math as BlocBuilder.tsx's live preview, generalized (via
+// blocDecayLadder in lib/blocks.ts) to the persisted, already-absolute
+// policy shape. afterBlocks in the returned legs is BLOCKS-FROM-NOW
+// (matching BehaviorTimeline's "immediate" / "after X" grouping), not
+// the raw absolute CLTV height stored in bloc_policy.
+function blocPolicyLegs(bp: BlocPolicy, blocksFromNow: (abs: number) => number): SpendLeg[] {
+  const legs: SpendLeg[] = [
+    {
+      label: "Parents together",
+      who: `${bp.parents_together_quorum} of ${bp.parent_pubkeys.length} parents`,
+      afterBlocks: 0,
+      requiredSigners: bp.parents_together_quorum,
+      meaning: "Any normal spend, right away.",
+    },
+    {
+      label: "One parent + the kids",
+      who: `${bp.coparent_quorum} parent + ${bp.kids_with_parent_quorum} of ${bp.kid_pubkeys.length} kids`,
+      afterBlocks: 0,
+      requiredSigners: bp.coparent_quorum + bp.kids_with_parent_quorum,
+      meaning: "A parent co-signs with the kids, right away.",
+    },
+    {
+      label: "One parent alone",
+      who: `${bp.parent_solo_quorum} of ${bp.parent_pubkeys.length} parents`,
+      afterBlocks: blocksFromNow(bp.parent_solo_after),
+      requiredSigners: bp.parent_solo_quorum,
+      meaning: "Backstop if the other parent is unreachable.",
+    },
+  ];
+  for (const rung of blocDecayLadder(bp)) {
+    legs.push({
+      label: `Kids alone (${rung.q}-of-${bp.kid_pubkeys.length})`,
+      who: `${rung.q} of ${bp.kid_pubkeys.length} kids`,
+      afterBlocks: blocksFromNow(rung.absAfter),
+      requiredSigners: rung.q,
+      meaning: rung.q === 1 ? "Any single kid, alone." : `Any ${rung.q} kids together.`,
+      weak: rung.q === 1,
+    });
+  }
+  return legs;
+}
+
+// Dynasty Bloc's overview -- isolated from the standard founders/heirs
+// overview above (see the bloc_policy branch at the top of OverviewTab).
+// Shows the same behavior timeline the wizard previewed at configure
+// time, now built from the vault's real, saved policy.
+function BlocOverviewTab({
+  vault,
+  copy,
+  copied,
+  onSendPrefill,
+}: {
+  vault: Vault;
+  copy: (text: string, id: string) => void;
+  copied: string | null;
+  onSendPrefill: (p: SendPrefill) => void;
+}) {
+  const bp = vault.bloc_policy!;
+  const [showDescriptorQr, setShowDescriptorQr] = useState(false);
+  const [chainTip, setChainTip] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    tipHeight(vault.network)
+      .then(h => !cancelled && setChainTip(h))
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [vault.network]);
+  const blocksFromNow = (abs: number) => {
+    if (!abs || abs <= 0) return 0;
+    if (chainTip == null) return abs;
+    return Math.max(0, abs - chainTip);
+  };
+  const legs = blocPolicyLegs(bp, blocksFromNow);
+  const floorWarning = bp.kids_decay_floor_quorum === 1;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <RemindersBanner vaultId={vault.id} />
+
+      <div
+        style={{
+          background: colors.surface,
+          border: `1px solid ${colors.border}`,
+          borderRadius: 12,
+          padding: 16,
+        }}
+      >
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: colors.muted, marginBottom: 10 }}>
+          HOW THIS VAULT BEHAVES OVER TIME
+        </div>
+        <BehaviorTimeline legs={legs} floorWarning={floorWarning} kidCount={bp.kid_pubkeys.length} />
+      </div>
+
+      {vault.status !== "draft" && <UtxosSection vault={vault} onSendPrefill={onSendPrefill} />}
+
+      {/* Details */}
+      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 12, overflow: "hidden" }}>
+        {[
+          ["Address type", vault.address_type.toUpperCase()],
+          ["Parents", `${bp.parents_together_quorum} of ${bp.parent_pubkeys.length} together`],
+          ["Kids (with a parent)", `${bp.kids_with_parent_quorum} of ${bp.kid_pubkeys.length}`],
+          ["One parent alone", `${bp.parent_solo_quorum} of ${bp.parent_pubkeys.length}, unlocks in ${blocksToLabel(blocksFromNow(bp.parent_solo_after))}`],
+          ["Kids decay starts", blocksToLabel(blocksFromNow(bp.kids_decay_start_after))],
+          ["Kids decay floor", `${bp.kids_decay_floor_quorum} of ${bp.kid_pubkeys.length}`],
+        ].map(([k, v]) => (
+          <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "11px 16px", borderBottom: `1px solid ${colors.border}` }}>
+            <span style={{ fontSize: 13, color: colors.muted }}>{k}</span>
+            <span style={{ fontSize: 13, color: colors.text }}>{v}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Descriptor */}
+      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, gap: 8 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: colors.muted }}>DESCRIPTOR</span>
+          <div style={{ display: "flex", gap: 6 }}>
+            <Button variant="ghost" size="sm" style={{ padding: "3px 9px", fontSize: 11 }} disabled={!vault.descriptor} onClick={() => vault.descriptor && copy(vault.descriptor, "desc")}>
+              {copied === "desc" ? "Copied" : "Copy"}
+            </Button>
+            <Button variant="ghost" size="sm" style={{ padding: "3px 9px", fontSize: 11 }} onClick={() => downloadVault(vault)}>
+              Download backup
+            </Button>
+            <Button variant="ghost" size="sm" style={{ padding: "3px 9px", fontSize: 11 }} disabled={!vault.descriptor} onClick={() => setShowDescriptorQr(v => !v)}>
+              {showDescriptorQr ? "Hide QR" : "Show QR"}
+            </Button>
+          </div>
+        </div>
+        <div style={{ fontFamily: fonts.mono, fontSize: 10, color: colors.sub, wordBreak: "break-all", lineHeight: 1.6 }}>
+          {vault.descriptor}
+        </div>
+        {showDescriptorQr && vault.descriptor && (
+          <div style={{ marginTop: 14, display: "flex", justifyContent: "center" }}>
+            <DescriptorQr descriptor={vault.descriptor} label="Sparrow import QR" size={240} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // // -- Send tab
 // Clean Nunchuk-style: fill form -> sign automatically -> broadcast
 
@@ -934,6 +1098,14 @@ function SendTab({ vault, balance, onDone, prefill }: {
   const [showQrDisplay, setShowQrDisplay] = useState(false);
   const [showQrScanner, setShowQrScanner] = useState(false);
 
+  // Dynasty Bloc: which of the four spend paths this proposal uses, and
+  // (for the decaying kids-alone path) which rung. Ignored entirely for
+  // standard vaults, which only ever propose founders_now.
+  const bp = vault.bloc_policy;
+  const blocLadder = bp ? blocDecayLadder(bp) : [];
+  const [blocPath, setBlocPath] = useState<"parents_now" | "coparent_kids" | "parent_solo" | "kids_decay">("parents_now");
+  const [blocRungIdx, setBlocRungIdx] = useState(0);
+
   const confirmedSats = balance?.confirmed_sats ?? 0;
   const amountSats = Math.round(parseFloat(amountBtc || "0") * 1e8);
   const rules = vault.trust_doc?.rules ?? [];
@@ -960,19 +1132,25 @@ function SendTab({ vault, balance, onDone, prefill }: {
       setErr(`Rule "${selectedRule.name}" requires a reason. Fill in the memo field.`);
       return;
     }
+    // Dynasty Bloc requires a rung quorum when the kids-alone path is
+    // chosen -- checked up front so a bad selection never reaches the
+    // compiler as a malformed request.
+    let blocRungQuorum: number | undefined;
+    if (bp && blocPath === "kids_decay") {
+      const rung = blocLadder[blocRungIdx];
+      if (!rung) { setErr("Pick a kids-alone rung."); return; }
+      blocRungQuorum = rung.q;
+    }
+
     setBusy(true); setErr(null); setSlowHint(false);
     const slowTimer = window.setTimeout(() => setSlowHint(true), 1500);
 
     try {
-      // 1. Build PSBT via Fly.io
-      const psbtRes = await api.psbt.generate({
-        vault_id: vault.id,
-        destination: dest.trim(),
-        amount_sats: amountSats,
-        fee_rate: feeRate ? parseFloat(feeRate) : undefined,
-        path: "founders_now",
-        selected_utxos: prefill?.selected_utxos,
-      }) as {
+      // 1. Build PSBT via Fly.io. Dynasty Bloc vaults (bloc_policy set)
+      // go through the Bloc-specific endpoint, which knows how to look
+      // up the saved policy + key origins from vault_id; every other
+      // vault uses the standard founders/heirs endpoint.
+      let psbtRes: {
         ok: boolean;
         psbt_hex: string;
         psbt_b64: string;
@@ -986,6 +1164,43 @@ function SendTab({ vault, balance, onDone, prefill }: {
         status?: string;
         message?: string;
       };
+      const path: string = bp ? blocPath : "founders_now";
+
+      if (bp) {
+        const blocRes = await api.psbtBloc({
+          vault_id: vault.id,
+          destination: dest.trim(),
+          amount_sats: amountSats,
+          fee_rate: feeRate ? parseFloat(feeRate) : undefined,
+          path: blocPath,
+          quorum: blocRungQuorum,
+        });
+        // psbtBloc's summary omits destination/fee_rate (it doesn't
+        // need to echo back what the caller already sent) -- fold the
+        // known request-side values in so the rest of this flow (and
+        // the signing screen's summary card) can stay shape-agnostic.
+        psbtRes = {
+          ok: blocRes.ok,
+          psbt_hex: blocRes.psbt_hex,
+          psbt_b64: blocRes.psbt_b64,
+          summary: {
+            amount_sats: blocRes.summary.amount_sats,
+            fee_sats: blocRes.summary.fee_sats,
+            change_sats: blocRes.summary.change_sats,
+            fee_rate: feeRate ? parseFloat(feeRate) : 0,
+            destination: dest.trim(),
+          },
+        };
+      } else {
+        psbtRes = await api.psbt.generate({
+          vault_id: vault.id,
+          destination: dest.trim(),
+          amount_sats: amountSats,
+          fee_rate: feeRate ? parseFloat(feeRate) : undefined,
+          path: "founders_now",
+          selected_utxos: prefill?.selected_utxos,
+        }) as typeof psbtRes;
+      }
 
       if (psbtRes.status === "no_utxos") {
         setErr("No confirmed UTXOs. Fund the vault and wait for confirmation.");
@@ -998,7 +1213,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
         vault_id: vault.id,
         destination: dest.trim(),
         amount_sats: amountSats,
-        path: "founders_now",
+        path,
         memo: selectedRule
           ? `Rule: ${selectedRule.name}${memo.trim() ? ` -- ${memo.trim()}` : ""}`
           : memo || undefined,
@@ -1008,25 +1223,47 @@ function SendTab({ vault, balance, onDone, prefill }: {
       });
 
       // 3. Find local software keys
-      // Only local keys whose /0/0 pubkey actually appears in this
-      // vault's founder leaf should be offered as signers. Anything
-      // else just adds confusion -- if it's in the keyring but not
-      // a founder of THIS vault, it can't help. Derive each vault
-      // xpub to pubkey hex and intersect with the local keystore.
+      // Only local keys whose /0/0 pubkey actually appears among this
+      // vault's eligible signers for the chosen path should be offered
+      // as signers. Anything else just adds confusion -- if it's in
+      // the keyring but can't help this spend, don't show it. Derive
+      // each vault xpub to pubkey hex and intersect with the local
+      // keystore.
       const allLocalKeys = listKeys().filter(k => k.status === "active" && k.origin === "software");
       const vaultSignerPubkeys = new Set<string>();
-      for (const x of vault.founder_keys) {
-        if (typeof x !== 'string') continue;
+      const addKey = (x: string) => {
+        if (typeof x !== 'string') return;
         if (x.length === 66) {
-          // Legacy rows stored pubkey hex directly.
+          // Legacy rows / Bloc's pubkey lists store pubkey hex directly.
           vaultSignerPubkeys.add(x);
-          continue;
+          return;
         }
         try {
           vaultSignerPubkeys.add(pubkeyFromXpub(x));
         } catch {
           /* skip malformed rows */
         }
+      };
+      let requiredSignatures: number;
+      if (bp) {
+        // parents_now / parent_solo / kids_decay each draw signers from
+        // one side only; coparent_kids draws from both.
+        if (blocPath === "parents_now" || blocPath === "parent_solo") {
+          bp.parent_pubkeys.forEach(addKey);
+        } else if (blocPath === "kids_decay") {
+          bp.kid_pubkeys.forEach(addKey);
+        } else {
+          bp.parent_pubkeys.forEach(addKey);
+          bp.kid_pubkeys.forEach(addKey);
+        }
+        requiredSignatures =
+          blocPath === "parents_now" ? bp.parents_together_quorum
+          : blocPath === "coparent_kids" ? bp.coparent_quorum + bp.kids_with_parent_quorum
+          : blocPath === "parent_solo" ? bp.parent_solo_quorum
+          : (blocRungQuorum ?? bp.kids_decay_floor_quorum);
+      } else {
+        vault.founder_keys.forEach(addKey);
+        requiredSignatures = vault.founder_quorum;
       }
       const signingKeys = allLocalKeys.filter(k => vaultSignerPubkeys.has(k.pubkey));
 
@@ -1037,7 +1274,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
         proposal_id: propRes.proposal.id,
         signers: signingKeys.map(key => ({ key, status: "pending" })),
         signaturesCollected: 0,
-        requiredSignatures: vault.founder_quorum,
+        requiredSignatures,
       });
       setStep("signing");
     } catch (e) {
@@ -1097,8 +1334,11 @@ function SendTab({ vault, balance, onDone, prefill }: {
       let liveness: ReturnType<typeof assembleLivenessGateInput>;
       try {
         const { config, proofs, redFlags } = await api.liveness.get(vault.id);
+        // Uses the freshly-fetched proposal's own path (not a hardcoded
+        // "founders_now") so this holds for Dynasty Bloc's four spend
+        // paths too, not just the standard vault's single normal path.
         liveness = config
-          ? assembleLivenessGateInput({ config, path: "founders_now", proofs, redFlags })
+          ? assembleLivenessGateInput({ config, path: proposal.path, proofs, redFlags })
           : undefined;
       } catch (e) {
         throw new Error(
@@ -1134,7 +1374,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
       // the human), NOT from the freshly-fetched proposal used for
       // `ceremony` above -- comparing the two closes the "compromised
       // device shows one destination but signs another" gap (P5 in the
-      // threat model doc). This form only ever proposes founders_now.
+      // threat model doc).
       //
       // The exact-PSBT-hash check is only meaningful against the PRISTINE,
       // never-mutated proposal.psbt_hex: signing.psbt_hex legitimately
@@ -1152,7 +1392,10 @@ function SendTab({ vault, balance, onDone, prefill }: {
           psbtHash: requestPsbtHash,
           destination: signing.summary.destination,
           amountSats: signing.summary.amount_sats,
-          path: "founders_now",
+          // Matches ceremony.path (also proposal.path) so the gate's
+          // own PATH_MISMATCH check passes for any of Dynasty Bloc's
+          // spend paths, not just the standard vault's founders_now.
+          path: proposal.path,
         },
         ceremony,
         vault: { vaultId: vault.id, address: vault.address ?? "" },
@@ -1750,6 +1993,36 @@ function SendTab({ vault, balance, onDone, prefill }: {
           </span>
         </div>
       )}
+
+      {bp && (
+        <div>
+          <Label>Spend path</Label>
+          <select
+            value={blocPath}
+            onChange={e => { setBlocPath(e.target.value as typeof blocPath); setBlocRungIdx(0); }}
+            style={selectStyle}
+          >
+            <option value="parents_now">Parents together ({bp.parents_together_quorum} of {bp.parent_pubkeys.length}) -- now</option>
+            <option value="coparent_kids">One parent + the kids ({bp.coparent_quorum} parent + {bp.kids_with_parent_quorum} of {bp.kid_pubkeys.length} kids) -- now</option>
+            <option value="parent_solo">One parent alone ({bp.parent_solo_quorum} of {bp.parent_pubkeys.length}) -- after timelock</option>
+            <option value="kids_decay">Kids alone (decaying quorum) -- after timelock</option>
+          </select>
+          {blocPath === "kids_decay" && (
+            <select
+              value={blocRungIdx}
+              onChange={e => setBlocRungIdx(Number(e.target.value))}
+              style={{ ...selectStyle, marginTop: 8 }}
+            >
+              {blocLadder.map((rung, i) => (
+                <option key={i} value={i}>
+                  {rung.q} of {bp.kid_pubkeys.length} kids -- after block {rung.absAfter.toLocaleString()}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
+
       <div>
         <Label>Send to</Label>
         <Input

@@ -275,6 +275,21 @@ export default function Dashboard() {
                     >
                       {v.network.toUpperCase()}
                     </span>
+                    {v.bloc_policy && (
+                      <span
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          letterSpacing: "0.1em",
+                          padding: "3px 8px",
+                          borderRadius: 4,
+                          background: colors.blue + "22",
+                          color: colors.blue,
+                        }}
+                      >
+                        BLOC
+                      </span>
+                    )}
                     {v.my_role && (
                       <span
                         style={{
@@ -327,15 +342,28 @@ export default function Dashboard() {
                 </div>
               )}
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", borderTop: `1px solid ${colors.divider}`, paddingTop: 12 }}>
-                <span style={{ fontSize: 11, color: colors.muted }}>
-                  {v.founder_quorum}/{v.founder_keys.length} founders
-                </span>
-                <span style={{ fontSize: 11, color: colors.muted }}>
-                  {v.heir_quorum}/{v.heir_keys.length} heirs
-                </span>
-                <span style={{ fontSize: 11, color: colors.muted }}>
-                  Recovery {blocksToLabel(v.recovery_after)}
-                </span>
+                {v.bloc_policy ? (
+                  <>
+                    <span style={{ fontSize: 11, color: colors.muted }}>
+                      {v.bloc_policy.parents_together_quorum} of {v.bloc_policy.parent_pubkeys.length} parents
+                    </span>
+                    <span style={{ fontSize: 11, color: colors.muted }}>
+                      Decaying kids ladder to {v.bloc_policy.kids_decay_floor_quorum}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ fontSize: 11, color: colors.muted }}>
+                      {v.founder_quorum}/{v.founder_keys.length} founders
+                    </span>
+                    <span style={{ fontSize: 11, color: colors.muted }}>
+                      {v.heir_quorum}/{v.heir_keys.length} heirs
+                    </span>
+                    <span style={{ fontSize: 11, color: colors.muted }}>
+                      Recovery {blocksToLabel(v.recovery_after)}
+                    </span>
+                  </>
+                )}
               </div>
               <div style={{ display: "flex", gap: 8, marginTop: 12 }} onClick={e => e.stopPropagation()}>
                 <Button
@@ -986,13 +1014,19 @@ function DraftsSection({ drafts }: { drafts: Vault[] }) {
                 {v.name}
               </div>
               <div style={{ fontSize: 12, color: colors.muted, marginTop: 2 }}>
-                {v.planned_founder_count ?? 0} founder
-                {(v.planned_founder_count ?? 0) === 1 ? "" : "s"}
-                {(v.planned_heir_count ?? 0) > 0
-                  ? ` / ${v.planned_heir_count} heir${(v.planned_heir_count ?? 0) === 1 ? "" : "s"}`
-                  : ""}
-                {" / "}
-                {v.network.toUpperCase()}
+                {v.bloc_policy ? (
+                  <>Dynasty Bloc / {v.network.toUpperCase()}</>
+                ) : (
+                  <>
+                    {v.planned_founder_count ?? 0} founder
+                    {(v.planned_founder_count ?? 0) === 1 ? "" : "s"}
+                    {(v.planned_heir_count ?? 0) > 0
+                      ? ` / ${v.planned_heir_count} heir${(v.planned_heir_count ?? 0) === 1 ? "" : "s"}`
+                      : ""}
+                    {" / "}
+                    {v.network.toUpperCase()}
+                  </>
+                )}
               </div>
             </div>
             <div style={{ fontSize: 11, color: colors.gold, fontWeight: 600 }}>

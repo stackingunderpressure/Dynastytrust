@@ -29,7 +29,8 @@ const INTENTS: Intent[] = [
     emoji: '👨‍👩‍👧‍👦',
     title: 'Pass it to my kids',
     desc: 'I hold it now. Over time, my children can take it over on their own -- a vault that grows up with them.',
-    route: '/policy/bloc',
+    route: '/policy',
+    template: 'bloc',
   },
   {
     emoji: '🤝',

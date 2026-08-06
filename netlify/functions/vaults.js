@@ -2,7 +2,7 @@ import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 
 const VAULT_FIELDS =
-  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc, predecessor_id, duress";
+  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc, predecessor_id, duress, bloc_policy";
 
 export async function handler(event) {
   const u = await requireUser(event);
@@ -44,13 +44,20 @@ export async function handler(event) {
   }
 
   // ── POST /api/vaults ─────────────────────────────────────────
-  // Two modes:
+  // Three modes:
   //   { mode: "draft", name, network, address_type, founder_quorum,
   //     heir_quorum, recovery_after, inheritance_after,
   //     planned_founder_count, planned_heir_count }
   //       -- creates a shape-only vault; address/descriptor null.
   //       -- members fill slots via invites; owner compiles when
   //          every slot has an xpub.
+  //   { mode: "bloc", address, descriptor, miniscript_policy, bloc_policy, ... }
+  //       -- persists a compiled Dynasty Bloc vault (023_bloc_vaults.sql
+  //          added the bloc_policy column for exactly this; it was never
+  //          wired to a save path until now). Bloc vaults are
+  //          single-owner-held (no vault_members), and the
+  //          founders/heirs columns are meaningless for this shape --
+  //          left at their table defaults, unused.
   //   Legacy mode (no `mode` field, or mode: "compiled"):
   //       -- the existing "I compiled this already, save it" path.
   //       -- requires address, descriptor, miniscript_policy.
@@ -73,9 +80,65 @@ export async function handler(event) {
     }
 
     const isDraft = body.mode === "draft";
+    const isBloc = body.mode === "bloc";
+    const isBlocDraft = body.mode === "bloc-draft";
     let insertRow;
 
-    if (isDraft) {
+    if (isBlocDraft) {
+      // Shape-only Bloc vault: the operator picked "pass it to my kids"
+      // and tuned quorums/timelocks, but hasn't filled every parent/kid
+      // key slot yet. Mirrors the standard draft path (address/descriptor
+      // null, status "draft") so a vault can exist as a real, revisitable
+      // row before every signer's key is in hand. bloc_policy stores
+      // whatever's already known (partial pubkey/xpub arrays are fine --
+      // compiling for real later requires the full set, checked at that
+      // point, not here).
+      const bloc_policy = body.bloc_policy && typeof body.bloc_policy === "object" ? body.bloc_policy : {};
+      insertRow = {
+        user_id: u.userId,
+        name: body.name || "Vault",
+        network,
+        address_type,
+        address: null,
+        descriptor: null,
+        miniscript_policy: null,
+        bloc_policy,
+        status: "draft",
+      };
+    } else if (isBloc) {
+      const { address, descriptor, miniscript_policy, bloc_policy } = body;
+      if (!address) return json(400, { error: "Missing: address" });
+      if (!descriptor) return json(400, { error: "Missing: descriptor" });
+      if (!miniscript_policy) return json(400, { error: "Missing: miniscript_policy" });
+      if (!bloc_policy || typeof bloc_policy !== "object") {
+        return json(400, { error: "Missing: bloc_policy" });
+      }
+      const required = [
+        "parent_pubkeys", "kid_pubkeys", "parent_xpubs", "kid_xpubs",
+        "parents_together_quorum", "coparent_quorum", "kids_with_parent_quorum",
+        "parent_solo_quorum", "kids_decay_start_quorum", "kids_decay_floor_quorum",
+        "parent_solo_after", "kids_decay_start_after", "kids_decay_step_blocks",
+      ];
+      const missing = required.filter(k => bloc_policy[k] === undefined || bloc_policy[k] === null);
+      if (missing.length) {
+        return json(400, { error: `bloc_policy missing: ${missing.join(", ")}` });
+      }
+
+      insertRow = {
+        user_id: u.userId,
+        name: body.name || "Vault",
+        network,
+        address,
+        descriptor,
+        miniscript_policy,
+        address_type,
+        // key_origins (fingerprint + derivation_path per signer) travels
+        // inside bloc_policy -- Bloc vaults have no vault_members table
+        // to carry it separately the way the standard shape does.
+        bloc_policy,
+        status: "compiled",
+      };
+    } else if (isDraft) {
       const planned_founder_count = body.planned_founder_count;
       const planned_heir_count = body.planned_heir_count ?? 0;
       if (!planned_founder_count || planned_founder_count < 1) {
@@ -161,7 +224,7 @@ export async function handler(event) {
     await supabase.from("vault_events").insert({
       vault_id: data.id,
       user_id: u.userId,
-      event_type: isDraft ? "draft_created" : "created",
+      event_type: isDraft || isBlocDraft ? "draft_created" : "created",
       metadata: isDraft
         ? {
             address_type,

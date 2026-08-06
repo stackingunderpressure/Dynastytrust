@@ -1,22 +1,32 @@
 /**
  * POST /api/vaults-compile
- * Body: { vault_id }
+ * Body: { vault_id } -- invite-based (members bring their own xpub via a
+ *   claim link), OR { vault_id, direct_keys: { founder_keys, heir_keys,
+ *   protector_keys?, consent_keys? } } -- single-owner direct mode, each
+ *   entry { pubkey, xpub, fingerprint, derivation_path }, same shape the
+ *   Bloc draft path (vaults-compile-bloc.js) already uses. This is for
+ *   the common "I'm bringing every key myself, just not all in the same
+ *   sitting as Configure" case -- the vault already exists as a real,
+ *   revisitable draft row; direct_keys lets the SAME owner finish it
+ *   later without needing to invite anyone.
  *
  * Compiles a draft vault into a live, spendable one.
  *
  * Preconditions (enforced):
  *   - caller is the vault owner
  *   - vault.status = 'draft'
- *   - active member count with role='founder' and xpub/pubkey/fingerprint
- *     /derivation_path all set >= vault.planned_founder_count
- *   - same for heirs (if planned_heir_count > 0)
+ *   - invite-based: active member count with role='founder' and
+ *     xpub/pubkey/fingerprint/derivation_path all set >= planned_founder_count
+ *     (same for heirs, if planned_heir_count > 0)
+ *   - direct_keys: founder_keys.length >= planned_founder_count (same for
+ *     heirs, if planned_heir_count > 0) -- no vault_members lookup at all
  *
  * Flow:
- *   1. load vault + all active members
- *   2. forward each member's pubkey hex + quorums + timelocks to the
+ *   1. load vault (+ active members, unless direct_keys given)
+ *   2. forward each key's pubkey hex + quorums + timelocks to the
  *      Fly.io compiler
  *   3. post-process the returned descriptor into Nunchuk key-origin
- *      form pk([fp/path]xpub/0/*) using the members' xpubs
+ *      form pk([fp/path]xpub/0/*) using the xpubs
  *   4. UPDATE vaults SET address, descriptor, miniscript_policy,
  *      founder_keys, heir_keys, status='compiled'
  *   5. log 'draft_compiled' event
@@ -83,21 +93,36 @@ export async function handler(event) {
   if (vault.user_id !== u.userId) return json(403, { error: "Only the owner can compile" });
   if (vault.status !== "draft") return json(400, { error: "Vault is not in draft status" });
 
-  // Load members that have completed their key provisioning.
-  const { data: members, error: memErr } = await supabase
-    .from("vault_members")
-    .select("id, role, xpub, fingerprint, pubkey, derivation_path")
-    .eq("vault_id", vaultId)
-    .eq("status", "active");
-  if (memErr) return json(500, { error: memErr.message });
+  // Two ways to source signer keys: invite-based (vault_members, other
+  // people bring their own xpub via a claim link) or direct_keys (the
+  // owner brings every key themselves, just not necessarily all in the
+  // same sitting as Configure -- no vault_members involvement at all).
+  const dk = body.direct_keys;
+  let founders, heirs, protectors, consenters;
+  if (dk && typeof dk === "object") {
+    const clean = (arr) => (Array.isArray(arr) ? arr : []).filter(
+      k => k && k.xpub && k.fingerprint && k.derivation_path,
+    );
+    founders = clean(dk.founder_keys);
+    heirs = clean(dk.heir_keys);
+    protectors = clean(dk.protector_keys);
+    consenters = clean(dk.consent_keys);
+  } else {
+    const { data: members, error: memErr } = await supabase
+      .from("vault_members")
+      .select("id, role, xpub, fingerprint, pubkey, derivation_path")
+      .eq("vault_id", vaultId)
+      .eq("status", "active");
+    if (memErr) return json(500, { error: memErr.message });
 
-  const ready = (members ?? []).filter(
-    m => m.xpub && m.fingerprint && m.pubkey && m.derivation_path,
-  );
-  const founders = ready.filter(m => m.role === "founder" || m.role === "owner");
-  const heirs = ready.filter(m => m.role === "heir");
-  const protectors = ready.filter(m => m.role === "protector");
-  const consenters = ready.filter(m => m.role === "beneficiary");
+    const ready = (members ?? []).filter(
+      m => m.xpub && m.fingerprint && m.pubkey && m.derivation_path,
+    );
+    founders = ready.filter(m => m.role === "founder" || m.role === "owner");
+    heirs = ready.filter(m => m.role === "heir");
+    protectors = ready.filter(m => m.role === "protector");
+    consenters = ready.filter(m => m.role === "beneficiary");
+  }
 
   const plannedF = vault.planned_founder_count ?? founders.length;
   const plannedH = vault.planned_heir_count ?? heirs.length;
