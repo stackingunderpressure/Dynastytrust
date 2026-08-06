@@ -1,5 +1,18 @@
 [build]
-  command = "cd apps/web && npm install && npm run build"
+  # apps/web depends on three sibling workspace packages
+  # (bip341-psbt-signer, nostr-transport, policy-engine), each of which
+  # is only resolvable once its own `tsc` build has produced dist/index.js
+  # (their package.json "main"). `cd apps/web && npm install && npm run
+  # build` only ran apps/web's own `vite build` and never touched
+  # packages/*, so on a clean clone (no leftover local dist/ from a prior
+  # build) Vite's resolver failed on "@dynastytrust/bip341-psbt-signer"
+  # the moment nothing existed at dist/index.js. Install from the repo
+  # root so npm workspaces links everything correctly, then build the
+  # three library packages explicitly before the app -- npm's default
+  # `-ws` iteration order follows the `workspaces` glob in package.json
+  # (["apps/*", "packages/*"]), which would build apps/web BEFORE its own
+  # dependencies and reproduce this exact failure even from root.
+  command = "npm install && npm run build --workspace=@dynastytrust/bip341-psbt-signer --workspace=@dynastytrust/nostr-transport --workspace=@dynastytrust/policy-engine && npm run build --workspace=@dynastytrust/web"
   publish = "apps/web/dist"
 
 [build.environment]
