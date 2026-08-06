@@ -5856,10 +5856,26 @@ function DistributionWalletCreator({
       .catch(() => setFirstUnlockBlock(100_000));
   }, [vault.network]);
 
-  // Derive trustee pubkeys from vault.founder_keys. Each entry is an
-  // xpub; the compiler needs pubkey hex at xpub/0/0 (Nunchuk parity).
-  async function deriveTrusteePubkeys(): Promise<string[]> {
-    return vault.founder_keys.map(x => pubkeyFromXpub(x));
+  // vault.founder_keys already holds pubkey hex (the /0/0 child,
+  // per the Nunchuk key-material parity fix) for any vault compiled
+  // under the current PolicyBuilder -- calling pubkeyFromXpub on
+  // that unconditionally threw, since HDKey.fromExtendedKey rejects
+  // a bare hex string. Mirror the same defensive length check
+  // buildAndSign already uses for this exact ambiguity (a handful
+  // of pre-fix vaults may still hold a bare xpub) instead of
+  // assuming one shape.
+  function deriveTrusteePubkeys(): string[] {
+    const pubkeys: string[] = [];
+    for (const x of vault.founder_keys) {
+      if (typeof x !== "string") continue;
+      if (x.length === 66) { pubkeys.push(x); continue; }
+      try {
+        pubkeys.push(pubkeyFromXpub(x));
+      } catch {
+        /* skip malformed rows */
+      }
+    }
+    return pubkeys;
   }
 
   async function create(e: React.FormEvent) {
