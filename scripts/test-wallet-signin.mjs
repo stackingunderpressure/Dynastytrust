@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { extractSignInAttestation } from "./_wallet-signin.js";
+import { extractSignInAttestation } from "../netlify/functions/_wallet-signin.js";
 
 const goodNonce = "a".repeat(64);
 function att(over = {}) {
