@@ -10,6 +10,7 @@ import { useConfirm } from "../components/dialog";
 import { colors, fonts, radii, space, personaPalette } from "../theme";
 import { Button, Input, Label, Textarea } from "../components/ui";
 import { QrImage } from "../components/QrImage";
+import { XpubQrScanner } from "../components/XpubQrScanner";
 import { WalletLinkCard } from "../components/WalletLinkCard";
 import { BackupFlow } from "../components/vault-builder/BackupFlow";
 
@@ -480,11 +481,19 @@ function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => v
   const [path, setPath] = useState("m/48'/1'/0'/2'");
   const [err, setErr] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [showQrScan, setShowQrScan] = useState(false);
   const exportFileRef = useRef<HTMLInputElement>(null);
 
   function handleNetwork(n: Network) {
     setNetwork(n);
     setPath("m/48'/" + (n === "mainnet" ? "0" : "1") + "'/0'/2'");
+  }
+
+  function handleQrResult(scannedXpub: string, scannedPath: string | null) {
+    setXpub(scannedXpub);
+    if (scannedPath) setPath(scannedPath);
+    setFileName(null);
+    setShowQrScan(false);
   }
 
   async function handleExportFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -543,30 +552,41 @@ function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => v
             <option value="mainnet">Mainnet</option>
           </select>
         </div>
-        <div>
-          <Button type="button" variant="ghost" style={{ width: "100%" }} onClick={() => exportFileRef.current?.click()}>
-            {fileName ? `Loaded: ${fileName}` : "Import from wallet export file"}
-          </Button>
-          <input ref={exportFileRef} type="file" accept=".json,.txt" style={{ display: "none" }} onChange={handleExportFile} />
-          <div style={{ fontSize: 11, color: colors.muted, marginTop: 5, textAlign: "center" }}>
-            From Coldcard, Sparrow, or a similar signer -- no camera or typing needed. Or paste manually below.
-          </div>
-        </div>
-        <div>
-          <Label>xpub / tpub</Label>
-          <Textarea mono rows={3} value={xpub} onChange={e => { setXpub(e.target.value); setFileName(null); }} required placeholder="xpub6... or tpub..." />
-        </div>
-        <div>
-          <Label>Derivation path</Label>
-          <Input mono value={path} onChange={e => setPath(e.target.value)} />
-        </div>
-        {err && <p style={{ color: colors.red, fontSize: 13 }}>{err}</p>}
-        <div style={{ display: "flex", gap: 10 }}>
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit">Import</Button>
-        </div>
+        {showQrScan ? (
+          <XpubQrScanner onResult={handleQrResult} onCancel={() => setShowQrScan(false)} />
+        ) : (
+          <>
+            <div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Button type="button" variant="ghost" style={{ flex: 1 }} onClick={() => setShowQrScan(true)}>
+                  Scan QR
+                </Button>
+                <Button type="button" variant="ghost" style={{ flex: 1 }} onClick={() => exportFileRef.current?.click()}>
+                  {fileName ? `Loaded: ${fileName}` : "Import from file"}
+                </Button>
+              </div>
+              <input ref={exportFileRef} type="file" accept=".json,.txt" style={{ display: "none" }} onChange={handleExportFile} />
+              <div style={{ fontSize: 11, color: colors.muted, marginTop: 5, textAlign: "center" }}>
+                Scan a QR from Coldcard, Sparrow, or SeedSigner, or import its export file. Or paste manually below.
+              </div>
+            </div>
+            <div>
+              <Label>xpub / tpub</Label>
+              <Textarea mono rows={3} value={xpub} onChange={e => { setXpub(e.target.value); setFileName(null); }} required placeholder="xpub6... or tpub..." />
+            </div>
+            <div>
+              <Label>Derivation path</Label>
+              <Input mono value={path} onChange={e => setPath(e.target.value)} />
+            </div>
+            {err && <p style={{ color: colors.red, fontSize: 13 }}>{err}</p>}
+            <div style={{ display: "flex", gap: 10 }}>
+              <Button type="button" variant="ghost" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button type="submit">Import</Button>
+            </div>
+          </>
+        )}
       </form>
     </Modal>
   );

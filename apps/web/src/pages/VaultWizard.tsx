@@ -15,6 +15,7 @@ import { VAULT_TEMPLATES, type VaultMode, type VaultTemplate } from '../lib/vaul
 import { colors, radii } from '../theme';
 import { Button, Input, Card, Field } from '../components/ui';
 import { DescriptorQr } from '../components/DescriptorQr';
+import { XpubQrScanner } from '../components/XpubQrScanner';
 import {
   QuorumPicker, KeyPicker, SlotHint, CopyField, BackupFlow, FundingStep,
   BehaviorTimeline, type SpendLeg,
@@ -781,7 +782,15 @@ function InlineKeyCreate({
   const [path, setPath] = useState("m/48'/1'/0'/2'");
   const [fileName, setFileName] = useState<string | null>(null);
   const [fileErr, setFileErr] = useState<string | null>(null);
+  const [showQrScan, setShowQrScan] = useState(false);
   const exportFileRef = useRef<HTMLInputElement>(null);
+
+  function handleQrResult(scannedXpub: string, scannedPath: string | null) {
+    setXpub(scannedXpub);
+    if (scannedPath) setPath(scannedPath);
+    setFileName(null);
+    setShowQrScan(false);
+  }
 
   async function handleExportFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -824,14 +833,21 @@ function InlineKeyCreate({
             Generate {role} key
           </Button>
         </>
+      ) : showQrScan ? (
+        <XpubQrScanner onResult={handleQrResult} onCancel={() => setShowQrScan(false)} />
       ) : (
         <>
-          <Button size="sm" variant="ghost" onClick={() => exportFileRef.current?.click()}>
-            {fileName ? `Loaded: ${fileName}` : 'Import from wallet export file'}
-          </Button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button size="sm" variant="ghost" style={{ flex: 1 }} onClick={() => setShowQrScan(true)}>
+              Scan QR
+            </Button>
+            <Button size="sm" variant="ghost" style={{ flex: 1 }} onClick={() => exportFileRef.current?.click()}>
+              {fileName ? `Loaded: ${fileName}` : 'Import from file'}
+            </Button>
+          </div>
           <input ref={exportFileRef} type="file" accept=".json,.txt" style={{ display: 'none' }} onChange={handleExportFile} />
           <div style={{ fontSize: 11, color: colors.muted }}>
-            From Coldcard, Sparrow, or a similar signer -- no camera or typing needed. Or paste manually below.
+            Scan a QR from Coldcard, Sparrow, or SeedSigner, or import its export file -- no typing needed. Or paste manually below.
           </div>
           {fileErr && <div style={{ fontSize: 11, color: colors.red }}>{fileErr}</div>}
           <Input placeholder="xpub / tpub from a hardware signer" value={xpub} onChange={e => { setXpub(e.target.value); setFileName(null); }} />
