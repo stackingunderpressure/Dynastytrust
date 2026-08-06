@@ -10,7 +10,7 @@ use bitcoin::{
     PublicKey, ScriptBuf, Transaction, TxIn, TxOut, Txid, Witness,
 };
 use bitcoin::psbt::Psbt;
-use bitcoin::taproot::{LeafVersion, TaprootBuilder};
+use bitcoin::taproot::LeafVersion;
 use bitcoin::secp256k1::{Secp256k1, XOnlyPublicKey};
 use dynastytrust_protocol::{
     attach_tap_key_origins, audit_spend, build_bloc_spend_psbt, build_multileaf,
