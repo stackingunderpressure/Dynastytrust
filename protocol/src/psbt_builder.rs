@@ -7,7 +7,7 @@ use bitcoin::taproot::{LeafVersion, TapLeafHash};
 use bitcoin::{
     Amount, Network, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid,
 };
-use crate::policy_compiler::{build_bloc_multileaf, DynastyBlocPolicy, BLOC_PATH_KIDS_DECAY};
+use crate::policy_compiler::{build_bloc_multileaf, build_tranche, DynastyBlocPolicy, TranchePolicy, BLOC_PATH_KIDS_DECAY};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use thiserror::Error;
@@ -375,6 +375,127 @@ pub fn build_bloc_spend_psbt(
     Ok(psbt)
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TrancheSpendRequest {
+    pub utxos: Vec<VaultUTXO>,
+    pub amount: u64,
+    pub fee: u64,
+    pub destination: String,
+    pub change_address: String,
+    pub network: String,
+    /// "beneficiary" (only valid once tx.lock_time reaches
+    /// unlock_block) or "trustee" (the escape hatch, spendable any
+    /// time so unclaimed funds are never stranded).
+    pub path: String,
+    /// BIP32 origins so a hardware wallet can recognize its own key
+    /// on the leaf being spent -- same additive, optional field as
+    /// every other spend-psbt endpoint (see attach_tap_key_origins).
+    #[serde(default)]
+    pub key_origins: Vec<KeyOrigin>,
+}
+
+/// Build an unsigned PSBT spending a single tranche's UTXO via
+/// either its beneficiary leaf (after the timelock) or its trustee
+/// escape hatch (any time). Reconstructs the tree from
+/// `build_tranche` -- the SAME function `/compile-tranche` used to
+/// derive the address this tranche was funded at -- so the control
+/// block always proves against the exact tree the funds sit under,
+/// never a re-derived approximation that could silently diverge.
+pub fn build_tranche_spend_psbt(
+    policy: &TranchePolicy,
+    req: TrancheSpendRequest,
+) -> Result<Psbt, PsbtError> {
+    let network = parse_network(&req.network)?;
+
+    let tree = build_tranche(policy).map_err(|e| PsbtError::Psbt(format!("tranche tree: {e}")))?;
+
+    let (leaf, lock_time) = match req.path.as_str() {
+        "beneficiary" => (
+            tree.beneficiary_leaf.clone(),
+            absolute::LockTime::from_height(policy.unlock_block).map_err(|e| {
+                PsbtError::Psbt(format!("bad unlock_block {}: {e}", policy.unlock_block))
+            })?,
+        ),
+        "trustee" => (tree.trustee_leaf.clone(), absolute::LockTime::ZERO),
+        other => return Err(PsbtError::UnknownPath(other.to_string())),
+    };
+
+    let destination = Address::from_str(&req.destination)
+        .map_err(|e| PsbtError::InvalidAddress(format!("destination: {e}")))?
+        .require_network(network)
+        .map_err(|e| PsbtError::InvalidAddress(format!("destination network mismatch: {e}")))?;
+
+    let change_address = Address::from_str(&req.change_address)
+        .map_err(|e| PsbtError::InvalidAddress(format!("change_address: {e}")))?
+        .require_network(network)
+        .map_err(|e| PsbtError::InvalidAddress(format!("change network mismatch: {e}")))?;
+
+    let selected = select_coins(req.utxos, req.amount, req.fee)?;
+    let inputs_value: u64 = selected.iter().map(|u| u.value).sum();
+    let need = req
+        .amount
+        .checked_add(req.fee)
+        .ok_or(PsbtError::InsufficientFunds { inputs: inputs_value, need: u64::MAX })?;
+    let change_value = inputs_value
+        .checked_sub(need)
+        .ok_or(PsbtError::InsufficientFunds { inputs: inputs_value, need })?;
+    // Same dust floor as every other spend-psbt path (bloc, founders/heirs):
+    // a sub-dust change output is non-standard and can make the tx
+    // unbroadcastable, so absorb it into the fee instead.
+    let has_change = change_value >= DUST_LIMIT_SATS;
+
+    let mut inputs = Vec::with_capacity(selected.len());
+    for u in &selected {
+        let txid = Txid::from_str(&u.txid).map_err(|_| PsbtError::InvalidTxid(u.txid.clone()))?;
+        inputs.push(TxIn {
+            previous_output: OutPoint { txid, vout: u.vout },
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+            witness: bitcoin::Witness::default(),
+        });
+    }
+
+    let mut outputs = Vec::with_capacity(if has_change { 2 } else { 1 });
+    outputs.push(TxOut {
+        value: Amount::from_sat(req.amount),
+        script_pubkey: destination.script_pubkey(),
+    });
+    if has_change {
+        outputs.push(TxOut {
+            value: Amount::from_sat(change_value),
+            script_pubkey: change_address.script_pubkey(),
+        });
+    }
+
+    let tx = Transaction {
+        version: bitcoin::transaction::Version::TWO,
+        lock_time,
+        input: inputs,
+        output: outputs,
+    };
+
+    let mut psbt = Psbt::from_unsigned_tx(tx)
+        .map_err(|e: bitcoin::psbt::Error| PsbtError::Psbt(e.to_string()))?;
+
+    let script_ver = (leaf.clone(), LeafVersion::TapScript);
+    let control_block = tree
+        .spend_info
+        .control_block(&script_ver)
+        .ok_or_else(|| PsbtError::Psbt("no control block for selected leaf".into()))?;
+
+    for (i, utxo) in selected.iter().enumerate() {
+        psbt.inputs[i].witness_utxo = Some(TxOut {
+            value: Amount::from_sat(utxo.value),
+            script_pubkey: parse_script_pubkey(&utxo.script_pubkey)?,
+        });
+        psbt.inputs[i].tap_internal_key = Some(tree.internal_key);
+        psbt.inputs[i].tap_scripts.insert(control_block.clone(), script_ver.clone());
+        attach_tap_key_origins(&mut psbt.inputs[i], &leaf, &req.key_origins);
+    }
+
+    Ok(psbt)
+}
+
 pub fn select_coins(
     mut utxos: Vec<VaultUTXO>,
     amount: u64,
@@ -590,6 +711,137 @@ mod bloc_psbt_tests {
         }];
         let psbt = build_bloc_spend_psbt(&policy, req).unwrap();
         assert!(psbt.inputs[0].tap_key_origins.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod tranche_psbt_tests {
+    use super::*;
+    use crate::policy_compiler::compile_tranche_tr_multileaf;
+    use bitcoin::PublicKey;
+
+    const BENEFICIARY: &str = "03defdea4cdb677750a420fee807eacf21eb9898ae79b9768766e4faa04a2d4a34";
+    const TRUSTEE_A: &str = "02a3ed2c2b57903abe5b89108c66f4a144e8a316af2f013b739cf8975fc0365e97";
+    const TRUSTEE_B: &str = "02d76c6752934c92bcafb0e575051b36e5ac4035db5329544521e203d6a7337569";
+
+    fn sample() -> TranchePolicy {
+        let p = |s: &str| PublicKey::from_str(s).unwrap();
+        TranchePolicy {
+            beneficiary_key: p(BENEFICIARY),
+            trustee_keys: vec![p(TRUSTEE_A), p(TRUSTEE_B)],
+            trustee_quorum: 2,
+            unlock_block: 300_000,
+        }
+    }
+
+    fn request(path: &str) -> (TranchePolicy, TrancheSpendRequest) {
+        let policy = sample();
+        let compiled = compile_tranche_tr_multileaf(policy.clone(), Network::Testnet).unwrap();
+        let spk_hex = hex::encode(compiled.address.script_pubkey().as_bytes());
+        let addr = compiled.address.to_string();
+        let req = TrancheSpendRequest {
+            utxos: vec![VaultUTXO {
+                txid: "0000000000000000000000000000000000000000000000000000000000000001".into(),
+                vout: 0,
+                value: 100_000,
+                script_pubkey: spk_hex,
+            }],
+            amount: 50_000,
+            fee: 1_000,
+            destination: addr.clone(),
+            change_address: addr,
+            network: "testnet".into(),
+            path: path.into(),
+            key_origins: vec![],
+        };
+        (policy, req)
+    }
+
+    #[test]
+    fn beneficiary_path_stamps_the_unlock_block_as_locktime() {
+        let (policy, req) = request("beneficiary");
+        let psbt = build_tranche_spend_psbt(&policy, req).unwrap();
+        assert_eq!(
+            psbt.unsigned_tx.lock_time,
+            absolute::LockTime::from_height(300_000).unwrap(),
+        );
+        assert!(!psbt.inputs[0].tap_scripts.is_empty());
+        assert!(psbt.inputs[0].tap_internal_key.is_some());
+        assert!(psbt.inputs[0].witness_utxo.is_some());
+    }
+
+    #[test]
+    fn trustee_path_has_zero_locktime() {
+        let (policy, req) = request("trustee");
+        let psbt = build_tranche_spend_psbt(&policy, req).unwrap();
+        assert_eq!(psbt.unsigned_tx.lock_time, absolute::LockTime::ZERO);
+    }
+
+    #[test]
+    fn unknown_path_is_rejected() {
+        let (policy, req) = request("definitely_not_a_path");
+        let err = build_tranche_spend_psbt(&policy, req).unwrap_err();
+        assert!(matches!(err, PsbtError::UnknownPath(_)));
+    }
+
+    #[test]
+    fn beneficiary_leaf_and_trustee_leaf_attach_different_control_blocks() {
+        let (policy, req_b) = request("beneficiary");
+        let psbt_b = build_tranche_spend_psbt(&policy, req_b).unwrap();
+        let (_, req_t) = request("trustee");
+        let psbt_t = build_tranche_spend_psbt(&policy, req_t).unwrap();
+        let cb_b: Vec<_> = psbt_b.inputs[0].tap_scripts.keys().collect();
+        let cb_t: Vec<_> = psbt_t.inputs[0].tap_scripts.keys().collect();
+        assert_ne!(cb_b, cb_t, "beneficiary and trustee paths must attach different leaves");
+    }
+
+    #[test]
+    fn key_origins_populate_only_for_the_beneficiary_key_on_the_beneficiary_leaf() {
+        let (policy, mut req) = request("beneficiary");
+        req.key_origins = vec![
+            KeyOrigin {
+                pubkey: BENEFICIARY.into(),
+                fingerprint: "deadbeef".into(),
+                derivation_path: "m/86'/1'/0'/0/0".into(),
+            },
+            KeyOrigin {
+                pubkey: TRUSTEE_A.into(),
+                fingerprint: "cafebabe".into(),
+                derivation_path: "m/48'/1'/0'/2'/0/0".into(),
+            },
+        ];
+        let psbt = build_tranche_spend_psbt(&policy, req).unwrap();
+        assert_eq!(
+            psbt.inputs[0].tap_key_origins.len(), 1,
+            "only the beneficiary key belongs on the beneficiary leaf",
+        );
+    }
+
+    #[test]
+    fn key_origins_populate_for_trustees_on_the_trustee_leaf() {
+        let (policy, mut req) = request("trustee");
+        req.key_origins = vec![
+            KeyOrigin {
+                pubkey: TRUSTEE_A.into(),
+                fingerprint: "cafebabe".into(),
+                derivation_path: "m/48'/1'/0'/2'/0/0".into(),
+            },
+            KeyOrigin {
+                pubkey: TRUSTEE_B.into(),
+                fingerprint: "f00dface".into(),
+                derivation_path: "m/48'/1'/0'/2'/0/0".into(),
+            },
+        ];
+        let psbt = build_tranche_spend_psbt(&policy, req).unwrap();
+        assert_eq!(psbt.inputs[0].tap_key_origins.len(), 2, "both trustees belong on the trustee leaf");
+    }
+
+    #[test]
+    fn sub_dust_change_is_dropped_into_fee() {
+        let (policy, mut req) = request("trustee");
+        req.utxos[0].value = 51_400;
+        let psbt = build_tranche_spend_psbt(&policy, req).unwrap();
+        assert_eq!(psbt.unsigned_tx.output.len(), 1);
     }
 }
 

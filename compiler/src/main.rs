@@ -14,10 +14,11 @@ use bitcoin::taproot::LeafVersion;
 use bitcoin::secp256k1::{Secp256k1, XOnlyPublicKey};
 use dynastytrust_protocol::{
     attach_tap_key_origins, audit_spend, build_bloc_spend_psbt, build_multileaf,
-    compile_dynasty_bloc_tr_multileaf, compile_dynasty_policy, compile_dynasty_policy_tr,
-    compile_dynasty_policy_tr_multileaf, compile_tranche_tr_multileaf, evaluate_spend_proposal,
-    evaluate_vault_status, next_action, BlocSpendRequest, DynastyBlocPolicy, DynastyPolicy,
-    KeyOrigin, ProposedSpend, SignerStatus, SpendingPath, TranchePolicy, VaultPolicy, VaultUTXO,
+    build_tranche_spend_psbt, compile_dynasty_bloc_tr_multileaf, compile_dynasty_policy,
+    compile_dynasty_policy_tr, compile_dynasty_policy_tr_multileaf, compile_tranche_tr_multileaf,
+    evaluate_spend_proposal, evaluate_vault_status, next_action, BlocSpendRequest,
+    DynastyBlocPolicy, DynastyPolicy, KeyOrigin, ProposedSpend, SignerStatus, SpendingPath,
+    TranchePolicy, TrancheSpendRequest, VaultPolicy, VaultUTXO,
 };
 use miniscript::policy::concrete::Policy;
 use miniscript::{psbt::PsbtExt, Miniscript};
@@ -92,7 +93,7 @@ fn base64_encode(data: &[u8]) -> String {
 async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "ok": true, "service": "dynastytrust-compiler",
-        "endpoints": ["/health","/compile","/compile-bloc","/compile-tranche","/psbt-binary","/psbt-binary-bloc","/psbt-finalize","/psbt-merge","/governance/status","/governance/audit"]
+        "endpoints": ["/health","/compile","/compile-bloc","/compile-tranche","/psbt-binary","/psbt-binary-bloc","/psbt-binary-tranche","/psbt-finalize","/psbt-merge","/governance/status","/governance/audit"]
     }))
 }
 
@@ -617,6 +618,94 @@ async fn psbt_binary_bloc(
     }))
 }
 
+// ── /psbt-binary-tranche ─────────────────────────────────────────────────────
+// Spend a single T-vesting tranche's UTXO -- either the beneficiary
+// claiming after the timelock, or a trustee using the escape hatch.
+// The policy params (beneficiary_key, trustee_keys, trustee_quorum,
+// unlock_block) are the SAME ones the ceremony used to call
+// /compile-tranche when the tranche was created, so recompiling here
+// reproduces the exact tree the tranche's address was funded at.
+
+#[derive(Deserialize)]
+struct PsbtBinaryTrancheRequest {
+    inputs: Vec<UtxoInput>,
+    destination: String,
+    amount_sats: u64,
+    fee_sats: u64,
+    change_address: String,
+    network: String,
+    beneficiary_key: String,
+    trustee_keys: Vec<String>,
+    trustee_quorum: usize,
+    unlock_block: u32,
+    // "beneficiary" or "trustee" -- see TrancheSpendRequest's doc.
+    path: String,
+    #[serde(default)]
+    key_origins: Vec<KeyOrigin>,
+}
+
+async fn psbt_binary_tranche(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<PsbtBinaryTrancheRequest>,
+) -> Result<Json<PsbtBinaryResponse>, ApiError> {
+    check_auth(&headers, &state)?;
+
+    if req.inputs.is_empty() {
+        return Err(api_err(StatusCode::BAD_REQUEST, "No inputs provided"));
+    }
+
+    let beneficiary_key = PublicKey::from_str(&req.beneficiary_key)
+        .map_err(|e| api_err(StatusCode::BAD_REQUEST, format!("bad beneficiary_key: {e}")))?;
+    let trustee_keys =
+        parse_pubkeys(&req.trustee_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+
+    let policy = TranchePolicy {
+        beneficiary_key,
+        trustee_keys,
+        trustee_quorum: req.trustee_quorum,
+        unlock_block: req.unlock_block,
+    };
+
+    let utxos: Vec<VaultUTXO> = req
+        .inputs
+        .iter()
+        .map(|u| VaultUTXO {
+            txid: u.txid.clone(),
+            vout: u.vout,
+            value: u.value_sats,
+            script_pubkey: u.script_pubkey.clone(),
+        })
+        .collect();
+
+    let spend = TrancheSpendRequest {
+        utxos,
+        amount: req.amount_sats,
+        fee: req.fee_sats,
+        destination: req.destination,
+        change_address: req.change_address,
+        network: req.network,
+        path: req.path,
+        key_origins: req.key_origins,
+    };
+
+    let psbt = build_tranche_spend_psbt(&policy, spend)
+        .map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+
+    let output_count = psbt.unsigned_tx.output.len();
+    let input_count = psbt.inputs.len();
+    let psbt_bytes = psbt.serialize();
+    Ok(Json(PsbtBinaryResponse {
+        ok: true,
+        psbt_hex: hex::encode(&psbt_bytes),
+        psbt_b64: base64_encode(&psbt_bytes),
+        input_count,
+        output_count,
+        fee_sats: req.fee_sats,
+        has_tap_leaf: true,
+    }))
+}
+
 fn build_founders_leaf_script(policy: &DynastyPolicy, addr_type: &str) -> Result<ScriptBuf> {
     let founders: Vec<String> = policy.founder_keys.iter().map(|k| format!("pk({k})")).collect();
     let trustee_thresh = format!("thresh({},{})", policy.founder_quorum, founders.join(","));
@@ -901,6 +990,7 @@ async fn main() {
         .route("/compile-tranche",   post(compile_tranche))
         .route("/psbt-binary",       post(psbt_binary))
         .route("/psbt-binary-bloc",  post(psbt_binary_bloc))
+        .route("/psbt-binary-tranche", post(psbt_binary_tranche))
         .route("/psbt-finalize",     post(psbt_finalize))
         .route("/psbt-merge",        post(psbt_merge))
         .route("/governance/status", post(governance_status))
@@ -1064,5 +1154,122 @@ mod psbt_binary_tests {
         )
         .await;
         assert!(psbt.inputs[0].tap_key_origins.is_empty());
+    }
+}
+
+// 2026-08-06 tranche-claim build. There was previously no endpoint at all
+// for spending a matured tranche -- a beneficiary or trustee had no way to
+// build a PSBT against a tranche's script through this service. These
+// tests call the handler directly, same shape as psbt_binary_tests above,
+// to prove both spend paths attach the correct leaf and locktime rather
+// than trusting the wiring by inspection.
+#[cfg(test)]
+mod psbt_binary_tranche_tests {
+    use super::*;
+    use dynastytrust_protocol::compile_tranche_tr_multileaf;
+
+    const BENEFICIARY: &str = "03defdea4cdb677750a420fee807eacf21eb9898ae79b9768766e4faa04a2d4a34";
+    const TRUSTEE_A: &str = "02a3ed2c2b57903abe5b89108c66f4a144e8a316af2f013b739cf8975fc0365e97";
+    const TRUSTEE_B: &str = "02d76c6752934c92bcafb0e575051b36e5ac4035db5329544521e203d6a7337569";
+
+    fn sample_policy() -> TranchePolicy {
+        TranchePolicy {
+            beneficiary_key: PublicKey::from_str(BENEFICIARY).unwrap(),
+            trustee_keys: vec![
+                PublicKey::from_str(TRUSTEE_A).unwrap(),
+                PublicKey::from_str(TRUSTEE_B).unwrap(),
+            ],
+            trustee_quorum: 2,
+            unlock_block: 300_000,
+        }
+    }
+
+    fn xonly_bytes(pk_hex: &str) -> [u8; 32] {
+        PublicKey::from_str(pk_hex).unwrap().inner.x_only_public_key().0.serialize()
+    }
+
+    async fn build_psbt(path: &str, key_origins: Vec<KeyOrigin>) -> Psbt {
+        let policy = sample_policy();
+        let compiled = compile_tranche_tr_multileaf(policy.clone(), Network::Testnet).unwrap();
+        let addr = compiled.address.to_string();
+        let spk_hex = hex::encode(compiled.address.script_pubkey().as_bytes());
+
+        let req = PsbtBinaryTrancheRequest {
+            inputs: vec![UtxoInput {
+                txid: "0000000000000000000000000000000000000000000000000000000000000001".into(),
+                vout: 0,
+                value_sats: 100_000,
+                script_pubkey: spk_hex,
+            }],
+            destination: addr.clone(),
+            amount_sats: 50_000,
+            fee_sats: 1_000,
+            change_address: addr,
+            network: "testnet".into(),
+            beneficiary_key: policy.beneficiary_key.to_string(),
+            trustee_keys: policy.trustee_keys.iter().map(|k| k.to_string()).collect(),
+            trustee_quorum: policy.trustee_quorum,
+            unlock_block: policy.unlock_block,
+            path: path.into(),
+            key_origins,
+        };
+        let state = Arc::new(AppState { secret: None });
+        let Json(resp) = psbt_binary_tranche(State(state), HeaderMap::new(), Json(req)).await.unwrap();
+        let bytes = hex::decode(resp.psbt_hex).unwrap();
+        Psbt::deserialize(&bytes).unwrap()
+    }
+
+    #[tokio::test]
+    async fn beneficiary_path_attaches_the_beneficiary_leaf_and_the_unlock_height() {
+        let psbt = build_psbt("beneficiary", vec![]).await;
+        let (leaf, _) = psbt.inputs[0].tap_scripts.values().next().expect("a leaf must be attached");
+        assert!(leaf.as_bytes().windows(32).any(|w| w == xonly_bytes(BENEFICIARY)));
+        assert_eq!(
+            psbt.unsigned_tx.lock_time,
+            bitcoin::absolute::LockTime::from_height(300_000).unwrap(),
+        );
+    }
+
+    #[tokio::test]
+    async fn trustee_path_attaches_the_trustee_leaf_with_zero_locktime() {
+        let psbt = build_psbt("trustee", vec![]).await;
+        let (leaf, _) = psbt.inputs[0].tap_scripts.values().next().expect("a leaf must be attached");
+        assert!(leaf.as_bytes().windows(32).any(|w| w == xonly_bytes(TRUSTEE_A)));
+        assert!(
+            !leaf.as_bytes().windows(32).any(|w| w == xonly_bytes(BENEFICIARY)),
+            "the trustee escape hatch must not be the beneficiary leaf"
+        );
+        assert_eq!(psbt.unsigned_tx.lock_time, bitcoin::absolute::LockTime::ZERO);
+    }
+
+    #[tokio::test]
+    async fn hardware_wallet_key_origin_is_attached_for_the_beneficiary_on_their_leaf() {
+        let psbt = build_psbt(
+            "beneficiary",
+            vec![KeyOrigin {
+                pubkey: BENEFICIARY.to_string(),
+                fingerprint: "deadbeef".into(),
+                derivation_path: "m/86'/1'/0'/0/0".into(),
+            }],
+        )
+        .await;
+        assert_eq!(psbt.inputs[0].tap_key_origins.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn trustee_key_origin_not_attached_on_the_beneficiary_leaf() {
+        let psbt = build_psbt(
+            "beneficiary",
+            vec![KeyOrigin {
+                pubkey: TRUSTEE_A.to_string(),
+                fingerprint: "deadbeef".into(),
+                derivation_path: "m/48'/1'/0'/2'/0/0".into(),
+            }],
+        )
+        .await;
+        assert!(
+            psbt.inputs[0].tap_key_origins.is_empty(),
+            "a trustee key must not be attached to the beneficiary leaf"
+        );
     }
 }

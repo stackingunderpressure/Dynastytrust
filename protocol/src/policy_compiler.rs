@@ -432,10 +432,24 @@ pub struct TranchePolicy {
     pub unlock_block: u32,
 }
 
-pub fn compile_tranche_tr_multileaf(
-    policy: TranchePolicy,
-    network: Network,
-) -> Result<CompiledVault, PolicyError> {
+/// Every leaf of a tranche's tree, exposed the same way
+/// `MultileafOutput` exposes the main vault's leaves -- so a PSBT
+/// builder can attach the control block matching whichever path
+/// (`beneficiary` or `trustee`) the caller actually intends to
+/// spend via, instead of only ever knowing the address.
+pub struct TrancheOutput {
+    pub spend_info: TaprootSpendInfo,
+    pub internal_key: XOnlyPublicKey,
+    pub beneficiary_leaf: bitcoin::ScriptBuf,
+    pub trustee_leaf: bitcoin::ScriptBuf,
+    pub descriptor: String,
+    pub miniscript_policy: String,
+}
+
+/// Sole source of truth for a tranche's tree construction. Used by
+/// both `compile_tranche_tr_multileaf` (for address + descriptor)
+/// and by the PSBT builder (for control blocks).
+pub fn build_tranche(policy: &TranchePolicy) -> Result<TrancheOutput, PolicyError> {
     if policy.trustee_quorum == 0 || policy.trustee_quorum > policy.trustee_keys.len() {
         return Err(PolicyError::InvalidQuorum);
     }
@@ -478,13 +492,28 @@ pub fn compile_tranche_tr_multileaf(
         .finalize(&secp, internal_key)
         .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
 
-    let addr = Address::p2tr_tweaked(spend_info.output_key(), network);
     let descriptor = format!("tr({},{{{},{}}})", internal_key, ms_beneficiary, ms_trustees);
     let miniscript_policy = format!("or({},{})", beneficiary_branch, trustee_thresh);
 
-    Ok(CompiledVault {
-        miniscript_policy,
+    Ok(TrancheOutput {
+        spend_info,
+        internal_key,
+        beneficiary_leaf: ms_beneficiary.encode(),
+        trustee_leaf: ms_trustees.encode(),
         descriptor,
+        miniscript_policy,
+    })
+}
+
+pub fn compile_tranche_tr_multileaf(
+    policy: TranchePolicy,
+    network: Network,
+) -> Result<CompiledVault, PolicyError> {
+    let out = build_tranche(&policy)?;
+    let addr = Address::p2tr_tweaked(out.spend_info.output_key(), network);
+    Ok(CompiledVault {
+        miniscript_policy: out.miniscript_policy,
+        descriptor: out.descriptor,
         address: addr,
         address_type: AddressType::TrMultileaf,
     })
@@ -1190,5 +1219,77 @@ mod multileaf_leaf_exposure_tests {
                 .is_some(),
             "protector_leaf control block"
         );
+    }
+}
+
+#[cfg(test)]
+mod tranche_leaf_exposure_tests {
+    use super::*;
+
+    fn pk(s: &str) -> PublicKey {
+        PublicKey::from_str(s).unwrap()
+    }
+
+    fn beneficiary() -> PublicKey {
+        pk("03defdea4cdb677750a420fee807eacf21eb9898ae79b9768766e4faa04a2d4a34")
+    }
+    fn trustees() -> Vec<PublicKey> {
+        vec![
+            pk("02a3ed2c2b57903abe5b89108c66f4a144e8a316af2f013b739cf8975fc0365e97"),
+            pk("02d76c6752934c92bcafb0e575051b36e5ac4035db5329544521e203d6a7337569"),
+        ]
+    }
+
+    fn base_policy() -> TranchePolicy {
+        TranchePolicy {
+            beneficiary_key: beneficiary(),
+            trustee_keys: trustees(),
+            trustee_quorum: 2,
+            unlock_block: 300_000,
+        }
+    }
+
+    #[test]
+    fn exposes_both_leaves() {
+        let out = build_tranche(&base_policy()).unwrap();
+        assert!(!out.beneficiary_leaf.is_empty());
+        assert!(!out.trustee_leaf.is_empty());
+        assert_ne!(out.beneficiary_leaf, out.trustee_leaf);
+    }
+
+    #[test]
+    fn invalid_quorum_rejected() {
+        let mut p = base_policy();
+        p.trustee_quorum = 0;
+        assert!(build_tranche(&p).is_err());
+        p.trustee_quorum = 99;
+        assert!(build_tranche(&p).is_err());
+    }
+
+    // Same regression shape as the multileaf test above: both leaves
+    // must resolve a control block against the SAME spend_info, or a
+    // PSBT builder attaching one would fail to verify on-chain.
+    #[test]
+    fn both_leaves_have_a_valid_control_block_against_the_same_tree() {
+        let out = build_tranche(&base_policy()).unwrap();
+        let script_ver = |s: &bitcoin::ScriptBuf| (s.clone(), bitcoin::taproot::LeafVersion::TapScript);
+        assert!(
+            out.spend_info.control_block(&script_ver(&out.beneficiary_leaf)).is_some(),
+            "beneficiary_leaf control block"
+        );
+        assert!(
+            out.spend_info.control_block(&script_ver(&out.trustee_leaf)).is_some(),
+            "trustee_leaf control block"
+        );
+    }
+
+    #[test]
+    fn compile_tranche_tr_multileaf_matches_build_tranche_address() {
+        let p = base_policy();
+        let out = build_tranche(&p).unwrap();
+        let addr = Address::p2tr_tweaked(out.spend_info.output_key(), Network::Signet);
+        let compiled = compile_tranche_tr_multileaf(p, Network::Signet).unwrap();
+        assert_eq!(compiled.address, addr);
+        assert_eq!(compiled.descriptor, out.descriptor);
     }
 }

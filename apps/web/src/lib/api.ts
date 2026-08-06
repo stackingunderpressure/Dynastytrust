@@ -738,6 +738,38 @@ export const api = {
         address: string;
         unlock_block: number;
       }>(`/compile-tranche`, { method: 'POST', body: JSON.stringify(body) }),
+
+    // Build an unsigned PSBT spending one tranche -- the beneficiary
+    // claiming it after its timelock, or a trustee via the escape
+    // hatch. Policy params are looked up server-side from the
+    // distribution_wallets row + the tranche itself, not supplied by
+    // the caller, so a client cannot claim against an invented leaf.
+    buildClaim: (body: {
+      distribution_wallet_id: string;
+      tranche_index: number;
+      destination: string;
+      amount_sats?: number;
+      fee_rate?: number;
+      path: 'beneficiary' | 'trustee';
+      change_address?: string;
+      key_origins?: { pubkey: string; fingerprint: string; derivation_path: string }[];
+    }) =>
+      req<{
+        ok: true;
+        psbt_hex: string;
+        psbt_b64: string;
+        summary: {
+          amount_sats: number;
+          fee_sats: number;
+          change_sats: number;
+          input_count: number;
+          output_count: number;
+          path: string;
+          tranche_address: string;
+        };
+        status?: string;
+        message?: string;
+      }>(`/psbt-binary-tranche`, { method: 'POST', body: JSON.stringify(body) }),
   },
 
   stipends: {
