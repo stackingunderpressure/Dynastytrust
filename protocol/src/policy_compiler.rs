@@ -198,9 +198,28 @@ pub fn compile_dynasty_policy_tr(
 /// control blocks is the same spend_info the compile handler used
 /// for the address. If they ever drift, finalize explodes with
 /// "Control block verification failed at index 0".
+///
+/// Every leaf the tree can contain is exposed here (2026-08-06 fix) --
+/// previously only `founder_leaf` was, which meant the PSBT builder could
+/// only ever attach the founders-now leaf's control block, regardless of
+/// which path (`recovery` / `inheritance` / `protector`) the caller
+/// actually intended to spend via. That silently mismatched `tap_scripts`
+/// against `tx.lock_time` for every non-founders spend: an heir signing
+/// an inheritance-path transaction would find their key absent from the
+/// (wrong) attached leaf and the signer would report "not a signer for
+/// this input" -- masking a server-side leaf-selection bug as a missing
+/// key.
 pub struct MultileafOutput {
     pub spend_info: TaprootSpendInfo,
     pub founder_leaf: bitcoin::ScriptBuf,
+    /// Present whenever the policy is not `is_plain()` -- every non-plain
+    /// tree has a recovery branch. None only for a plain (founders-only,
+    /// no timelocks) policy, which has just the one leaf.
+    pub recovery_leaf: Option<bitcoin::ScriptBuf>,
+    /// Present whenever the policy is not `is_plain()`, same as recovery.
+    pub inheritance_leaf: Option<bitcoin::ScriptBuf>,
+    /// Present only when `policy.has_protector()`.
+    pub protector_leaf: Option<bitcoin::ScriptBuf>,
     pub descriptor: String,
     pub miniscript_policy: String,
 }
@@ -267,6 +286,9 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
         return Ok(MultileafOutput {
             spend_info,
             founder_leaf,
+            recovery_leaf: None,
+            inheritance_leaf: None,
+            protector_leaf: None,
             descriptor,
             miniscript_policy: founder_thresh,
         });
@@ -326,6 +348,9 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
         Ok(MultileafOutput {
             spend_info,
             founder_leaf,
+            recovery_leaf: Some(ms_recovery.encode()),
+            inheritance_leaf: Some(ms_inheritance.encode()),
+            protector_leaf: Some(ms_protector.encode()),
             descriptor,
             miniscript_policy,
         })
@@ -351,6 +376,9 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
         Ok(MultileafOutput {
             spend_info,
             founder_leaf,
+            recovery_leaf: Some(ms_recovery.encode()),
+            inheritance_leaf: Some(ms_inheritance.encode()),
+            protector_leaf: None,
             descriptor,
             miniscript_policy,
         })
@@ -1039,5 +1067,128 @@ mod bloc_tests {
             let expected = 200_000 + (4 - r.quorum as u32) * 52_560;
             assert_eq!(r.locktime, expected, "rung quorum {}", r.quorum);
         }
+    }
+}
+
+// Regression coverage for the 2026-08-06 fix: MultileafOutput now exposes
+// every leaf the tree contains, not just founder_leaf. Before this fix,
+// compiler/src/main.rs's /psbt-binary handler could only ever attach the
+// founders-now leaf's control block to a PSBT regardless of the caller's
+// intended spend path -- an heir signing a legitimate inheritance spend,
+// or a hardware wallet asked to sign a recovery spend, would find their
+// key absent from the (wrong) leaf attached and the failure looked like
+// "not a signer for this input" rather than the real server-side bug.
+#[cfg(test)]
+mod multileaf_leaf_exposure_tests {
+    use super::*;
+
+    fn pk(s: &str) -> PublicKey {
+        PublicKey::from_str(s).unwrap()
+    }
+
+    fn founders() -> Vec<PublicKey> {
+        vec![
+            pk("02a3ed2c2b57903abe5b89108c66f4a144e8a316af2f013b739cf8975fc0365e97"),
+            pk("02d76c6752934c92bcafb0e575051b36e5ac4035db5329544521e203d6a7337569"),
+        ]
+    }
+    fn heirs() -> Vec<PublicKey> {
+        vec![
+            pk("03defdea4cdb677750a420fee807eacf21eb9898ae79b9768766e4faa04a2d4a34"),
+            pk("025cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc"),
+        ]
+    }
+    fn protectors() -> Vec<PublicKey> {
+        vec![pk("03acd484e2f0c7f65309ad178a9f559abde09796974c57e714c35f110dfc27ccbe")]
+    }
+
+    fn base_policy() -> DynastyPolicy {
+        DynastyPolicy {
+            founder_keys: founders(),
+            founder_quorum: 2,
+            recovery_quorum: None,
+            heir_keys: heirs(),
+            heir_quorum: 2,
+            recovery_after: 100_000,
+            inheritance_after: 200_000,
+            protector_keys: vec![],
+            protector_quorum: None,
+            protector_after: None,
+            consent_keys: vec![],
+            consent_quorum: None,
+        }
+    }
+
+    #[test]
+    fn plain_policy_exposes_only_founder_leaf() {
+        let mut p = base_policy();
+        p.heir_keys = vec![];
+        p.heir_quorum = 0;
+        p.recovery_after = 0;
+        p.inheritance_after = 0;
+        assert!(p.is_plain());
+        let out = build_multileaf(&p).unwrap();
+        assert!(out.recovery_leaf.is_none());
+        assert!(out.inheritance_leaf.is_none());
+        assert!(out.protector_leaf.is_none());
+    }
+
+    #[test]
+    fn non_plain_policy_without_protector_exposes_recovery_and_inheritance() {
+        let out = build_multileaf(&base_policy()).unwrap();
+        assert!(out.recovery_leaf.is_some(), "recovery leaf must be exposed");
+        assert!(out.inheritance_leaf.is_some(), "inheritance leaf must be exposed");
+        assert!(out.protector_leaf.is_none(), "no protector configured");
+    }
+
+    #[test]
+    fn policy_with_protector_exposes_all_four_leaves() {
+        let mut p = base_policy();
+        p.protector_keys = protectors();
+        p.protector_quorum = Some(1);
+        p.protector_after = Some(150_000);
+        assert!(p.has_protector());
+        let out = build_multileaf(&p).unwrap();
+        assert!(out.recovery_leaf.is_some());
+        assert!(out.inheritance_leaf.is_some());
+        assert!(out.protector_leaf.is_some());
+    }
+
+    // The critical regression check: each exposed leaf must actually be
+    // part of the SAME tree spend_info was built from, i.e. control_block
+    // succeeds for every one of them -- not just founder_leaf. This is
+    // exactly what the PSBT builder needs to attach a valid tap_scripts
+    // entry for whichever path the caller intends to spend via.
+    #[test]
+    fn every_exposed_leaf_has_a_valid_control_block_against_the_same_tree() {
+        let mut p = base_policy();
+        p.protector_keys = protectors();
+        p.protector_quorum = Some(1);
+        p.protector_after = Some(150_000);
+        let out = build_multileaf(&p).unwrap();
+
+        let script_ver = |s: &bitcoin::ScriptBuf| (s.clone(), bitcoin::taproot::LeafVersion::TapScript);
+        assert!(
+            out.spend_info.control_block(&script_ver(&out.founder_leaf)).is_some(),
+            "founder_leaf control block"
+        );
+        assert!(
+            out.spend_info
+                .control_block(&script_ver(out.recovery_leaf.as_ref().unwrap()))
+                .is_some(),
+            "recovery_leaf control block"
+        );
+        assert!(
+            out.spend_info
+                .control_block(&script_ver(out.inheritance_leaf.as_ref().unwrap()))
+                .is_some(),
+            "inheritance_leaf control block"
+        );
+        assert!(
+            out.spend_info
+                .control_block(&script_ver(out.protector_leaf.as_ref().unwrap()))
+                .is_some(),
+            "protector_leaf control block"
+        );
     }
 }

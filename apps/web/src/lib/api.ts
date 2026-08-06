@@ -538,6 +538,10 @@ export const api = {
     parent_solo_after: number;
     kids_decay_start_after: number;
     kids_decay_step_blocks: number;
+    // BIP32 origins for hardware-wallet compatibility (2026-08-06 fix) --
+    // optional; omitting it degrades to pre-fix behavior (no
+    // tap_key_origins attached, so only the browser/Tapit signers work).
+    key_origins?: { pubkey: string; fingerprint: string; derivation_path: string }[];
   }) => req<{
     ok: true;
     psbt_hex: string;

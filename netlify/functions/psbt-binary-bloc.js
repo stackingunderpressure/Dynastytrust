@@ -81,6 +81,14 @@ export async function handler(event) {
     parent_solo_after,
     kids_decay_start_after,
     kids_decay_step_blocks,
+    // BIP32 origins for hardware-wallet compatibility (2026-08-06 fix).
+    // Unlike the persisted vault path (psbt-binary.js), a Bloc vault is
+    // not stored server-side yet (Phase 1 is compile + export) -- the
+    // client already holds each key's fingerprint + derivation path
+    // locally (the same LocalKey data descriptor-keys.ts uses for the
+    // key-origin descriptor form) and must send it directly. Optional:
+    // an older client that omits this degrades to pre-fix behavior.
+    key_origins = [],
   } = body;
 
   if (!address)     return json(400, { error: 'Missing: address' });
@@ -189,6 +197,7 @@ export async function handler(event) {
         parent_solo_after,
         kids_decay_start_after,
         kids_decay_step_blocks,
+        key_origins,
       }),
     });
 

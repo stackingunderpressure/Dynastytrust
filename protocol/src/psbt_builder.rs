@@ -1,8 +1,9 @@
 use bitcoin::absolute;
 use bitcoin::address::Address;
+use bitcoin::bip32::{DerivationPath, Fingerprint};
 use bitcoin::hex::FromHex;
-use bitcoin::psbt::Psbt;
-use bitcoin::taproot::LeafVersion;
+use bitcoin::psbt::{Input as PsbtInput, Psbt};
+use bitcoin::taproot::{LeafVersion, TapLeafHash};
 use bitcoin::{
     Amount, Network, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid,
 };
@@ -133,6 +134,104 @@ pub fn build_spend_psbt(spend: SpendRequest) -> Result<Psbt, PsbtError> {
     Ok(psbt)
 }
 
+/// One signer's BIP32 origin, needed to populate a PSBT's tap_key_origins
+/// field (PSBT_IN_TAP_BIP32_DERIVATION, BIP371) -- 2026-08-06 fix for
+/// "hardware wallets won't let you sign our tapscripts" (operator
+/// finding). Every PSBT this service builds already attaches
+/// tap_internal_key + tap_scripts (the control block + leaf script), which
+/// is enough for the browser signer and Tapit's signer: both find their
+/// own key by searching the leaf script bytes for their raw pubkey. A
+/// real hardware wallet (Coldcard, Nunchuk, Passport, Keystone) does not
+/// do that -- it follows BIP371 strictly and only signs for a key it can
+/// positively match via tap_key_origins, which pairs a pubkey with its
+/// BIP32 fingerprint + full derivation path and names exactly which
+/// taproot leaf hash(es) that key may sign for. Without this field a
+/// spec-compliant hardware wallet has nothing to match against its own
+/// keys and correctly refuses to sign -- that was the actual root cause,
+/// not any inherent inability to handle a custom multi-leaf policy.
+///
+/// `pubkey` is the same 66-char compressed-pubkey-hex form
+/// vaults.founder_keys / heir_keys / etc. already use (the /0/0
+/// receive-chain child, per the Nunchuk key-material parity fix).
+/// `fingerprint` is 8 hex characters. `derivation_path` is the FULL path
+/// to that specific pubkey (e.g. "m/48'/1'/0'/2'/0/0") -- note this is
+/// the account path PLUS the /0/0 child suffix, NOT the bare account path
+/// descriptor-keys.ts stores for the key-origin descriptor expression
+/// (which appends /0/* itself); tap_key_origins needs the concrete path
+/// to the exact key used in the script, so the caller must append /0/0
+/// before sending it here.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct KeyOrigin {
+    pub pubkey: String,
+    pub fingerprint: String,
+    pub derivation_path: String,
+}
+
+/// Populate `input.tap_key_origins` for every `key_origins` entry whose
+/// pubkey is embedded in `leaf` -- the specific tapscript leaf this PSBT
+/// input is being built to spend via. Matching is a byte-search of the
+/// leaf script for the key's 32-byte x-only serialization, mirroring the
+/// exact convention the browser (psbt-signer.ts) and Tapit
+/// (signPsbtCosign.ts) signers already use to find "is my key in this
+/// leaf" -- so all three signing paths agree on what "this key belongs to
+/// this leaf" means, and none of them needs to know which policy-key list
+/// (founders / heirs / protectors / consenters) a key came from.
+///
+/// Deliberately infallible: a malformed entry (bad pubkey, bad
+/// fingerprint hex, bad derivation path) is skipped with a logged
+/// warning rather than failing the whole PSBT build. The old behavior
+/// (no tap_key_origins at all) already works for browser + Tapit signing,
+/// so one bad optional metadata entry should degrade that one key back to
+/// today's status quo, not break every signer's ability to build a PSBT.
+pub fn attach_tap_key_origins(input: &mut PsbtInput, leaf: &ScriptBuf, key_origins: &[KeyOrigin]) {
+    if key_origins.is_empty() {
+        return;
+    }
+    let leaf_bytes = leaf.as_bytes();
+    let leaf_hash = TapLeafHash::from_script(leaf, LeafVersion::TapScript);
+
+    for origin in key_origins {
+        let Ok(pk) = bitcoin::PublicKey::from_str(&origin.pubkey) else {
+            eprintln!("attach_tap_key_origins: skipping bad pubkey {}", origin.pubkey);
+            continue;
+        };
+        let (xonly, _parity) = pk.inner.x_only_public_key();
+        if !leaf_bytes.windows(32).any(|w| w == xonly.serialize()) {
+            continue; // this key is not part of THIS leaf -- expected, not an error
+        }
+        let Ok(fp_bytes) = hex::decode(&origin.fingerprint) else {
+            eprintln!("attach_tap_key_origins: skipping bad fingerprint hex {}", origin.fingerprint);
+            continue;
+        };
+        let Ok(fp_arr): Result<[u8; 4], _> = fp_bytes.try_into() else {
+            eprintln!("attach_tap_key_origins: fingerprint {} is not 4 bytes", origin.fingerprint);
+            continue;
+        };
+        let fingerprint = Fingerprint::from(fp_arr);
+        // DerivationPath::from_str requires a leading "m/"; tolerate a
+        // caller that sent the path without it rather than silently
+        // dropping an otherwise-good origin over a cosmetic mismatch.
+        let normalized = if origin.derivation_path.starts_with("m/") || origin.derivation_path == "m" {
+            origin.derivation_path.clone()
+        } else {
+            format!("m/{}", origin.derivation_path)
+        };
+        let Ok(path) = DerivationPath::from_str(&normalized) else {
+            eprintln!("attach_tap_key_origins: skipping bad derivation path {}", origin.derivation_path);
+            continue;
+        };
+        input
+            .tap_key_origins
+            .entry(xonly)
+            .and_modify(|(leaves, _)| {
+                if !leaves.contains(&leaf_hash) {
+                    leaves.push(leaf_hash);
+                }
+            })
+            .or_insert_with(|| (vec![leaf_hash], (fingerprint, path)));
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BlocSpendRequest {
     pub utxos: Vec<VaultUTXO>,
@@ -147,6 +246,13 @@ pub struct BlocSpendRequest {
     /// Ignored for the non-decay paths.
     #[serde(default)]
     pub quorum: usize,
+    /// BIP32 origins for any of this vault's signers, so a hardware
+    /// wallet can recognize its own key on the leaf being spent. Optional
+    /// and additive -- an empty list (or an older caller that omits the
+    /// field) degrades exactly to pre-2026-08-06 behavior. See
+    /// attach_tap_key_origins's doc comment for the full rationale.
+    #[serde(default)]
+    pub key_origins: Vec<KeyOrigin>,
 }
 
 /// Build an unsigned PSBT that spends a Dynasty Bloc UTXO via a specific
@@ -263,6 +369,7 @@ pub fn build_bloc_spend_psbt(
         });
         psbt.inputs[i].tap_internal_key = Some(tree.internal_key);
         psbt.inputs[i].tap_scripts.insert(control_block.clone(), script_ver.clone());
+        attach_tap_key_origins(&mut psbt.inputs[i], &leaf.leaf_script, &req.key_origins);
     }
 
     Ok(psbt)
@@ -367,6 +474,7 @@ mod bloc_psbt_tests {
             network: "testnet".into(),
             path: path.into(),
             quorum,
+            key_origins: vec![],
         };
         (policy, req)
     }
@@ -435,5 +543,183 @@ mod bloc_psbt_tests {
         req.utxos[0].value = 51_546;
         let psbt = build_bloc_spend_psbt(&policy, req).unwrap();
         assert_eq!(psbt.unsigned_tx.output.len(), 2, "change at the dust floor must be kept");
+    }
+
+    // 2026-08-06 hardware-wallet fix: key_origins is additive and must not
+    // change any pre-existing behavior when empty (the default above), and
+    // must correctly populate tap_key_origins ONLY for a key that is
+    // actually part of the selected leaf when provided.
+    const PARENT_A: &str = "02a3ed2c2b57903abe5b89108c66f4a144e8a316af2f013b739cf8975fc0365e97";
+    const KID_A: &str = "03defdea4cdb677750a420fee807eacf21eb9898ae79b9768766e4faa04a2d4a34";
+
+    #[test]
+    fn key_origins_populate_tap_key_origins_for_a_signer_in_the_selected_leaf() {
+        let (policy, mut req) = request(crate::policy_compiler::BLOC_PATH_PARENTS_NOW, 0);
+        req.key_origins = vec![KeyOrigin {
+            pubkey: PARENT_A.into(),
+            fingerprint: "deadbeef".into(),
+            derivation_path: "m/48'/1'/0'/2'/0/0".into(),
+        }];
+        let psbt = build_bloc_spend_psbt(&policy, req).unwrap();
+        assert_eq!(psbt.inputs[0].tap_key_origins.len(), 1, "the parent key must get an origin entry");
+    }
+
+    #[test]
+    fn key_not_in_the_selected_leaf_gets_no_origin_entry() {
+        let (policy, mut req) = request(crate::policy_compiler::BLOC_PATH_PARENTS_NOW, 0);
+        // A kid key is not part of the parents_now leaf.
+        req.key_origins = vec![KeyOrigin {
+            pubkey: KID_A.into(),
+            fingerprint: "deadbeef".into(),
+            derivation_path: "m/48'/1'/0'/2'/0/0".into(),
+        }];
+        let psbt = build_bloc_spend_psbt(&policy, req).unwrap();
+        assert!(
+            psbt.inputs[0].tap_key_origins.is_empty(),
+            "a kid key must not be attached to the parents-now leaf"
+        );
+    }
+
+    #[test]
+    fn malformed_key_origin_is_skipped_without_failing_the_whole_psbt_build() {
+        let (policy, mut req) = request(crate::policy_compiler::BLOC_PATH_PARENTS_NOW, 0);
+        req.key_origins = vec![KeyOrigin {
+            pubkey: PARENT_A.into(),
+            fingerprint: "not-hex!".into(),
+            derivation_path: "m/48'/1'/0'/2'/0/0".into(),
+        }];
+        let psbt = build_bloc_spend_psbt(&policy, req).unwrap();
+        assert!(psbt.inputs[0].tap_key_origins.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod key_origin_tests {
+    use super::*;
+    use bitcoin::script::Builder;
+    use bitcoin::PublicKey;
+
+    fn leaf_containing(pk_hex: &str) -> ScriptBuf {
+        let pk = PublicKey::from_str(pk_hex).unwrap();
+        let (xonly, _parity) = pk.inner.x_only_public_key();
+        Builder::new().push_slice(xonly.serialize()).into_script()
+    }
+
+    const PRESENT: &str = "02a3ed2c2b57903abe5b89108c66f4a144e8a316af2f013b739cf8975fc0365e97";
+    const ABSENT: &str = "03defdea4cdb677750a420fee807eacf21eb9898ae79b9768766e4faa04a2d4a34";
+
+    #[test]
+    fn attaches_origin_with_correct_fingerprint_and_path_for_a_key_present_in_the_leaf() {
+        let leaf = leaf_containing(PRESENT);
+        let mut input = PsbtInput::default();
+        attach_tap_key_origins(
+            &mut input,
+            &leaf,
+            &[KeyOrigin {
+                pubkey: PRESENT.into(),
+                fingerprint: "deadbeef".into(),
+                derivation_path: "m/48'/1'/0'/2'/0/0".into(),
+            }],
+        );
+        assert_eq!(input.tap_key_origins.len(), 1);
+        let (leaves, (fp, path)) = input.tap_key_origins.values().next().unwrap();
+        assert_eq!(leaves.len(), 1);
+        assert_eq!(fp.to_string(), "deadbeef");
+        assert_eq!(path.to_string(), "m/48'/1'/0'/2'/0/0");
+    }
+
+    #[test]
+    fn does_not_attach_origin_for_a_key_absent_from_the_leaf() {
+        let leaf = leaf_containing(PRESENT);
+        let mut input = PsbtInput::default();
+        attach_tap_key_origins(
+            &mut input,
+            &leaf,
+            &[KeyOrigin {
+                pubkey: ABSENT.into(),
+                fingerprint: "deadbeef".into(),
+                derivation_path: "m/48'/1'/0'/2'/0/0".into(),
+            }],
+        );
+        assert!(input.tap_key_origins.is_empty());
+    }
+
+    #[test]
+    fn skips_bad_fingerprint_without_panicking() {
+        let leaf = leaf_containing(PRESENT);
+        let mut input = PsbtInput::default();
+        attach_tap_key_origins(
+            &mut input,
+            &leaf,
+            &[KeyOrigin {
+                pubkey: PRESENT.into(),
+                fingerprint: "zz".into(), // not hex
+                derivation_path: "m/48'/1'/0'/2'/0/0".into(),
+            }],
+        );
+        assert!(input.tap_key_origins.is_empty());
+    }
+
+    #[test]
+    fn skips_bad_pubkey_without_panicking() {
+        let leaf = leaf_containing(PRESENT);
+        let mut input = PsbtInput::default();
+        attach_tap_key_origins(
+            &mut input,
+            &leaf,
+            &[KeyOrigin {
+                pubkey: "not-a-pubkey".into(),
+                fingerprint: "deadbeef".into(),
+                derivation_path: "m/48'/1'/0'/2'/0/0".into(),
+            }],
+        );
+        assert!(input.tap_key_origins.is_empty());
+    }
+
+    #[test]
+    fn tolerates_a_derivation_path_missing_the_leading_m() {
+        let leaf = leaf_containing(PRESENT);
+        let mut input = PsbtInput::default();
+        attach_tap_key_origins(
+            &mut input,
+            &leaf,
+            &[KeyOrigin {
+                pubkey: PRESENT.into(),
+                fingerprint: "deadbeef".into(),
+                derivation_path: "48'/1'/0'/2'/0/0".into(),
+            }],
+        );
+        assert_eq!(input.tap_key_origins.len(), 1);
+    }
+
+    #[test]
+    fn empty_key_origins_is_a_no_op() {
+        let leaf = leaf_containing(PRESENT);
+        let mut input = PsbtInput::default();
+        attach_tap_key_origins(&mut input, &leaf, &[]);
+        assert!(input.tap_key_origins.is_empty());
+    }
+
+    #[test]
+    fn one_bad_entry_does_not_block_a_later_good_entry() {
+        let leaf = leaf_containing(PRESENT);
+        let mut input = PsbtInput::default();
+        attach_tap_key_origins(
+            &mut input,
+            &leaf,
+            &[
+                KeyOrigin {
+                    pubkey: "garbage".into(),
+                    fingerprint: "deadbeef".into(),
+                    derivation_path: "m/48'/1'/0'/2'/0/0".into(),
+                },
+                KeyOrigin {
+                    pubkey: PRESENT.into(),
+                    fingerprint: "deadbeef".into(),
+                    derivation_path: "m/48'/1'/0'/2'/0/0".into(),
+                },
+            ],
+        );
+        assert_eq!(input.tap_key_origins.len(), 1);
     }
 }

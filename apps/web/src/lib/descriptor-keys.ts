@@ -67,6 +67,34 @@ export function buildKeyOrigins(keys: SelectedKey[]): Record<string, KeyOrigin> 
   return map;
 }
 
+/**
+ * BIP32 origins in the shape the PSBT-build endpoints need (2026-08-06
+ * hardware-wallet fix) -- distinct from buildKeyOrigins above, which
+ * feeds the DESCRIPTOR's key-origin expression `[fp/path]xpub/0/*`. A
+ * PSBT's tap_key_origins field needs the full path to the SPECIFIC key
+ * used in the script, not the bare account path -- so this appends the
+ * /0/0 receive-chain child suffix the compiler always signs with,
+ * matching toPubkeyHex's own "the /0/0 receive-chain child" convention.
+ * Keys missing fingerprint/derivationPath are silently skipped: that key
+ * simply won't get hardware-wallet recognition, same graceful degradation
+ * as an absent entry in buildKeyOrigins.
+ */
+export function buildPsbtKeyOrigins(
+  keys: SelectedKey[],
+): { pubkey: string; fingerprint: string; derivation_path: string }[] {
+  const out: { pubkey: string; fingerprint: string; derivation_path: string }[] = [];
+  for (const k of keys) {
+    const fp = k.masterFingerprint ?? k.fingerprint;
+    if (!fp || !k.derivationPath) continue;
+    out.push({
+      pubkey: toPubkeyHex(k),
+      fingerprint: fp,
+      derivation_path: k.derivationPath.replace(/\/+$/, '') + '/0/0',
+    });
+  }
+  return out;
+}
+
 // Compressed pubkey hex is stored on each key at generation time.
 export function toPubkeyHex(k: SelectedKey): string {
   if (k.pubkey && k.pubkey.length === 66) return k.pubkey;

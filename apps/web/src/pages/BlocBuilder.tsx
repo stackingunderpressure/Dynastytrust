@@ -14,6 +14,7 @@ import { DescriptorQr } from '../components/DescriptorQr';
 import {
   upgradeDescriptor,
   buildKeyOrigins,
+  buildPsbtKeyOrigins,
   toPubkeyHex,
   type SelectedKey,
 } from '../lib/descriptor-keys';
@@ -918,6 +919,7 @@ export default function BlocBuilder() {
                   parent_solo_after: absoluteTimelocks.parent_solo_after,
                   kids_decay_start_after: absoluteTimelocks.kids_decay_start_after,
                   kids_decay_step_blocks: kidsDecayStep,
+                  key_origins: buildPsbtKeyOrigins([...parents, ...kids]),
                 });
                 setSpendResult({ psbt_hex: res.psbt_hex, psbt_b64: res.psbt_b64, summary: res.summary });
               } catch (e) {

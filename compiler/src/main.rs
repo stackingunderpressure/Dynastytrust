@@ -13,11 +13,11 @@ use bitcoin::psbt::Psbt;
 use bitcoin::taproot::{LeafVersion, TaprootBuilder};
 use bitcoin::secp256k1::{Secp256k1, XOnlyPublicKey};
 use dynastytrust_protocol::{
-    audit_spend, build_bloc_spend_psbt, build_multileaf_spend_info,
+    attach_tap_key_origins, audit_spend, build_bloc_spend_psbt, build_multileaf,
     compile_dynasty_bloc_tr_multileaf, compile_dynasty_policy, compile_dynasty_policy_tr,
     compile_dynasty_policy_tr_multileaf, compile_tranche_tr_multileaf, evaluate_spend_proposal,
     evaluate_vault_status, next_action, BlocSpendRequest, DynastyBlocPolicy, DynastyPolicy,
-    ProposedSpend, SignerStatus, SpendingPath, TranchePolicy, VaultPolicy, VaultUTXO,
+    KeyOrigin, ProposedSpend, SignerStatus, SpendingPath, TranchePolicy, VaultPolicy, VaultUTXO,
 };
 use miniscript::policy::concrete::Policy;
 use miniscript::{psbt::PsbtExt, Miniscript};
@@ -31,7 +31,7 @@ struct AppState { secret: Option<String> }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 struct ErrorResponse { ok: bool, error: String }
 
 type ApiError = (StatusCode, Json<ErrorResponse>);
@@ -312,6 +312,11 @@ struct PsbtBinaryRequest {
     // Fallback raw scripts (if policy params not provided)
     leaf_script_hex:    Option<String>,
     witness_script_hex: Option<String>,
+    // BIP32 origins for this vault's signers (2026-08-06 hardware-wallet
+    // fix) -- see attach_tap_key_origins's doc comment in psbt_builder.rs
+    // for the full rationale. Optional and additive.
+    #[serde(default)]
+    key_origins: Vec<KeyOrigin>,
 }
 
 #[derive(Serialize)]
@@ -413,7 +418,7 @@ async fn psbt_binary(
     // mismatched root and the finalizer rejected the spend with
     // "Control block verification failed at index 0".
     let addr_type = req.address_type.as_deref().unwrap_or("tr");
-    let full_spend_info: Option<(bitcoin::taproot::TaprootSpendInfo, ScriptBuf)> = if let (
+    let full_output: Option<dynastytrust_protocol::MultileafOutput> = if let (
         Some(fk), Some(fq), Some(hk), Some(hq), Some(ra), Some(ia)
     ) = (
         req.founder_keys.as_ref(), req.founder_quorum,
@@ -438,13 +443,33 @@ async fn psbt_binary(
                     consent_keys: consenters,
                     consent_quorum: req.consent_quorum,
                 };
-                build_multileaf_spend_info(&pol).ok()
+                build_multileaf(&pol).ok()
             }
             _ => None,
         }
     } else {
         None
     };
+
+    // Select the SAME leaf `intended_path` already picked for tx.lock_time
+    // above (2026-08-06 fix). Previously this always used founder_leaf
+    // regardless of path, which mismatched tap_scripts against lock_time
+    // for every non-founders spend and made a legitimate heir/protector
+    // signer look like "not a signer for this input" -- see
+    // MultileafOutput's doc comment in policy_compiler.rs for the full
+    // account. A path that names a leaf the policy doesn't have (e.g.
+    // "protector" with no protector configured) correctly yields None,
+    // same as a full policy-parse failure above.
+    let selected_leaf: Option<ScriptBuf> = full_output.as_ref().and_then(|out| match intended_path {
+        "recovery" => out.recovery_leaf.clone(),
+        "inheritance" => out.inheritance_leaf.clone(),
+        "protector" => out.protector_leaf.clone(),
+        _ => Some(out.founder_leaf.clone()),
+    });
+    let full_spend_info = full_output
+        .as_ref()
+        .zip(selected_leaf.as_ref())
+        .map(|(out, leaf)| (out.spend_info.clone(), leaf.clone()));
 
     let _ = addr_type; // kept for future use
     let witness_script: Option<ScriptBuf> =
@@ -470,6 +495,7 @@ async fn psbt_binary(
                 if let Some(ctrl) = spend_info.control_block(&script_ver) {
                     psbt.inputs[i].tap_scripts.insert(ctrl, script_ver);
                 }
+                attach_tap_key_origins(&mut psbt.inputs[i], leaf, &req.key_origins);
             }
         }
 
@@ -517,6 +543,10 @@ struct PsbtBinaryBlocRequest {
     kids_decay_step_blocks: u32,
     kids_decay_start_quorum: usize,
     kids_decay_floor_quorum: usize,
+    // BIP32 origins for this vault's signers (2026-08-06 hardware-wallet
+    // fix). Optional and additive -- see PsbtBinaryRequest's own field.
+    #[serde(default)]
+    key_origins: Vec<KeyOrigin>,
 }
 
 async fn psbt_binary_bloc(
@@ -567,6 +597,7 @@ async fn psbt_binary_bloc(
         network: req.network,
         path: req.path,
         quorum: req.quorum,
+        key_origins: req.key_origins,
     };
 
     let psbt = build_bloc_spend_psbt(&policy, spend)
@@ -880,4 +911,158 @@ async fn main() {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     println!("DynastyTrust compiler on http://{addr}");
     axum::serve(tokio::net::TcpListener::bind(addr).await.unwrap(), app).await.unwrap();
+}
+
+// 2026-08-06 fix regression coverage. This is the actual bug the operator
+// hit: /psbt-binary always attached the founders-now leaf's control block
+// regardless of `path`, and never attached tap_key_origins at all -- the
+// combination is why a hardware wallet asked to sign a non-founders spend
+// had no chance (wrong leaf AND no way to recognize its own key even on
+// the right one). These tests call the handler directly (no HTTP server
+// needed -- an axum handler is just an async function) and inspect the
+// actual PSBT bytes it returns.
+#[cfg(test)]
+mod psbt_binary_tests {
+    use super::*;
+    use dynastytrust_protocol::compile_dynasty_policy_tr_multileaf;
+
+    const FOUNDER_A: &str = "02a3ed2c2b57903abe5b89108c66f4a144e8a316af2f013b739cf8975fc0365e97";
+    const FOUNDER_B: &str = "02d76c6752934c92bcafb0e575051b36e5ac4035db5329544521e203d6a7337569";
+    const HEIR_A: &str = "03defdea4cdb677750a420fee807eacf21eb9898ae79b9768766e4faa04a2d4a34";
+
+    fn sample_policy() -> DynastyPolicy {
+        DynastyPolicy {
+            founder_keys: vec![
+                PublicKey::from_str(FOUNDER_A).unwrap(),
+                PublicKey::from_str(FOUNDER_B).unwrap(),
+            ],
+            founder_quorum: 2,
+            recovery_quorum: None,
+            heir_keys: vec![PublicKey::from_str(HEIR_A).unwrap()],
+            heir_quorum: 1,
+            recovery_after: 100_000,
+            inheritance_after: 200_000,
+            protector_keys: vec![],
+            protector_quorum: None,
+            protector_after: None,
+            consent_keys: vec![],
+            consent_quorum: None,
+        }
+    }
+
+    fn xonly_bytes(pk_hex: &str) -> [u8; 32] {
+        PublicKey::from_str(pk_hex).unwrap().inner.x_only_public_key().0.serialize()
+    }
+
+    async fn build_psbt(path: &str, key_origins: Vec<KeyOrigin>) -> Psbt {
+        let policy = sample_policy();
+        let compiled = compile_dynasty_policy_tr_multileaf(policy.clone(), Network::Testnet).unwrap();
+        let addr = compiled.address.to_string();
+        let spk_hex = hex::encode(compiled.address.script_pubkey().as_bytes());
+
+        let req = PsbtBinaryRequest {
+            inputs: vec![UtxoInput {
+                txid: "0000000000000000000000000000000000000000000000000000000000000001".into(),
+                vout: 0,
+                value_sats: 100_000,
+                script_pubkey: spk_hex,
+            }],
+            destination: addr.clone(),
+            amount_sats: 50_000,
+            fee_sats: 1_000,
+            change_address: addr,
+            network: "testnet".into(),
+            founder_keys: Some(policy.founder_keys.iter().map(|k| k.to_string()).collect()),
+            founder_quorum: Some(policy.founder_quorum),
+            heir_keys: Some(policy.heir_keys.iter().map(|k| k.to_string()).collect()),
+            heir_quorum: Some(policy.heir_quorum),
+            recovery_after: Some(policy.recovery_after),
+            inheritance_after: Some(policy.inheritance_after),
+            address_type: Some("tr_multileaf".into()),
+            consent_keys: vec![],
+            consent_quorum: None,
+            recovery_quorum: None,
+            protector_keys: vec![],
+            protector_quorum: None,
+            protector_after: None,
+            path: Some(path.into()),
+            leaf_script_hex: None,
+            witness_script_hex: None,
+            key_origins,
+        };
+        let state = Arc::new(AppState { secret: None });
+        let Json(resp) = psbt_binary(State(state), HeaderMap::new(), Json(req)).await.unwrap();
+        let bytes = hex::decode(resp.psbt_hex).unwrap();
+        Psbt::deserialize(&bytes).unwrap()
+    }
+
+    #[tokio::test]
+    async fn founders_now_path_attaches_the_founders_leaf() {
+        let psbt = build_psbt("founders_now", vec![]).await;
+        let (leaf, _) = psbt.inputs[0].tap_scripts.values().next().expect("a leaf must be attached");
+        assert!(leaf.as_bytes().windows(32).any(|w| w == xonly_bytes(FOUNDER_A)));
+    }
+
+    #[tokio::test]
+    async fn inheritance_path_attaches_the_inheritance_leaf_not_founders() {
+        // This is the actual bug: before the fix, this always attached
+        // the founders-now leaf, so an heir's key was never found in it.
+        let psbt = build_psbt("inheritance", vec![]).await;
+        let (leaf, _) = psbt.inputs[0].tap_scripts.values().next().expect("a leaf must be attached");
+        assert!(
+            leaf.as_bytes().windows(32).any(|w| w == xonly_bytes(HEIR_A)),
+            "inheritance spend must attach the inheritance leaf (containing the heir's key), not founders_now"
+        );
+        assert!(
+            !leaf.as_bytes().windows(32).any(|w| w == xonly_bytes(FOUNDER_A)),
+            "the inheritance leaf must not be the founders leaf"
+        );
+    }
+
+    #[tokio::test]
+    async fn recovery_path_attaches_the_recovery_leaf() {
+        let psbt = build_psbt("recovery", vec![]).await;
+        let (leaf, _) = psbt.inputs[0].tap_scripts.values().next().expect("a leaf must be attached");
+        // Recovery spends via the founders' own keys (thresh over founders),
+        // so the founder key IS expected here -- but on a DIFFERENT leaf
+        // than founders_now (proven indirectly: recovery has a locktime,
+        // founders_now does not).
+        assert!(leaf.as_bytes().windows(32).any(|w| w == xonly_bytes(FOUNDER_A)));
+        assert_ne!(psbt.unsigned_tx.lock_time, bitcoin::absolute::LockTime::ZERO);
+    }
+
+    #[tokio::test]
+    async fn hardware_wallet_key_origin_is_attached_for_the_heir_on_the_inheritance_leaf() {
+        let psbt = build_psbt(
+            "inheritance",
+            vec![KeyOrigin {
+                pubkey: HEIR_A.to_string(),
+                fingerprint: "deadbeef".into(),
+                derivation_path: "m/48'/1'/0'/2'/0/0".into(),
+            }],
+        )
+        .await;
+        assert_eq!(
+            psbt.inputs[0].tap_key_origins.len(),
+            1,
+            "the heir's key must get a tap_key_origins entry so a hardware wallet can recognize it"
+        );
+    }
+
+    #[tokio::test]
+    async fn hardware_wallet_key_origin_for_a_founder_is_not_attached_on_the_inheritance_leaf() {
+        // A founder's key is not part of the inheritance leaf -- it must
+        // not get an origin entry there, even though it's a real vault
+        // signer key overall.
+        let psbt = build_psbt(
+            "inheritance",
+            vec![KeyOrigin {
+                pubkey: FOUNDER_A.to_string(),
+                fingerprint: "deadbeef".into(),
+                derivation_path: "m/48'/1'/0'/2'/0/0".into(),
+            }],
+        )
+        .await;
+        assert!(psbt.inputs[0].tap_key_origins.is_empty());
+    }
 }

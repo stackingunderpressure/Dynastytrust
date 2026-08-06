@@ -102,6 +102,34 @@ export async function handler(event) {
     return json(500, { error: 'Could not derive /0/0 pubkey from vault xpubs: ' + e.message });
   }
 
+  // BIP32 origins for hardware-wallet compatibility (2026-08-06 fix --
+  // operator finding: "hardware wallets won't let you sign our
+  // tapscripts"). Every PSBT built here already attaches tap_internal_key
+  // + tap_scripts, which is enough for the browser and Tapit signers
+  // (both match their own key by searching the leaf script bytes). A real
+  // hardware wallet follows BIP371 strictly and only signs for a key it
+  // can positively match via tap_key_origins (pubkey -> fingerprint +
+  // full derivation path + which leaf hash it may sign for) -- without
+  // that field it has nothing to match and correctly refuses to sign.
+  // vault_members already carries fingerprint + derivation_path per
+  // signer (the same values that feed the Nunchuk-compatible descriptor);
+  // this was simply never forwarded past this function. derivation_path
+  // is stored as the ACCOUNT-level path (e.g. "m/48'/1'/0'/2'") to match
+  // descriptor-keys.ts's convention -- append /0/0 for the specific
+  // receive-chain child every leaf script actually embeds.
+  const { data: signers } = await supabase
+    .from('vault_members')
+    .select('pubkey, fingerprint, derivation_path')
+    .eq('vault_id', vault_id)
+    .eq('status', 'active');
+  const keyOrigins = (signers || [])
+    .filter((m) => m.pubkey && m.fingerprint && m.derivation_path)
+    .map((m) => ({
+      pubkey: m.pubkey,
+      fingerprint: m.fingerprint,
+      derivation_path: m.derivation_path.replace(/\/+$/, '') + '/0/0',
+    }));
+
   const network = vault.network || 'testnet';
   const base    = MEMPOOL[network] || MEMPOOL.testnet;
 
@@ -215,6 +243,7 @@ export async function handler(event) {
         // founders_now requires an absolute nLockTime that matches
         // the leaf's after(N).
         path,
+        key_origins: keyOrigins,
         ...(consentPubkeys.length > 0 && vault.consent_quorum != null
           ? { consent_keys: consentPubkeys, consent_quorum: vault.consent_quorum }
           : {}),
