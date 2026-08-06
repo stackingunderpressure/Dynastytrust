@@ -204,6 +204,38 @@ Staged plan (each stage shippable, proven before the next, small amounts first):
   so a co-signer's Tapit shows the proposal in their inbox (ties into the
   existing "multi-member vault flow" open gap and Supabase Realtime feed).
 
+  IN PROGRESS 2026-08-06 -- shared substrate vendored. Rather than hand-roll a
+  second NIP-01/NIP-44 implementation in this repo (real risk on money-touching
+  code -- Tapit's Nostr transport has run in production the longest and carries
+  the most surface), Tapit's own `transport.ts` / `nostrEvent.ts` /
+  `nostrTransport.ts` are now vendored byte-identically as
+  `@dynastytrust/nostr-transport` (`packages/nostr-transport/`), same
+  minimal-dependency + parity-test discipline as B0's
+  `@dynastytrust/bip341-psbt-signer`: `test/parity.test.mjs` asserts a fixed
+  golden fixture (deterministic private key + zero BIP340 aux randomness)
+  produces an exact hardcoded event id and signature, run independently in
+  both repos against each repo's own copy. `verifySignature` is inlined via
+  `@noble/curves/secp256k1` directly rather than importing `tapit-attest`, so
+  this package stays dependency-light like B0's module. All four gates green
+  in both repos (DynastyTrust's pre-existing typecheck baseline in
+  keystore.ts/PsbtQrDisplay.tsx/PsbtQrScanner.tsx/ProposalDetail.tsx/
+  VaultDetail.tsx confirmed unchanged via `git stash` comparison; tapit-wallet
+  844 tests green, bundle budgets OK).
+
+  Still to build: the actual publish/subscribe wiring. Resolve the target
+  vault member's Tapit pubkey via the existing `vault_members` <-> `wallet_identities`
+  join (both tables already exist from the Cut A sign-in bridge -- no new
+  schema needed for this lookup), generate an ephemeral per-request keypair,
+  encrypt the psbt-cosign request with `tapit-attest`'s `nip44.encryptTo` and
+  publish it over `@dynastytrust/nostr-transport` on a dedicated event kind
+  (9576, the next free sibling after Tapit's liveness channel's 9575 --
+  matching the documented reason liveness got its own kind: a PSBT request is
+  not an `Attestation`), subscribe for the signed response, and merge it in
+  via the existing `externalImport` path B2 already built. On the Tapit side:
+  surface the incoming request as an inbox item routing into a psbt-cosign
+  variant of `SignApprovalScreen`, sign, and publish the response back over
+  the same channel instead of a URL redirect.
+
 Rails (all from the risk register): an attestation is never a spend signature --
 this intent is explicitly a PSBT-sign, domain-separated from `attest`. The
 banner shows the spend's meaning, not the raw PSBT. No key leaves Tapit. No
