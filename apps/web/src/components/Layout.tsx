@@ -4,6 +4,7 @@ import { APP_NAME, NAV_LINKS } from '../config';
 import { supabase } from '../lib/supabase';
 import { colors, fonts, radii } from '../theme';
 import { useReminderCount } from './RemindersBanner';
+import { VersionBadge } from './VersionBadge';
 
 interface LayoutProps {
   activeNavId: string;
@@ -77,6 +78,7 @@ export function Layout({ activeNavId, onSignOut, children }: LayoutProps) {
                 Hi, <span style={{ color: colors.text }}>{displayName}</span>
               </span>
             )}
+            <VersionBadge />
             <button
               onClick={onSignOut}
               style={{

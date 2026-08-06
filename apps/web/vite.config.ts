@@ -1,8 +1,37 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+// Netlify sets COMMIT_REF (the full 40-char deploy commit SHA) as a
+// build-time env var automatically -- no config needed on the Netlify
+// side. Locally (no CI), there's no COMMIT_REF, so builds fall back to
+// 'dev' rather than silently claiming to be some old commit.
+const commitRef = process.env.COMMIT_REF;
+const appVersion = commitRef ? commitRef.slice(0, 7) : 'dev';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      // The app's own JS bundle only knows the version it was built
+      // with (baked in via `define` below) -- it can't tell a running
+      // tab that a NEWER version has since deployed. A separate static
+      // file the running tab can re-fetch (bypassing whatever's in the
+      // JS bundle cache) is what makes that check possible, so this
+      // writes dist/version.json alongside the bundle at build end.
+      name: 'write-version-json',
+      closeBundle() {
+        writeFileSync(
+          resolve(__dirname, 'dist/version.json'),
+          JSON.stringify({ version: appVersion, builtAt: new Date().toISOString() }),
+        );
+      },
+    },
+  ],
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+  },
   build: {
     rollupOptions: {
       // tapit-attest's barrel re-exports OpenTimestampsProvider, which holds
