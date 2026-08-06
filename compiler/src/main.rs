@@ -13,11 +13,12 @@ use bitcoin::psbt::Psbt;
 use bitcoin::taproot::LeafVersion;
 use bitcoin::secp256k1::{Secp256k1, XOnlyPublicKey};
 use dynastytrust_protocol::{
-    attach_tap_key_origins, audit_spend, build_bloc_spend_psbt, build_multileaf,
-    compile_dynasty_bloc_tr_multileaf, compile_dynasty_policy, compile_dynasty_policy_tr,
-    compile_dynasty_policy_tr_multileaf, compile_tranche_tr_multileaf, evaluate_spend_proposal,
-    evaluate_vault_status, next_action, BlocSpendRequest, DynastyBlocPolicy, DynastyPolicy,
-    KeyOrigin, ProposedSpend, SignerStatus, SpendingPath, TranchePolicy, VaultPolicy, VaultUTXO,
+    attach_tap_change_output_metadata, attach_tap_key_origins, audit_spend, build_bloc_spend_psbt,
+    build_multileaf, compile_dynasty_bloc_tr_multileaf, compile_dynasty_policy,
+    compile_dynasty_policy_tr, compile_dynasty_policy_tr_multileaf, compile_tranche_tr_multileaf,
+    evaluate_spend_proposal, evaluate_vault_status, next_action, BlocSpendRequest,
+    DynastyBlocPolicy, DynastyPolicy, KeyOrigin, ProposedSpend, SignerStatus, SpendingPath,
+    TranchePolicy, VaultPolicy, VaultUTXO,
 };
 use miniscript::policy::concrete::Policy;
 use miniscript::{psbt::PsbtExt, Miniscript};
@@ -450,6 +451,35 @@ async fn psbt_binary(
     } else {
         None
     };
+
+    // Change always returns to this same vault's own tr_multileaf address
+    // (psbt-binary.js sets change_address: vault.address), but until now the
+    // change output carried no taproot metadata at all -- a bare
+    // scriptPubkey. A signer verifying change by reconstructing it from its
+    // own derived key (the same approach attach_tap_key_origins uses for
+    // inputs) has nothing to reconstruct from a multi-leaf tree without
+    // tap_internal_key / tap_key_origins on the output, so real change was
+    // indistinguishable from an external destination on the confirm screen.
+    // Every leaf (not just the one being spent) is passed through, since a
+    // signer key can legitimately appear in more than one leaf (founder keys
+    // sit in both founders-now and recovery).
+    if has_change {
+        if let Some(ref out) = full_output {
+            let nums_bytes = hex::decode(NUMS_HEX).unwrap();
+            let internal_key = XOnlyPublicKey::from_slice(&nums_bytes).unwrap();
+            let leaves: Vec<&ScriptBuf> = std::iter::once(&out.founder_leaf)
+                .chain(out.recovery_leaf.as_ref())
+                .chain(out.inheritance_leaf.as_ref())
+                .chain(out.protector_leaf.as_ref())
+                .collect();
+            attach_tap_change_output_metadata(
+                &mut psbt.outputs[1],
+                internal_key,
+                &leaves,
+                &req.key_origins,
+            );
+        }
+    }
 
     // Select the SAME leaf `intended_path` already picked for tx.lock_time
     // above (2026-08-06 fix). Previously this always used founder_leaf
@@ -1064,5 +1094,58 @@ mod psbt_binary_tests {
         )
         .await;
         assert!(psbt.inputs[0].tap_key_origins.is_empty());
+    }
+
+    #[tokio::test]
+    async fn change_output_carries_the_vault_internal_key() {
+        // Change always lands back at this same vault's tr_multileaf
+        // address (change_address == the funding address), but the change
+        // TxOut never carried any taproot metadata at all -- a bare
+        // scriptPubkey a signer has nothing to verify against. output[1]
+        // is change here since amount_sats (50_000) + fee_sats (1_000) <
+        // value_sats (100_000).
+        let psbt = build_psbt("founders_now", vec![]).await;
+        assert_eq!(psbt.unsigned_tx.output.len(), 2, "this scenario must produce a change output");
+        assert!(
+            psbt.outputs[1].tap_internal_key.is_some(),
+            "change output must carry tap_internal_key so a signer can identify the tree it belongs to"
+        );
+    }
+
+    #[tokio::test]
+    async fn change_output_tap_key_origins_covers_every_leaf_a_founder_key_is_in() {
+        // FOUNDER_A sits in both the founders-now leaf and the recovery
+        // leaf (recovery falls back to the founder quorum when
+        // recovery_quorum is unset, same as sample_policy() here) -- the
+        // change output's origin entry must list both leaf hashes, not
+        // just one, unlike the single-leaf input-side attachment.
+        let psbt = build_psbt(
+            "founders_now",
+            vec![KeyOrigin {
+                pubkey: FOUNDER_A.to_string(),
+                fingerprint: "deadbeef".into(),
+                derivation_path: "m/86'/1'/0'/0/0".into(),
+            }],
+        )
+        .await;
+        assert_eq!(psbt.outputs[1].tap_key_origins.len(), 1);
+        let (leaves, _) = psbt.outputs[1].tap_key_origins.values().next().unwrap();
+        assert_eq!(leaves.len(), 2, "founder key is in both founders-now and recovery leaves");
+    }
+
+    #[tokio::test]
+    async fn change_output_tap_key_origins_covers_only_the_inheritance_leaf_for_the_heir() {
+        let psbt = build_psbt(
+            "founders_now",
+            vec![KeyOrigin {
+                pubkey: HEIR_A.to_string(),
+                fingerprint: "deadbeef".into(),
+                derivation_path: "m/86'/1'/0'/0/0".into(),
+            }],
+        )
+        .await;
+        assert_eq!(psbt.outputs[1].tap_key_origins.len(), 1);
+        let (leaves, _) = psbt.outputs[1].tap_key_origins.values().next().unwrap();
+        assert_eq!(leaves.len(), 1, "heir key is only in the inheritance leaf");
     }
 }

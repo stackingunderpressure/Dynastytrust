@@ -20,5 +20,6 @@ pub use policy_compiler::{
 
 pub use psbt_builder::{
     BlocSpendRequest, KeyOrigin, PsbtError, SpendRequest, VaultUTXO,
-    attach_tap_key_origins, build_bloc_spend_psbt, build_spend_psbt, select_coins,
+    attach_tap_change_output_metadata, attach_tap_key_origins, build_bloc_spend_psbt,
+    build_spend_psbt, select_coins,
 };

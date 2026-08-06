@@ -2,10 +2,11 @@ use bitcoin::absolute;
 use bitcoin::address::Address;
 use bitcoin::bip32::{DerivationPath, Fingerprint};
 use bitcoin::hex::FromHex;
-use bitcoin::psbt::{Input as PsbtInput, Psbt};
+use bitcoin::psbt::{Input as PsbtInput, Output as PsbtOutput, Psbt};
 use bitcoin::taproot::{LeafVersion, TapLeafHash};
 use bitcoin::{
     Amount, Network, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid,
+    XOnlyPublicKey,
 };
 use crate::policy_compiler::{build_bloc_multileaf, DynastyBlocPolicy, BLOC_PATH_KIDS_DECAY};
 use serde::{Deserialize, Serialize};
@@ -229,6 +230,77 @@ pub fn attach_tap_key_origins(input: &mut PsbtInput, leaf: &ScriptBuf, key_origi
                 }
             })
             .or_insert_with(|| (vec![leaf_hash], (fingerprint, path)));
+    }
+}
+
+/// Populate a change output's `tap_internal_key` + `tap_key_origins` (BIP371
+/// PSBT_OUT_TAP_INTERNAL_KEY / PSBT_OUT_TAP_BIP32_DERIVATION) so a spec-compliant
+/// signer/coordinator can positively verify the output is this vault's own
+/// address rather than an external destination.
+///
+/// Every DynastyTrust vault sends change back to `vault.address` -- the same
+/// tr_multileaf address the vault was funded at (see psbt-binary.js's
+/// `change_address: vault.address`) -- but until now the change TxOut carried
+/// no taproot metadata at all, only a bare scriptPubkey. A signer that (like
+/// `attach_tap_key_origins` already does for inputs) verifies change by
+/// reconstructing the claimed scriptPubkey from its own derived key has
+/// nothing to reconstruct from for a multi-leaf output, so real change shows
+/// up indistinguishable from an external payment on the confirm screen.
+///
+/// Unlike the single-leaf input case, an output's signer key can legitimately
+/// appear in more than one leaf (founder keys sit in both the founders-now
+/// and recovery leaves), so this walks every leaf in `leaves` and collects
+/// every matching TapLeafHash per key, rather than assuming one leaf.
+///
+/// Deliberately infallible, same convention as `attach_tap_key_origins`: a
+/// malformed entry is skipped, not fatal -- the old behavior (no output
+/// metadata at all) is the fallback, not a broken PSBT.
+pub fn attach_tap_change_output_metadata(
+    output: &mut PsbtOutput,
+    internal_key: XOnlyPublicKey,
+    leaves: &[&ScriptBuf],
+    key_origins: &[KeyOrigin],
+) {
+    output.tap_internal_key = Some(internal_key);
+    if key_origins.is_empty() {
+        return;
+    }
+    for origin in key_origins {
+        let Ok(pk) = bitcoin::PublicKey::from_str(&origin.pubkey) else {
+            eprintln!("attach_tap_change_output_metadata: skipping bad pubkey {}", origin.pubkey);
+            continue;
+        };
+        let (xonly, _parity) = pk.inner.x_only_public_key();
+        let xonly_bytes = xonly.serialize();
+
+        let leaf_hashes: Vec<TapLeafHash> = leaves
+            .iter()
+            .filter(|leaf| leaf.as_bytes().windows(32).any(|w| w == xonly_bytes))
+            .map(|leaf| TapLeafHash::from_script(leaf, LeafVersion::TapScript))
+            .collect();
+        if leaf_hashes.is_empty() {
+            continue; // this signer's key isn't part of the vault's tree at all
+        }
+
+        let Ok(fp_bytes) = hex::decode(&origin.fingerprint) else {
+            eprintln!("attach_tap_change_output_metadata: skipping bad fingerprint hex {}", origin.fingerprint);
+            continue;
+        };
+        let Ok(fp_arr): Result<[u8; 4], _> = fp_bytes.try_into() else {
+            eprintln!("attach_tap_change_output_metadata: fingerprint {} is not 4 bytes", origin.fingerprint);
+            continue;
+        };
+        let fingerprint = Fingerprint::from(fp_arr);
+        let normalized = if origin.derivation_path.starts_with("m/") || origin.derivation_path == "m" {
+            origin.derivation_path.clone()
+        } else {
+            format!("m/{}", origin.derivation_path)
+        };
+        let Ok(path) = DerivationPath::from_str(&normalized) else {
+            eprintln!("attach_tap_change_output_metadata: skipping bad derivation path {}", origin.derivation_path);
+            continue;
+        };
+        output.tap_key_origins.insert(xonly, (leaf_hashes, (fingerprint, path)));
     }
 }
 
@@ -721,5 +793,110 @@ mod key_origin_tests {
             ],
         );
         assert_eq!(input.tap_key_origins.len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod output_change_metadata_tests {
+    use super::*;
+    use bitcoin::script::Builder;
+    use bitcoin::PublicKey;
+
+    fn leaf_containing(pk_hex: &str) -> ScriptBuf {
+        let pk = PublicKey::from_str(pk_hex).unwrap();
+        let (xonly, _parity) = pk.inner.x_only_public_key();
+        Builder::new().push_slice(xonly.serialize()).into_script()
+    }
+
+    const PRESENT: &str = "02a3ed2c2b57903abe5b89108c66f4a144e8a316af2f013b739cf8975fc0365e97";
+    const ABSENT: &str = "03defdea4cdb677750a420fee807eacf21eb9898ae79b9768766e4faa04a2d4a34";
+    const NUMS_HEX: &str = "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0";
+
+    fn nums() -> XOnlyPublicKey {
+        XOnlyPublicKey::from_str(NUMS_HEX).unwrap()
+    }
+
+    #[test]
+    fn always_sets_internal_key_even_with_no_key_origins() {
+        let leaf = leaf_containing(PRESENT);
+        let mut output = PsbtOutput::default();
+        attach_tap_change_output_metadata(&mut output, nums(), &[&leaf], &[]);
+        assert_eq!(output.tap_internal_key, Some(nums()));
+        assert!(output.tap_key_origins.is_empty());
+    }
+
+    #[test]
+    fn collects_a_leaf_hash_per_leaf_the_key_actually_appears_in() {
+        // Same signer key sits in both the founders-now and recovery
+        // leaves -- exactly DynastyTrust's real shape (founder_keys are
+        // reused across those two leaves). The output-side origin must
+        // list both leaf hashes, not just one, unlike the single-leaf
+        // input case.
+        let founders_leaf = leaf_containing(PRESENT);
+        let recovery_leaf = {
+            // A different script than founders_leaf (distinct leaf hash)
+            // but still containing the same pubkey bytes.
+            let pk = PublicKey::from_str(PRESENT).unwrap();
+            let (xonly, _parity) = pk.inner.x_only_public_key();
+            Builder::new()
+                .push_opcode(bitcoin::opcodes::all::OP_CHECKSIGVERIFY)
+                .push_slice(xonly.serialize())
+                .into_script()
+        };
+        let inheritance_leaf = leaf_containing(ABSENT);
+
+        let mut output = PsbtOutput::default();
+        attach_tap_change_output_metadata(
+            &mut output,
+            nums(),
+            &[&founders_leaf, &recovery_leaf, &inheritance_leaf],
+            &[KeyOrigin {
+                pubkey: PRESENT.into(),
+                fingerprint: "deadbeef".into(),
+                derivation_path: "m/86'/1'/0'/0/0".into(),
+            }],
+        );
+
+        assert_eq!(output.tap_internal_key, Some(nums()));
+        assert_eq!(output.tap_key_origins.len(), 1);
+        let (leaves, (fp, path)) = output.tap_key_origins.values().next().unwrap();
+        assert_eq!(leaves.len(), 2, "key appears in 2 of the 3 leaves");
+        assert_eq!(fp.to_string(), "deadbeef");
+        assert_eq!(path.to_string(), "m/86'/1'/0'/0/0");
+    }
+
+    #[test]
+    fn does_not_attach_origin_for_a_key_absent_from_every_leaf() {
+        let leaf = leaf_containing(PRESENT);
+        let mut output = PsbtOutput::default();
+        attach_tap_change_output_metadata(
+            &mut output,
+            nums(),
+            &[&leaf],
+            &[KeyOrigin {
+                pubkey: ABSENT.into(),
+                fingerprint: "deadbeef".into(),
+                derivation_path: "m/86'/1'/0'/0/0".into(),
+            }],
+        );
+        assert_eq!(output.tap_internal_key, Some(nums()));
+        assert!(output.tap_key_origins.is_empty());
+    }
+
+    #[test]
+    fn malformed_entries_are_skipped_without_panicking() {
+        let leaf = leaf_containing(PRESENT);
+        let mut output = PsbtOutput::default();
+        attach_tap_change_output_metadata(
+            &mut output,
+            nums(),
+            &[&leaf],
+            &[
+                KeyOrigin { pubkey: "garbage".into(), fingerprint: "deadbeef".into(), derivation_path: "m/86'/1'/0'/0/0".into() },
+                KeyOrigin { pubkey: PRESENT.into(), fingerprint: "zz".into(), derivation_path: "m/86'/1'/0'/0/0".into() },
+                KeyOrigin { pubkey: PRESENT.into(), fingerprint: "deadbeef".into(), derivation_path: "not a path".into() },
+            ],
+        );
+        assert!(output.tap_key_origins.is_empty());
     }
 }
