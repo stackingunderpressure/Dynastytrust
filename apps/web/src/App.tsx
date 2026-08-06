@@ -2,8 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-route
 import { supabase } from './lib/supabase';
 import { markIntentionalSignOut } from './lib/session-intent';
 import KeyManager from './pages/KeyManager';
-import PolicyBuilder from './pages/PolicyBuilder';
-import BlocBuilder from './pages/BlocBuilder';
+import VaultWizard from './pages/VaultWizard';
 import StartVault from './pages/StartVault';
 import Dashboard from './pages/Dashboard';
 import VaultDetail from './pages/VaultDetail';
@@ -73,27 +72,21 @@ function AuthedApp() {
           </Layout>
         }
       />
+      {/* /policy used to route to PolicyBuilder, a separate /policy/bloc
+          routed to BlocBuilder -- two pages, two visual languages, for
+          the same job (docs/ux-coherence-redesign.md step 2). Both are
+          retired; VaultWizard covers both shapes as one guided flow. A
+          bookmark to the old /policy/bloc falls through to the catch-all
+          below and lands on /start, same as any other unknown path. */}
       <Route
         path="/policy"
         element={
           <Layout activeNavId={activeNavId} onSignOut={() => { markIntentionalSignOut(); void supabase.auth.signOut(); }}>
             <PageHeader
-              title="Policy Builder"
-              sub="Assemble keys into a vault policy and compile to a Bitcoin address via Fly.io."
+              title="Build your vault"
+              sub="Pick a shape, add your keys now or later, and we handle compiling and funding along the way."
             />
-            <PolicyBuilder />
-          </Layout>
-        }
-      />
-      <Route
-        path="/policy/bloc"
-        element={
-          <Layout activeNavId={activeNavId} onSignOut={() => { markIntentionalSignOut(); void supabase.auth.signOut(); }}>
-            <PageHeader
-              title="Dynasty Bloc"
-              sub="A decaying-multisig family vault: parents now, one parent + kids now, then timelocks for a single parent and for the kids to take over with a multisig that loosens over time."
-            />
-            <BlocBuilder />
+            <VaultWizard />
           </Layout>
         }
       />
