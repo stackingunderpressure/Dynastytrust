@@ -392,7 +392,7 @@ request (~2-3 second cold start).
 | `JSX > is not valid` build failure             | Bare `>` or `->` inside JSX text                             | Use `&gt;`, `=>`, `--`, or reword                                |
 | Vite build ignores TypeScript errors           | esbuild is permissive; tsc enforces                          | Run `npm run typecheck` before push for full safety              |
 | Dead helpers flagged by lint                   | Code written for unimplemented features                      | Don't restore until there is a caller. Document the gap instead. |
-| Hardware wallet (Nunchuk/Coldcard) won't sign a tapscript spend | PSBT never carried `tap_key_origins` (PSBT_IN_TAP_BIP32_DERIVATION) -- only `tap_internal_key`/`tap_scripts` were attached, so a hardware wallet had no BIP371-compliant way to recognize its own key on a leaf. Compounded by `/psbt-binary` always attaching the founders-now leaf's control block regardless of `path`, so a non-founders spend (recovery/inheritance/protector) had the WRONG leaf attached entirely. | `protocol/src/policy_compiler.rs`'s `MultileafOutput` now exposes every leaf, not just `founder_leaf`; `compiler/src/main.rs` selects the leaf matching `path` and calls the new `attach_tap_key_origins` (in `psbt_builder.rs`) with per-signer `{pubkey, fingerprint, derivation_path}` forwarded from `vault_members` via `psbt-binary.js` (Bloc vaults: from the client via `descriptor-keys.ts`'s `buildPsbtKeyOrigins`). `derivation_path` must be the FULL path including `/0/0` -- the stored account-level path used for the descriptor's `[fp/path]xpub/0/*` form is NOT enough on its own. |
+| Hardware wallet (Nunchuk/Coldcard) won't sign a tapscript spend | PSBT never carried `tap_key_origins` (PSBT_IN_TAP_BIP32_DERIVATION) -- only `tap_internal_key`/`tap_scripts` were attached, so a hardware wallet had no BIP371-compliant way to recognize its own key on a leaf. Compounded by `/psbt-binary` always attaching the founders-now leaf's control block regardless of `path`, so a non-founders spend (recovery/inheritance/protector) had the WRONG leaf attached entirely. | `protocol/src/policy_compiler.rs`'s `MultileafOutput` now exposes every leaf, not just `founder_leaf`; `compiler/src/main.rs` selects the leaf matching `path` and calls the new `attach_tap_key_origins` (in `psbt_builder.rs`) with per-signer `{pubkey, fingerprint, derivation_path}` forwarded from `vault_members` via `psbt-binary.js` (Bloc vaults: from the client via `descriptor-keys.ts`'s `buildPsbtKeyOrigins`). `derivation_path` must be the FULL path including `/0/0` -- the stored account-level path used for the descriptor's `[fp/path]xpub/0/0` form is NOT enough on its own. |
 
 ---
 
@@ -474,16 +474,27 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Fixed, non-ranged key-origin descriptor (2026-08-06).** `upgradeDescriptor`
+  now emits `[fp/path]xpub/0/0`, not a `/0/*` wildcard range. This vault is a
+  single fixed address by design (see "Address type" above) -- a ranged
+  descriptor let Nunchuk/Sparrow offer a second receive address at index 1+
+  that our own compiler has no way to build a spend for (it only ever knows
+  the exact `/0/0` key baked into the leaf script), so funds sent there would
+  be spendable by the hardware wallet directly but invisible to this app's own
+  coordinator. A fixed key expression makes every wallet that imports the
+  descriptor show the exact same one address we do.
+
 - Descriptor upgrade to Nunchuk/Sparrow key-origin form. `upgradeDescriptor`
   and `buildKeyOrigins` now run right after `api.compile()` returns, so the
   descriptor shown in the copy field and stored in Supabase is
-  `pk([fp/path]xpub/0/*)`. Uses `masterFingerprint` when the keystore has
+  `pk([fp/path]xpub/0/0)`. Uses `masterFingerprint` when the keystore has
   it (software keys) and falls back to the child `fingerprint` otherwise.
 
 - **Nunchuk key-material parity**: every pubkey sent to the compiler is
   `xpub/0/0` (first receive-chain child), not the account-level pubkey.
-  Without this fix, the compiler's address and the upgraded wildcard
-  descriptor's first address disagree -- Nunchuk import would see an
+  Without this fix, the compiler's address and the upgraded descriptor's
+  first address disagree (the descriptor was wildcard-ranged at the time
+  of this fix; fixed to non-ranged 2026-08-06) -- Nunchuk import would see an
   empty balance at the address our app funded. The fingerprint is also
   now BIP32 standard (`HASH160(pub)[0..4]`) instead of the non-standard
   raw-first-4-bytes shape. `psbt-signer.ts` signs with the `/0/0` child
