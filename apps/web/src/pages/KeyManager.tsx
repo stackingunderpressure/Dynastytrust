@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   listAllKeys, generateTestKey, generateSoftwareKey, importXpub,
   updateKeyStatus, deleteKey, revealMnemonic, secureTestKey,
-  exportKeyring, importKeyringJson, renameKey,
+  exportKeyring, importKeyringJson, renameKey, parseHardwareWalletExport,
   DEFAULT_PERSONAS, type LocalKey, type Network,
 } from "../lib/keystore";
 import { useToast } from "../components/toast";
@@ -479,10 +479,32 @@ function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => v
   const [xpub, setXpub] = useState("");
   const [path, setPath] = useState("m/48'/1'/0'/2'");
   const [err, setErr] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const exportFileRef = useRef<HTMLInputElement>(null);
 
   function handleNetwork(n: Network) {
     setNetwork(n);
     setPath("m/48'/" + (n === "mainnet" ? "0" : "1") + "'/0'/2'");
+  }
+
+  async function handleExportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-picking the same file after a fix
+    if (!file) return;
+    setErr(null);
+    try {
+      const text = await file.text();
+      const parsed = parseHardwareWalletExport(JSON.parse(text));
+      if (!parsed) {
+        setErr(`Couldn't find an xpub + derivation path in "${file.name}". Paste them in manually below instead.`);
+        return;
+      }
+      setXpub(parsed.xpub);
+      setPath(parsed.path);
+      setFileName(file.name);
+    } catch {
+      setErr(`"${file.name}" isn't valid JSON. Export the wallet file again, or paste the xpub in manually.`);
+    }
   }
 
   function submit(e: React.FormEvent) {
@@ -522,8 +544,17 @@ function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => v
           </select>
         </div>
         <div>
+          <Button type="button" variant="ghost" style={{ width: "100%" }} onClick={() => exportFileRef.current?.click()}>
+            {fileName ? `Loaded: ${fileName}` : "Import from wallet export file"}
+          </Button>
+          <input ref={exportFileRef} type="file" accept=".json,.txt" style={{ display: "none" }} onChange={handleExportFile} />
+          <div style={{ fontSize: 11, color: colors.muted, marginTop: 5, textAlign: "center" }}>
+            From Coldcard, Sparrow, or a similar signer -- no camera or typing needed. Or paste manually below.
+          </div>
+        </div>
+        <div>
           <Label>xpub / tpub</Label>
-          <Textarea mono rows={3} value={xpub} onChange={e => setXpub(e.target.value)} required placeholder="xpub6... or tpub..." />
+          <Textarea mono rows={3} value={xpub} onChange={e => { setXpub(e.target.value); setFileName(null); }} required placeholder="xpub6... or tpub..." />
         </div>
         <div>
           <Label>Derivation path</Label>

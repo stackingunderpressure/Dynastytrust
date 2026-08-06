@@ -314,6 +314,58 @@ export function importXpub(opts: {
 }
 
 /**
+ * Pull an {xpub, path} pair out of a hardware wallet's exported wallet
+ * JSON, so a signer's export file can fill the same two fields manual
+ * paste does -- typing a 100+ character xpub and a derivation path on
+ * a phone keyboard is exactly the friction this exists to skip.
+ *
+ * Hardware wallets vary in export shape. Handles, in order:
+ *   1. A flat single-purpose export: { xpub, deriv|path|bip32_path }.
+ *   2. Coldcard's "Generic JSON" multi-account export, which nests one
+ *      object per script type (bip48_2, bip48_1, bip84, bip49, bip44).
+ *      bip48_2 (native segwit multisig) is tried first since it matches
+ *      this app's own default derivation path.
+ *   3. Fallback: scan every top-level value for anything shaped like
+ *      #1, so an export format this wasn't specifically written for
+ *      still has a chance of working.
+ * Deliberately lenient on the xpub string itself (just "looks like a
+ * key," not a strict prefix check) -- importXpub() already validates
+ * the prefix and throws its own clear error, so this only needs to
+ * get the two strings into the form; it doesn't need to duplicate
+ * that gate.
+ */
+export function parseHardwareWalletExport(json: unknown): { xpub: string; path: string } | null {
+  if (!json || typeof json !== 'object') return null;
+  const obj = json as Record<string, unknown>;
+
+  function readPair(o: unknown): { xpub: string; path: string } | null {
+    if (!o || typeof o !== 'object') return null;
+    const r = o as Record<string, unknown>;
+    const xpub = r.xpub ?? r.Xpub ?? r.zpub ?? r.Zpub ?? r.ypub ?? r.Ypub;
+    const path = r.deriv ?? r.path ?? r.bip32_path ?? r.derivation;
+    if (typeof xpub === 'string' && xpub.length > 50 && typeof path === 'string' && path.length > 0) {
+      return { xpub, path };
+    }
+    return null;
+  }
+
+  const flat = readPair(obj);
+  if (flat) return flat;
+
+  for (const key of ['bip48_2', 'bip48_1', 'bip84', 'bip49', 'bip44']) {
+    const found = readPair(obj[key]);
+    if (found) return found;
+  }
+
+  for (const value of Object.values(obj)) {
+    const found = readPair(value);
+    if (found) return found;
+  }
+
+  return null;
+}
+
+/**
  * Get mnemonic — works for both test keys (no password) and secure keys (needs password).
  */
 export async function revealMnemonic(keyId: string, password?: string): Promise<string> {

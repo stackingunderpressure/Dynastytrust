@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
-  listKeys, generateTestKey, generateSoftwareKey, importXpub,
+  listKeys, generateTestKey, generateSoftwareKey, importXpub, parseHardwareWalletExport,
   type LocalKey,
 } from '../lib/keystore';
 import {
@@ -779,6 +779,29 @@ function InlineKeyCreate({
   const [password, setPassword] = useState('');
   const [xpub, setXpub] = useState('');
   const [path, setPath] = useState("m/48'/1'/0'/2'");
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [fileErr, setFileErr] = useState<string | null>(null);
+  const exportFileRef = useRef<HTMLInputElement>(null);
+
+  async function handleExportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setFileErr(null);
+    try {
+      const text = await file.text();
+      const parsed = parseHardwareWalletExport(JSON.parse(text));
+      if (!parsed) {
+        setFileErr(`Couldn't find an xpub + derivation path in "${file.name}". Paste them in manually instead.`);
+        return;
+      }
+      setXpub(parsed.xpub);
+      setPath(parsed.path);
+      setFileName(file.name);
+    } catch {
+      setFileErr(`"${file.name}" isn't valid JSON. Export the wallet file again, or paste the xpub in manually.`);
+    }
+  }
 
   return (
     <div style={{ marginTop: 12, padding: 14, background: colors.inset, borderRadius: radii.md, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -803,7 +826,15 @@ function InlineKeyCreate({
         </>
       ) : (
         <>
-          <Input placeholder="xpub / tpub from a hardware signer" value={xpub} onChange={e => setXpub(e.target.value)} />
+          <Button size="sm" variant="ghost" onClick={() => exportFileRef.current?.click()}>
+            {fileName ? `Loaded: ${fileName}` : 'Import from wallet export file'}
+          </Button>
+          <input ref={exportFileRef} type="file" accept=".json,.txt" style={{ display: 'none' }} onChange={handleExportFile} />
+          <div style={{ fontSize: 11, color: colors.muted }}>
+            From Coldcard, Sparrow, or a similar signer -- no camera or typing needed. Or paste manually below.
+          </div>
+          {fileErr && <div style={{ fontSize: 11, color: colors.red }}>{fileErr}</div>}
+          <Input placeholder="xpub / tpub from a hardware signer" value={xpub} onChange={e => { setXpub(e.target.value); setFileName(null); }} />
           <Input placeholder="Derivation path" value={path} onChange={e => setPath(e.target.value)} />
           <Button size="sm" disabled={!xpub.trim()} onClick={() => onImport(xpub.trim(), path.trim())}>
             Import
