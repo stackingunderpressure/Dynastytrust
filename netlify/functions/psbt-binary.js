@@ -23,7 +23,15 @@ const MEMPOOL = {
   bitcoin: 'https://mempool.space/api',
 };
 
-// Taproot input: 57.5 vbytes, output: 43 vbytes, overhead: 10.5
+// Taproot key-path input: 57.5 vbytes, output: 43 vbytes, overhead: 10.5.
+// TR_INPUT_VBYTES is only correct for a plain single-key key-path spend.
+// Every vault input here is a SCRIPT-PATH spend through a multi_a(Q,keys)
+// tapscript leaf -- witness carries one stack item per key slot (a ~65-byte
+// signature or an empty item), the full leaf script, and a control block --
+// which is meaningfully bigger. estimateTapscriptInputVbytes below sizes
+// that properly per leaf; TR_INPUT_VBYTES stays only as the last-resort
+// fallback when a vault's leaf shape can't be determined (fee still gets
+// estimated rather than the call failing outright).
 const TR_INPUT_VBYTES  = 57.5;
 const TR_OUTPUT_VBYTES = 43;
 const TX_OVERHEAD      = 10.5;
@@ -42,8 +50,52 @@ async function getFeeRate(network) {
   } catch { return 5; }
 }
 
-function estimateFee(numInputs, numOutputs, feeRate) {
-  return Math.ceil((TX_OVERHEAD + numInputs * TR_INPUT_VBYTES + numOutputs * TR_OUTPUT_VBYTES) * feeRate);
+// Which leaf a spend path actually signs through, and how many of the
+// vault's keys sit in that leaf -- recovery reuses the founder keys
+// (recovery_quorum falls back to founder_quorum) per the architecture doc.
+function leafSignerCounts(vault, path) {
+  switch (path) {
+    case 'recovery':
+      return { quorum: vault.recovery_quorum ?? vault.founder_quorum, total: (vault.founder_keys || []).length };
+    case 'inheritance':
+      return { quorum: vault.heir_quorum, total: (vault.heir_keys || []).length };
+    case 'protector':
+      return { quorum: vault.protector_quorum, total: (vault.protector_keys || []).length };
+    case 'founders_now':
+    default:
+      return { quorum: vault.founder_quorum, total: (vault.founder_keys || []).length };
+  }
+}
+
+// Number of leaves in this vault's taproot tree (founders_now + recovery +
+// inheritance, plus protector if configured) -- determines the taptree
+// merkle path length baked into every input's control block.
+function leafCountForTree(vault) {
+  return 3 + (vault.protector_quorum != null && vault.protector_after != null ? 1 : 0);
+}
+
+// Size a script-path (tapscript leaf) taproot input properly instead of
+// assuming a plain key-path spend. multi_a(quorum, total) puts one witness
+// stack item per key slot (a 64-byte Schnorr signature + 1-byte push length
+// for each of the `quorum` signers, 1 empty byte for each non-signer),
+// followed by the leaf script itself and a control block (33-byte internal
+// key + 1 version/parity byte + 32 bytes per taptree level). Witness bytes
+// get the standard 1/4 segwit weight discount.
+function estimateTapscriptInputVbytes(quorum, total, treeDepth) {
+  const leafScript   = 33 * total + 2; // n pubkey pushes + CHECKSIG/CHECKSIGADD chain + push-quorum + NUMEQUAL
+  const controlBlock = 33 + 1 + 32 * treeDepth;
+  const witnessBytes =
+    quorum * 65 +                      // one Schnorr sig (+ push length) per required signer
+    Math.max(total - quorum, 0) * 1 +  // one empty stack item per non-signing keyholder
+    (leafScript + 3) +                 // leaf script + its length-prefix varint
+    (controlBlock + 3) +               // control block + its length-prefix varint
+    1;                                 // witness stack item-count varint
+  const baseInput = 41; // outpoint(36) + sequence(4) + empty scriptSig varint(1)
+  return baseInput + witnessBytes / 4;
+}
+
+function estimateFee(numInputs, numOutputs, feeRate, inputVbytes = TR_INPUT_VBYTES) {
+  return Math.ceil((TX_OVERHEAD + numInputs * inputVbytes + numOutputs * TR_OUTPUT_VBYTES) * feeRate);
 }
 
 export async function handler(event) {
@@ -148,9 +200,17 @@ export async function handler(event) {
       address: vault.address });
   }
 
-  // Get fee rate and estimate
+  // Get fee rate and estimate. Size the input for the SPECIFIC leaf this
+  // spend signs through (path), not a flat key-path guess -- a 2-of-3
+  // founders leaf costs meaningfully more vbytes than a 1-of-1 leaf would,
+  // and either is bigger than a plain key-path spend.
   const rate = fee_rate || await getFeeRate(network);
-  const estFee = estimateFee(1, 2, rate);
+  const { quorum: leafQuorum, total: leafTotal } = leafSignerCounts(vault, path);
+  const treeDepth = Math.ceil(Math.log2(Math.max(leafCountForTree(vault), 2)));
+  const inputVbytes = (leafQuorum > 0 && leafTotal > 0)
+    ? estimateTapscriptInputVbytes(leafQuorum, leafTotal, treeDepth)
+    : TR_INPUT_VBYTES; // fallback: leaf config missing/unexpected shape
+  const estFee = estimateFee(1, 2, rate, inputVbytes);
 
   // Coin selection: explicit list if caller supplied selected_utxos
   // (coin-control from the UI), otherwise greedy largest-first.
@@ -174,7 +234,7 @@ export async function handler(event) {
     }
   }
 
-  const finalFee   = estimateFee(selected.length, 2, rate);
+  const finalFee   = estimateFee(selected.length, 2, rate, inputVbytes);
   const changeVal  = totalIn - amount_sats - finalFee;
   const hasChange  = changeVal >= 546;
 
