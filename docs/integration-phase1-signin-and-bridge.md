@@ -162,7 +162,12 @@ Staged plan (each stage shippable, proven before the next, small amounts first):
   meaning (this vault, paying X sats to this address, from which path), and on
   approval signs the matching tapscript input with the user's vault key and
   returns the signed PSBT in the grant. The banner shows meaning, never hex.
-  No value commits without the human tap. The session must be abortable.
+  No value commits without the human tap. The session must be abortable. Above
+  the vault's configured amount threshold, the banner step additionally
+  requires the operator to confirm the out-of-band callback ritual happened
+  before `approveRequest` calls `wallet.signDigest` --
+  `docs/2026-08-callback-verification-and-amount-tiers.md` has the full design
+  and the honest line on what it does and does not close.
 
 - **B2 -- DynastyTrust requester + absorb.** In `VaultDetail.tsx` send flow add
   a "Sign via Tapit" branch alongside local signing: build the request, send it

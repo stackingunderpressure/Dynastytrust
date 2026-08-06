@@ -178,7 +178,10 @@ Each phase is shippable and is proven with small real amounts before the next.
 - **DT-4 -- Coordination bridge to Tapit (Nostr) for multi-member signing.**
   EXTEND/NEW. Let a DynastyTrust proposal be signed via TW-2 (Tapit inbox) in
   addition to the current Supabase-Realtime flow; this is the Layer-2 bridge.
-  Deps: TW-2. Ties into the existing "multi-member vault flow" open gap.
+  Deps: TW-2. Ties into the existing "multi-member vault flow" open gap. The
+  B1 signing UI (`docs/integration-phase1-signin-and-bridge.md`) also gates
+  high-value spends behind the amount-tiered red alert + out-of-band callback
+  ritual captured in `docs/2026-08-callback-verification-and-amount-tiers.md`.
 - **DT-5 -- FROST aggregate key as a leaf participant.** EXTEND. Accept a FROST
   `pk(AGG)` in a leaf slot (social leg, or one trustee seat inside a `thresh`);
   the compiler already treats it as a single pubkey, so the work is plumbing the
@@ -225,6 +228,16 @@ Each phase is shippable and is proven with small real amounts before the next.
   gate; the wallet does its own verification first. (Operator directive,
   2026-06-22: "Tapit shouldn't sign if not a matching attested trail. No rogue
   signing anything.")
+- **A high-value request needs a live human check, not just a valid signature.**
+  Above a vault's configured amount threshold, a matching attested trail is
+  necessary but not sufficient -- the requester's own wallet also gates its
+  signature on a predetermined, out-of-band callback (never a channel supplied
+  inside the request itself), matching a memorized word rather than reviewing
+  the transaction, since no quorum member needs to know what the spend is. See
+  `docs/2026-08-callback-verification-and-amount-tiers.md`. This closes remote
+  key theft; it does not close physical coercion of the requester, which is why
+  it composes with the green liveness gate (`docs/green-gated-frost-and-liveness.md`),
+  not instead of it.
 
 ---
 
