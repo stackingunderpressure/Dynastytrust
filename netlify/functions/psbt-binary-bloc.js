@@ -2,12 +2,19 @@
  * POST /api/psbt-binary-bloc
  *
  * Builds an unsigned PSBT that spends a Dynasty Bloc UTXO via a chosen
- * leaf. Mirrors psbt-binary.js, but the Bloc vault is not persisted yet
- * (Phase 1 is compile + export), so the policy + address come straight
- * from the client (which holds the vault definition) instead of from the
- * vaults table. Parent/kid keys arrive as 66-char compressed pubkey hex
- * already (the same values sent to /compile-bloc), so no xpub derivation
- * is needed here.
+ * leaf. Mirrors psbt-binary.js. Two calling conventions:
+ *
+ *   1. vault_id -- the Bloc vault is now persisted (023_bloc_vaults.sql's
+ *      bloc_policy column, wired up to a save path 2026-08-06). Policy +
+ *      address + key_origins are looked up server-side from the vaults
+ *      table, the same way psbt-binary.js works for standard vaults --
+ *      the caller doesn't need to resend the whole policy on every spend.
+ *   2. address + raw policy fields -- the original client-holds-the-policy
+ *      form BlocBuilder.tsx used before persistence existed. Kept working
+ *      underneath so this stays additive, not a breaking rewrite.
+ *
+ * Parent/kid keys are 66-char compressed pubkey hex (the same values sent
+ * to /compile-bloc), so no xpub derivation is needed here.
  *
  * Timelock fields (parent_solo_after, kids_decay_start_after) are
  * ABSOLUTE CLTV heights -- the values the compiler baked into the
@@ -16,6 +23,7 @@
  */
 
 import { requireUser, json } from './_auth.js';
+import { getSupabaseAdmin } from './_supabase.js';
 
 const COMPILER_URL    = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -61,7 +69,8 @@ export async function handler(event) {
   try { body = JSON.parse(event.body || '{}'); }
   catch { return json(400, { error: 'Invalid JSON' }); }
 
-  const {
+  let {
+    vault_id,
     address,
     network = 'testnet',
     destination,
@@ -82,14 +91,42 @@ export async function handler(event) {
     kids_decay_start_after,
     kids_decay_step_blocks,
     // BIP32 origins for hardware-wallet compatibility (2026-08-06 fix).
-    // Unlike the persisted vault path (psbt-binary.js), a Bloc vault is
-    // not stored server-side yet (Phase 1 is compile + export) -- the
-    // client already holds each key's fingerprint + derivation path
-    // locally (the same LocalKey data descriptor-keys.ts uses for the
-    // key-origin descriptor form) and must send it directly. Optional:
-    // an older client that omits this degrades to pre-fix behavior.
+    // For a persisted vault (vault_id given) these come from the stored
+    // bloc_policy instead -- see the lookup block below.
     key_origins = [],
   } = body;
+
+  // Persisted-vault path: pull address + the whole policy from the
+  // vaults row instead of requiring the caller to resend it. Mirrors
+  // psbt-binary.js's vault.address lookup. Bloc vaults are single-owner
+  // (no vault_members row per signer), so ownership is just user_id.
+  if (vault_id) {
+    const supabase = getSupabaseAdmin();
+    const { data: vault, error } = await supabase
+      .from('vaults')
+      .select('id, user_id, address, network, bloc_policy')
+      .eq('id', vault_id)
+      .maybeSingle();
+    if (error || !vault) return json(404, { error: 'Vault not found' });
+    if (vault.user_id !== u.userId) return json(403, { error: 'Not the owner of this vault' });
+    if (!vault.bloc_policy) return json(400, { error: 'Vault has no bloc_policy -- not a Bloc vault' });
+
+    const bp = vault.bloc_policy;
+    address = vault.address;
+    network = vault.network;
+    parent_keys = bp.parent_pubkeys ?? [];
+    kid_keys = bp.kid_pubkeys ?? [];
+    parents_together_quorum = bp.parents_together_quorum;
+    coparent_quorum = bp.coparent_quorum;
+    kids_with_parent_quorum = bp.kids_with_parent_quorum;
+    parent_solo_quorum = bp.parent_solo_quorum;
+    kids_decay_start_quorum = bp.kids_decay_start_quorum;
+    kids_decay_floor_quorum = bp.kids_decay_floor_quorum;
+    parent_solo_after = bp.parent_solo_after;
+    kids_decay_start_after = bp.kids_decay_start_after;
+    kids_decay_step_blocks = bp.kids_decay_step_blocks;
+    key_origins = bp.key_origins ?? [];
+  }
 
   if (!address)     return json(400, { error: 'Missing: address' });
   if (!destination) return json(400, { error: 'Missing: destination' });

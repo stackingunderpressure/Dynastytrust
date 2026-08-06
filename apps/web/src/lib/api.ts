@@ -96,6 +96,32 @@ export interface Vault {
    *  (023_bloc_vaults.sql). When true, in-app signing must refuse and
    *  funds fall to the timelock backstop. Defaults false server-side. */
   duress: boolean;
+  /** Present only on a Dynasty Bloc vault (decaying-multisig family
+   *  shape) -- null for every standard founders/heirs vault. Presence,
+   *  not a separate type column, is the discriminator (023_bloc_vaults.sql). */
+  bloc_policy: BlocPolicy | null;
+}
+
+/** The whole Bloc policy the compiler needs to rebuild the exact tree
+ *  for a spend -- must match what /compile-bloc baked into the address.
+ *  key_origins carries fingerprint + derivation_path per signer; Bloc
+ *  vaults have no vault_members table to carry that separately the way
+ *  the standard shape does. */
+export interface BlocPolicy {
+  parent_pubkeys: string[];
+  kid_pubkeys: string[];
+  parent_xpubs: string[];
+  kid_xpubs: string[];
+  parents_together_quorum: number;
+  coparent_quorum: number;
+  kids_with_parent_quorum: number;
+  parent_solo_quorum: number;
+  kids_decay_start_quorum: number;
+  kids_decay_floor_quorum: number;
+  parent_solo_after: number;
+  kids_decay_start_after: number;
+  kids_decay_step_blocks: number;
+  key_origins: { pubkey: string; fingerprint: string; derivation_path: string }[];
 }
 
 export interface TrustDoc {
@@ -349,6 +375,54 @@ export const api = {
       terms_accepted_version?: string;
     }) => req<{ ok: true; vault: Vault }>('/vaults', { method: 'POST', body: JSON.stringify(body) }),
 
+    // Persist a compiled Dynasty Bloc vault (023_bloc_vaults.sql added
+    // the bloc_policy column for exactly this; wired to a save path
+    // 2026-08-06). Mirrors create() -- pass the already-compiled
+    // address/descriptor/miniscript_policy from compileBloc()'s response,
+    // plus the full policy the compiler needs to rebuild the tree for a
+    // future spend (see BlocPolicy). Single-owner shape: no member slots.
+    createBloc: (body: {
+      name: string;
+      network: 'testnet' | 'signet' | 'bitcoin';
+      address: string;
+      descriptor: string;
+      miniscript_policy: string;
+      bloc_policy: BlocPolicy;
+      terms_accepted_version?: string;
+    }) => req<{ ok: true; vault: Vault }>('/vaults', {
+      method: 'POST',
+      body: JSON.stringify({ ...body, mode: 'bloc' }),
+    }),
+
+    // Shape-only Bloc vault: quorums/timelocks picked, key slots still
+    // empty or partial. address_type + name + network only -- bloc_policy
+    // is a Partial<BlocPolicy> here (RELATIVE timelocks, since nothing's
+    // compiled yet). Call vaults.compileBloc() later once every slot is
+    // filled to turn this into a real, spendable vault.
+    createBlocDraft: (body: {
+      name: string;
+      network: 'testnet' | 'signet' | 'bitcoin';
+      address_type?: string;
+      bloc_policy: Partial<BlocPolicy>;
+    }) => req<{ ok: true; vault: Vault }>('/vaults', {
+      method: 'POST',
+      body: JSON.stringify({ ...body, mode: 'bloc-draft' }),
+    }),
+
+    // Compiles a draft Bloc vault (created via createBlocDraft) into a
+    // live, spendable one, once every parent/kid slot has a real key.
+    compileBloc: (body: {
+      vault_id: string;
+      parent_keys: string[];
+      kid_keys: string[];
+      parent_xpubs: string[];
+      kid_xpubs: string[];
+      key_origins: { pubkey: string; fingerprint: string; derivation_path: string }[];
+    }) => req<{ ok: true; vault: Vault }>('/vaults-compile-bloc', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
     // Draft vault: no descriptor yet. Members bring their xpubs via
     // invites; owner calls compile() once every slot is full.
     createDraft: (body: {
@@ -518,29 +592,37 @@ export const api = {
   // This BUILDS and EXPORTS the PSBT only -- the user signs in their
   // hardware wallet, then finalizes + broadcasts.
   psbtBloc: (body: {
-    address: string;
-    network: 'testnet' | 'signet' | 'bitcoin';
+    // Persisted vault (recommended): the server looks up address + the
+    // whole policy (including key_origins) from the vaults row -- pass
+    // just this and destination/amount/path. Omit the raw-policy fields
+    // below entirely.
+    vault_id?: string;
+    // Un-persisted / legacy form: caller supplies the whole policy
+    // directly, same as before Bloc vaults were saveable.
+    address?: string;
+    network?: 'testnet' | 'signet' | 'bitcoin';
     destination: string;
     amount_sats: number;
     fee_rate?: number;
     path: 'parents_now' | 'coparent_kids' | 'parent_solo' | 'kids_decay';
     // REQUIRED when path === 'kids_decay': which decay rung's quorum.
     quorum?: number;
-    parent_keys: string[];
-    kid_keys: string[];
-    parents_together_quorum: number;
-    coparent_quorum: number;
-    kids_with_parent_quorum: number;
-    parent_solo_quorum: number;
-    kids_decay_start_quorum: number;
-    kids_decay_floor_quorum: number;
+    parent_keys?: string[];
+    kid_keys?: string[];
+    parents_together_quorum?: number;
+    coparent_quorum?: number;
+    kids_with_parent_quorum?: number;
+    parent_solo_quorum?: number;
+    kids_decay_start_quorum?: number;
+    kids_decay_floor_quorum?: number;
     // ABSOLUTE block heights.
-    parent_solo_after: number;
-    kids_decay_start_after: number;
-    kids_decay_step_blocks: number;
+    parent_solo_after?: number;
+    kids_decay_start_after?: number;
+    kids_decay_step_blocks?: number;
     // BIP32 origins for hardware-wallet compatibility (2026-08-06 fix) --
     // optional; omitting it degrades to pre-fix behavior (no
     // tap_key_origins attached, so only the browser/Tapit signers work).
+    // Ignored when vault_id is given -- comes from the stored policy.
     key_origins?: { pubkey: string; fingerprint: string; derivation_path: string }[];
   }) => req<{
     ok: true;
