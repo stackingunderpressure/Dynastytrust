@@ -6033,6 +6033,35 @@ function TrancheClaimModal({
     setSignaturesCollected(countSignatures(merged));
   }
 
+  // Cut B stage B2's cross-tab bridge, ported to the tranche claim
+  // ceremony: startTapitCosign opens Tapit in a new tab; the callback
+  // tab writes the signed PSBT to localStorage and this tab's
+  // `storage` event listener picks it up -- same primitive SendTab's
+  // own signing flow uses, unchanged, just re-wired to this modal's
+  // local psbtHex state instead of SigningState. Only listens while
+  // actually on the signing step so a stale result from a PREVIOUS
+  // claim (or the main vault's own send flow, sharing the same
+  // origin and the same localStorage key) can't merge into a PSBT it
+  // was never meant for.
+  useEffect(() => {
+    if (step !== "signing") return;
+    function onStorage(e: StorageEvent) {
+      if (e.key !== TAPIT_COSIGN_RESULT_KEY || !e.newValue) return;
+      let result: TapitCosignResult;
+      try {
+        result = JSON.parse(e.newValue);
+      } catch {
+        return;
+      }
+      if (typeof result.psbt_hex !== "string" || !result.psbt_hex) return;
+      externalImport(result.psbt_hex);
+      window.localStorage.removeItem(TAPIT_COSIGN_RESULT_KEY);
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, psbtHex]);
+
   async function broadcast() {
     setBusy(true);
     setErr(null);
@@ -6172,6 +6201,39 @@ function TrancheClaimModal({
                 ))}
               </div>
             )}
+
+            {/* Sign via Tapit -- a dial alongside software-key and
+                hardware-wallet signing, not a replacement for either,
+                same as the main Send flow. */}
+            <div
+              style={{
+                background: colors.surface,
+                border: `1px solid ${colors.border}`,
+                borderRadius: 12,
+                padding: 16,
+              }}
+            >
+              <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+                Sign via Tapit
+              </div>
+              <div style={{ fontSize: 11, color: colors.muted, marginBottom: 10 }}>
+                Opens your Tapit wallet in a new tab. Sign there, then come back --
+                it merges in here automatically.
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                style={{ fontSize: 11 }}
+                onClick={() =>
+                  startTapitCosign(psbtHex, {
+                    vault_descriptor: tranche.descriptor,
+                    vault_name: `${wallet.name} tranche ${tranche.index + 1}`,
+                  })
+                }
+              >
+                Sign via Tapit
+              </Button>
+            </div>
 
             <div
               style={{
