@@ -239,7 +239,7 @@ export interface Proposal {
   id: string;
   created_at: string;
   vault_id: string;
-  path: 'founders_now' | 'recovery' | 'inheritance';
+  path: 'founders_now' | 'recovery' | 'inheritance' | 'parents_now' | 'coparent_kids' | 'parent_solo' | 'kids_decay';
   destination: string;
   amount_sats: number;
   fee_sats: number;

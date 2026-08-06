@@ -23,3 +23,29 @@ export const TIMELOCK_PRESETS = [
 // Used to translate a months-based proposal (e.g. from Sage/ChatWizard)
 // into the builder's block-offset inputs.
 export const BLOCKS_PER_MONTH = 4_380;
+
+// A single rung on a Dynasty Bloc vault's kids-alone decay ladder: at
+// `absAfter` (an ABSOLUTE CLTV height, matching how BlocPolicy stores its
+// timelocks post-compile), `q` of the kids can spend together. Same rung
+// math as BlocBuilder.tsx's local `ladder` useMemo, generalized to take
+// the persisted (already-absolute) policy shape instead of the builder's
+// relative planning config, so VaultDetail can compute the same ladder
+// for a saved vault without re-deriving the formula.
+export function blocDecayLadder(bp: {
+  kids_decay_start_quorum: number;
+  kids_decay_floor_quorum: number;
+  kids_decay_start_after: number;
+  kids_decay_step_blocks: number;
+}): { q: number; absAfter: number }[] {
+  const out: { q: number; absAfter: number }[] = [];
+  if (bp.kids_decay_floor_quorum > bp.kids_decay_start_quorum) return out;
+  let q = bp.kids_decay_start_quorum;
+  let rung = 0;
+  while (true) {
+    out.push({ q, absAfter: bp.kids_decay_start_after + rung * bp.kids_decay_step_blocks });
+    if (q === bp.kids_decay_floor_quorum) break;
+    q -= 1;
+    rung += 1;
+  }
+  return out;
+}
