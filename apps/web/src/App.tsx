@@ -8,6 +8,7 @@ import StartVault from './pages/StartVault';
 import Dashboard from './pages/Dashboard';
 import VaultDetail from './pages/VaultDetail';
 import ProposalDetail from './pages/ProposalDetail';
+import TapitCosignCallback from './pages/TapitCosignCallback';
 import InviteClaim from './pages/InviteClaim';
 import Landing from './pages/Landing';
 import Reminders from './pages/Reminders';
@@ -122,6 +123,7 @@ function AuthedApp() {
       />
       <Route path="/vaults/:id" element={<VaultDetail />} />
       <Route path="/vaults/:vaultId/proposals/:proposalId" element={<ProposalDetail />} />
+      <Route path="/tapit-cosign-callback" element={<TapitCosignCallback />} />
       <Route
         path="/reminders"
         element={

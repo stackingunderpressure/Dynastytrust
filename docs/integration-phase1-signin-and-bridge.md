@@ -169,12 +169,36 @@ Staged plan (each stage shippable, proven before the next, small amounts first):
   `docs/2026-08-callback-verification-and-amount-tiers.md` has the full design
   and the honest line on what it does and does not close.
 
-- **B2 -- DynastyTrust requester + absorb.** In `VaultDetail.tsx` send flow add
-  a "Sign via Tapit" branch alongside local signing: build the request, send it
-  (deep-link first, then encrypted inbox), receive the signed PSBT, run the
-  existing `mergePsbts` + `/api/psbt-finalize` + broadcast. Extend
-  `api.ts`/`proposals` with a `signing_method` so a proposal records that a
-  partial sig arrived via Tapit.
+- **B2 -- DynastyTrust requester + absorb. DONE 2026-08-06.** `VaultDetail.tsx`'s
+  send flow gained a "Sign via Tapit" card alongside local key signing and
+  hardware export. `lib/tapit-cosign.ts` builds the psbt-cosign request and
+  opens it in a NEW TAB (`window.open`, not `window.location`) rather than a
+  full-page redirect -- deliberate: signing lives inside VaultDetail's
+  in-memory `signing` session and there is no "resume signing this proposal"
+  entry point today, so a full navigation away and back the way sign-in does
+  it would strand that state. The callback page (`TapitCosignCallback.tsx`,
+  route `/tapit-cosign-callback`) hands the signed PSBT back to the original
+  tab via a same-origin `localStorage` write + the browser's own `storage`
+  event (fires in every OTHER tab, never the writer), which `VaultDetail`
+  listens for and feeds into the EXISTING `externalImport` -> `mergePsbts` ->
+  `/api/psbt-finalize` path, unchanged, exactly as specified -- with a
+  visible copy-the-hex fallback on the callback page if the original tab
+  isn't listening anymore (closed, reloaded). Uses a distinct `psbt_grant`
+  query param, not `grant`, so `RequireAuth.tsx`'s global sign-in-callback
+  check (which fires on every authed page load) never mistakes a signed PSBT
+  for a sign-in proof.
+
+  Deviation from this doc, surfaced deliberately per doctrine ("if the code
+  contradicts the plan, surface it"): did NOT add a `proposals.signing_method`
+  column. Signers can genuinely mix methods on the same proposal (one via
+  mnemonic, one via Tapit, one via hardware), so a single proposal-level
+  column cannot honestly represent it. `signer_sessions.label` already
+  exists for exactly this and is per-signature, not per-proposal --
+  `externalImport` now takes an optional `label` parameter and the Tapit path
+  passes `"Tapit"` through it, the same mechanism hardware-wallet imports
+  already used with the hardcoded label `"Hardware wallet"`. The audit trail
+  this doc wanted is there; it just lives in the row that was already
+  correct for it.
 
 - **B3 -- Multi-member over Nostr.** Move the transport to the encrypted inbox
   so a co-signer's Tapit shows the proposal in their inbox (ties into the

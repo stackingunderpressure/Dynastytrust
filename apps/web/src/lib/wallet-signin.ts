@@ -24,7 +24,10 @@ import { supabase } from './supabase';
 const API = '/api';
 
 // The Tapit wallet's sign handler. Override per-env with VITE_TAPIT_WALLET_URL.
-const WALLET_SIGN_URL =
+// Exported so other Tapit sign-request intents (e.g. lib/tapit-cosign.ts's
+// psbt-cosign, Cut B stage B2) hit the same wallet without a second env
+// override to keep in sync.
+export const WALLET_SIGN_URL =
   (import.meta.env.VITE_TAPIT_WALLET_URL as string | undefined) ??
   'https://tapit-wallet.netlify.app/sign';
 
@@ -32,10 +35,12 @@ export type TapitMode = 'signin' | 'link';
 
 // Challenge + attestation payloads are pure ASCII (hex, ISO timestamps, a
 // domain), so plain btoa/atob are safe -- no escape()/unescape() needed.
-function b64urlEncode(obj: unknown): string {
+// Exported for lib/tapit-cosign.ts to reuse the identical encoding the
+// wallet expects rather than a second hand-rolled copy.
+export function b64urlEncode(obj: unknown): string {
   return btoa(JSON.stringify(obj)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
-function b64Decode<T>(s: string): T {
+export function b64Decode<T>(s: string): T {
   // Tolerant of both base64 (what the wallet's btoa emits) and base64url.
   return JSON.parse(atob(s.replace(/-/g, '+').replace(/_/g, '/'))) as T;
 }

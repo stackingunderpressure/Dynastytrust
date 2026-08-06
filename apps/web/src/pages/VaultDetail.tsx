@@ -20,6 +20,7 @@ import {
 import { supabase } from "../lib/supabase";
 import { listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
 import { signPsbtWithMnemonic, countSignatures, mergePsbts } from "../lib/psbt-signer";
+import { startTapitCosign, TAPIT_COSIGN_RESULT_KEY, type TapitCosignResult } from "../lib/tapit-cosign";
 import { evaluateSigningGate, ceremonyFromProposal } from "@dynastytrust/policy-engine";
 import { APP_NAME, broadcastTxUrl, explorerTxUrl } from "../config";
 import { useToast } from "../components/toast";
@@ -1215,9 +1216,14 @@ function SendTab({ vault, balance, onDone, prefill }: {
   }
 
   // Shared "an external signer just gave us a PSBT" handler. Used
-  // by both the textarea paste flow and the QR scanner so the
-  // merge + signer-session logging only lives in one place.
-  function externalImport(importedHex: string) {
+  // by the textarea paste flow, the QR scanner, and the Tapit
+  // cross-tab handoff (Cut B stage B2) so the merge + signer-session
+  // logging only lives in one place. label distinguishes the source
+  // in the audit trail without needing a proposal-level column --
+  // signers can genuinely mix methods (one via mnemonic, one via
+  // Tapit, one via hardware), so per-signature attribution here is
+  // the honest place for it, not a single proposals.signing_method.
+  function externalImport(importedHex: string, label: string = "Hardware wallet") {
     if (!signing) return;
     const merged = mergePsbts([signing.psbt_hex, importedHex]);
     const totalSigs = countSignatures(merged);
@@ -1226,7 +1232,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
         .submit({
           proposal_id: signing.proposal_id,
           psbt_partial_hex: importedHex,
-          label: "Hardware wallet",
+          label,
         })
         .catch(() => {
           /* best-effort; local merge is authoritative for this browser */
@@ -1236,6 +1242,37 @@ function SendTab({ vault, balance, onDone, prefill }: {
       prev ? { ...prev, psbt_hex: merged, signaturesCollected: totalSigs } : prev,
     );
   }
+
+  // Cut B stage B2 -- receive a Tapit-signed PSBT handed back from the
+  // callback tab (lib/tapit-cosign.ts) via the browser's own `storage`
+  // event, which fires in every OTHER tab of this origin when localStorage
+  // changes (never the tab that wrote it, so this listener only reacts to
+  // the callback tab's write, not its own). Only reacts while a signing
+  // session is open; clears the key once consumed so a stale result can't
+  // replay into a later, unrelated signing session. Depends on the full
+  // `signing` object (not just proposal_id) so the effect re-subscribes on
+  // every local merge and always calls externalImport closed over the
+  // CURRENT psbt_hex -- depending on proposal_id alone would let a stale
+  // closure merge the Tapit signature against an outdated base and silently
+  // drop a signature collected locally in between.
+  useEffect(() => {
+    if (!signing) return;
+    function onStorage(e: StorageEvent) {
+      if (e.key !== TAPIT_COSIGN_RESULT_KEY || !e.newValue) return;
+      let result: TapitCosignResult;
+      try {
+        result = JSON.parse(e.newValue);
+      } catch {
+        return;
+      }
+      if (typeof result.psbt_hex !== "string" || !result.psbt_hex) return;
+      externalImport(result.psbt_hex, "Tapit");
+      window.localStorage.removeItem(TAPIT_COSIGN_RESULT_KEY);
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signing]);
 
   async function broadcast() {
     if (!signing) return;
@@ -1483,6 +1520,40 @@ function SendTab({ vault, balance, onDone, prefill }: {
             })}
           </div>
         )}
+
+        {/* Sign via Tapit -- Cut B stage B2. A dial alongside browser
+            signing and hardware export (architecture-of-record.md section
+            4), not a replacement for either. */}
+        <div
+          style={{
+            background: colors.surface,
+            border: `1px solid ${colors.border}`,
+            borderRadius: 12,
+            padding: 20,
+            marginBottom: 16,
+          }}
+        >
+          <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+            Sign via Tapit
+          </div>
+          <div style={{ fontSize: 12, color: colors.muted, marginBottom: 14 }}>
+            Opens your Tapit wallet in a new tab. Sign there, then come back --
+            it merges in here automatically.
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            style={{ fontSize: 12 }}
+            onClick={() =>
+              startTapitCosign(signing.psbt_hex, {
+                vault_descriptor: vault.descriptor ?? "",
+                vault_name: vault.name,
+              })
+            }
+          >
+            Sign via Tapit
+          </Button>
+        </div>
 
         {/* Hardware wallet / external PSBT */}
         <div
