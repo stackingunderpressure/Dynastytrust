@@ -445,10 +445,20 @@ export const api = {
         body: JSON.stringify({ ...body, mode: 'draft' }),
       }),
 
-    compile: (vault_id: string) =>
+    // direct_keys: the SAME owner brings every key themselves (no
+    // invite/vault_members involvement) -- for finishing a draft vault
+    // whose Configure step ran before every key slot was filled.
+    // Omit for the invite-based flow (members bring their own xpub via
+    // a claim link).
+    compile: (vault_id: string, direct_keys?: {
+      founder_keys?: { pubkey: string; xpub: string; fingerprint: string; derivation_path: string }[];
+      heir_keys?: { pubkey: string; xpub: string; fingerprint: string; derivation_path: string }[];
+      protector_keys?: { pubkey: string; xpub: string; fingerprint: string; derivation_path: string }[];
+      consent_keys?: { pubkey: string; xpub: string; fingerprint: string; derivation_path: string }[];
+    }) =>
       req<{ ok: true; vault: Vault }>('/vaults-compile', {
         method: 'POST',
-        body: JSON.stringify({ vault_id }),
+        body: JSON.stringify(direct_keys ? { vault_id, direct_keys } : { vault_id }),
       }),
 
     archive: (id: string) =>
