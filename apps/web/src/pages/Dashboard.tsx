@@ -341,7 +341,7 @@ export default function Dashboard() {
                 </div>
               )}
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", borderTop: `1px solid ${colors.divider}`, paddingTop: 12 }}>
-                {v.bloc_policy ? (
+                {v.bloc_policy?.parent_pubkeys?.length ? (
                   <>
                     <span style={{ fontSize: 11, color: colors.muted }}>
                       {v.bloc_policy.parents_together_quorum} of {v.bloc_policy.parent_pubkeys.length} parents
@@ -350,6 +350,10 @@ export default function Dashboard() {
                       Decaying kids ladder to {v.bloc_policy.kids_decay_floor_quorum}
                     </span>
                   </>
+                ) : v.bloc_policy ? (
+                  // Bloc draft: shape chosen but parent/kid keys not filled in
+                  // yet, so bloc_policy is still {} -- nothing to summarize.
+                  null
                 ) : (
                   <>
                     <span style={{ fontSize: 11, color: colors.muted }}>
