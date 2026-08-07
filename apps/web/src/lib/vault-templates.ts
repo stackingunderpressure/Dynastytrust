@@ -29,6 +29,17 @@ export type VaultTemplate = {
     mode: VaultMode;
     plannedFounders: number;
     founderQ: number;
+    /**
+     * Quorum for the Path 2 recovery leaf once recoveryAfter has
+     * elapsed. Omit (or set equal to founderQ) for the ordinary
+     * "same signers, just later" recovery every other template uses.
+     * Set LOWER than founderQ when the founder group itself needs
+     * fault tolerance -- e.g. a 2-of-2 escape hatch where either
+     * party alone should be able to act if the other becomes
+     * unreachable, rather than the pair being permanently stuck if
+     * either one loses their key.
+     */
+    recoveryQ?: number;
     plannedHeirs: number;
     heirQ: number;
     recoveryAfter: number;
@@ -621,6 +632,86 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
     },
   },
 
+  {
+    id: 'gift-vault',
+    title: 'Gift Vault',
+    tagline: '2-key escape hatch . long timelock to the recipient',
+    useCase:
+      'Lock a gift for someone -- a grandchild, a godchild, anyone -- until a future date years from now. No one can touch it early except through a deliberately hard-to-trigger escape hatch: you and one independent person you choose, together. If either of you becomes unreachable, the other can act alone, but only after a real waiting period, never instantly. When the timelock passes, the gift becomes the recipient\'s alone.',
+    config: {
+      mode: 'inheritance',
+      plannedFounders: 2, founderQ: 2, recoveryQ: 1,
+      plannedHeirs: 1, heirQ: 1,
+      recoveryAfter: 26_280, // ~6 months -- either escape-hatch holder alone, once the other is genuinely unreachable
+      inheritanceAfter: 525_600, // ~10 years -- adjust freely; this is the gift's actual promise
+    },
+    scenarios: [
+      {
+        title: 'Everything is fine',
+        trigger: 'Nothing has happened. The timelock has not elapsed.',
+        outcome:
+          'The gift sits untouched. Neither you, your co-holder, nor the recipient can move it -- that is the point.',
+        actions: [
+          'No action needed. Additional gifts can be sent to the same address at any time and will unlock together with the original.',
+        ],
+        severity: 'info',
+      },
+      {
+        title: 'You need to act before the timelock, together with your co-holder',
+        trigger: 'A genuine emergency -- something is wrong and the funds need to move now.',
+        outcome:
+          'You and your independent co-holder can jointly sign to move the funds at any time. Neither of you can do it alone.',
+        actions: [
+          'Both of you sign the same proposal. Document the reason in the memo.',
+          'Move funds to a fresh vault or wherever the emergency requires, per your trust doc.',
+        ],
+        severity: 'warn',
+      },
+      {
+        title: 'You or your co-holder becomes unreachable',
+        trigger: 'One of the two escape-hatch key holders loses their key, becomes incapacitated, or cannot be reached.',
+        outcome:
+          'After the recovery wait, the other escape-hatch holder can act alone. This is fault tolerance, not a shortcut -- the wait exists specifically so this path is never the fast one.',
+        actions: [
+          'Confirm the other party is genuinely unreachable, not just slow to respond.',
+          'Wait out the recovery period before relying on the single-key path.',
+          'Once used, recompile a fresh vault with a new co-holder if the gift is not yet fully claimed.',
+        ],
+        severity: 'warn',
+      },
+      {
+        title: 'Both escape-hatch holders try to move funds early without a real reason',
+        trigger: 'You and your co-holder collude, or one coerces the other, to take the gift before the recipient is meant to have it.',
+        outcome:
+          'They can, technically -- 2-of-2 has no on-chain veto against its own two holders agreeing. The one real defense is choosing a co-holder who would never go along with it, and telling someone else (a lawyer, a family member) that this vault exists and what it is supposed to do.',
+        actions: [
+          'Pick a co-holder specifically for their independence and integrity, not convenience.',
+          'Put the trust doc where a third party -- a lawyer, another family member -- can see it and would notice if the gift disappeared early.',
+        ],
+        severity: 'danger',
+      },
+      {
+        title: 'The timelock passes',
+        trigger: 'The unlock height is reached.',
+        outcome:
+          'The recipient alone can now claim the gift. The escape hatch remains technically present but is no longer the intended path.',
+        actions: [
+          'The recipient signs with their own key to claim the funds.',
+          'Consider helping them move the gift into their own proper vault at that point, rather than leaving it on the original single key indefinitely.',
+        ],
+        severity: 'info',
+      },
+    ],
+    trustDoc: {
+      purpose:
+        'A Bitcoin gift locked for a named recipient until a future date. The recipient has no access before the timelock. Before then, funds can only move through a 2-of-2 escape hatch held by the gifter and one independent, separately-chosen person -- never by either alone, except as insurance after a genuine waiting period if the other becomes unreachable.',
+      distribution_rules:
+        'Before the timelock: only the gifter and the co-holder together (2-of-2) may move funds, and only for a real, documented reason -- never as a routine spend. After ~6 months of the other party being genuinely unreachable, either may act alone via the recovery path. After the timelock: the recipient alone may claim the full balance.',
+      succession_notes:
+        'The co-holder should be someone independent of the gifter -- a lawyer, a trusted family member outside the immediate gifting relationship, anyone unlikely to collude and likely to still be reachable years from now. One workable pattern: the co-holder\'s key and a copy of this trust document held in a sealed envelope in a safe, opened only under the documented emergency conditions above. Whoever holds the recipient\'s eventual key should be told the gift exists and roughly when it unlocks, even if they cannot access it yet -- a gift no one knows to look for can be lost as easily as one that was never locked at all. Additional funds can be sent to the same vault address at any time and will unlock on the same original date, not a new one.',
+    },
+  },
+
   // // -- Test-mode templates -------------------------------------
   // Same shapes, timelocks measured in blocks (hours-to-a-day on
   // signet at 10-min blocks) so a full recovery / inheritance /
@@ -780,6 +871,41 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
       purpose: 'Signet test sandbox for the Social Recovery shape. Not for real value.',
       distribution_rules: 'Test distributions only. Reset mnemonics + vault after verification.',
       succession_notes: 'Test vault. Delete the seeds after you have rehearsed the peer-rescue path.',
+    },
+    testMode: true,
+  },
+  {
+    id: 'test-gift-vault',
+    title: '[TEST] Gift Vault',
+    tagline: '2-key escape hatch . 10 / 30 blocks',
+    useCase:
+      'Software-key sandbox for the Gift Vault shape. The single-holder recovery leg opens in ~10 blocks (~100 min on signet); the recipient\'s inheritance leg opens in ~30 blocks (~5 hours). Rehearse the escape hatch and the eventual claim, then rebuild the real gift with a production-length timelock.',
+    config: {
+      mode: 'inheritance',
+      plannedFounders: 2, founderQ: 2, recoveryQ: 1,
+      plannedHeirs: 1, heirQ: 1,
+      recoveryAfter: 10,
+      inheritanceAfter: 30,
+    },
+    scenarios: [
+      {
+        title: 'Rehearse the gift without waiting years',
+        trigger: 'You want to see the escape hatch and the eventual recipient claim actually work.',
+        outcome:
+          'The single-holder recovery path opens ~100 min after compile; the recipient\'s claim ~5 hours. Enough time to verify both signing paths end to end.',
+        actions: [
+          'Compile, fund from the signet faucet, try the 2-of-2 escape hatch first.',
+          'Wait for tip to cross recovery_after; verify either holder can sign alone.',
+          'Wait longer; verify the recipient can claim alone on the inheritance path.',
+          'Once satisfied, recompile the production "Gift Vault" template with a real multi-year timelock.',
+        ],
+        severity: 'info',
+      },
+    ],
+    trustDoc: {
+      purpose: 'Signet test sandbox for the Gift Vault shape. Not for real value.',
+      distribution_rules: 'Test distributions only. Reset mnemonics + vault after verification.',
+      succession_notes: 'Test vault. Delete the seeds after you have verified every spending path.',
     },
     testMode: true,
   },

@@ -44,6 +44,12 @@ interface StandardConfig {
   mode: VaultMode;
   plannedFounders: number;
   founderQ: number;
+  /** Path 2 recovery quorum once recoveryAfter elapses. Defaults to
+   *  founderQ (ordinary "same signers, later" recovery); set lower
+   *  when the founder group itself needs fault tolerance -- e.g. a
+   *  2-of-2 escape hatch where either party alone should be able to
+   *  act if the other becomes unreachable. */
+  recoveryQ: number;
   plannedHeirs: number;
   heirQ: number;
   recoveryAfter: number;
@@ -73,7 +79,7 @@ interface BlocConfig {
 
 const DEFAULT_STANDARD_CONFIG: StandardConfig = {
   mode: 'inheritance',
-  plannedFounders: 2, founderQ: 2,
+  plannedFounders: 2, founderQ: 2, recoveryQ: 2,
   plannedHeirs: 2, heirQ: 2,
   recoveryAfter: 26_280, inheritanceAfter: 52_560,
   protectorEnabled: false, protectorAfter: 39_000, protectorQ: 1, plannedProtectors: 1,
@@ -91,7 +97,7 @@ function templateToStandardConfig(t: VaultTemplate): StandardConfig {
   const c = t.config;
   return {
     mode: c.mode,
-    plannedFounders: c.plannedFounders, founderQ: c.founderQ,
+    plannedFounders: c.plannedFounders, founderQ: c.founderQ, recoveryQ: c.recoveryQ ?? c.founderQ,
     plannedHeirs: c.plannedHeirs, heirQ: c.heirQ,
     recoveryAfter: c.recoveryAfter, inheritanceAfter: c.inheritanceAfter,
     protectorEnabled: !!c.protectorEnabled,
@@ -277,6 +283,7 @@ export default function VaultWizard() {
           network,
           address_type: 'tr_multileaf',
           founder_quorum: c.founderQ,
+          recovery_quorum: c.mode === 'inheritance' && c.recoveryQ !== c.founderQ ? c.recoveryQ : null,
           heir_quorum: c.mode === 'inheritance' ? c.heirQ : 1,
           recovery_after: c.mode === 'inheritance' ? c.recoveryAfter : 0,
           inheritance_after: c.mode === 'inheritance' ? c.inheritanceAfter : 0,
@@ -603,6 +610,14 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
               )}
             </Field>
             <TimelockField label="Recovery unlocks after" value={config.recoveryAfter} onChange={v => setConfig(c => ({ ...c, recoveryAfter: v }))} />
+            <Field label="Recovery quorum (once the wait above has passed)">
+              <QuorumPicker max={config.plannedFounders} value={config.recoveryQ} onChange={n => setConfig(c => ({ ...c, recoveryQ: n }))} color={colors.blue} />
+              {config.recoveryQ < config.founderQ && (
+                <div style={{ fontSize: 12, color: colors.muted, marginTop: 6 }}>
+                  Fault tolerance: after the wait, {config.recoveryQ} of {config.plannedFounders} can sign alone instead of needing all {config.founderQ}.
+                </div>
+              )}
+            </Field>
             <TimelockField label="Inheritance unlocks after" value={config.inheritanceAfter} onChange={v => setConfig(c => ({ ...c, inheritanceAfter: v }))} />
           </>
         )}

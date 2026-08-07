@@ -46,6 +46,13 @@ const INTENTS: Intent[] = [
     route: '/policy',
     template: 'business-treasury',
   },
+  {
+    emoji: '🎁',
+    title: 'A gift for someone, years from now',
+    desc: "Lock it for a grandchild or anyone else until a future date. Nobody can touch it early except you and one independent person, together.",
+    route: '/policy',
+    template: 'gift-vault',
+  },
 ];
 
 export default function StartVault() {
