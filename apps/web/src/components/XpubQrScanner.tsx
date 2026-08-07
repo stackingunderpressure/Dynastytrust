@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import jsQR from 'jsqr';
 import { URDecoder } from '@gandlaf21/bc-ur';
-import { parseHardwareWalletExport } from '../lib/keystore';
+import { parseXpubText } from '../lib/keystore';
 import { colors, fonts, radii } from '../theme';
 import { Button } from './ui';
 
@@ -13,17 +13,26 @@ import { Button } from './ui';
  * requestAnimationFrame), adapted for what a signer's xpub/wallet
  * export QR actually contains rather than a PSBT.
  *
- * Handles, per frame:
- *   1. A bare xpub/tpub/etc. string -- some signers show just the key
- *      itself as the QR, nothing else. Fires with path === null so the
+ * Handles, per frame, via keystore.ts's parseXpubText (shared with the
+ * file-import path so both routes read the same set of formats the
+ * same way):
+ *   1. A BIP-380 key-origin string -- [fingerprint/path]xpub..., what
+ *      SeedSigner/Sparrow/Coldcard's descriptor-style exports actually
+ *      show. Carries the REAL derivation path the signer used, which
+ *      matters: without it, the caller would fall back to a guessed
+ *      default path, and a signer asked to sign with the wrong path
+ *      can't re-derive the matching private key at all (see keystore.ts
+ *      splitKeyOrigin's own doc comment, and this repo's known-issues
+ *      history of exactly this failure).
+ *   2. A bare xpub/tpub/etc. string with no origin info -- some signers
+ *      show just the key itself. Fires with path === null so the
  *      caller knows to leave its derivation-path field exactly as it
- *      was (whatever sensible default was already showing), instead of
- *      blanking a field this scan has no information about.
- *   2. JSON text (single QR or reassembled from a UR sequence) --
- *      reuses parseHardwareWalletExport, the same parser the file-
- *      import path already uses, so a signer that puts its file-export
- *      JSON into a QR instead of (or in addition to) a file works too.
- *   3. Anything else UR-encoded that ISN'T JSON once decoded (a real
+ *      was, instead of silently guessing.
+ *   3. JSON text (single QR or reassembled from a UR sequence) --
+ *      same parser the file-import path already uses, so a signer that
+ *      puts its file-export JSON into a QR instead of (or in addition
+ *      to) a file works too.
+ *   4. Anything else UR-encoded that ISN'T JSON once decoded (a real
  *      BCR crypto-hdkey/crypto-account CBOR payload) is deliberately
  *      NOT hand-parsed -- getting key-derivation metadata wrong is a
  *      worse failure than not supporting a format yet, so this surfaces
@@ -37,10 +46,6 @@ interface XpubQrScannerProps {
    *  overwrite it with information this scan doesn't have. */
   onResult: (xpub: string, path: string | null) => void;
   onCancel?: () => void;
-}
-
-function looksLikeXpub(text: string): boolean {
-  return /^[a-zA-Z]pub[a-zA-Z0-9]{80,}$/.test(text.trim());
 }
 
 export function XpubQrScanner({ onResult, onCancel }: XpubQrScannerProps) {
@@ -87,26 +92,18 @@ export function XpubQrScanner({ onResult, onCancel }: XpubQrScannerProps) {
       }
     }
 
-    function tryJson(text: string): boolean {
-      try {
-        const parsed = parseHardwareWalletExport(JSON.parse(text));
-        if (parsed) {
-          onResult(parsed.xpub, parsed.path);
-          return true;
-        }
-      } catch { /* not JSON */ }
-      return false;
+    function tryText(text: string): boolean {
+      const parsed = parseXpubText(text);
+      if (!parsed) return false;
+      onResult(parsed.xpub, parsed.path);
+      return true;
     }
 
     function handleScan(text: string): boolean {
       if (!text) return false;
       const trimmed = text.trim();
 
-      if (looksLikeXpub(trimmed)) {
-        onResult(trimmed, null);
-        return true;
-      }
-      if (tryJson(trimmed)) return true;
+      if (tryText(trimmed)) return true;
 
       if (!trimmed.toLowerCase().startsWith('ur:')) return false;
       if (seenRef.current.has(trimmed)) return false;
@@ -126,7 +123,7 @@ export function XpubQrScanner({ onResult, onCancel }: XpubQrScannerProps) {
             const decoded = ur.decodeCBOR();
             const buf: Uint8Array = decoded instanceof Uint8Array ? decoded : new Uint8Array(decoded);
             const asText = new TextDecoder().decode(buf);
-            if (tryJson(asText)) return true;
+            if (tryText(asText)) return true;
             setError(
               `Scanned a "${ur.type}" QR this app doesn't parse yet -- use the file or paste-in import instead.`,
             );

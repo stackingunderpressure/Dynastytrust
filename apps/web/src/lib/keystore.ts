@@ -314,6 +314,30 @@ export function importXpub(opts: {
 }
 
 /**
+ * Split a BIP-380 key-origin descriptor fragment -- [<8-hex fingerprint>/
+ * <hardened path>]<xpub>, e.g. [c8fe8d4e/48'/1'/0'/2']tpub... -- into its
+ * xpub and derivation-path parts. This is the format that carries BOTH
+ * the key AND the exact BIP32 path a signer used to derive it in one
+ * string; Sparrow, SeedSigner, and Coldcard's descriptor-style exports
+ * all use it. It matters because a BARE xpub carries no path info at
+ * all -- if a caller then falls back to a guessed default path instead
+ * of the signer's real one, that signer won't be able to re-derive the
+ * matching private key when it's actually time to sign. This is the
+ * same failure class already documented in this repo's known-issues
+ * history (a hardware-wallet spend silently failing because
+ * derivation_path was an account-level guess, not the full real path).
+ * Returns null for a plain bare xpub (no brackets) -- callers should
+ * fall back to treating the whole string as the xpub with no path info
+ * in that case, same as before this existed.
+ */
+export function splitKeyOrigin(raw: string): { xpub: string; path: string; fingerprint: string } | null {
+  const m = raw.trim().match(/^\[([0-9a-fA-F]{8})((?:\/[0-9]+['hH]?)+)\]([a-zA-Z][a-zA-Z0-9]{80,})/);
+  if (!m) return null;
+  const [, fingerprint, rawPath, xpub] = m;
+  return { xpub, path: 'm' + rawPath.replace(/[hH]/g, "'"), fingerprint: fingerprint.toLowerCase() };
+}
+
+/**
  * Pull an {xpub, path} pair out of a hardware wallet's exported wallet
  * JSON, so a signer's export file can fill the same two fields manual
  * paste does -- typing a 100+ character xpub and a derivation path on
@@ -342,6 +366,13 @@ export function parseHardwareWalletExport(json: unknown): { xpub: string; path: 
     if (!o || typeof o !== 'object') return null;
     const r = o as Record<string, unknown>;
     const xpub = r.xpub ?? r.Xpub ?? r.zpub ?? r.Zpub ?? r.ypub ?? r.Ypub;
+    // Some exports put the full [fingerprint/path]xpub key-origin form
+    // directly in the xpub field, with no separate deriv/path field at
+    // all -- split it out first so that path isn't silently lost.
+    if (typeof xpub === 'string') {
+      const split = splitKeyOrigin(xpub);
+      if (split) return { xpub: split.xpub, path: split.path };
+    }
     const path = r.deriv ?? r.path ?? r.bip32_path ?? r.derivation;
     if (typeof xpub === 'string' && xpub.length > 50 && typeof path === 'string' && path.length > 0) {
       return { xpub, path };
@@ -362,6 +393,33 @@ export function parseHardwareWalletExport(json: unknown): { xpub: string; path: 
     if (found) return found;
   }
 
+  return null;
+}
+
+/**
+ * Given arbitrary text -- a QR scan result, or the contents of a
+ * pasted/imported file -- extract an {xpub, path} pair, trying every
+ * shape this app knows how to read, in order: a BIP-380 key-origin
+ * string ([fp/path]xpub...) which carries a real path; a bare xpub
+ * with no path info at all; or JSON matching parseHardwareWalletExport's
+ * shape. Returns null if none match.
+ *
+ * path is null ONLY for the bare-xpub case, where there genuinely is no
+ * path information to report. Every other match either supplies a real
+ * path or fails outright -- this never guesses one, since a wrong
+ * derivation path means a signer can't re-derive the matching private
+ * key later (the exact failure this repo's known-issues history already
+ * documents once).
+ */
+export function parseXpubText(raw: string): { xpub: string; path: string | null } | null {
+  const trimmed = raw.trim();
+  const origin = splitKeyOrigin(trimmed);
+  if (origin) return { xpub: origin.xpub, path: origin.path };
+  if (/^[a-zA-Z]pub[a-zA-Z0-9]{80,}$/.test(trimmed)) return { xpub: trimmed, path: null };
+  try {
+    const parsed = parseHardwareWalletExport(JSON.parse(trimmed));
+    if (parsed) return parsed;
+  } catch { /* not JSON */ }
   return null;
 }
 

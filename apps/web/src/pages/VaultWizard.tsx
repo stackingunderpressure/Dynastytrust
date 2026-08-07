@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
-  listKeys, generateTestKey, generateSoftwareKey, importXpub, parseHardwareWalletExport,
+  listKeys, generateTestKey, generateSoftwareKey, importXpub, parseXpubText,
   type LocalKey,
 } from '../lib/keystore';
 import {
@@ -797,19 +797,18 @@ function InlineKeyCreate({
     e.target.value = '';
     if (!file) return;
     setFileErr(null);
-    try {
-      const text = await file.text();
-      const parsed = parseHardwareWalletExport(JSON.parse(text));
-      if (!parsed) {
-        setFileErr(`Couldn't find an xpub + derivation path in "${file.name}". Paste them in manually instead.`);
-        return;
-      }
-      setXpub(parsed.xpub);
-      setPath(parsed.path);
-      setFileName(file.name);
-    } catch {
-      setFileErr(`"${file.name}" isn't valid JSON. Export the wallet file again, or paste the xpub in manually.`);
+    const text = await file.text();
+    const parsed = parseXpubText(text);
+    if (!parsed) {
+      setFileErr(`Couldn't find an xpub in "${file.name}". Paste it in manually instead.`);
+      return;
     }
+    setXpub(parsed.xpub);
+    // null only means this specific export had no path info (a bare
+    // xpub, no brackets) -- leave whatever was already in the field
+    // rather than blank out a value that might already be correct.
+    if (parsed.path) setPath(parsed.path);
+    setFileName(file.name);
   }
 
   return (
