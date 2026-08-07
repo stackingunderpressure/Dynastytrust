@@ -945,7 +945,18 @@ function BlocOverviewTab({
   copied: string | null;
   onSendPrefill: (p: SendPrefill) => void;
 }) {
-  const bp = vault.bloc_policy!;
+  // A Bloc vault still in draft (shape chosen, parent/kid keys not
+  // filled in yet) persists bloc_policy as {} -- normalize the array
+  // fields here so every .length read below stays safe instead of
+  // throwing on the very first render of the overview tab.
+  const rawBp = vault.bloc_policy!;
+  const bp: BlocPolicy = {
+    ...rawBp,
+    parent_pubkeys: rawBp.parent_pubkeys ?? [],
+    kid_pubkeys: rawBp.kid_pubkeys ?? [],
+    parent_xpubs: rawBp.parent_xpubs ?? [],
+    kid_xpubs: rawBp.kid_xpubs ?? [],
+  };
   const [showDescriptorQr, setShowDescriptorQr] = useState(false);
   const [chainTip, setChainTip] = useState<number | null>(null);
   useEffect(() => {
