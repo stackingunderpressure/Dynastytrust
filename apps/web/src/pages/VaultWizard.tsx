@@ -8,11 +8,12 @@ import {
   upgradeDescriptor, buildKeyOrigins, buildPsbtKeyOrigins, toPubkeyHex,
   type SelectedKey,
 } from '../lib/descriptor-keys';
-import { api, type Vault, type VaultProposal, type BlocPolicy } from '../lib/api';
+import { api, type Vault, type VaultProposal, type BlocPolicy, type TrustDoc } from '../lib/api';
 import { downloadVault } from '../lib/descriptor-backup';
 import { blocksToHuman, TIMELOCK_PRESETS } from '../lib/blocks';
 import { approxWallclockDate, blocksUntilDate } from '../lib/chain';
-import { VAULT_TEMPLATES, type VaultMode, type VaultTemplate } from '../lib/vault-templates';
+import { VAULT_TEMPLATES, type VaultTemplate, type StandardConfig, type BlocConfig } from '../lib/vault-templates';
+import { buildStandardTrustDoc, buildBlocTrustDoc } from '../lib/trust-doc';
 import { colors, radii } from '../theme';
 import { Button, Input, Card, Field } from '../components/ui';
 import { DescriptorQr } from '../components/DescriptorQr';
@@ -40,43 +41,6 @@ import {
 type Shape = 'standard' | 'bloc';
 type Step = 'configure' | 'keys' | 'compile' | 'backup' | 'fund' | 'done';
 type NetworkChoice = 'testnet' | 'signet' | 'bitcoin';
-
-interface StandardConfig {
-  mode: VaultMode;
-  plannedFounders: number;
-  founderQ: number;
-  plannedHeirs: number;
-  heirQ: number;
-  // "Gift Locker"-shaped vaults (founders-now OR a single timelocked
-  // beneficiary path, no separate founders-after-a-delay recovery leaf
-  // in between) turn this off -- see DynastyPolicy::has_recovery() in
-  // protocol/src/policy_compiler.rs. When false, recoveryAfter is never
-  // sent to the compiler (forced to 0 in confirmConfigure()).
-  recoveryEnabled: boolean;
-  recoveryAfter: number;
-  inheritanceAfter: number;
-  protectorEnabled: boolean;
-  protectorAfter: number;
-  protectorQ: number;
-  plannedProtectors: number;
-  consentEnabled: boolean;
-  consentQ: number;
-  plannedConsenters: number;
-}
-
-interface BlocConfig {
-  plannedParents: number;
-  parentsTogetherQ: number;
-  coparentQ: number;
-  kidsWithParentQ: number;
-  parentSoloQ: number;
-  parentSoloAfter: number;
-  plannedKids: number;
-  kidsDecayStartQ: number;
-  kidsDecayFloorQ: number;
-  kidsDecayStartAfter: number;
-  kidsDecayStepBlocks: number;
-}
 
 const DEFAULT_STANDARD_CONFIG: StandardConfig = {
   mode: 'inheritance',
@@ -200,6 +164,13 @@ export default function VaultWizard() {
 
   const [stdConfig, setStdConfig] = useState<StandardConfig>(DEFAULT_STANDARD_CONFIG);
   const [blocConfig, setBlocConfig] = useState<BlocConfig>(DEFAULT_BLOC_CONFIG);
+  // Kept only for its hand-written trustDoc.purpose line -- everything else
+  // the trust doc needs is computed fresh from stdConfig/blocConfig at
+  // compile time, so it stays accurate even if the user tunes quorums or
+  // timelocks away from the template's defaults. Null when the user opened
+  // the builder directly (no template prefill); buildStandardTrustDoc /
+  // buildBlocTrustDoc both fall back to a generated purpose line in that case.
+  const [selectedTemplate, setSelectedTemplate] = useState<VaultTemplate | null>(null);
 
   // Consumed once, same contract StartVault/ChatWizard already use --
   // an all-zero VaultProposal means "use the template's own defaults."
@@ -217,6 +188,7 @@ export default function VaultWizard() {
     setShape('standard');
     setName(t.title);
     setStdConfig(templateToStandardConfig(t));
+    setSelectedTemplate(t);
     window.history.replaceState({}, '');
   }, [location.state]);
 
@@ -346,6 +318,25 @@ export default function VaultWizard() {
     return parentKeys.length >= c.plannedParents && kidKeys.length >= c.plannedKids;
   }, [shape, stdConfig, blocConfig, founderKeys, heirKeys, protectorKeys, consentKeys, parentKeys, kidKeys]);
 
+  // Best-effort: the vault is already compiled and usable by the time this
+  // runs, so a failed save here shouldn't surface as a compile error --
+  // the owner can always fill the trust doc in by hand from the Trust tab.
+  // Never overwrites a trust doc that's already got something in it -- a
+  // "Save and finish later" draft could have been personalized from
+  // VaultDetail's own trust doc editor before the owner came back here to
+  // finish compiling, and this only exists to replace a blank slate.
+  async function saveGeneratedTrustDoc(vaultId: string, doc: TrustDoc) {
+    const existing = draftVault?.trust_doc;
+    const alreadyHasContent =
+      !!existing && (!!existing.purpose || !!existing.distribution_rules || !!existing.succession_notes || !!(existing.beneficiaries ?? []).length);
+    if (alreadyHasContent) return;
+    try {
+      await api.vaults.updateTrustDoc(vaultId, doc);
+    } catch {
+      // silent -- non-critical
+    }
+  }
+
   async function runCompile() {
     if (!draftVault) return;
     setCompiling(true);
@@ -367,6 +358,11 @@ export default function VaultWizard() {
         const origins = buildKeyOrigins([...founderKeys, ...heirKeys, ...protectorKeys, ...consentKeys]);
         const upgraded = res.vault.descriptor ? upgradeDescriptor(res.vault.descriptor, origins) : res.vault.descriptor;
         setCompiledVault({ ...res.vault, descriptor: upgraded });
+        void saveGeneratedTrustDoc(res.vault.id, buildStandardTrustDoc({
+          vaultName: name,
+          templatePurpose: selectedTemplate?.trustDoc?.purpose,
+          config: stdConfig,
+        }));
       } else {
         const res = await api.vaults.compileBloc({
           vault_id: draftVault.id,
@@ -379,6 +375,7 @@ export default function VaultWizard() {
         const origins = buildKeyOrigins([...parentKeys, ...kidKeys]);
         const upgraded = res.vault.descriptor ? upgradeDescriptor(res.vault.descriptor, origins) : res.vault.descriptor;
         setCompiledVault({ ...res.vault, descriptor: upgraded });
+        void saveGeneratedTrustDoc(res.vault.id, buildBlocTrustDoc({ vaultName: name, config: blocConfig }));
       }
       setStep('backup');
     } catch (e) {

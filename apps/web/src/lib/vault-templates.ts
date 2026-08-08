@@ -59,6 +59,50 @@ export type VaultTemplate = {
   testMode?: boolean;
 };
 
+// The vault wizard's live, editable config for each shape -- seeded from
+// a VaultTemplate's `config` (see templateToStandardConfig in
+// pages/VaultWizard.tsx) but able to drift from it as the user tunes
+// quorums and timelocks. Lives here rather than in VaultWizard.tsx so
+// lib/trust-doc.ts (which needs these shapes to compute a vault-specific
+// document from the REAL numbers, not the template's defaults) can import
+// them without a lib-importing-from-pages layering violation.
+export interface StandardConfig {
+  mode: VaultMode;
+  plannedFounders: number;
+  founderQ: number;
+  plannedHeirs: number;
+  heirQ: number;
+  // "Gift Locker"-shaped vaults (founders-now OR a single timelocked
+  // beneficiary path, no separate founders-after-a-delay recovery leaf
+  // in between) turn this off -- see DynastyPolicy::has_recovery() in
+  // protocol/src/policy_compiler.rs. When false, recoveryAfter is never
+  // sent to the compiler (forced to 0 in VaultWizard's confirmConfigure()).
+  recoveryEnabled: boolean;
+  recoveryAfter: number;
+  inheritanceAfter: number;
+  protectorEnabled: boolean;
+  protectorAfter: number;
+  protectorQ: number;
+  plannedProtectors: number;
+  consentEnabled: boolean;
+  consentQ: number;
+  plannedConsenters: number;
+}
+
+export interface BlocConfig {
+  plannedParents: number;
+  parentsTogetherQ: number;
+  coparentQ: number;
+  kidsWithParentQ: number;
+  parentSoloQ: number;
+  parentSoloAfter: number;
+  plannedKids: number;
+  kidsDecayStartQ: number;
+  kidsDecayFloorQ: number;
+  kidsDecayStartAfter: number;
+  kidsDecayStepBlocks: number;
+}
+
 export const VAULT_TEMPLATES: VaultTemplate[] = [
   {
     id: 'solo-savings',

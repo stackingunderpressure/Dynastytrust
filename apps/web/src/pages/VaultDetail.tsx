@@ -56,6 +56,7 @@ import { ensureMessagingKey, encryptMessage, decryptMessage, getMessagingPubkey 
 import { TrustTab } from "../components/TrustTab";
 import { RemindersBanner } from "../components/RemindersBanner";
 import { tipHeight, blocksToApproxLabel, approxWallclockDate } from "../lib/chain";
+import { buildStandardTrustDoc, standardConfigFromCompiledVault } from "../lib/trust-doc";
 
 
 function satsToBtc(sats: number): string {
@@ -118,6 +119,28 @@ function roleLabel(role: string): string {
 
 function isTrusteeRole(role: string): boolean {
   return role === "owner" || role === "founder";
+}
+
+// Best-effort trust-doc auto-fill for a draft compiled from VaultDetail
+// itself (DraftReadinessCard / DraftCompileButton below) -- members
+// brought their own keys via invite, so this never passes through
+// VaultWizard.tsx's own runCompile, which has the identical hook for the
+// wizard's own compile path (lib/trust-doc.ts's buildStandardTrustDoc
+// generates the same content either way). Never overwrites a doc the
+// owner already started writing before compiling; a failed save never
+// blocks navigating to the now-successfully-compiled vault.
+function autofillTrustDocIfEmpty(preCompile: Vault, compiled: Vault) {
+  const d = preCompile.trust_doc;
+  const alreadyHasContent =
+    !!d && (!!d.purpose || !!d.distribution_rules || !!d.succession_notes || !!(d.beneficiaries ?? []).length);
+  if (alreadyHasContent) return;
+  tipHeight(compiled.network)
+    .catch(() => null)
+    .then(tip => api.vaults.updateTrustDoc(
+      compiled.id,
+      buildStandardTrustDoc({ vaultName: compiled.name, config: standardConfigFromCompiledVault(compiled, tip) }),
+    ))
+    .catch(() => {});
 }
 
 export default function VaultDetail() {
@@ -3726,6 +3749,7 @@ function DraftReadinessCard({
     try {
       const res = await api.vaults.compile(vault.id);
       toast.success("Vault compiled -- ready to fund");
+      autofillTrustDocIfEmpty(vault, res.vault);
       navigate(`/vaults/${res.vault.id}`, { state: { vault: res.vault } });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Compile failed");
@@ -3985,6 +4009,7 @@ function DraftCompileButton({ vault }: { vault: Vault }) {
     try {
       const res = await api.vaults.compile(vault.id);
       toast.success("Vault compiled -- ready to fund");
+      autofillTrustDocIfEmpty(vault, res.vault);
       navigate(`/vaults/${res.vault.id}`, { state: { vault: res.vault } });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Compile failed");
