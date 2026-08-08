@@ -97,12 +97,25 @@ export async function handler(event) {
   // people bring their own xpub via a claim link) or direct_keys (the
   // owner brings every key themselves, just not necessarily all in the
   // same sitting as Configure -- no vault_members involvement at all).
+  // A key counts as "provisioned" one of two ways: a real xpub-based key
+  // needs its full origin triple (xpub + fingerprint + derivation_path) so
+  // upgradeDescriptor can annotate it Nunchuk/Sparrow-style, OR a
+  // Tapit-origin key -- which has no xpub or derivation path by design
+  // (Cut C2: no invented xpub) -- needs nothing more than a real pubkey.
+  // Requiring the xpub triple unconditionally silently dropped every
+  // Tapit founder from the readiness count, even though the key itself
+  // was perfectly usable.
+  const isHexPubkey = (s) => typeof s === "string" && /^0[23][0-9a-f]{64}$/i.test(s);
+  const isProvisioned = (k) => {
+    if (!k || !isHexPubkey(k.pubkey)) return false;
+    if (k.xpub) return Boolean(k.fingerprint && k.derivation_path);
+    return true;
+  };
+
   const dk = body.direct_keys;
   let founders, heirs, protectors, consenters;
   if (dk && typeof dk === "object") {
-    const clean = (arr) => (Array.isArray(arr) ? arr : []).filter(
-      k => k && k.xpub && k.fingerprint && k.derivation_path,
-    );
+    const clean = (arr) => (Array.isArray(arr) ? arr : []).filter(isProvisioned);
     founders = clean(dk.founder_keys);
     heirs = clean(dk.heir_keys);
     protectors = clean(dk.protector_keys);
@@ -115,9 +128,7 @@ export async function handler(event) {
       .eq("status", "active");
     if (memErr) return json(500, { error: memErr.message });
 
-    const ready = (members ?? []).filter(
-      m => m.xpub && m.fingerprint && m.pubkey && m.derivation_path,
-    );
+    const ready = (members ?? []).filter(isProvisioned);
     founders = ready.filter(m => m.role === "founder" || m.role === "owner");
     heirs = ready.filter(m => m.role === "heir");
     protectors = ready.filter(m => m.role === "protector");
@@ -162,27 +173,35 @@ export async function handler(event) {
   const absInheritanceAfter = relativeToAbsolute(vault.inheritance_after, tipHeight);
   const absProtectorAfter   = relativeToAbsolute(vault.protector_after,   tipHeight);
 
+  // Xpub-based keys are re-derived from the xpub itself (never trust the
+  // client-supplied pubkey for those -- verify it against the key
+  // material that will actually go into the descriptor's key-origin
+  // annotation). A Tapit-origin key has no xpub to re-derive from -- its
+  // pubkey IS the real key material, already validated as 33-byte
+  // compressed hex by isProvisioned above -- so it's used as-is.
+  const keyPubkeyHex = (k) => (k.xpub ? pubkeyFromXpub(k.xpub) : k.pubkey.toLowerCase());
+
   const compilePayload = {
     name: vault.name,
     network: vault.network,
     address_type: vault.address_type,
-    founder_keys: founders.map(m => pubkeyFromXpub(m.xpub)),
+    founder_keys: founders.map(keyPubkeyHex),
     founder_quorum: vault.founder_quorum,
     recovery_quorum: vault.recovery_quorum,
-    heir_keys: heirs.map(m => pubkeyFromXpub(m.xpub)),
+    heir_keys: heirs.map(keyPubkeyHex),
     heir_quorum: vault.heir_quorum,
     recovery_after: absRecoveryAfter,
     inheritance_after: absInheritanceAfter,
     ...(hasProtector
       ? {
-          protector_keys: protectors.map(m => pubkeyFromXpub(m.xpub)),
+          protector_keys: protectors.map(keyPubkeyHex),
           protector_quorum: vault.protector_quorum,
           protector_after: absProtectorAfter,
         }
       : {}),
     ...(vault.consent_quorum != null && consenters.length >= (vault.consent_quorum ?? 0)
       ? {
-          consent_keys: consenters.map(m => pubkeyFromXpub(m.xpub)),
+          consent_keys: consenters.map(keyPubkeyHex),
           consent_quorum: vault.consent_quorum,
         }
       : {}),
@@ -223,6 +242,18 @@ export async function handler(event) {
 
   const upgraded = upgradeDescriptor(compiled.descriptor, [...founders, ...heirs]);
 
+  // What gets stored in vaults.founder_keys/heir_keys/etc: the real xpub
+  // when the key has one, so every reader that expects an xpub there
+  // (pubkeyFromXpub re-derivation, the descriptor upgrade) keeps working;
+  // otherwise the bare compressed pubkey hex, matching the exact fallback
+  // VaultDetail.tsx's addKey() already reads (a 66-hex-char entry is
+  // treated as a pubkey directly, not an xpub) -- this is how a Tapit-
+  // origin key, which has no xpub, is meant to be represented here.
+  // Storing m.xpub unconditionally would have written an EMPTY STRING for
+  // every Tapit founder's slot, silently dropping them from every
+  // downstream reader (signing, Notify via Nostr, the circle phrase gate).
+  const keyStoreValue = (k) => k.xpub || k.pubkey.toLowerCase();
+
   // Update the vault row with compiled output.
   const { data: saved, error: saveErr } = await supabase
     .from("vaults")
@@ -230,11 +261,11 @@ export async function handler(event) {
       address: compiled.address,
       descriptor: upgraded,
       miniscript_policy: compiled.miniscript_policy,
-      founder_keys: founders.map(m => m.xpub),
-      heir_keys: heirs.map(m => m.xpub),
-      protector_keys: protectors.map(m => m.xpub),
+      founder_keys: founders.map(keyStoreValue),
+      heir_keys: heirs.map(keyStoreValue),
+      protector_keys: protectors.map(keyStoreValue),
       consent_keys:
-        vault.consent_quorum != null ? consenters.map(m => m.xpub) : [],
+        vault.consent_quorum != null ? consenters.map(keyStoreValue) : [],
       // Overwrite the draft's relative offsets with the absolute
       // CLTV heights that got baked into the compiled leaves.
       recovery_after: absRecoveryAfter,
