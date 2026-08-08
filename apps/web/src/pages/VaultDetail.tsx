@@ -696,6 +696,14 @@ function OverviewTab({
   // showing it here would describe a spending path that doesn't exist
   // in this vault's actual descriptor.
   const hasRecoveryPath = !plain && vault.recovery_after > 0;
+  // Mirrors hasRecoveryPath's own guard -- a vault with zero heir keys has
+  // no inheritance leaf in the compiled descriptor at all (see PATH 1-only
+  // taproot trees like Gift Locker/emergency-backup shapes). Without this,
+  // the details table below unconditionally showed "Successor quorum: 1 of
+  // 0" and "Inheritance: unlocks at block 0" for a vault that structurally
+  // has no second leaf -- reading as "already unlocked" for a path that
+  // was never compiled, not as "not configured."
+  const hasInheritancePath = (vault.heir_keys?.length ?? 0) > 0;
 
   const paths = plain
     ? [
@@ -820,11 +828,15 @@ function OverviewTab({
         {[
           ["Address type", vault.address_type.toUpperCase()],
           ["Trustee quorum", `${vault.founder_quorum} of ${vault.founder_keys.length}`],
-          ["Successor quorum", `${vault.heir_quorum} of ${vault.heir_keys.length}`],
+          ...(hasInheritancePath
+            ? [["Successor quorum", `${vault.heir_quorum} of ${vault.heir_keys.length}`]]
+            : []),
           ...(hasRecoveryPath
             ? [["Recovery", `unlocks at block ${vault.recovery_after.toLocaleString()} (${blocksToLabel(blocksFromNow(vault.recovery_after))})`]]
             : []),
-          ["Inheritance", `unlocks at block ${vault.inheritance_after.toLocaleString()} (${blocksToLabel(blocksFromNow(vault.inheritance_after))})`],
+          ...(hasInheritancePath
+            ? [["Inheritance", `unlocks at block ${vault.inheritance_after.toLocaleString()} (${blocksToLabel(blocksFromNow(vault.inheritance_after))})`]]
+            : []),
         ].map(([k, v]) => (
           <div
             key={k}
