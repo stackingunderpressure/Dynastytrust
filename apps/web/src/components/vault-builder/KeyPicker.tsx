@@ -66,11 +66,28 @@ export function KeyPicker({
         >
           <span style={{ fontSize: 16 }}>{role.charAt(0).toUpperCase()}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 500, color: colors.text }}>{k.label}</div>
+            <div style={{ fontSize: 14, fontWeight: 500, color: colors.text, display: 'flex', alignItems: 'center', gap: 6 }}>
+              {k.label}
+              {k.origin === 'tapit' && (
+                <span
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 700,
+                    letterSpacing: '0.06em',
+                    color: colors.gold,
+                    border: `1px solid ${colors.gold}66`,
+                    borderRadius: 4,
+                    padding: '1px 5px',
+                  }}
+                >
+                  TAPIT
+                </span>
+              )}
+            </div>
             <div style={{ fontSize: 11, color: colors.muted }}>
               <span style={{ color: accentColor }}>{k.persona}</span>
               {' . '}
-              {k.fingerprint}
+              {k.origin === 'tapit' ? 'no local key material' : k.fingerprint}
               {' . '}
               {k.network}
             </div>
@@ -109,7 +126,7 @@ export function KeyPicker({
           <option value="">+ Add {role} key...</option>
           {available.map(k => (
             <option key={k.keyId} value={k.keyId}>
-              [{k.persona}] {k.label} ({k.fingerprint} . {k.network})
+              [{k.persona}] {k.label} ({k.origin === 'tapit' ? 'Tapit' : k.fingerprint} . {k.network})
             </option>
           ))}
         </select>

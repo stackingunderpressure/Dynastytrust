@@ -35,6 +35,10 @@ export interface SelectedKey {
   masterFingerprint?: string;
   derivationPath: string;
   network: string;
+  /** Display only -- e.g. flagging a Tapit-sourced key in KeyPicker.
+   *  buildKeyOrigins/buildPsbtKeyOrigins key off xpub+derivationPath
+   *  being present, not this field, so it has no effect on compile. */
+  origin?: string;
 }
 
 export interface KeyOrigin {

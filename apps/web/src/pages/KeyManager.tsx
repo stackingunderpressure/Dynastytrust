@@ -649,16 +649,19 @@ function DetailModal({
   }
   const keyType = k.testMnemonic
     ? "Test key (plaintext - no password)"
-    : k.origin === "imported_xpub"
-      ? "Imported xpub"
-      : "Secure key (encrypted)";
+    : k.origin === "tapit"
+      ? "Tapit Wallet key (no local key material)"
+      : k.origin === "imported_xpub"
+        ? "Imported xpub"
+        : "Secure key (encrypted)";
 
   const rows: [string, string][] = [
     ["Persona", k.persona],
     ["Type", keyType],
     ["Network", k.network.toUpperCase()],
-    ["Fingerprint", k.fingerprint],
-    ["Path", k.derivationPath],
+    ...(k.origin === "tapit"
+      ? ([] as [string, string][])
+      : ([["Fingerprint", k.fingerprint], ["Path", k.derivationPath]] as [string, string][])),
     ["Backed up", k.backedUp ? "Yes" : "No"],
     ["Status", k.status],
     ["Created", new Date(k.createdAt).toLocaleDateString()],
@@ -691,57 +694,80 @@ function DetailModal({
           </div>
         ))}
       </div>
-      <div style={{ marginBottom: 14 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5, gap: 6 }}>
-          <Label>Extended public key (xpub)</Label>
-          <div style={{ display: "flex", gap: 6 }}>
-            <Button
-              variant="ghost"
-              size="sm"
-              style={{ padding: "3px 9px", fontSize: 11 }}
-              onClick={() => setShowQr(v => !v)}
-            >
-              {showQr ? "Hide QR" : "Show QR"}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              style={{ padding: "3px 9px", fontSize: 11 }}
-              onClick={() => copy(k.xpub, "xpub")}
-            >
-              {copied === "xpub" ? "Copied" : "Copy"}
-            </Button>
+      {k.origin === "tapit" ? (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 12, color: colors.muted, marginBottom: 8 }}>
+            This key has no xpub -- Tapit's identity key isn't a BIP32 wallet, it's a single fixed
+            public key. Manage or back up the underlying key from inside Tapit itself; this is a
+            read-only copy of the public key you imported.
           </div>
+          {k.tapitXOnlyPubkey && (
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                <Label>Tapit public key (as reported, 32 bytes)</Label>
+                <Button variant="ghost" size="sm" style={{ padding: "3px 9px", fontSize: 11 }} onClick={() => copy(k.tapitXOnlyPubkey!, "tapit")}>
+                  {copied === "tapit" ? "Copied" : "Copy"}
+                </Button>
+              </div>
+              <div style={{ background: colors.inset, borderRadius: radii.md, padding: "10px 12px", fontFamily: fonts.mono, fontSize: 11, color: colors.sub, wordBreak: "break-all" }}>
+                {k.tapitXOnlyPubkey}
+              </div>
+            </>
+          )}
         </div>
-        {showQr && (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 8,
-              padding: 16,
-              background: colors.inset,
-              borderRadius: radii.md,
-              marginBottom: 8,
-            }}
-          >
-            <QrImage
-              data={JSON.stringify({
-                xpub: k.xpub,
-                xfp: k.masterFingerprint ?? k.fingerprint,
-                path: k.derivationPath,
-              })}
-            />
-            <div style={{ fontSize: 11, color: colors.muted, textAlign: "center" }}>
-              Scan into Sparrow / Nunchuk / another DynastyTrust browser to import this xpub.
+      ) : (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5, gap: 6 }}>
+            <Label>Extended public key (xpub)</Label>
+            <div style={{ display: "flex", gap: 6 }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                style={{ padding: "3px 9px", fontSize: 11 }}
+                onClick={() => setShowQr(v => !v)}
+              >
+                {showQr ? "Hide QR" : "Show QR"}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                style={{ padding: "3px 9px", fontSize: 11 }}
+                onClick={() => copy(k.xpub, "xpub")}
+              >
+                {copied === "xpub" ? "Copied" : "Copy"}
+              </Button>
             </div>
           </div>
-        )}
-        <div style={{ background: colors.inset, borderRadius: radii.md, padding: "10px 12px", fontFamily: fonts.mono, fontSize: 11, color: colors.sub, wordBreak: "break-all", lineHeight: 1.6 }}>
-          {k.xpub}
+          {showQr && (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 8,
+                padding: 16,
+                background: colors.inset,
+                borderRadius: radii.md,
+                marginBottom: 8,
+              }}
+            >
+              <QrImage
+                data={JSON.stringify({
+                  xpub: k.xpub,
+                  xfp: k.masterFingerprint ?? k.fingerprint,
+                  path: k.derivationPath,
+                })}
+              />
+              <div style={{ fontSize: 11, color: colors.muted, textAlign: "center" }}>
+                Scan into Sparrow / Nunchuk / another DynastyTrust browser to import this xpub.
+              </div>
+            </div>
+          )}
+          <div style={{ background: colors.inset, borderRadius: radii.md, padding: "10px 12px", fontFamily: fonts.mono, fontSize: 11, color: colors.sub, wordBreak: "break-all", lineHeight: 1.6 }}>
+            {k.xpub}
+          </div>
         </div>
-      </div>
+      )}
       {k.pubkey && (
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
@@ -1049,18 +1075,23 @@ export default function KeyManager() {
                       height: 38,
                       borderRadius: 9,
                       flexShrink: 0,
-                      background: key.testMnemonic ? colors.green + "14" : colors.blue + "14",
+                      background: key.origin === "tapit" ? colors.gold + "14" : key.testMnemonic ? colors.green + "14" : colors.blue + "14",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
                       fontSize: 16,
                     }}
                   >
-                    {key.origin === "software" ? (key.testMnemonic ? "T" : "S") : "H"}
+                    {key.origin === "tapit" ? "🔐" : key.origin === "software" ? (key.testMnemonic ? "T" : "S") : "H"}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>{key.label}</span>
+                      {key.origin === "tapit" && (
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: colors.gold + "22", color: colors.gold }}>
+                          TAPIT
+                        </span>
+                      )}
                       {key.testMnemonic && (
                         <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: colors.green + "22", color: colors.green }}>
                           TEST

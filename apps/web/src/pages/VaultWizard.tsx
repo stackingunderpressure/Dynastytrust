@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
-  listKeys, generateTestKey, generateSoftwareKey, importXpub, parseXpubText,
+  listKeys, generateTestKey, generateSoftwareKey, importXpub, importTapitPubkey, parseXpubText,
   type LocalKey,
 } from '../lib/keystore';
 import {
@@ -90,7 +90,7 @@ function toSelected(k: LocalKey): SelectedKey {
   return {
     keyId: k.keyId, label: k.label, persona: k.persona, xpub: k.xpub,
     pubkey: k.pubkey, fingerprint: k.fingerprint, masterFingerprint: k.masterFingerprint,
-    derivationPath: k.derivationPath, network: k.network,
+    derivationPath: k.derivationPath, network: k.network, origin: k.origin,
   };
 }
 
@@ -251,6 +251,14 @@ export default function VaultWizard() {
   function onImportXpub(role: string, xpub: string, derivationPath: string) {
     const netForKey = network === 'bitcoin' ? 'mainnet' : network;
     const key = importXpub({ label: `${role[0].toUpperCase()}${role.slice(1)} (imported)`, network: netForKey, xpub, derivationPath, persona: role });
+    refreshKeys();
+    addKeyToRole(role, key);
+    setGenRole(null);
+  }
+
+  function onImportTapitKey(role: string, xOnlyPubkey: string) {
+    const netForKey = network === 'bitcoin' ? 'mainnet' : network;
+    const key = importTapitPubkey({ label: `${role[0].toUpperCase()}${role.slice(1)} (Tapit)`, network: netForKey, xOnlyPubkey, persona: role });
     refreshKeys();
     addKeyToRole(role, key);
     setGenRole(null);
@@ -441,6 +449,7 @@ export default function VaultWizard() {
           genRole={genRole} setGenRole={setGenRole}
           onGenerateKey={onGenerateKey}
           onImportXpub={onImportXpub}
+          onImportTapitKey={onImportTapitKey}
           slotsReady={slotsReady}
           onContinue={() => { setStep('compile'); void runCompile(); }}
           onSaveForLater={() => navigate(`/vaults/${draftVault.id}`, { state: { vault: draftVault } })}
@@ -789,7 +798,7 @@ function KeysStep({
   founderKeys, setFounderKeys, heirKeys, setHeirKeys,
   protectorKeys, setProtectorKeys, consentKeys, setConsentKeys,
   parentKeys, setParentKeys, kidKeys, setKidKeys,
-  network, genRole, setGenRole, onGenerateKey, onImportXpub,
+  network, genRole, setGenRole, onGenerateKey, onImportXpub, onImportTapitKey,
   slotsReady, onContinue, onSaveForLater,
 }: {
   shape: Shape; stdConfig: StandardConfig; blocConfig: BlocConfig;
@@ -804,6 +813,7 @@ function KeysStep({
   genRole: string | null; setGenRole: (r: string | null) => void;
   onGenerateKey: (role: string, mode: 'test' | 'secure', password?: string) => void;
   onImportXpub: (role: string, xpub: string, derivationPath: string) => void;
+  onImportTapitKey: (role: string, xOnlyPubkey: string) => void;
   slotsReady: boolean;
   onContinue: () => void;
   onSaveForLater: () => void;
@@ -840,6 +850,7 @@ function KeysStep({
             role={key}
             onGenerate={(mode, pw) => onGenerateKey(key, mode, pw)}
             onImport={(xpub, path) => onImportXpub(key, xpub, path)}
+            onImportTapit={xOnlyPubkey => onImportTapitKey(key, xOnlyPubkey)}
             onCancel={() => setGenRole(null)}
           />
         )}
@@ -877,14 +888,15 @@ function KeysStep({
 }
 
 function InlineKeyCreate({
-  role, onGenerate, onImport, onCancel,
+  role, onGenerate, onImport, onImportTapit, onCancel,
 }: {
   role: string;
   onGenerate: (mode: 'test' | 'secure', password?: string) => void;
   onImport: (xpub: string, derivationPath: string) => void;
+  onImportTapit: (xOnlyPubkey: string) => void;
   onCancel: () => void;
 }) {
-  const [tab, setTab] = useState<'generate' | 'import'>('generate');
+  const [tab, setTab] = useState<'generate' | 'import' | 'tapit'>('generate');
   const [secure, setSecure] = useState(true);
   const [password, setPassword] = useState('');
   const [xpub, setXpub] = useState('');
@@ -893,6 +905,8 @@ function InlineKeyCreate({
   const [fileErr, setFileErr] = useState<string | null>(null);
   const [showQrScan, setShowQrScan] = useState(false);
   const exportFileRef = useRef<HTMLInputElement>(null);
+  const [tapitPubkey, setTapitPubkey] = useState('');
+  const [tapitErr, setTapitErr] = useState<string | null>(null);
 
   function handleQrResult(scannedXpub: string, scannedPath: string | null) {
     setXpub(scannedXpub);
@@ -922,9 +936,10 @@ function InlineKeyCreate({
 
   return (
     <div style={{ marginTop: 12, padding: 14, background: colors.inset, borderRadius: radii.md, display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div style={{ display: 'flex', gap: 8 }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <Button size="sm" variant={tab === 'generate' ? 'primary' : 'ghost'} onClick={() => setTab('generate')}>Generate</Button>
         <Button size="sm" variant={tab === 'import' ? 'primary' : 'ghost'} onClick={() => setTab('import')}>Import xpub</Button>
+        <Button size="sm" variant={tab === 'tapit' ? 'primary' : 'ghost'} onClick={() => setTab('tapit')}>From Tapit</Button>
       </div>
       {tab === 'generate' ? (
         <>
@@ -939,6 +954,34 @@ function InlineKeyCreate({
             onClick={() => onGenerate(secure ? 'secure' : 'test', secure ? password : undefined)}
           >
             Generate {role} key
+          </Button>
+        </>
+      ) : tab === 'tapit' ? (
+        <>
+          <div style={{ fontSize: 11, color: colors.muted }}>
+            Open Tapit, go to Settings, tap "Your public key," and copy or scan it -- then paste it here. A
+            direct handoff between the two apps is coming later; paste works today.
+          </div>
+          <Input
+            placeholder="Tapit public key (64 hex characters)"
+            mono
+            value={tapitPubkey}
+            onChange={e => { setTapitPubkey(e.target.value); setTapitErr(null); }}
+          />
+          {tapitErr && <div style={{ fontSize: 11, color: colors.red }}>{tapitErr}</div>}
+          <Button
+            size="sm"
+            disabled={!tapitPubkey.trim()}
+            onClick={() => {
+              const clean = tapitPubkey.trim().toLowerCase();
+              if (!/^[0-9a-f]{64}$/.test(clean)) {
+                setTapitErr('Expected 64 hex characters (32 bytes) -- copy the whole key from Tapit, no extra spaces.');
+                return;
+              }
+              onImportTapit(clean);
+            }}
+          >
+            Add {role} key from Tapit
           </Button>
         </>
       ) : showQrScan ? (
