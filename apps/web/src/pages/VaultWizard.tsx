@@ -19,7 +19,7 @@ import { Button, Input, Card, Field } from '../components/ui';
 import { DescriptorQr } from '../components/DescriptorQr';
 import { XpubQrScanner } from '../components/XpubQrScanner';
 import {
-  QuorumPicker, KeyPicker, SlotHint, CopyField, BackupFlow, KeyCreatedPrompt, FundingStep,
+  QuorumPicker, CountStepper, KeyPicker, SlotHint, CopyField, BackupFlow, KeyCreatedPrompt, FundingStep,
   BehaviorTimeline, type SpendLeg,
 } from '../components/vault-builder';
 
@@ -605,23 +605,21 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
     <Card>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <Field label="How many people sign?">
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <Input
-              type="number" min={1} style={{ width: 90 }}
-              value={config.plannedFounders}
-              onChange={e => setConfig(c => {
-                const plannedFounders = Math.max(1, Number(e.target.value) || 1);
-                // A quorum higher than the new signer count would fail
-                // server-side at compile time with a raw Rust error
-                // ("quorum must be > 0 and <= number of keys") and no
-                // visible cue in the picker that anything needs fixing --
-                // the button matching the stale quorum simply stops
-                // rendering. Keep it valid the moment the count changes.
-                return { ...c, plannedFounders, founderQ: Math.min(c.founderQ, plannedFounders) };
-              })}
-            />
-            <span style={{ fontSize: 12, color: colors.muted }}>signers</span>
-          </div>
+          <CountStepper
+            value={config.plannedFounders}
+            min={1}
+            label="signers"
+            color={colors.gold}
+            onChange={plannedFounders => setConfig(c => {
+              // A quorum higher than the new signer count would fail
+              // server-side at compile time with a raw Rust error
+              // ("quorum must be > 0 and <= number of keys") and no
+              // visible cue in the picker that anything needs fixing --
+              // the button matching the stale quorum simply stops
+              // rendering. Keep it valid the moment the count changes.
+              return { ...c, plannedFounders, founderQ: Math.min(c.founderQ, plannedFounders) };
+            })}
+          />
           <QuorumPicker max={config.plannedFounders} value={config.founderQ} onChange={n => setConfig(c => ({ ...c, founderQ: n }))} color={colors.gold} />
         </Field>
 
@@ -637,18 +635,16 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
         {config.mode === 'inheritance' && (
           <>
             <Field label="How many heirs?">
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                <Input
-                  type="number" min={0} style={{ width: 90 }}
-                  value={config.plannedHeirs}
-                  onChange={e => setConfig(c => {
-                    const plannedHeirs = Math.max(0, Number(e.target.value) || 0);
-                    // Same stale-quorum guard as plannedFounders above.
-                    return { ...c, plannedHeirs, heirQ: Math.min(c.heirQ, plannedHeirs) || (plannedHeirs > 0 ? 1 : 0) };
-                  })}
-                />
-                <span style={{ fontSize: 12, color: colors.muted }}>heirs</span>
-              </div>
+              <CountStepper
+                value={config.plannedHeirs}
+                min={0}
+                label="heirs"
+                color={colors.blue}
+                onChange={plannedHeirs => setConfig(c => {
+                  // Same stale-quorum guard as plannedFounders above.
+                  return { ...c, plannedHeirs, heirQ: Math.min(c.heirQ, plannedHeirs) || (plannedHeirs > 0 ? 1 : 0) };
+                })}
+              />
               {config.plannedHeirs > 0 && (
                 <QuorumPicker max={config.plannedHeirs} value={config.heirQ} onChange={n => setConfig(c => ({ ...c, heirQ: n }))} color={colors.blue} />
               )}
@@ -715,12 +711,31 @@ function BlocConfigureFields({ config, setConfig }: { config: BlocConfig; setCon
     <Card>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <Field label="How many parents?">
-          <Input type="number" min={1} style={{ width: 90 }} value={config.plannedParents} onChange={e => setConfig(c => ({ ...c, plannedParents: Math.max(1, Number(e.target.value) || 1) }))} />
+          <CountStepper
+            value={config.plannedParents}
+            min={1}
+            label="parents"
+            color={colors.gold}
+            onChange={plannedParents => setConfig(c => ({
+              ...c, plannedParents, parentsTogetherQ: Math.min(c.parentsTogetherQ, plannedParents),
+            }))}
+          />
           <div style={{ fontSize: 12, color: colors.muted, marginTop: 8 }}>Parents together, right away:</div>
           <QuorumPicker max={config.plannedParents} value={config.parentsTogetherQ} onChange={n => setConfig(c => ({ ...c, parentsTogetherQ: n }))} color={colors.gold} />
         </Field>
         <Field label="How many kids?">
-          <Input type="number" min={1} style={{ width: 90 }} value={config.plannedKids} onChange={e => setConfig(c => ({ ...c, plannedKids: Math.max(1, Number(e.target.value) || 1) }))} />
+          <CountStepper
+            value={config.plannedKids}
+            min={1}
+            label="kids"
+            color={colors.blue}
+            onChange={plannedKids => setConfig(c => ({
+              ...c,
+              plannedKids,
+              kidsWithParentQ: Math.min(c.kidsWithParentQ, plannedKids),
+              kidsDecayFloorQ: Math.min(c.kidsDecayFloorQ, plannedKids),
+            }))}
+          />
         </Field>
         <Field label="One parent + how many kids, right away?">
           <QuorumPicker max={config.plannedKids} value={config.kidsWithParentQ} onChange={n => setConfig(c => ({ ...c, kidsWithParentQ: n }))} color={colors.blue} />

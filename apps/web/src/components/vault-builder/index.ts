@@ -1,4 +1,5 @@
 export { QuorumPicker } from './QuorumPicker';
+export { CountStepper } from './CountStepper';
 export { KeyPicker, selectStyle } from './KeyPicker';
 export { SlotHint } from './SlotHint';
 export { CopyField } from './CopyField';
