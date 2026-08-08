@@ -190,6 +190,9 @@ export default function Dashboard() {
         >
           Join with trust code
         </Button>
+        <Button variant="ghost" size="sm" onClick={() => navigate("/keys")}>
+          Manage keys
+        </Button>
         <Button size="sm" onClick={() => navigate("/start")}>
           + Add vault
         </Button>
@@ -392,16 +395,6 @@ export default function Dashboard() {
             </div>
           );
         })}
-      </div>
-
-      <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap", paddingTop: space[3] }}>
-        <button
-          type="button"
-          onClick={() => navigate("/keys")}
-          style={{ background: "none", border: "none", color: colors.muted, cursor: "pointer", fontSize: 13, padding: 0 }}
-        >
-          Manage keys
-        </button>
       </div>
 
       {showTrustCode && (
