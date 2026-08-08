@@ -27,8 +27,9 @@
  */
 
 import { schnorr } from '@noble/curves/secp256k1';
-import { buildEvent, NostrTransport, type PublishResult } from '@dynastytrust/nostr-transport';
+import { buildEvent, NostrTransport } from '@dynastytrust/nostr-transport';
 import { encryptTo } from '@dynastytrust/nip44';
+import { nostrOutbox } from './nostrOutbox';
 
 // Same event kind Tapit's psbtCosignChannel.ts subscribes on -- see that
 // file's header comment for why this isn't TAPIT_ENVELOPE_KIND (9573):
@@ -67,17 +68,29 @@ export interface VaultContext {
 }
 
 export interface SendPsbtCosignOverNostrResult {
-  publish: PublishResult;
   eventId: string;
+  /** True when a relay confirmed receipt before this call returned. False
+   *  means the event is safely queued in the durable outbox and the
+   *  background worker (nostrOutboxWorker.ts) will keep retrying with
+   *  backoff until a relay accepts it -- NOT lost, just not confirmed yet. */
+  delivered: boolean;
 }
 
 /**
- * Encrypt and publish a psbt-cosign request to one Tapit member's real
+ * Encrypt and durably queue a psbt-cosign request for a Tapit member's real
  * public key (the same value shown on Tapit's own "Your public key"
- * Settings panel, or captured as a Tapit-sourced key's tapitXOnlyPubkey
- * in keystore.ts). Opens a short-lived transport connection, publishes,
- * and closes it -- this is a fire-and-forget notification, not a
- * long-lived subscription; nothing here waits for a response.
+ * Settings panel, or captured as a Tapit-sourced key's tapitXOnlyPubkey in
+ * keystore.ts).
+ *
+ * The signed event is enqueued in nostrOutbox BEFORE any network attempt --
+ * durability does not depend on this call's own publish succeeding. An
+ * immediate best-effort publish is still attempted for fast feedback in the
+ * common case (network fine, at least one relay up); if none of the
+ * configured relays accept within the attempt, the row stays 'pending' and
+ * nostrOutboxWorker's background retry loop (started once at app boot)
+ * keeps trying with exponential backoff until one does. Publishing the same
+ * signed event twice (this call's own attempt, then the worker's) is
+ * harmless -- Nostr events are content-addressed and idempotent.
  */
 export async function sendPsbtCosignRequestOverNostr(opts: {
   psbtHex: string;
@@ -112,10 +125,25 @@ export async function sendPsbtCosignRequestOverNostr(opts: {
     tags: [['p', opts.recipientXOnlyPubkey]],
   });
 
-  const transport = new NostrTransport({ relays: opts.relays ?? DEFAULT_RELAYS });
+  const relays = opts.relays ?? DEFAULT_RELAYS;
+  await nostrOutbox.enqueue({
+    event,
+    relays,
+    label: `Spend request${opts.vaultContext.vault_name ? ` -- ${opts.vaultContext.vault_name}` : ''}`,
+  });
+
+  const transport = new NostrTransport({ relays });
   try {
     const publish = await transport.publish(event);
-    return { publish, eventId: event.id };
+    if (publish.accepted.length > 0) {
+      await nostrOutbox.markSent(event.id);
+      return { eventId: event.id, delivered: true };
+    }
+    await nostrOutbox.markAttempt(event.id, 'no relay accepted on first attempt');
+    return { eventId: event.id, delivered: false };
+  } catch (e) {
+    await nostrOutbox.markAttempt(event.id, e instanceof Error ? e.message : 'publish failed');
+    return { eventId: event.id, delivered: false };
   } finally {
     transport.close();
   }

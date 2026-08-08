@@ -28,7 +28,7 @@ export function CirclePhraseSetup({
   const [normalPhrase, setNormalPhrase] = useState('');
   const [duressPhrase, setDuressPhrase] = useState('');
   const [busyKeyId, setBusyKeyId] = useState<string | null>(null);
-  const [sentTo, setSentTo] = useState<Set<string>>(new Set());
+  const [sentTo, setSentTo] = useState<Map<string, 'delivered' | 'queued'>>(new Map());
 
   const signerPubkeys = new Set<string>();
   for (const x of founderKeys) {
@@ -60,15 +60,19 @@ export function CirclePhraseSetup({
     if (!ready || !vaultDescriptor) return;
     setBusyKeyId(keyId);
     try {
-      await sendCirclePhrasePairOverNostr({
+      const result = await sendCirclePhrasePairOverNostr({
         vaultDescriptor,
         vaultName,
         normalPhrase: normalPhrase.trim(),
         duressPhrase: duressPhrase.trim(),
         recipientXOnlyPubkey: xOnlyPubkey,
       });
-      setSentTo(prev => new Set(prev).add(keyId));
-      toast.success(`Sent to ${label}`);
+      setSentTo(prev => new Map(prev).set(keyId, result.delivered ? 'delivered' : 'queued'));
+      toast.success(
+        result.delivered
+          ? `Sent to ${label}`
+          : `Queued for ${label} -- no relay confirmed yet, will keep retrying`,
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to send');
     } finally {
@@ -127,7 +131,13 @@ export function CirclePhraseSetup({
               disabled={!ready || busyKeyId === k.keyId}
               onClick={() => void sendTo(k.keyId, k.tapitXOnlyPubkey!, k.label)}
             >
-              {sentTo.has(k.keyId) ? 'Sent' : busyKeyId === k.keyId ? 'Sending…' : 'Send'}
+              {sentTo.get(k.keyId) === 'delivered'
+                ? 'Sent'
+                : sentTo.get(k.keyId) === 'queued'
+                  ? 'Queued -- retrying'
+                  : busyKeyId === k.keyId
+                    ? 'Sending…'
+                    : 'Send'}
             </Button>
           </div>
         ))}

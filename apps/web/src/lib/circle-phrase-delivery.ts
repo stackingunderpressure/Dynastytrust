@@ -18,9 +18,10 @@
  */
 
 import { schnorr } from '@noble/curves/secp256k1';
-import { buildEvent, NostrTransport, type PublishResult } from '@dynastytrust/nostr-transport';
+import { buildEvent, NostrTransport } from '@dynastytrust/nostr-transport';
 import { encryptTo } from '@dynastytrust/nip44';
 import { DEFAULT_RELAYS } from './tapit-nostr-cosign';
+import { nostrOutbox } from './nostrOutbox';
 
 // Next free sibling after the psbt-cosign channel's 9576 -- see that
 // channel's own header for why each of these gets its own kind rather than
@@ -39,15 +40,21 @@ function generateEphemeralKeypair(): { privateKey: string; publicKey: string } {
 }
 
 export interface SendCirclePhraseResult {
-  publish: PublishResult;
   eventId: string;
+  /** True when a relay confirmed receipt before this call returned. False
+   *  means the event is safely queued in the durable outbox and the
+   *  background worker keeps retrying with backoff until a relay accepts
+   *  it -- NOT lost, just not confirmed yet. See nostrOutbox.ts's header. */
+  delivered: boolean;
 }
 
 /**
- * Encrypt and publish a phrase pair to one circle member's real Tapit
- * pubkey. Opens a short-lived transport connection, publishes, closes it --
- * a fire-and-forget send, not a subscription. Call once per circle member
- * (fan-out is the caller's job, same as sendPsbtCosignRequestOverNostr).
+ * Encrypt and durably queue a phrase pair for one circle member's real
+ * Tapit pubkey. The signed event is enqueued in nostrOutbox before any
+ * network attempt, so a relay outage at send time never loses it -- see
+ * nostrOutbox.ts's header for exactly what "durable" means here. Call once
+ * per circle member (fan-out is the caller's job, same as
+ * sendPsbtCosignRequestOverNostr).
  */
 export async function sendCirclePhrasePairOverNostr(opts: {
   vaultDescriptor: string;
@@ -78,10 +85,25 @@ export async function sendCirclePhrasePairOverNostr(opts: {
     tags: [['p', opts.recipientXOnlyPubkey]],
   });
 
-  const transport = new NostrTransport({ relays: opts.relays ?? DEFAULT_RELAYS });
+  const relays = opts.relays ?? DEFAULT_RELAYS;
+  await nostrOutbox.enqueue({
+    event,
+    relays,
+    label: `Safety phrase -- ${opts.vaultName}`,
+  });
+
+  const transport = new NostrTransport({ relays });
   try {
     const publish = await transport.publish(event);
-    return { publish, eventId: event.id };
+    if (publish.accepted.length > 0) {
+      await nostrOutbox.markSent(event.id);
+      return { eventId: event.id, delivered: true };
+    }
+    await nostrOutbox.markAttempt(event.id, 'no relay accepted on first attempt');
+    return { eventId: event.id, delivered: false };
+  } catch (e) {
+    await nostrOutbox.markAttempt(event.id, e instanceof Error ? e.message : 'publish failed');
+    return { eventId: event.id, delivered: false };
   } finally {
     transport.close();
   }

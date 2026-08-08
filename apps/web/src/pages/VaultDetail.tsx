@@ -1186,13 +1186,17 @@ function NotifyCircleViaNostr({
   async function notify(key: LocalKey) {
     setBusyKeyId(key.keyId);
     try {
-      await sendPsbtCosignRequestOverNostr({
+      const result = await sendPsbtCosignRequestOverNostr({
         psbtHex,
         vaultContext: { vault_descriptor: vaultDescriptor ?? "", vault_name: vaultName },
         recipientXOnlyPubkey: key.tapitXOnlyPubkey!,
       });
       setNotified(prev => new Set(prev).add(key.keyId));
-      toast.success(`Notified ${key.label} via Nostr`);
+      toast.success(
+        result.delivered
+          ? `Notified ${key.label} via Nostr`
+          : `Queued for ${key.label} -- no relay confirmed yet, will keep retrying`,
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to notify");
     } finally {

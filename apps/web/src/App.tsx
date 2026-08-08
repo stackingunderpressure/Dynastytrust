@@ -1,6 +1,8 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { supabase } from './lib/supabase';
 import { markIntentionalSignOut } from './lib/session-intent';
+import { startNostrOutboxWorker } from './lib/nostrOutboxWorker';
 import KeyManager from './pages/KeyManager';
 import VaultWizard from './pages/VaultWizard';
 import StartVault from './pages/StartVault';
@@ -44,6 +46,18 @@ function AuthedApp() {
   const location = useLocation();
   const activeNavId =
     NAV_LINKS.find(l => location.pathname.startsWith(l.path))?.id ?? '';
+
+  // Durable Nostr outbox (2026-08-08, operator: "it needs to be constantly
+  // aware... always looking"). Started once for the whole authenticated
+  // session so a psbt-cosign request or a circle safety-phrase send that
+  // couldn't reach any relay at send time keeps retrying in the
+  // background for as long as the app is open, not just at the moment
+  // the operator clicked "send." Stopped on sign-out / unmount so it
+  // never runs against a session that's gone.
+  useEffect(() => {
+    const worker = startNostrOutboxWorker();
+    return () => worker.stop();
+  }, []);
 
   return (
     <Routes>
