@@ -53,6 +53,9 @@ async function getFeeRate(network) {
 // Which leaf a spend path actually signs through, and how many of the
 // vault's keys sit in that leaf -- recovery reuses the founder keys
 // (recovery_quorum falls back to founder_quorum) per the architecture doc.
+// backup is a SEPARATE key set (027_backup_path.sql), never the founder
+// keys -- unlike recovery, it's mutually exclusive with recovery on the
+// same vault (see DynastyPolicy::has_backup, protocol repo).
 function leafSignerCounts(vault, path) {
   switch (path) {
     case 'recovery':
@@ -61,17 +64,27 @@ function leafSignerCounts(vault, path) {
       return { quorum: vault.heir_quorum, total: (vault.heir_keys || []).length };
     case 'protector':
       return { quorum: vault.protector_quorum, total: (vault.protector_keys || []).length };
+    case 'backup':
+      return { quorum: vault.backup_quorum, total: (vault.backup_keys || []).length };
     case 'founders_now':
     default:
       return { quorum: vault.founder_quorum, total: (vault.founder_keys || []).length };
   }
 }
 
-// Number of leaves in this vault's taproot tree (founders_now + recovery +
-// inheritance, plus protector if configured) -- determines the taptree
-// merkle path length baked into every input's control block.
+// Number of leaves in this vault's taproot tree -- determines the taptree
+// merkle path length baked into every input's control block. Not every
+// vault has all four: a "Gift Locker" shape has no recovery/backup leaf,
+// a "founders + backup only" shape (Tapit Circle) has no inheritance leaf
+// at all, and protector is always optional. Count only what's actually
+// configured rather than assuming the old fixed 3-leaf shape.
 function leafCountForTree(vault) {
-  return 3 + (vault.protector_quorum != null && vault.protector_after != null ? 1 : 0);
+  let n = 1; // founders_now is always present
+  if (vault.recovery_after > 0) n += 1;
+  else if ((vault.backup_keys || []).length > 0 && vault.backup_quorum != null) n += 1;
+  if ((vault.heir_keys || []).length > 0) n += 1;
+  if (vault.protector_quorum != null && vault.protector_after != null) n += 1;
+  return n;
 }
 
 // Size a script-path (tapscript leaf) taproot input properly instead of
@@ -118,7 +131,7 @@ export async function handler(event) {
   const supabase = getSupabaseAdmin();
   const { data: vault, error } = await supabase
     .from('vaults')
-    .select('id, name, address, network, descriptor, address_type, recovery_after, inheritance_after, recovery_quorum, founder_quorum, heir_quorum, founder_keys, heir_keys, consent_keys, consent_quorum, protector_keys, protector_quorum, protector_after')
+    .select('id, name, address, network, descriptor, address_type, recovery_after, inheritance_after, recovery_quorum, founder_quorum, heir_quorum, founder_keys, heir_keys, consent_keys, consent_quorum, protector_keys, protector_quorum, protector_after, backup_keys, backup_quorum')
     .eq('id', vault_id)
     .maybeSingle();
 
@@ -144,12 +157,13 @@ export async function handler(event) {
     if (k.length === 66) return k; // already pubkey hex
     return pubkeyFromXpub(k); // throws "Version mismatch" etc.
   };
-  let founderPubkeys, heirPubkeys, consentPubkeys, protectorPubkeys;
+  let founderPubkeys, heirPubkeys, consentPubkeys, protectorPubkeys, backupPubkeys;
   try {
     founderPubkeys = (vault.founder_keys || []).map(toPubkeyHex);
     heirPubkeys = (vault.heir_keys || []).map(toPubkeyHex);
     consentPubkeys = (vault.consent_keys || []).map(toPubkeyHex);
     protectorPubkeys = (vault.protector_keys || []).map(toPubkeyHex);
+    backupPubkeys = (vault.backup_keys || []).map(toPubkeyHex);
   } catch (e) {
     return json(500, { error: 'Could not derive /0/0 pubkey from vault xpubs: ' + e.message });
   }
@@ -313,6 +327,9 @@ export async function handler(event) {
               protector_quorum: vault.protector_quorum,
               protector_after: vault.protector_after,
             }
+          : {}),
+        ...(backupPubkeys.length > 0 && vault.backup_quorum != null
+          ? { backup_keys: backupPubkeys, backup_quorum: vault.backup_quorum }
           : {}),
       }),
     });

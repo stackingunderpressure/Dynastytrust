@@ -1332,6 +1332,19 @@ function SendTab({ vault, balance, onDone, prefill }: {
   const [blocPath, setBlocPath] = useState<"parents_now" | "coparent_kids" | "parent_solo" | "kids_decay">("parents_now");
   const [blocRungIdx, setBlocRungIdx] = useState(0);
 
+  // Standard (non-Bloc) vault: which leaf this proposal spends through.
+  // founders_now is always available; the rest only show up once the
+  // vault actually has that leaf configured (psbt-binary.js's
+  // leafSignerCounts/leafCountForTree only know how to size these five).
+  const hasRecovery = vault.recovery_after > 0;
+  const hasInheritance = vault.heir_keys.length > 0 && vault.inheritance_after > 0;
+  const hasProtector =
+    vault.protector_keys.length > 0 && vault.protector_quorum != null && vault.protector_after != null;
+  const hasBackup = vault.backup_keys.length > 0 && vault.backup_quorum != null;
+  const [standardPath, setStandardPath] = useState<
+    "founders_now" | "recovery" | "inheritance" | "protector" | "backup"
+  >("founders_now");
+
   const confirmedSats = balance?.confirmed_sats ?? 0;
   const amountSats = Math.round(parseFloat(amountBtc || "0") * 1e8);
   const rules = vault.trust_doc?.rules ?? [];
@@ -1390,7 +1403,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
         status?: string;
         message?: string;
       };
-      const path: string = bp ? blocPath : "founders_now";
+      const path: string = bp ? blocPath : standardPath;
 
       if (bp) {
         const blocRes = await api.psbtBloc({
@@ -1423,7 +1436,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
           destination: dest.trim(),
           amount_sats: amountSats,
           fee_rate: feeRate ? parseFloat(feeRate) : undefined,
-          path: "founders_now",
+          path: standardPath,
           selected_utxos: prefill?.selected_utxos,
         }) as typeof psbtRes;
       }
@@ -2260,6 +2273,48 @@ function SendTab({ vault, balance, onDone, prefill }: {
                 </option>
               ))}
             </select>
+          )}
+        </div>
+      )}
+
+      {!bp && (hasRecovery || hasInheritance || hasProtector || hasBackup) && (
+        <div>
+          <Label>Spend path</Label>
+          <select
+            value={standardPath}
+            onChange={e => setStandardPath(e.target.value as typeof standardPath)}
+            style={selectStyle}
+          >
+            <option value="founders_now">
+              Founders now ({vault.founder_quorum} of {vault.founder_keys.length}) -- no waiting
+            </option>
+            {hasRecovery && (
+              <option value="recovery">
+                Recovery ({vault.recovery_quorum ?? vault.founder_quorum} of {vault.founder_keys.length} founders) -- after timelock
+              </option>
+            )}
+            {hasInheritance && (
+              <option value="inheritance">
+                Inheritance ({vault.heir_quorum} of {vault.heir_keys.length} heirs) -- after timelock
+              </option>
+            )}
+            {hasProtector && (
+              <option value="protector">
+                Protector ({vault.protector_quorum} of {vault.protector_keys.length}) -- after inactivity timelock
+              </option>
+            )}
+            {hasBackup && (
+              <option value="backup">
+                Backup ({vault.backup_quorum} of {vault.backup_keys.length}) -- anytime, no timelock
+              </option>
+            )}
+          </select>
+          {standardPath !== "founders_now" && (
+            <div style={{ fontSize: 11, color: colors.muted, marginTop: 5 }}>
+              {standardPath === "backup"
+                ? "This path has no timelock, but it needs a separate set of keys from the day-to-day founders."
+                : "This path is only spendable once its timelock has passed -- the compiler will reject the build otherwise."}
+            </div>
           )}
         </div>
       )}
