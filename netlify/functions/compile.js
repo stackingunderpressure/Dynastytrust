@@ -78,8 +78,14 @@ export async function handler(event) {
     finalInheritanceAfter = 0;
   } else {
     if (!finalHeirQuorum) return json(400, { error: "Missing: heir_quorum" });
-    if (!finalRecoveryAfter) return json(400, { error: "Missing: recovery_after" });
     if (!finalInheritanceAfter) return json(400, { error: "Missing: inheritance_after" });
+    // recovery_after == 0 is no longer an error here: it's the "Gift
+    // Locker" shape (founders-now OR a single beneficiary path that
+    // unlocks after a specified time, with no separate founders-after-
+    // a-delay recovery leaf in between) -- see DynastyPolicy::has_recovery()
+    // in protocol/src/policy_compiler.rs. The Rust compiler's own
+    // verify() still enforces MIN_RECOVERY_BLOCKS whenever recovery_after
+    // IS set to something nonzero.
   }
 
   if (!COMPILER_URL) {
