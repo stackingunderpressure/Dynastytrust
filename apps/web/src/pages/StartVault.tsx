@@ -53,6 +53,13 @@ const INTENTS: Intent[] = [
     route: '/policy',
     template: 'gift-locker',
   },
+  {
+    emoji: '🔐',
+    title: 'A close circle, unanimous',
+    desc: 'Everyone in your circle holds their key in Tapit Wallet and must agree, every time -- no majority override. An easier path opens above it only if the circle can\'t.',
+    route: '/policy',
+    template: 'tapit-circle',
+  },
 ];
 
 export default function StartVault() {

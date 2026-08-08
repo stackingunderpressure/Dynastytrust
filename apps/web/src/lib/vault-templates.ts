@@ -736,6 +736,84 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
     },
   },
 
+  {
+    id: 'tapit-circle',
+    title: 'Tapit Circle',
+    tagline: 'A unanimous 3-5 person circle, keys held in Tapit',
+    useCase:
+      "A close circle of 3 to 5 people who each hold their signing key in Tapit Wallet -- everyone in the circle must sign for a normal spend, no exceptions. Each person's private key never leaves their own Tapit Wallet; a signature only exists if that specific person unlocked their own wallet with their own passphrase and approved. Above the circle sits a second, easier path -- single-sig or multi, your choice -- that opens after a timelock, in case the circle itself can't reach unanimous agreement. See docs/integration-phase2-vault-key-bridge.md for how the Tapit key handoff and signing bridge work.",
+    config: {
+      mode: 'inheritance',
+      plannedFounders: 5,
+      // Unanimous by design -- the whole point of a "close circle" is that
+      // no subset of it can act alone. Tune plannedFounders (3-5) in
+      // Configure; founderQ is kept equal to it there so the circle stays
+      // unanimous at whatever size you pick.
+      founderQ: 5,
+      plannedHeirs: 1,
+      // Single-sig by default -- deliberately the simplest "easier" leg.
+      // Bump plannedHeirs/heirQ in Configure for a multi-person second
+      // leg instead; both are fully free, per-vault choices.
+      heirQ: 1,
+      recoveryAfter: 0, // Gift Locker-shaped: no separate recovery leaf -- a genuinely different, easier group above the circle, not a decayed version of the same one.
+      inheritanceAfter: 52_560, // ~1 year -- adjust to how long the circle should be given before the easier path opens
+    },
+    scenarios: [
+      {
+        title: 'A normal spend',
+        trigger: 'The circle wants to move funds.',
+        outcome:
+          'Every circle member opens Tapit, reviews the real spend details on the approval screen, and signs with their own passphrase. Bitcoin itself refuses the transaction until all of them have -- this isn\'t an app-level checkbox, it\'s enforced by the compiled script.',
+        actions: [
+          'Build the proposal in the Send tab.',
+          'Each circle member signs via Tapit from their own device.',
+          'Once every signature is collected, broadcast.',
+        ],
+        severity: 'info',
+      },
+      {
+        title: 'One member is unreachable or refuses',
+        trigger: 'The circle can\'t reach unanimous agreement.',
+        outcome:
+          'Path 1 is frozen -- by design, a unanimous circle has no majority override. Funds are safe but immovable on this path until either the missing member returns or the second leg\'s timelock opens.',
+        actions: [
+          'Wait for the member to become reachable again, or',
+          'Wait for the timelock to open the second, easier leg.',
+        ],
+        severity: 'warn',
+      },
+      {
+        title: 'The timelock opens the second leg',
+        trigger: 'The configured delay passes with no Path 1 spend.',
+        outcome:
+          'Whoever holds the second-leg keys (single-sig or multi, as configured) can now spend without needing the circle at all.',
+        actions: [
+          'Confirm the second-leg holder still controls their key(s) before relying on this path.',
+        ],
+        severity: 'info',
+      },
+      {
+        title: 'A circle member loses their Tapit wallet',
+        trigger: 'A device is lost, or a passphrase is forgotten, before the timelock opens.',
+        outcome:
+          "Path 1 needs every circle member -- with one key gone, the remaining members cannot spend early. The Tapit-side recovery paths (recovery key, encrypted backup, trusted-helper cohort) are that member's own path back into their wallet; they don't affect this vault's script at all. If the key is truly gone for good, the circle is frozen until the second leg's timelock opens.",
+        actions: [
+          "Help the member recover their Tapit wallet through Tapit's own recovery paths first.",
+          "If unrecoverable, wait for the timelock, then rebuild a fresh circle vault with a replacement member.",
+        ],
+        severity: 'danger',
+      },
+    ],
+    trustDoc: {
+      purpose:
+        'A vault controlled by unanimous agreement of a close circle of 3-5 people, each signing from their own Tapit Wallet. No spend moves without every circle member\'s real signature -- enforced by the compiled Bitcoin script, not by app policy. A second, easier path above the circle exists as a fallback if the circle itself cannot act.',
+      distribution_rules:
+        'Every normal spend requires a signature from every named circle member, collected through each member\'s own Tapit Wallet. No majority override exists on this path by design.',
+      succession_notes:
+        "Name who holds the second-leg key(s) and how they should be reached. The circle itself has no recovery path -- if a member's key is permanently lost, the vault is frozen on Path 1 until the second leg's timelock opens. Circle membership should be reviewed whenever a relationship or a member's reachability changes.",
+    },
+  },
+
   // // -- Test-mode templates -------------------------------------
   // Same shapes, timelocks measured in blocks (hours-to-a-day on
   // signet at 10-min blocks) so a full recovery / inheritance /
@@ -931,6 +1009,44 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
       purpose: 'Signet test sandbox for the Gift Locker shape. Not for real value.',
       distribution_rules: 'Test distributions only. Reset mnemonics + vault after verification.',
       succession_notes: 'Test vault. Delete the seeds after you have verified both spending paths.',
+    },
+    testMode: true,
+  },
+  {
+    id: 'test-tapit-circle',
+    title: '[TEST] Tapit Circle',
+    tagline: '3-of-3 circle . single-sig second leg . 30 blocks',
+    useCase:
+      'Sandbox for the Tapit Circle shape at a smaller size (3, not 5) and a fast timelock so the whole cycle -- unanimous circle spend, a frozen path when one member is absent, the second leg opening -- can be verified in an afternoon on signet. Real Tapit keys still required for the circle; the shape is what\'s sped up, not the key source.',
+    config: {
+      mode: 'inheritance',
+      plannedFounders: 3,
+      founderQ: 3,
+      plannedHeirs: 1,
+      heirQ: 1,
+      recoveryAfter: 0,
+      inheritanceAfter: 30,
+    },
+    scenarios: [
+      {
+        title: 'Verify unanimity, then the fallback, without waiting a year',
+        trigger: 'You want to see the whole circle actually have to agree, and the fallback actually open.',
+        outcome:
+          'Compile, fund, then have all 3 circle members sign a Path 1 spend via their own Tapit Wallet. Try leaving one out and confirm the spend is refused. Wait ~5 hours on signet for the second leg to open, then spend with just the single-sig fallback key.',
+        actions: [
+          'Import all 3 circle members\' real Tapit public keys -- the point of this test is proving the unanimous-signing flow works, not simulating it with software keys.',
+          'Attempt a spend with only 2 of 3 signed; confirm it\'s refused.',
+          'Get all 3 signatures; confirm it broadcasts.',
+          'Wait for inheritance_after; confirm the second-leg key can spend alone.',
+          'Once satisfied, recompile the production "Tapit Circle" template with the real circle size and timelock.',
+        ],
+        severity: 'info',
+      },
+    ],
+    trustDoc: {
+      purpose: 'Signet test sandbox for the Tapit Circle shape. Not for real value.',
+      distribution_rules: 'Test distributions only. Confirm both the unanimous-refusal case and the full-signature case before trusting the shape with real funds.',
+      succession_notes: 'Test vault. Rotate out the circle\'s Tapit keys or delete the vault after verification.',
     },
     testMode: true,
   },
