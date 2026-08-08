@@ -16,10 +16,12 @@ import {
   mergePsbts,
   signPsbtWithMnemonic,
 } from "../lib/psbt-signer";
+import { getTapitCircleMembers } from "../lib/tapit-circle-members";
 import { LoadingScreen } from "../components/LoadingScreen";
 import { useToast } from "../components/toast";
 import { useConfirm, usePrompt } from "../components/dialog";
 import { Button, Textarea } from "../components/ui";
+import { NotifyCircleViaNostr } from "../components/NotifyCircleViaNostr";
 import { useRealtimeRefresh } from "../lib/realtime";
 import { normalizePsbt } from "../lib/psbt-format";
 import { colors, fonts, radii, space } from "../theme";
@@ -136,6 +138,33 @@ export default function ProposalDetail() {
   const signableKeys = localKeys.filter(
     k => vaultMemberFingerprints.has(k.fingerprint) && !alreadySignedFingerprints.has(k.fingerprint),
   );
+
+  // Tapit-origin founder keys, same detection VaultMembershipSetup and
+  // SendTab's NotifyCircleViaNostr already use -- matched against
+  // vault.founder_keys directly, since these signers don't necessarily
+  // have a vault_members row/fingerprint the way a hardware or software
+  // key does. "Already signed" isn't tracked per-Tapit-key here (their
+  // signer_sessions rows carry a label, not a fingerprint); this just
+  // reflects into the live progress bar via load() after a signature
+  // lands, same as every other signing path on this page.
+  const tapitSigners = getTapitCircleMembers(vault.founder_keys).circleMembers.map(key => ({
+    key,
+    status: "pending" as const,
+  }));
+
+  async function tapitSigned(psbtHex: string, label: string) {
+    if (!proposal) return;
+    try {
+      await api.signerSessions.submit({
+        proposal_id: proposal.id,
+        psbt_partial_hex: psbtHex,
+        label,
+      });
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save signature");
+    }
+  }
 
   async function signWith(key: LocalKey) {
     if (!proposal || !vault) return;
@@ -257,6 +286,16 @@ export default function ProposalDetail() {
             ))}
           </div>
         </ActionCard>
+      )}
+
+      {!terminal && (
+        <NotifyCircleViaNostr
+          psbtHex={mergedPsbt || proposal.psbt_hex || ""}
+          vaultDescriptor={vault.descriptor}
+          vaultName={vault.name}
+          signers={tapitSigners}
+          onSigned={(hex, label) => void tapitSigned(hex, label)}
+        />
       )}
 
       {!terminal && (
