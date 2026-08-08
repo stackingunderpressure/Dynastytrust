@@ -1,6 +1,6 @@
 /**
- * tapit-nostr-cosign.ts -- Cut B stage B3, slice 1 (the DynastyTrust half
- * of docs/integration-phase2-vault-key-bridge.md and
+ * tapit-nostr-cosign.ts -- Cut B stage B3 (the DynastyTrust half of
+ * docs/integration-phase2-vault-key-bridge.md and
  * docs/integration-phase1-signin-and-bridge.md's B3). Publishes a
  * psbt-cosign request directly into a Tapit member's encrypted Nostr
  * inbox, so a circle member on their own phone gets the request without a
@@ -8,13 +8,17 @@
  * bridge only works when the signer shares a browser tab with the
  * requester).
  *
- * "Prove the pipe" scope only: this SENDS a request. It does not (yet)
- * subscribe for the signed response -- Tapit's own psbtCosignChannel.ts
- * receive side is built and wired to a visible inbox banner, but
- * approveRequest.ts's psbt-cosign branch still hardcodes a
- * window.location.href redirect to the request's `callback` URL, which
- * has nothing to redirect TO over this transport. Absorbing a
- * Nostr-delivered signature back into a proposal is the next slice.
+ * Slice 2 (2026-08-08) closes the loop slice 1 left open: the request now
+ * carries a `response_channel` naming this call's own ephemeral pubkey as
+ * the reply address, and returns that keypair's private half to the
+ * caller. Tapit's approveSignRequest (Cut B3 slice 2, tapit-wallet repo)
+ * publishes the signed PSBT back to that pubkey instead of trying to
+ * redirect a browser tab nobody opened. The caller is responsible for
+ * keeping the returned private key alive in memory for exactly as long as
+ * this one signing session is open (see psbt-cosign-response-channel.ts
+ * and VaultDetail.tsx's NotifyCircleViaNostr) and subscribing with it --
+ * never persisted, never reused across requests, same one-request-only
+ * identity discipline the send side already used for the request itself.
  *
  * Uses an EPHEMERAL per-request keypair as the Nostr sender identity, not
  * any persistent DynastyTrust key -- this app has no long-lived Tapit
@@ -23,7 +27,7 @@
  * vault issued the request. The recipient's decision to sign never
  * depends on trusting who published the event; that trust lives entirely
  * in the attested vault-membership trail Tapit checks against the PSBT's
- * own leaf scripts (Cut C3, not yet built).
+ * own leaf scripts (Cut C3).
  */
 
 import { schnorr } from '@noble/curves/secp256k1';
@@ -74,6 +78,14 @@ export interface SendPsbtCosignOverNostrResult {
    *  background worker (nostrOutboxWorker.ts) will keep retrying with
    *  backoff until a relay accepts it -- NOT lost, just not confirmed yet. */
   delivered: boolean;
+  /** This request's ephemeral reply keypair. The caller keeps
+   *  `replyPrivateKey` in memory (never persisted) for as long as it wants
+   *  to listen for this specific signer's response --
+   *  subscribePsbtCosignResponses (psbt-cosign-response-channel.ts) needs
+   *  it to decrypt what comes back. `replyPublicKey` is the same value
+   *  embedded in the request's `response_channel.requester_pubkey`. */
+  replyPrivateKey: string;
+  replyPublicKey: string;
 }
 
 /**
@@ -104,13 +116,18 @@ export async function sendPsbtCosignRequestOverNostr(opts: {
     intent: 'psbt-cosign' as const,
     origin: 'DynastyTrust',
     // No page to redirect back to over this transport -- the response
-    // comes back over the same Nostr channel once that's wired up
-    // (next slice). Kept as the app's own origin, not a dead placeholder,
-    // since the type requires a non-empty string and this is at least a
-    // truthful one.
+    // comes back over Nostr instead, addressed to response_channel below.
+    // callback is still required by the wallet's SignRequest shape; kept
+    // as the app's own origin (a truthful value, not a dead placeholder)
+    // in case a future intent variant ever needs it as a fallback.
     callback: `${window.location.origin}/vaults`,
     psbt_hex: opts.psbtHex,
     vault_context: opts.vaultContext,
+    // Reuses this same request's ephemeral keypair as the reply address --
+    // no privacy cost to that (a relay already correlates this pubkey to
+    // this request as its sender) and it means the caller only has to keep
+    // one throwaway private key alive to hear back, not two.
+    response_channel: { kind: 'nostr' as const, requester_pubkey: ephemeral.publicKey },
   };
   const ciphertext = encryptTo(
     JSON.stringify(request),
@@ -137,13 +154,28 @@ export async function sendPsbtCosignRequestOverNostr(opts: {
     const publish = await transport.publish(event);
     if (publish.accepted.length > 0) {
       await nostrOutbox.markSent(event.id);
-      return { eventId: event.id, delivered: true };
+      return {
+        eventId: event.id,
+        delivered: true,
+        replyPrivateKey: ephemeral.privateKey,
+        replyPublicKey: ephemeral.publicKey,
+      };
     }
     await nostrOutbox.markAttempt(event.id, 'no relay accepted on first attempt');
-    return { eventId: event.id, delivered: false };
+    return {
+      eventId: event.id,
+      delivered: false,
+      replyPrivateKey: ephemeral.privateKey,
+      replyPublicKey: ephemeral.publicKey,
+    };
   } catch (e) {
     await nostrOutbox.markAttempt(event.id, e instanceof Error ? e.message : 'publish failed');
-    return { eventId: event.id, delivered: false };
+    return {
+      eventId: event.id,
+      delivered: false,
+      replyPrivateKey: ephemeral.privateKey,
+      replyPublicKey: ephemeral.publicKey,
+    };
   } finally {
     transport.close();
   }
