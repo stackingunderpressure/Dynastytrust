@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { listKeys } from '../lib/keystore';
 import { pubkeyFromXpub } from '../lib/xpub';
 import { sendCirclePhrasePairOverNostr } from '../lib/circle-phrase-delivery';
@@ -31,10 +32,17 @@ export function CirclePhraseSetup({
   const [sentTo, setSentTo] = useState<Map<string, 'delivered' | 'queued'>>(new Map());
 
   const signerPubkeys = new Set<string>();
+  // A founder_keys entry with no real xpub (a bare 66-hex pubkey) is the
+  // signature of a Tapit-origin key (see keystore.ts's importTapitPubkey
+  // and the compile function's keyStoreValue) -- nothing else in this app
+  // stores a founder that way, so this is the closest available signal
+  // that "this vault expects a Tapit circle member here."
+  const bareFounderPubkeys: string[] = [];
   for (const x of founderKeys) {
     if (typeof x !== 'string') continue;
     if (x.length === 66) {
       signerPubkeys.add(x);
+      bareFounderPubkeys.push(x);
       continue;
     }
     try {
@@ -48,7 +56,37 @@ export function CirclePhraseSetup({
     k => k.status === 'active' && k.origin === 'tapit' && k.tapitXOnlyPubkey && signerPubkeys.has(k.pubkey),
   );
 
-  if (circleMembers.length === 0) return null;
+  if (circleMembers.length === 0) {
+    // This card used to just disappear here -- which is indistinguishable
+    // from "nothing to see" whether the vault genuinely has no Tapit
+    // circle member OR it does and this browser's Key Manager just
+    // doesn't hold a matching local key for it (a different device, a
+    // cleared keystore, a key that was later archived). Say which one is
+    // actually true instead of going silent either way.
+    if (bareFounderPubkeys.length === 0) return null;
+    return (
+      <div
+        style={{
+          background: colors.surface,
+          border: `1px solid ${colors.border}`,
+          borderRadius: radii.md,
+          padding: space[5],
+          marginBottom: space[4],
+        }}
+      >
+        <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+          Circle safety phrase
+        </div>
+        <p style={{ fontSize: 12, color: colors.sub, margin: 0 }}>
+          This vault has {bareFounderPubkeys.length} founder key{bareFounderPubkeys.length === 1 ? '' : 's'} that
+          look like they came from Tapit (no extended public key attached), but none of them match a
+          Tapit-origin key in this browser's Key Manager right now. If you added that key on a different
+          device or browser, add it here too before you can send the safety phrase to that person --{' '}
+          <Link to="/keys" style={{ color: colors.gold }}>open Key Manager</Link>.
+        </p>
+      </div>
+    );
+  }
 
   const ready =
     vaultDescriptor !== null &&
