@@ -21,10 +21,13 @@ import assert from 'node:assert/strict';
 import {
   verifyProofOfLife,
   verifyDuressFlag,
+  verifyDuressClear,
+  duressFlagId,
   livenessStateFor,
   meetsGreenQuorum,
   buildProofOfLife,
   buildDuressFlag,
+  buildDuressClear,
 } from '../dist/index.js';
 
 const ALICE = '4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa';
@@ -51,8 +54,26 @@ const GOLDEN_RED = {
     'f5accb0c8d521c7031d09cc867d920b7b0cc15b5023734dc658d280c1a15a4d9dde35e2170be36ed6f1c96594ccf1233fea0741b71a7c2edce2b1de62295199a',
 };
 
+// Golden clear vote from Tapit's real source: Bob voting to clear the exact
+// GOLDEN_RED flag above (flagId = duressFlagId(GOLDEN_RED), computed by
+// Tapit's real duressFlagId and confirmed byte-identical to DynastyTrust's
+// own computation of the same function over the same flag before this
+// fixture was hardcoded).
+const GOLDEN_CLEAR = {
+  v: 1,
+  kind: 'duress-clear',
+  subject: ALICE,
+  flagId: 'adab61dfb5929b5156fb13855b3bcacaed80371dbf79e5afb00880790699071b',
+  clearedBy: BOB,
+  issuedAt: '2026-06-22T00:02:00.000Z',
+  signature:
+    '9c14ba896566ad804e5e41844e56525f37d8fabcaa8d9f446ed46a14760216d044b6173c152b3dacdce738d5e0e56ea9a23037f919683d96c31db9d7c2b84c75',
+};
+
 // A moment one minute after both fixtures were issued.
 const NOW = Date.parse('2026-06-22T00:01:00.000Z');
+// A moment after GOLDEN_CLEAR was cast too, for the clear-tally tests.
+const AFTER_CLEAR = Date.parse('2026-06-22T00:03:00.000Z');
 const ONE_YEAR = 31536000;
 
 test('PARITY: Dynasty verifies a real Tapit-produced proof-of-life', () => {
@@ -97,6 +118,56 @@ test('PARITY tally: no-rogue -- red from a peer not in the group is ignored -> g
     now: NOW,
   });
   assert.equal(state, 'green');
+});
+
+test('PARITY: Dynasty verifies a real Tapit-produced duress clear', () => {
+  assert.equal(verifyDuressClear(GOLDEN_CLEAR), true);
+});
+
+test('PARITY: Dynasty computes the same flagId Tapit computed for GOLDEN_RED', () => {
+  assert.equal(duressFlagId(GOLDEN_RED), GOLDEN_CLEAR.flagId);
+});
+
+test('PARITY tally: GOLDEN_RED unanimously cleared by GOLDEN_CLEAR (group=[BOB]) -> green again', () => {
+  const state = livenessStateFor({
+    subject: ALICE,
+    group: [BOB],
+    proofOfLife: GOLDEN_POL,
+    redFlags: [GOLDEN_RED],
+    clears: [GOLDEN_CLEAR],
+    ttlSeconds: ONE_YEAR,
+    now: AFTER_CLEAR,
+  });
+  assert.equal(state, 'green');
+});
+
+test('PARITY tally: without the clear, the same red flag still dominates', () => {
+  const state = livenessStateFor({
+    subject: ALICE,
+    group: [BOB],
+    proofOfLife: GOLDEN_POL,
+    redFlags: [GOLDEN_RED],
+    // no clears passed
+    ttlSeconds: ONE_YEAR,
+    now: AFTER_CLEAR,
+  });
+  assert.equal(state, 'red');
+});
+
+test('a clear vote naming the wrong flagId leaves the real flag red', () => {
+  const wrongClear = { ...GOLDEN_CLEAR, flagId: 'ab'.repeat(32) };
+  // Signature no longer matches the tampered flagId, so it must not verify.
+  assert.equal(verifyDuressClear(wrongClear), false);
+  const state = livenessStateFor({
+    subject: ALICE,
+    group: [BOB],
+    proofOfLife: GOLDEN_POL,
+    redFlags: [GOLDEN_RED],
+    clears: [wrongClear],
+    ttlSeconds: ONE_YEAR,
+    now: AFTER_CLEAR,
+  });
+  assert.equal(state, 'red');
 });
 
 test('rejects a tampered proof-of-life signature', () => {
@@ -157,5 +228,40 @@ test('build + verify round-trip with a local test key (own minting works)', () =
       now: Date.parse('2026-06-22T00:01:00.000Z'),
     }),
     'red',
+  );
+});
+
+test('build + verify + clear round-trip with local test keys (own minting works)', () => {
+  const subjPriv = '3'.repeat(64);
+  const peerPriv = '4'.repeat(64);
+  const pol = buildProofOfLife({ signerPrivateKey: subjPriv, issuedAt: '2026-06-22T00:00:00.000Z' });
+  const red = buildDuressFlag({
+    subject: pol.subject,
+    signerPrivateKey: peerPriv,
+    issuedAt: '2026-06-22T00:00:30.000Z',
+  });
+  assert.equal(verifyDuressFlag(red), true);
+
+  const flagId = duressFlagId(red);
+  const clear = buildDuressClear({
+    subject: pol.subject,
+    flagId,
+    signerPrivateKey: peerPriv,
+    issuedAt: '2026-06-22T00:02:00.000Z',
+  });
+  assert.equal(verifyDuressClear(clear), true);
+
+  const peerPub = red.raisedBy;
+  assert.equal(
+    livenessStateFor({
+      subject: pol.subject,
+      group: [peerPub],
+      proofOfLife: pol,
+      redFlags: [red],
+      clears: [clear],
+      ttlSeconds: ONE_YEAR,
+      now: Date.parse('2026-06-22T00:03:00.000Z'),
+    }),
+    'green', // the sole required clearer (peer) has cleared it
   );
 });

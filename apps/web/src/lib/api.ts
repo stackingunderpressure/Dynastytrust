@@ -498,6 +498,17 @@ export const api = {
         method: 'PATCH',
         body: JSON.stringify({ trust_doc }),
       }),
+
+    // The plain, one-tap halt: true blocks every signing path on this vault
+    // immediately (evaluateSigningGate's fail-closed duress check, already
+    // enforced at sign time -- see VaultDetail's signing flow). false lifts
+    // it. No phrase, no per-signer targeting -- for when a member can act
+    // freely and just needs to stop everything right now.
+    setDuress: (id: string, duress: boolean) =>
+      req<{ ok: true; vault: Vault }>(`/vaults?id=${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ duress }),
+      }),
   },
 
   balance: (address: string, network: 'testnet' | 'signet' | 'bitcoin') =>

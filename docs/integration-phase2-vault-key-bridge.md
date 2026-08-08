@@ -137,6 +137,90 @@ Gates green in both repos at each commit (tapit-wallet: typecheck, lint,
 the pre-existing baseline exactly, policy tests, and both new packages'
 own test suites).
 
+## Phone-callback phrase gate + halt button (2026-08-08, same day follow-up)
+
+The operator's next request, verbatim: a predetermined PIN exchanged on the
+verification phone call, so the listener knows for certain who they're
+talking to, with a second duress PIN that silently means "I'm being forced,"
+and a "red button" that halts all signing until the circle sorts it out.
+This composes directly with `docs/2026-08-callback-verification-and-amount-
+tiers.md`'s existing ritual (predetermined / out-of-band / message-immutable,
+with its own duress-variant-word concept already named but never made
+concrete) rather than replacing it.
+
+**Grounding turned up more than expected already built:** the fail-closed
+signing gate already enforces both a per-subject green/red liveness axis
+(`packages/policy-engine`'s `evaluateSigningGate`, LIVENESS_RED/LIVENESS_NOT_GREEN)
+and a blunt vault-wide `duress` boolean -- both wired at sign time in
+`VaultDetail.tsx` already, before this cut touched anything. What was
+missing was a human-facing way to ever set either of them, and the actual
+phrase-check the operator asked for.
+
+**Shipped:**
+- **tapit-attest (both repos)** -- a new `DuressClear` primitive alongside
+  the existing `ProofOfLife`/`DuressFlag`: a red flag only stops dominating
+  once EVERY other member of the subject's chosen group (never the subject,
+  never a single peer) casts a verifying clear vote naming that exact flag's
+  id. Fully backward compatible (`clears` is optional, additive). Proven
+  real cross-repo parity the same way the nip44 package was: a golden
+  `DuressClear` fixture actually produced by Tapit's built dist, verified
+  decryptable/verifiable under DynastyTrust's own built dist, hardcoded into
+  the permanent test.
+- **tapit-wallet: `features/circle-phrase/`** -- local storage (PBKDF2-SHA256,
+  210k rounds, matching DynastyTrust's own documented convention; the
+  plaintext phrase never persists past the hash), a receive channel (kind
+  9577, next free sibling after the psbt-cosign channel's 9576), a
+  Settings status section, and a HomeScreen receipt toast.
+- **tapit-wallet: `SignApprovalScreen.tsx`** -- the plain "I verified this
+  by phone" checkbox is now backed by a real phrase check where the vault
+  has one on file (falls back to the original checkbox, unchanged, when it
+  doesn't -- never a dead end). Normal phrase unlocks Approve exactly as
+  the checkbox used to; duress phrase blocks Approve and shows a serious
+  "call your circle or the authorities right now" response.
+- **DynastyTrust: `lib/circle-phrase-delivery.ts` + `CirclePhraseSetup.tsx`**
+  -- the owner types one shared normal/duress phrase pair once and sends it,
+  NIP-44 encrypted, to each Tapit-origin circle member. Never stored
+  server-side. (Found and fixed a real bug while wiring this: `SendTab`'s
+  local-key lookup only ever included `origin === "software"` keys, so the
+  already-shipped "Notify circle via Nostr" button could never find a
+  Tapit-origin recipient in the first place -- it was silently dead code
+  until this fix.)
+- **DynastyTrust: `HaltVaultBar.tsx` + `PATCH /api/vaults`** -- the literal
+  one-tap red button. Sets `vault.duress` straight to true/false; the
+  existing fail-closed gate does the rest. `duress` was missing from the
+  PATCH endpoint's allowed-fields list entirely -- there was no way to ever
+  set it before this cut.
+
+**Deliberately NOT built, and why:** an automatic cross-app duress signal
+(Tapit posting a per-subject `DuressFlag` straight into DynastyTrust's
+`/api/liveness` the instant the duress phrase is entered) was the first
+design pulled together for this cut, then dropped after closer reading of
+the actual wire: `/api/liveness` requires a DynastyTrust JWT, which Tapit --
+a separate app on a separate device -- has no way to hold, and a psbt-cosign
+request's sender is an intentionally EPHEMERAL keypair (see
+`tapit-nostr-cosign.ts`'s own header), so there's no reliable pubkey inside
+the request to name as the flag's subject anyway. Rather than invent an
+identity field to paper over that gap, the duress path stays a clear human
+escalation -- exactly what the operator actually described ("you would
+immediately call the authorities... push the red button") -- and the
+cross-app wire is left as a named follow-on for whenever C3 (vault-
+membership attestation issuance) gives every request a real, persistent
+signer identity to hang a subject off of. The general per-subject
+green/red liveness axis (Tapit's own `LivenessPanel`, already fully built
+and Nostr-wired) is also NOT bridged into a Tapit Circle vault's
+`bloc_policy.liveness` config in this cut, for the same reason plus one
+more: Tapit's liveness circle is the wallet owner's own general circle, not
+necessarily scoped to one specific vault, so wiring it in now would mean
+guessing at a mapping rather than building one -- left for whenever that
+product question actually gets decided, not silently assumed here.
+
+Gates green in both repos (tapit-wallet: typecheck, lint, 844/844 vitest
+tests + the new liveness/circle-phrase cases, build + bundle budgets bumped
+with dated comments; DynastyTrust: typecheck/lint matching the pre-existing
+baseline exactly -- confirmed by diffing against a stash of this repo's
+pre-cut state -- policy tests, and the extended tapit-attest liveness parity
+suite, 16/16).
+
 ---
 
 ## The three cuts

@@ -267,13 +267,13 @@ export async function handler(event) {
       return json(400, { error: "Invalid JSON body" });
     }
 
-    const allowed = ["name", "archived", "trust_doc"];
+    const allowed = ["name", "archived", "trust_doc", "duress"];
     const updates = Object.fromEntries(
       Object.entries(body).filter(([k]) => allowed.includes(k))
     );
 
     if (Object.keys(updates).length === 0) {
-      return json(400, { error: "No updatable fields provided (allowed: name, archived)" });
+      return json(400, { error: "No updatable fields provided (allowed: name, archived, duress)" });
     }
 
     const { data, error } = await supabase

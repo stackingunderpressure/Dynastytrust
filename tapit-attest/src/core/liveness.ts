@@ -34,11 +34,13 @@ import { utf8, toHex, fromHex } from '../internal/hex.js';
  * argument rather than trusting whoever signed.
  *
  * Red-flag expiry choice. Reds PERSIST. There is no automatic TTL on a duress
- * flag; once a chosen peer raises red it holds until it is removed from the
- * `redFlags` set the verifier supplies (clearing is a higher-layer concern --
- * e.g. a fresh quorum decision, out of scope for this pure primitive). The
- * conservative reading wins here: an alarm that silently times itself out is
- * worse than one that holds until a human clears it.
+ * flag; once a chosen peer raises red it holds until every OTHER member of
+ * the subject's group has cast a verifying `DuressClear` vote naming that
+ * exact flag (see `DuressClear` below and the tally logic in
+ * `livenessStateFor`). The conservative reading wins here: an alarm that
+ * silently times itself out is worse than one that holds until a human
+ * clears it, and an alarm that ONE person (least of all the flagged subject
+ * themselves) can silently lift is almost as bad as no alarm at all.
  *
  * Like the sign-in module, this does no anchoring and no storage. Every
  * function is pure; `now` is injectable; nothing reaches the network. The key
@@ -87,8 +89,37 @@ export interface DuressFlag {
   signature: string;
 }
 
+/**
+ * A peer's signed vote to clear ONE specific red flag. References the flag
+ * being cleared by `flagId` (see `duressFlagId` below) rather than just a
+ * subject, so a clear vote can never be replayed against a LATER flag on the
+ * same subject that the clearer never actually saw.
+ *
+ * Clearing is deliberately harder than raising: `livenessStateFor` only
+ * stops counting a flag once EVERY member of the subject's group, other than
+ * the subject themselves, has cast a verifying clear for that exact flag.
+ * Neither the flagged subject nor a single peer can lift their own alarm --
+ * if the subject were actually compromised, self-clearing would defeat the
+ * entire point, and a single rogue or coerced clearer would let one member
+ * erase everyone else's alarm.
+ */
+export interface DuressClear {
+  v: 1;
+  kind: 'duress-clear';
+  /** x-only public key of the person the cleared flag was raised on. */
+  subject: string;
+  /** duressFlagId of the specific DuressFlag this vote clears. */
+  flagId: string;
+  /** x-only public key of the peer casting this clear vote (always the signer). */
+  clearedBy: string;
+  issuedAt: string;
+  /** The peer's Schnorr signature over the duress-clear digest. */
+  signature: string;
+}
+
 type ProofOfLifeBase = Omit<ProofOfLife, 'signature'>;
 type DuressFlagBase = Omit<DuressFlag, 'signature'>;
+type DuressClearBase = Omit<DuressClear, 'signature'>;
 
 function proofOfLifeBase(att: ProofOfLife): ProofOfLifeBase {
   return { v: att.v, kind: att.kind, subject: att.subject, issuedAt: att.issuedAt };
@@ -104,12 +135,27 @@ function duressFlagBase(att: DuressFlag): DuressFlagBase {
   };
 }
 
+function duressClearBase(att: DuressClear): DuressClearBase {
+  return {
+    v: att.v,
+    kind: att.kind,
+    subject: att.subject,
+    flagId: att.flagId,
+    clearedBy: att.clearedBy,
+    issuedAt: att.issuedAt,
+  };
+}
+
 function proofOfLifeDigest(base: ProofOfLifeBase): Uint8Array {
   return taggedHash('tapit/proof-of-life', utf8(canonicalJson(base)));
 }
 
 function duressFlagDigest(base: DuressFlagBase): Uint8Array {
   return taggedHash('tapit/duress-flag', utf8(canonicalJson(base)));
+}
+
+function duressClearDigest(base: DuressClearBase): Uint8Array {
+  return taggedHash('tapit/duress-clear', utf8(canonicalJson(base)));
 }
 
 /**
@@ -141,6 +187,34 @@ export function duressFlagDigestFor(base: {
   issuedAt: string;
 }): Uint8Array {
   return duressFlagDigest(base);
+}
+
+/**
+ * The exact bytes a peer signs to cast a duress-clear vote -- same
+ * no-key-leak pass-through as `proofOfLifeDigestFor`/`duressFlagDigestFor`,
+ * for the Wallet signing boundary.
+ */
+export function duressClearDigestFor(base: {
+  v: 1;
+  kind: 'duress-clear';
+  subject: string;
+  flagId: string;
+  clearedBy: string;
+  issuedAt: string;
+}): Uint8Array {
+  return duressClearDigest(base);
+}
+
+/**
+ * The stable id of a DuressFlag -- what a DuressClear's `flagId` names. Pure
+ * hash of the flag's signed base fields (the same digest the flag's own
+ * signature covers), so a later, distinct raise on the same subject --
+ * carrying its own `issuedAt` -- gets its own id, and a clear vote naming
+ * this id can only ever apply to this exact raise event. Does not verify
+ * the flag; callers that need trust should verify first.
+ */
+export function duressFlagId(flag: DuressFlag): string {
+  return toHex(duressFlagDigest(duressFlagBase(flag)));
 }
 
 /**
@@ -200,6 +274,40 @@ export function buildDuressFlag(input: {
   return { ...base, signature: toHex(schnorr.sign(duressFlagDigest(base), priv)) };
 }
 
+/**
+ * Cast a duress-clear vote from a raw private key (tests / standalone use).
+ * The peer (`clearedBy`) is derived from the key -- `clearedBy === signer`
+ * always. `subject` and `flagId` name the exact flag being voted to clear.
+ * For the no-key-leak path use `duressClearDigestFor` + `wallet.signDigest`.
+ */
+export function buildDuressClear(input: {
+  subject: string;
+  flagId: string;
+  signerPrivateKey: string;
+  issuedAt?: string;
+}): DuressClear {
+  if (!isHex(input.subject, 32)) {
+    throw new Error('subject must be 32-byte x-only hex');
+  }
+  if (!isHex(input.flagId, 32)) {
+    throw new Error('flagId must be 32-byte hex');
+  }
+  if (!isHex(input.signerPrivateKey, 32)) {
+    throw new Error('signerPrivateKey must be 32-byte hex');
+  }
+  const priv = fromHex(input.signerPrivateKey);
+  const clearedBy = toHex(schnorr.getPublicKey(priv));
+  const base: DuressClearBase = {
+    v: 1,
+    kind: 'duress-clear',
+    subject: input.subject,
+    flagId: input.flagId,
+    clearedBy,
+    issuedAt: input.issuedAt ?? new Date().toISOString(),
+  };
+  return { ...base, signature: toHex(schnorr.sign(duressClearDigest(base), priv)) };
+}
+
 /** True when a value has the full, well-typed shape of a proof-of-life. */
 function isProofOfLifeShape(value: unknown): value is ProofOfLife {
   if (typeof value !== 'object' || value === null) return false;
@@ -222,6 +330,21 @@ function isDuressFlagShape(value: unknown): value is DuressFlag {
     a.kind === 'duress-flag' &&
     isHex(a.subject, 32) &&
     isHex(a.raisedBy, 32) &&
+    typeof a.issuedAt === 'string' &&
+    isHex(a.signature, 64)
+  );
+}
+
+/** True when a value has the full, well-typed shape of a duress clear. */
+function isDuressClearShape(value: unknown): value is DuressClear {
+  if (typeof value !== 'object' || value === null) return false;
+  const a = value as Record<string, unknown>;
+  return (
+    a.v === 1 &&
+    a.kind === 'duress-clear' &&
+    isHex(a.subject, 32) &&
+    isHex(a.flagId, 32) &&
+    isHex(a.clearedBy, 32) &&
     typeof a.issuedAt === 'string' &&
     isHex(a.signature, 64)
   );
@@ -263,6 +386,25 @@ export function verifyDuressFlag(att: DuressFlag): boolean {
   }
 }
 
+/**
+ * Verify a duress-clear vote. Never throws. True only when the shape is
+ * well-typed and the Schnorr signature is valid for the `clearedBy` key.
+ * Group membership and "which flag this actually clears" are NOT checked
+ * here -- that is the tally's job in `livenessStateFor`.
+ */
+export function verifyDuressClear(att: DuressClear): boolean {
+  if (!isDuressClearShape(att)) return false;
+  try {
+    return schnorr.verify(
+      fromHex(att.signature),
+      duressClearDigest(duressClearBase(att)),
+      fromHex(att.clearedBy),
+    );
+  } catch {
+    return false;
+  }
+}
+
 /** The derived liveness state for one subject. */
 export type LivenessState = 'green' | 'no-report' | 'red';
 
@@ -273,9 +415,17 @@ export type LivenessState = 'green' | 'no-report' | 'red';
  * (a) RED DOMINATES. If any supplied red flag targets this subject, was raised
  *     by someone in `group` (the subject's chosen people; the subject is always
  *     allowed to flag themselves, i.e. self-duress counts even if the subject
- *     is not listed in `group`), and its signature verifies, return 'red'.
- *     Reds persist -- there is no auto-expiry. Reds raised by anyone NOT in the
- *     group (and who is not the subject) are ignored entirely (no-rogue).
+ *     is not listed in `group`), its signature verifies, AND it has not been
+ *     unanimously cleared (see below), return 'red'. Reds persist -- there is
+ *     no auto-expiry. Reds raised by anyone NOT in the group (and who is not
+ *     the subject) are ignored entirely (no-rogue).
+ *
+ *     A verifying flag stops counting ONLY when `clears` contains a
+ *     verifying `DuressClear` naming that exact flag's id (`duressFlagId`)
+ *     from EVERY member of `group` other than `subject` itself. A clear from
+ *     the subject, or from anyone outside `group`, or a partial set of
+ *     clearers, changes nothing -- the flag still dominates. This is
+ *     deliberately harder to lift than it is to raise.
  *
  * (b) GREEN. Otherwise, if a proof-of-life for this subject verifies, was
  *     signed by the subject, and is within the freshness window
@@ -290,23 +440,49 @@ export function livenessStateFor(input: {
   group: string[];
   proofOfLife?: ProofOfLife | null;
   redFlags?: DuressFlag[];
+  /**
+   * Duress-clear votes to weigh against `redFlags`. Optional and additive --
+   * omitting it (or passing []) reproduces the exact pre-clear behavior, so
+   * every existing caller is unaffected.
+   */
+  clears?: DuressClear[];
   ttlSeconds: number;
   now?: number;
 }): LivenessState {
   const { subject, group, proofOfLife, ttlSeconds } = input;
   const redFlags = input.redFlags ?? [];
+  const clears = input.clears ?? [];
   const now = input.now ?? Date.now();
 
   // The subject's chosen people, plus the subject themselves (self-duress).
   const allowed = new Set(group);
   allowed.add(subject);
 
-  // (a) Red dominates. A single verifying flag from an allowed raiser wins.
+  // Every OTHER chosen member (never the subject) must clear a flag before
+  // it stops counting. Computed once per call since `group` is fixed here.
+  const requiredClearers = group.filter((pk) => pk !== subject);
+
+  // (a) Red dominates, unless every required clearer has voted for THIS flag.
   for (const flag of redFlags) {
     if (!isDuressFlagShape(flag)) continue;
     if (flag.subject !== subject) continue;
     if (!allowed.has(flag.raisedBy)) continue; // no-rogue: only chosen people
-    if (verifyDuressFlag(flag)) return 'red';
+    if (!verifyDuressFlag(flag)) continue;
+
+    const flagId = duressFlagId(flag);
+    const clearedBy = new Set<string>();
+    for (const clear of clears) {
+      if (!isDuressClearShape(clear)) continue;
+      if (clear.subject !== subject) continue;
+      if (clear.flagId !== flagId) continue;
+      if (clear.clearedBy === subject) continue; // self-clear never counts
+      if (!requiredClearers.includes(clear.clearedBy)) continue;
+      if (!verifyDuressClear(clear)) continue;
+      clearedBy.add(clear.clearedBy);
+    }
+    const fullyCleared =
+      requiredClearers.length > 0 && requiredClearers.every((pk) => clearedBy.has(pk));
+    if (!fullyCleared) return 'red';
   }
 
   // (b) Green: a fresh, verifying, self-signed heartbeat.
@@ -343,6 +519,7 @@ export function groupTally(
     group: string[];
     proofs?: Record<string, ProofOfLife | null | undefined>;
     redFlags?: DuressFlag[];
+    clears?: DuressClear[];
     ttlSeconds: number;
     now?: number;
   },
@@ -355,6 +532,7 @@ export function groupTally(
       group: input.group,
       proofOfLife: proofs[subject] ?? null,
       redFlags: input.redFlags,
+      clears: input.clears,
       ttlSeconds: input.ttlSeconds,
       now: input.now,
     });

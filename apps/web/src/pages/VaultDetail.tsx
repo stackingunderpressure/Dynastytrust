@@ -55,6 +55,8 @@ function psbtBindingHash(psbtHex: string): string {
 import { ensureMessagingKey, encryptMessage, decryptMessage, getMessagingPubkey } from "../lib/messaging";
 import { TrustTab } from "../components/TrustTab";
 import { RemindersBanner } from "../components/RemindersBanner";
+import { HaltVaultBar } from "../components/HaltVaultBar";
+import { CirclePhraseSetup } from "../components/CirclePhraseSetup";
 import { tipHeight, blocksToApproxLabel, approxWallclockDate } from "../lib/chain";
 import { buildStandardTrustDoc, standardConfigFromCompiledVault } from "../lib/trust-doc";
 import { sendPsbtCosignRequestOverNostr } from "../lib/tapit-nostr-cosign";
@@ -182,6 +184,25 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
   const [copied, setCopied] = useState<string | null>(null);
   const [sendPrefill, setSendPrefill] = useState<SendPrefill | null>(null);
   const [myMember, setMyMember] = useState<VaultMember | null>(null);
+  // The plain, one-tap "halt signing" control (2026-08-08 phone-callback
+  // follow-up). null = no toggle made this session, read straight off
+  // `vault.duress`; once toggled, holds the fresh value so the banner and
+  // the signing gate both reflect it immediately without a full reload.
+  const [duressOverride, setDuressOverride] = useState<boolean | null>(null);
+  const effectiveDuress = duressOverride ?? vault.duress;
+  const [duressBusy, setDuressBusy] = useState(false);
+
+  async function toggleDuress(next: boolean) {
+    setDuressBusy(true);
+    try {
+      await api.vaults.setDuress(vault.id, next);
+      setDuressOverride(next);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to update halt state");
+    } finally {
+      setDuressBusy(false);
+    }
+  }
 
   function prefillSend(p: SendPrefill) {
     setSendPrefill(p);
@@ -372,6 +393,18 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
       )}
 
       <main className="dt-page-main dt-page-main--narrow">
+        {vault.status === "compiled" && (
+          <div style={{ marginBottom: 16 }}>
+            <HaltVaultBar duress={effectiveDuress} busy={duressBusy} onToggle={toggleDuress} />
+          </div>
+        )}
+        {vault.status === "compiled" && (
+          <CirclePhraseSetup
+            vaultDescriptor={vault.descriptor}
+            vaultName={vault.name}
+            founderKeys={vault.founder_keys}
+          />
+        )}
         {/* Balance hero */}
         <div
           style={{
@@ -568,7 +601,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
         )}
         {tab === "send" && (
           <SendTab
-            vault={vault}
+            vault={duressOverride === null ? vault : { ...vault, duress: duressOverride }}
             balance={balance}
             prefill={sendPrefill}
             onDone={() => { setSendPrefill(null); void load(); setTab("history"); }}
@@ -1361,7 +1394,14 @@ function SendTab({ vault, balance, onDone, prefill }: {
       // the keyring but can't help this spend, don't show it. Derive
       // each vault xpub to pubkey hex and intersect with the local
       // keystore.
-      const allLocalKeys = listKeys().filter(k => k.status === "active" && k.origin === "software");
+      // Tapit-origin keys hold no local key material and can never sign
+      // in-browser, but they DO need to appear here so NotifyCircleViaNostr
+      // (below) can find them and deliver the request to the right
+      // person's Tapit inbox -- excluding them left that button with
+      // nothing to ever show.
+      const allLocalKeys = listKeys().filter(
+        k => k.status === "active" && (k.origin === "software" || k.origin === "tapit"),
+      );
       const vaultSignerPubkeys = new Set<string>();
       const addKey = (x: string) => {
         if (typeof x !== 'string') return;
