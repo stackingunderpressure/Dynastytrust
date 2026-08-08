@@ -9,7 +9,7 @@ import { Button, Input, Label } from '../ui';
 // tap-away out of the mandatory backup-and-verify gate mid-flow. Ported
 // as-is from KeyManager.tsx rather than switched to the shared Modal, to
 // keep this extraction behavior-faithful.
-function BackupModal({
+export function BackupModal({
   title,
   onClose,
   children,
@@ -63,7 +63,7 @@ function BackupModal({
   );
 }
 
-function WordGrid({ words }: { words: string[] }) {
+export function WordGrid({ words }: { words: string[] }) {
   const [vis, setVis] = useState(false);
   return (
     <div>
@@ -153,13 +153,59 @@ function StepIndicator({ current }: { current: 1 | 2 }) {
   );
 }
 
-// Mandatory write-down-then-verify backup ritual shown right after a new
-// software key is generated. Relocated out of KeyManager.tsx so both
+// Shown once, immediately after a new key is generated -- the entry point
+// into BackupFlow below, not a gate itself. Backing up is real work (write
+// 24 words on paper, retype four of them) and forcing it before someone can
+// even continue building their vault means the mnemonic gets rushed past
+// or the whole flow gets abandoned. So this offers the choice KeyManager.tsx
+// already gives standalone key generation: back up right now, or take the
+// key and keep going -- it's flagged `backedUp: false` in keystore.ts either
+// way, and stays visible as a reminder (KeyPicker's "Not backed up" badge)
+// until someone actually verifies it, here or later from Key Manager.
+export function KeyCreatedPrompt({
+  keyData,
+  mnemonic,
+  onBackupNow,
+  onBackupLater,
+}: {
+  keyData: LocalKey;
+  mnemonic: string;
+  onBackupNow: () => void;
+  onBackupLater: () => void;
+}) {
+  return (
+    <BackupModal title="Key created" onClose={onBackupLater} wide>
+      <div style={{ padding: '10px 14px', background: colors.successBg, border: `1px solid ${colors.green}44`, borderRadius: radii.md, marginBottom: 16 }}>
+        <p style={{ fontSize: 13, color: colors.green, margin: 0 }}>
+          <strong>{keyData.label}</strong> is ready to use in the vault. Its recovery phrase is below -- tap "Reveal
+          words" to see it.
+        </p>
+      </div>
+      <WordGrid words={mnemonic.split(' ')} />
+      <p style={{ fontSize: 12, color: colors.muted, marginTop: 12, marginBottom: 0 }}>
+        Backing it up now means writing all 24 words down and confirming a few of them. You can also do this later --
+        the key works in the vault either way, and it'll be flagged "not backed up" until you do.
+      </p>
+      <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+        <Button variant="ghost" style={{ flex: 1 }} onClick={onBackupLater}>
+          Back up later
+        </Button>
+        <Button style={{ flex: 1 }} onClick={onBackupNow}>
+          Back up now
+        </Button>
+      </div>
+    </BackupModal>
+  );
+}
+
+// Mandatory write-down-then-verify backup ritual -- reached by choice, via
+// "Back up now" above (or "Verify backup" later from Key Manager), never
+// forced on first generation. Relocated out of KeyManager.tsx so both
 // standalone key management and the unified wizard's inline key-creation
 // step share one implementation instead of a second copy being born.
-// Non-dismissible by design (onClose props above are no-ops) -- a
-// generated key isn't usable until its holder has actually written down
-// and re-typed the words, not just clicked past a warning.
+// Non-dismissible by design once entered (onClose props above are no-ops)
+// -- someone who chose to back up now shouldn't be able to tap-away
+// mid-ritual and end up thinking they're covered when they're not.
 export function BackupFlow({ keyData, mnemonic, onDone }: { keyData: LocalKey; mnemonic: string; onDone: () => void }) {
   const words = mnemonic.split(' ');
   const [step, setStep] = useState<'show' | 'verify'>('show');

@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import { Link } from 'react-router-dom';
 import type { LocalKey } from '../../lib/keystore';
 import type { SelectedKey } from '../../lib/descriptor-keys';
 import { colors, fonts, radii } from '../../theme';
@@ -32,6 +33,7 @@ export function KeyPicker({
   onRemove,
   role,
   accentColor,
+  allKeys,
 }: {
   selected: SelectedKey[];
   available: LocalKey[];
@@ -39,10 +41,16 @@ export function KeyPicker({
   onRemove: (id: string) => void;
   role: string;
   accentColor: string;
+  // Full key list (selected + available + everything else), used only to
+  // look up backedUp status -- SelectedKey itself doesn't carry it, since
+  // it's shaped for what the compiler needs, not backup bookkeeping.
+  allKeys?: LocalKey[];
 }) {
   return (
     <div>
-      {selected.map(k => (
+      {selected.map(k => {
+        const backedUp = allKeys?.find(ak => ak.keyId === k.keyId)?.backedUp ?? true;
+        return (
         <div
           key={k.keyId}
           style={{
@@ -66,6 +74,14 @@ export function KeyPicker({
               {' . '}
               {k.network}
             </div>
+            {!backedUp && (
+              <Link
+                to="/keys"
+                style={{ fontSize: 11, color: colors.orange, textDecoration: 'none' }}
+              >
+                Not backed up yet -- back up in Key Manager
+              </Link>
+            )}
           </div>
           <button
             onClick={() => onRemove(k.keyId)}
@@ -80,7 +96,8 @@ export function KeyPicker({
             x
           </button>
         </div>
-      ))}
+        );
+      })}
       {available.length > 0 && (
         <select
           style={{ ...selectStyle, color: colors.muted }}

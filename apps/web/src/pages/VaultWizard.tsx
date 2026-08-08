@@ -18,7 +18,7 @@ import { Button, Input, Card, Field } from '../components/ui';
 import { DescriptorQr } from '../components/DescriptorQr';
 import { XpubQrScanner } from '../components/XpubQrScanner';
 import {
-  QuorumPicker, KeyPicker, SlotHint, CopyField, BackupFlow, FundingStep,
+  QuorumPicker, KeyPicker, SlotHint, CopyField, BackupFlow, KeyCreatedPrompt, FundingStep,
   BehaviorTimeline, type SpendLeg,
 } from '../components/vault-builder';
 
@@ -240,9 +240,16 @@ export default function VaultWizard() {
   const [metalBackedUp, setMetalBackedUp] = useState(false);
 
   // Inline key creation: which role slot triggered it, and the
-  // in-progress backup-and-verify gate for a freshly generated key.
+  // just-generated key waiting on a backup decision. `verifyingBackup`
+  // distinguishes the two screens `pendingBackup` can show: the initial
+  // "back up now or later" choice (KeyCreatedPrompt), then -- only if
+  // they chose "now" -- the actual write-down-and-verify ritual
+  // (BackupFlow). Either path adds the key to its role slot; choosing
+  // "later" just skips straight there, leaving keystore.ts's
+  // `backedUp: false` as the standing reminder.
   const [genRole, setGenRole] = useState<string | null>(null);
   const [pendingBackup, setPendingBackup] = useState<{ key: LocalKey; mnemonic: string; role: string } | null>(null);
+  const [verifyingBackup, setVerifyingBackup] = useState(false);
 
   function addKeyToRole(role: string, key: LocalKey) {
     const sk = toSelected(key);
@@ -492,13 +499,25 @@ export default function VaultWizard() {
         </Card>
       )}
 
-      {pendingBackup && (
+      {pendingBackup && !verifyingBackup && (
+        <KeyCreatedPrompt
+          keyData={pendingBackup.key}
+          mnemonic={pendingBackup.mnemonic}
+          onBackupNow={() => setVerifyingBackup(true)}
+          onBackupLater={() => {
+            addKeyToRole(pendingBackup.role, pendingBackup.key);
+            setPendingBackup(null);
+          }}
+        />
+      )}
+      {pendingBackup && verifyingBackup && (
         <BackupFlow
           keyData={pendingBackup.key}
           mnemonic={pendingBackup.mnemonic}
           onDone={() => {
             addKeyToRole(pendingBackup.role, pendingBackup.key);
             setPendingBackup(null);
+            setVerifyingBackup(false);
           }}
         />
       )}
@@ -814,6 +833,7 @@ function KeysStep({
           onRemove={id => setSelected(p => p.filter(k => k.keyId !== id))}
           role={key}
           accentColor={accent}
+          allKeys={allKeys}
         />
         <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
           <Button size="sm" variant="ghost" onClick={() => setGenRole(key)}>+ Generate a new key</Button>
