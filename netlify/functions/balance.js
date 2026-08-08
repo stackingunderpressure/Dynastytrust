@@ -73,9 +73,13 @@ export async function handler(event) {
       usd_value,
       utxo_count,
       confirmed_utxos,
-      mempool_url: network === 'bitcoin'
-        ? `https://mempool.space/address/${address}`
-        : `https://mempool.space/testnet/address/${address}`,
+      // Was hardcoded to the testnet path for anything non-mainnet, so a
+      // signet vault's "view on explorer" link silently pointed at
+      // testnet.mempool.space -- a page that address never touched --
+      // which looks exactly like "no coins ever arrived" even after a
+      // real signet send. MEMPOOL already has the correct base per
+      // network; reuse it instead of a second, incomplete switch.
+      mempool_url: `${(MEMPOOL[network] || MEMPOOL.testnet).replace(/\/api$/, '')}/address/${address}`,
       tx_count: stats.chain_stats?.tx_count || 0,
     });
 

@@ -27,6 +27,7 @@ export function FundingStep({
   onSkip: () => void;
 }) {
   const [confirmedSats, setConfirmedSats] = useState(0);
+  const [unconfirmedSats, setUnconfirmedSats] = useState(0);
   const [checking, setChecking] = useState(false);
   const [lastCheckedAt, setLastCheckedAt] = useState<Date | null>(null);
   const notifiedRef = useRef(false);
@@ -40,6 +41,16 @@ export function FundingStep({
         const res = await api.balance(address, network);
         if (cancelled) return;
         setConfirmedSats(res.confirmed_sats);
+        // A signet/testnet block can take 10-20+ minutes. Before this,
+        // coins that were sent and are genuinely sitting in the mempool
+        // looked IDENTICAL to nothing having been sent at all -- this
+        // screen only ever acknowledged confirmed_sats, so a real send
+        // still in the mempool showed the exact same "Waiting for
+        // funds..." as an untouched address. Surfacing unconfirmed_sats
+        // doesn't change when the wizard advances (still confirmed-only,
+        // below) -- it only changes what the operator is told while
+        // they wait.
+        setUnconfirmedSats(res.unconfirmed_sats);
         setLastCheckedAt(new Date());
         if (res.confirmed_sats > 0 && !notifiedRef.current) {
           notifiedRef.current = true;
@@ -79,7 +90,7 @@ export function FundingStep({
           alignItems: 'center',
           gap: 8,
           fontSize: 12,
-          color: confirmedSats > 0 ? colors.green : colors.muted,
+          color: confirmedSats > 0 ? colors.green : unconfirmedSats > 0 ? colors.gold : colors.muted,
           background: colors.inset,
           borderRadius: radii.md,
           padding: '8px 14px',
@@ -90,15 +101,22 @@ export function FundingStep({
             width: 8,
             height: 8,
             borderRadius: '50%',
-            background: confirmedSats > 0 ? colors.green : checking ? colors.gold : colors.muted,
+            background:
+              confirmedSats > 0
+                ? colors.green
+                : unconfirmedSats > 0 || checking
+                  ? colors.gold
+                  : colors.muted,
             display: 'inline-block',
           }}
         />
         {confirmedSats > 0
           ? `Funded -- ${(confirmedSats / 1e8).toFixed(8)} BTC confirmed`
-          : checking
-            ? 'Checking...'
-            : 'Waiting for funds...'}
+          : unconfirmedSats > 0
+            ? `Coins seen -- ${(unconfirmedSats / 1e8).toFixed(8)} BTC waiting on the next block`
+            : checking
+              ? 'Checking...'
+              : 'Waiting for funds...'}
       </div>
       {lastCheckedAt && confirmedSats === 0 && (
         <span style={{ fontSize: 11, color: colors.muted, fontFamily: fonts.mono }}>
