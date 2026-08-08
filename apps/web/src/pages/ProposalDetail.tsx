@@ -22,6 +22,8 @@ import { useToast } from "../components/toast";
 import { useConfirm, usePrompt } from "../components/dialog";
 import { Button, Textarea } from "../components/ui";
 import { NotifyCircleViaNostr } from "../components/NotifyCircleViaNostr";
+import { PsbtQrDisplay } from "../components/PsbtQrDisplay";
+import { PsbtQrScanner } from "../components/PsbtQrScanner";
 import { useRealtimeRefresh } from "../lib/realtime";
 import { normalizePsbt } from "../lib/psbt-format";
 import { colors, fonts, radii, space } from "../theme";
@@ -304,10 +306,12 @@ export default function ProposalDetail() {
             Sign with hardware wallet
           </div>
           <div style={{ fontSize: 12, color: colors.muted, marginBottom: 12 }}>
-            Export to Sparrow / Nunchuk / Coldcard, sign, paste the signed PSBT hex here.
+            Export to Sparrow / Nunchuk / Coldcard / SeedSigner, sign, then scan or paste the
+            signed PSBT back here.
           </div>
           <ExternalPsbt
             proposalId={proposal.id}
+            psbtToSign={mergedPsbt || proposal.psbt_hex || ""}
             onImported={() => void load()}
           />
         </ActionCard>
@@ -554,29 +558,27 @@ function ActionCard({ children }: { children: React.ReactNode }) {
 
 function ExternalPsbt({
   proposalId,
+  psbtToSign,
   onImported,
 }: {
   proposalId: string;
+  psbtToSign: string;
   onImported: () => void;
 }) {
   const toast = useToast();
   const [hex, setHex] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [showQrDisplay, setShowQrDisplay] = useState(false);
+  const [showQrScanner, setShowQrScanner] = useState(false);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function addSignature(rawHex: string) {
     setErr(null);
-    const normalized = normalizePsbt(hex);
-    if (!normalized) {
-      setErr("Not a valid PSBT. Paste hex (starts with 70736274ff) or base64 (starts with cHNidP8).");
-      return;
-    }
     setBusy(true);
     try {
       await api.signerSessions.submit({
         proposal_id: proposalId,
-        psbt_partial_hex: normalized,
+        psbt_partial_hex: rawHex,
         label: "Hardware wallet",
       });
       setHex("");
@@ -589,25 +591,74 @@ function ExternalPsbt({
     }
   }
 
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const normalized = normalizePsbt(hex);
+    if (!normalized) {
+      setErr("Not a valid PSBT. Paste hex (starts with 70736274ff) or base64 (starts with cHNidP8).");
+      return;
+    }
+    await addSignature(normalized);
+  }
+
   return (
-    <form onSubmit={submit}>
-      <Textarea
-        mono
-        rows={3}
-        value={hex}
-        onChange={e => setHex(e.target.value)}
-        placeholder="Paste signed PSBT (hex or base64 both work)"
-      />
-      {err && <p style={{ color: colors.red, fontSize: 12, margin: "4px 0" }}>{err}</p>}
-      <Button
-        type="submit"
-        variant="ghost"
-        disabled={!hex || busy}
-        style={{ marginTop: 8 }}
-      >
-        {busy ? "Adding..." : "Add signature"}
-      </Button>
-    </form>
+    <div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+        <Button
+          variant="ghost"
+          size="sm"
+          style={{ fontSize: 12 }}
+          onClick={() => setShowQrDisplay(s => !s)}
+        >
+          {showQrDisplay ? "Hide QR" : "Show QR (Jade / Coldcard Q / SeedSigner)"}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          style={{ fontSize: 12 }}
+          onClick={() => setShowQrScanner(s => !s)}
+        >
+          {showQrScanner ? "Hide scanner" : "Scan signed QR"}
+        </Button>
+      </div>
+      {showQrDisplay && (
+        <div style={{ marginBottom: 14 }}>
+          <PsbtQrDisplay psbtHex={psbtToSign} />
+          <div style={{ fontSize: 11, color: colors.muted, marginTop: 6, textAlign: "center" }}>
+            UR `crypto-psbt` animated. Stateless -- no pairing needed. Point your air-gapped signer at the screen.
+          </div>
+        </div>
+      )}
+      {showQrScanner && (
+        <div style={{ marginBottom: 14 }}>
+          <PsbtQrScanner
+            onResult={hexResult => {
+              setShowQrScanner(false);
+              void addSignature(hexResult);
+            }}
+            onCancel={() => setShowQrScanner(false)}
+          />
+        </div>
+      )}
+      <form onSubmit={submit}>
+        <Textarea
+          mono
+          rows={3}
+          value={hex}
+          onChange={e => setHex(e.target.value)}
+          placeholder="Paste signed PSBT (hex or base64 both work)"
+        />
+        {err && <p style={{ color: colors.red, fontSize: 12, margin: "4px 0" }}>{err}</p>}
+        <Button
+          type="submit"
+          variant="ghost"
+          disabled={!hex || busy}
+          style={{ marginTop: 8 }}
+        >
+          {busy ? "Adding..." : "Add signature"}
+        </Button>
+      </form>
+    </div>
   );
 }
 
