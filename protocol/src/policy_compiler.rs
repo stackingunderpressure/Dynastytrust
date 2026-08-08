@@ -51,6 +51,27 @@ pub struct DynastyPolicy {
     pub consent_keys: Vec<PublicKey>,
     #[serde(default)]
     pub consent_quorum: Option<usize>,
+
+    /// Optional backup branch (2026-08-08, "anytime, harder") -- an
+    /// always-available fallback using a SEPARATE, harder-to-reach key
+    /// set the owner controls directly (e.g. keys physically split
+    /// across several locations), at a quorum typically stricter than
+    /// founder_quorum. Occupies the SAME tree slot the timelocked
+    /// recovery branch would (see build_multileaf) but carries NO
+    /// timelock -- the friction here is deliberately physical effort
+    /// (retrieving enough of the backup keys) rather than a clock. This
+    /// is the answer to "my circle can vouch for me in minutes, or I can
+    /// dig up the keys myself if I have to": the founders-now leaf still
+    /// needs the circle's phone-verification ritual to feel safe signing;
+    /// this leaf needs nobody's cooperation at all, by design. Mutually
+    /// exclusive with the timelocked recovery branch above -- setting
+    /// both is a config error (BackupConflictsWithRecovery), since only
+    /// one can occupy the slot and silently dropping the other would be
+    /// a trap for whoever configured it.
+    #[serde(default)]
+    pub backup_keys: Vec<PublicKey>,
+    #[serde(default)]
+    pub backup_quorum: Option<usize>,
 }
 
 impl DynastyPolicy {
@@ -59,17 +80,19 @@ impl DynastyPolicy {
             && self.recovery_after == 0
             && self.inheritance_after == 0
             && self.protector_keys.is_empty()
+            && self.backup_keys.is_empty()
     }
 
-    /// True when the tree has a distinct recovery leaf (Path 2 --
-    /// founders, after a delay). False for a "Gift Locker"-style
+    /// True when the tree has a distinct TIMELOCKED recovery leaf (Path
+    /// 2 -- founders, after a delay). False for a "Gift Locker"-style
     /// two-leaf vault: founders-now, OR a single beneficiary key that
     /// unlocks after a specified time, with no separate founders-after-
     /// delay path in between. `recovery_after == 0` is the existing
     /// sentinel `is_plain()` already uses for "no recovery" -- reused
     /// here rather than adding a new field, since a real recovery delay
     /// must clear `MIN_RECOVERY_BLOCKS` and could never legitimately be
-    /// zero.
+    /// zero. See `has_backup()` for the untimelocked alternative that
+    /// occupies this same tree slot.
     pub fn has_recovery(&self) -> bool {
         self.recovery_after > 0
     }
@@ -82,6 +105,34 @@ impl DynastyPolicy {
 
     pub fn has_consent(&self) -> bool {
         !self.consent_keys.is_empty() && self.consent_quorum.is_some()
+    }
+
+    /// True when the tree has an untimelocked backup leaf -- the
+    /// "anytime, harder" alternative to the timelocked recovery branch.
+    /// See the field doc comment above for the full rationale.
+    pub fn has_backup(&self) -> bool {
+        !self.backup_keys.is_empty() && self.backup_quorum.is_some()
+    }
+
+    /// True when SOME leaf occupies the middle tree slot between
+    /// founders-now and inheritance -- either the timelocked recovery
+    /// branch or the untimelocked backup branch. Determines whether the
+    /// tree needs the 2-leaf "Gift Locker" shape or the fuller 3-4 leaf
+    /// shape; see build_multileaf.
+    pub fn has_middle_leaf(&self) -> bool {
+        self.has_recovery() || self.has_backup()
+    }
+
+    /// False when there is no third-leaf inheritance path at all --
+    /// heir_keys empty. A vault can be founders-now + backup ONLY (the
+    /// Tapit Circle shape: a phone-verified circle for the easy case, an
+    /// owner-only harder key set for "I need to move it myself right
+    /// now," and no separate estate-planning leaf) without ever
+    /// configuring heirs. `inheritance_after` is irrelevant/ignored when
+    /// this is false, same as `recovery_after`/`recovery_quorum` are
+    /// ignored when `has_backup()`.
+    pub fn wants_inheritance(&self) -> bool {
+        !self.heir_keys.is_empty()
     }
 }
 
@@ -121,8 +172,12 @@ pub enum PolicyError {
     InheritanceTooSoon,
     #[error("inheritance_after must be > 0 when heir_keys is set")]
     InheritanceRequiresDelay,
-    #[error("a protector branch requires a recovery branch (recovery_after > 0); protector sits between them")]
+    #[error("a protector branch requires a recovery or backup branch; protector sits between founders and inheritance")]
     ProtectorRequiresRecovery,
+    #[error("recovery_after and backup_keys are mutually exclusive -- both occupy the same tree slot; pick one")]
+    BackupConflictsWithRecovery,
+    #[error("a protector branch requires an inheritance leaf (heir_keys set); protector sits between them")]
+    ProtectorRequiresInheritance,
     #[error("miniscript policy error: {0}")]
     Miniscript(String),
     #[error("descriptor error: {0}")]
@@ -230,13 +285,20 @@ pub fn compile_dynasty_policy_tr(
 pub struct MultileafOutput {
     pub spend_info: TaprootSpendInfo,
     pub founder_leaf: bitcoin::ScriptBuf,
-    /// Present only when `policy.has_recovery()` -- None both for a
-    /// plain (founders-only) policy AND for a "Gift Locker"-shaped one
+    /// Present when `policy.has_middle_leaf()` -- the timelocked
+    /// recovery branch OR the untimelocked backup branch, whichever the
+    /// policy set (mutually exclusive). None both for a plain
+    /// (founders-only) policy AND for a "Gift Locker"-shaped one
     /// (founders-now OR a single timelocked beneficiary path, no
-    /// separate founders-after-a-delay leaf).
+    /// separate founders-after-a-delay/backup leaf). Callers that need
+    /// to know WHICH of the two this is should check
+    /// `policy.has_backup()` themselves -- this field alone can't tell.
     pub recovery_leaf: Option<bitcoin::ScriptBuf>,
-    /// Present whenever the policy is not `is_plain()` -- unlike
-    /// `recovery_leaf`, a Gift Locker-shaped policy still has this one.
+    /// Present when `policy.wants_inheritance()` (heir_keys non-empty).
+    /// A Gift Locker-shaped policy still has this one even with no
+    /// middle leaf; a "founders + backup only" policy (Tapit Circle,
+    /// `has_backup() && !wants_inheritance()`) has NEITHER a middle leaf
+    /// gap nor this one -- exactly two leaves total, founders + backup.
     pub inheritance_leaf: Option<bitcoin::ScriptBuf>,
     /// Present only when `policy.has_protector()`.
     pub protector_leaf: Option<bitcoin::ScriptBuf>,
@@ -314,6 +376,42 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
         });
     }
 
+    if !policy.wants_inheritance() && policy.has_backup() {
+        // "Founders + backup only" -- the Tapit Circle shape. Exactly
+        // two leaves, no inheritance leg at all: a phone-verified circle
+        // for the easy case, the owner's own harder key set for
+        // "I need to move it myself right now." verify() already
+        // rejects has_protector() here (protector needs an inheritance
+        // leaf to sit next to), so this never has a protector to place.
+        let backups: Vec<String> = policy
+            .backup_keys
+            .iter()
+            .map(|k| format!("pk({k})"))
+            .collect();
+        let backup_branch = format!("thresh({},{})", policy.backup_quorum.unwrap(), backups.join(","));
+        let ms_backup = compile_leaf(&backup_branch)?;
+
+        let builder = TaprootBuilder::new()
+            .add_leaf(1, founder_leaf.clone())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?
+            .add_leaf(1, ms_backup.encode())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf backup: {e:?}")))?;
+        let spend_info = builder
+            .finalize(&secp, internal_key)
+            .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
+        let descriptor = format!("tr({},{{{},{}}})", internal_key, ms_founder, ms_backup);
+        let miniscript_policy = format!("or({},{})", founder_thresh, backup_branch);
+        return Ok(MultileafOutput {
+            spend_info,
+            founder_leaf,
+            recovery_leaf: Some(ms_backup.encode()),
+            inheritance_leaf: None,
+            protector_leaf: None,
+            descriptor,
+            miniscript_policy,
+        });
+    }
+
     let heirs: Vec<String> = policy
         .heir_keys
         .iter()
@@ -327,10 +425,10 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
     );
     let ms_inheritance = compile_leaf(&inheritance_branch)?;
 
-    if !policy.has_recovery() {
+    if !policy.has_middle_leaf() {
         // "Gift Locker" shape: founders-now OR a single beneficiary
         // path that unlocks after a specified time -- exactly two
-        // leaves, no founders-after-a-delay path in between.
+        // leaves, no founders-after-a-delay (or backup) path in between.
         // `verify()` already rejects has_protector() here, so this is
         // never reached with a protector branch to also place.
         let builder = TaprootBuilder::new()
@@ -357,9 +455,23 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
         });
     }
 
-    let recovery_quorum = policy.recovery_quorum.unwrap_or(policy.founder_quorum);
-    let recovery_thresh = format!("thresh({},{})", recovery_quorum, founders.join(","));
-    let recovery_branch = format!("and(after({}),{})", policy.recovery_after, recovery_thresh);
+    // Middle slot: the untimelocked backup branch (own key set, own
+    // quorum, no after()) when configured, else the timelocked recovery
+    // branch (founders' own keys, own quorum falling back to
+    // founder_quorum) -- mutually exclusive, see has_backup's doc
+    // comment and BackupConflictsWithRecovery.
+    let recovery_branch = if policy.has_backup() {
+        let backups: Vec<String> = policy
+            .backup_keys
+            .iter()
+            .map(|k| format!("pk({k})"))
+            .collect();
+        format!("thresh({},{})", policy.backup_quorum.unwrap(), backups.join(","))
+    } else {
+        let recovery_quorum = policy.recovery_quorum.unwrap_or(policy.founder_quorum);
+        let recovery_thresh = format!("thresh({},{})", recovery_quorum, founders.join(","));
+        format!("and(after({}),{})", policy.recovery_after, recovery_thresh)
+    };
     let ms_recovery = compile_leaf(&recovery_branch)?;
 
     if policy.has_protector() {
@@ -905,6 +1017,17 @@ fn build_policy_string(policy: &DynastyPolicy) -> String {
         return founder_thresh;
     }
 
+    if !policy.wants_inheritance() && policy.has_backup() {
+        // "Founders + backup only" -- no inheritance leg to fold in.
+        let backups: Vec<String> = policy
+            .backup_keys
+            .iter()
+            .map(|k| format!("pk({k})"))
+            .collect();
+        let backup_branch = format!("thresh({},{})", policy.backup_quorum.unwrap(), backups.join(","));
+        return format!("or({},{})", founder_thresh, backup_branch);
+    }
+
     let heirs: Vec<String> = policy
         .heir_keys
         .iter()
@@ -917,16 +1040,28 @@ fn build_policy_string(policy: &DynastyPolicy) -> String {
         heirs.join(",")
     );
 
-    if !policy.has_recovery() {
-        // Gift Locker shape: no recovery branch to fold in.
+    if !policy.has_middle_leaf() {
+        // Gift Locker shape: no recovery/backup branch to fold in.
         return format!("or({},{})", founder_thresh, inheritance_branch);
     }
 
-    // Recovery branch uses its own quorum when the trust asked for
-    // one; otherwise falls back to founder_quorum (legacy rows).
-    let recovery_quorum = policy.recovery_quorum.unwrap_or(policy.founder_quorum);
-    let recovery_thresh = format!("thresh({},{})", recovery_quorum, founders.join(","));
-    let recovery_branch = format!("and(after({}),{})", policy.recovery_after, recovery_thresh);
+    // The middle slot is either the untimelocked backup branch (its own
+    // key set, no after()) or the timelocked recovery branch (founders'
+    // own keys again, own quorum falling back to founder_quorum when the
+    // trust never declared one) -- mutually exclusive, see has_backup's
+    // doc comment.
+    let recovery_branch = if policy.has_backup() {
+        let backups: Vec<String> = policy
+            .backup_keys
+            .iter()
+            .map(|k| format!("pk({k})"))
+            .collect();
+        format!("thresh({},{})", policy.backup_quorum.unwrap(), backups.join(","))
+    } else {
+        let recovery_quorum = policy.recovery_quorum.unwrap_or(policy.founder_quorum);
+        let recovery_thresh = format!("thresh({},{})", recovery_quorum, founders.join(","));
+        format!("and(after({}),{})", policy.recovery_after, recovery_thresh)
+    };
 
     let base = format!(
         "or({},or({},{}))",
@@ -976,8 +1111,33 @@ fn verify(policy: &DynastyPolicy) -> Result<(), PolicyError> {
         }
     }
 
+    if policy.has_backup() {
+        let bq = policy.backup_quorum.unwrap();
+        if bq == 0 || bq > policy.backup_keys.len() {
+            return Err(PolicyError::InvalidQuorum);
+        }
+    }
+
+    if policy.has_recovery() && policy.has_backup() {
+        return Err(PolicyError::BackupConflictsWithRecovery);
+    }
+
     if policy.is_plain() {
         // Plain mode: only the founder threshold matters.
+        return Ok(());
+    }
+
+    // "Founders + backup only" -- the Tapit Circle shape: a phone-
+    // verified circle for the easy case, the owner's own harder key set
+    // for "I need to move it myself right now," no third leaf at all.
+    // heir_quorum/inheritance_after are irrelevant here (ignored, not
+    // validated) since there's no inheritance leaf to apply them to.
+    // Protector doesn't fit this shape either -- it structurally sits
+    // between the middle leaf and inheritance, which doesn't exist.
+    if !policy.wants_inheritance() && policy.has_backup() {
+        if policy.has_protector() {
+            return Err(PolicyError::ProtectorRequiresInheritance);
+        }
         return Ok(());
     }
 
@@ -985,7 +1145,7 @@ fn verify(policy: &DynastyPolicy) -> Result<(), PolicyError> {
         return Err(PolicyError::InvalidQuorum);
     }
 
-    if policy.has_protector() && !policy.has_recovery() {
+    if policy.has_protector() && !policy.has_middle_leaf() {
         return Err(PolicyError::ProtectorRequiresRecovery);
     }
 
@@ -1212,6 +1372,8 @@ mod multileaf_leaf_exposure_tests {
             protector_after: None,
             consent_keys: vec![],
             consent_quorum: None,
+            backup_keys: vec![],
+            backup_quorum: None,
         }
     }
 
@@ -1289,6 +1451,252 @@ mod multileaf_leaf_exposure_tests {
     }
 }
 
+// "Anytime, harder" (2026-08-08) -- the backup branch: a SEPARATE,
+// harder-to-reach key set the owner controls directly, occupying the
+// same tree slot the timelocked recovery branch would, but with NO
+// timelock at all. The friction is retrieving enough of the backup
+// keys, not waiting out a clock.
+#[cfg(test)]
+mod backup_leaf_tests {
+    use super::*;
+
+    fn pk(s: &str) -> PublicKey {
+        PublicKey::from_str(s).unwrap()
+    }
+
+    fn founders() -> Vec<PublicKey> {
+        vec![
+            pk("02a3ed2c2b57903abe5b89108c66f4a144e8a316af2f013b739cf8975fc0365e97"),
+            pk("02d76c6752934c92bcafb0e575051b36e5ac4035db5329544521e203d6a7337569"),
+        ]
+    }
+    fn heirs() -> Vec<PublicKey> {
+        vec![pk("03defdea4cdb677750a420fee807eacf21eb9898ae79b9768766e4faa04a2d4a34")]
+    }
+    fn backups() -> Vec<PublicKey> {
+        vec![
+            pk("025cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc"),
+            pk("02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9"),
+            pk("03fff97bd5755eeea420453a14355235d382f6472f8568a18b2f057a1460297556"),
+        ]
+    }
+    fn protectors() -> Vec<PublicKey> {
+        vec![pk("03acd484e2f0c7f65309ad178a9f559abde09796974c57e714c35f110dfc27ccbe")]
+    }
+
+    fn backup_policy() -> DynastyPolicy {
+        DynastyPolicy {
+            founder_keys: founders(),
+            founder_quorum: 2,
+            recovery_quorum: None,
+            heir_keys: heirs(),
+            heir_quorum: 1,
+            recovery_after: 0,
+            inheritance_after: 200_000,
+            protector_keys: vec![],
+            protector_quorum: None,
+            protector_after: None,
+            consent_keys: vec![],
+            consent_quorum: None,
+            backup_keys: backups(),
+            backup_quorum: Some(2),
+        }
+    }
+
+    #[test]
+    fn has_backup_and_has_middle_leaf_reflect_configuration() {
+        let p = backup_policy();
+        assert!(p.has_backup());
+        assert!(!p.has_recovery());
+        assert!(p.has_middle_leaf());
+        assert!(!p.is_plain(), "backup_keys alone must disqualify is_plain()");
+    }
+
+    #[test]
+    fn empty_policy_has_neither_recovery_nor_backup() {
+        let mut p = backup_policy();
+        p.backup_keys = vec![];
+        p.backup_quorum = None;
+        assert!(!p.has_recovery());
+        assert!(!p.has_backup());
+        assert!(!p.has_middle_leaf());
+    }
+
+    #[test]
+    fn setting_both_recovery_and_backup_is_rejected() {
+        let mut p = backup_policy();
+        p.recovery_after = MIN_RECOVERY_BLOCKS;
+        match build_multileaf(&p) {
+            Err(PolicyError::BackupConflictsWithRecovery) => {}
+            other => panic!("expected BackupConflictsWithRecovery, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn invalid_backup_quorum_is_rejected() {
+        let mut p = backup_policy();
+        p.backup_quorum = Some(0);
+        assert!(matches!(build_multileaf(&p), Err(PolicyError::InvalidQuorum)));
+
+        let mut p2 = backup_policy();
+        p2.backup_quorum = Some(4); // only 3 backup keys
+        assert!(matches!(build_multileaf(&p2), Err(PolicyError::InvalidQuorum)));
+    }
+
+    #[test]
+    fn backup_leaf_uses_the_separate_key_set_not_founder_keys() {
+        let out = build_multileaf(&backup_policy()).unwrap();
+        let backup_leaf = out.recovery_leaf.as_ref().expect("backup occupies the recovery slot");
+        let bytes = backup_leaf.as_bytes();
+
+        for k in backups() {
+            let xonly = k.inner.x_only_public_key().0.serialize();
+            assert!(bytes.windows(32).any(|w| w == xonly), "backup leaf must contain each backup key");
+        }
+        for k in founders() {
+            let xonly = k.inner.x_only_public_key().0.serialize();
+            assert!(
+                !bytes.windows(32).any(|w| w == xonly),
+                "backup leaf must NEVER contain a founder key -- it's a separate, harder-to-reach set"
+            );
+        }
+    }
+
+    #[test]
+    fn backup_leaf_carries_no_timelock() {
+        let out = build_multileaf(&backup_policy()).unwrap();
+        let backup_leaf = out.recovery_leaf.as_ref().unwrap();
+        // A CLTV-gated script always disassembles to an OP_CLTV opcode
+        // (0xb1); the pure thresh() backup leaf never emits one.
+        assert!(
+            !backup_leaf.as_bytes().contains(&0xb1),
+            "backup leaf must contain no OP_CHECKLOCKTIMEVERIFY -- it is never timelocked"
+        );
+    }
+
+    #[test]
+    fn backup_leaf_has_a_valid_control_block_against_the_same_tree() {
+        let out = build_multileaf(&backup_policy()).unwrap();
+        let script_ver = |s: &bitcoin::ScriptBuf| (s.clone(), bitcoin::taproot::LeafVersion::TapScript);
+        assert!(out.spend_info.control_block(&script_ver(&out.founder_leaf)).is_some());
+        assert!(
+            out.spend_info
+                .control_block(&script_ver(out.recovery_leaf.as_ref().unwrap()))
+                .is_some(),
+            "backup leaf (recovery slot) control block"
+        );
+        assert!(
+            out.spend_info
+                .control_block(&script_ver(out.inheritance_leaf.as_ref().unwrap()))
+                .is_some(),
+            "inheritance leaf control block"
+        );
+    }
+
+    #[test]
+    fn protector_can_sit_alongside_backup_in_the_same_tree_slot_arrangement() {
+        let mut p = backup_policy();
+        p.protector_keys = protectors();
+        p.protector_quorum = Some(1);
+        p.protector_after = Some(150_000);
+        assert!(p.has_protector());
+        let out = build_multileaf(&p).unwrap();
+        let script_ver = |s: &bitcoin::ScriptBuf| (s.clone(), bitcoin::taproot::LeafVersion::TapScript);
+        assert!(out.recovery_leaf.is_some());
+        assert!(out.inheritance_leaf.is_some());
+        assert!(out.protector_leaf.is_some());
+        assert!(
+            out.spend_info
+                .control_block(&script_ver(out.protector_leaf.as_ref().unwrap()))
+                .is_some(),
+            "protector must still get a valid control block with backup in the middle slot"
+        );
+    }
+
+    #[test]
+    fn protector_without_recovery_or_backup_is_still_rejected() {
+        let mut p = backup_policy();
+        p.backup_keys = vec![];
+        p.backup_quorum = None;
+        p.protector_keys = protectors();
+        p.protector_quorum = Some(1);
+        p.protector_after = Some(150_000);
+        match build_multileaf(&p) {
+            Err(PolicyError::ProtectorRequiresRecovery) => {}
+            other => panic!("expected ProtectorRequiresRecovery, got {other:?}"),
+        }
+    }
+
+    // "Founders + backup only" -- the actual Tapit Circle shape: a
+    // phone-verified circle for the easy case, the owner's own harder
+    // key set for "I need to move it myself right now," no third leaf
+    // (no heirs, no estate-planning timelock) at all.
+    fn founders_and_backup_only_policy() -> DynastyPolicy {
+        let mut p = backup_policy();
+        p.heir_keys = vec![];
+        p.heir_quorum = 0;
+        p.inheritance_after = 0;
+        p
+    }
+
+    #[test]
+    fn founders_and_backup_only_is_not_plain_and_does_not_want_inheritance() {
+        let p = founders_and_backup_only_policy();
+        assert!(!p.is_plain());
+        assert!(!p.wants_inheritance());
+        assert!(p.has_backup());
+    }
+
+    #[test]
+    fn founders_and_backup_only_compiles_to_exactly_two_leaves() {
+        let out = build_multileaf(&founders_and_backup_only_policy()).unwrap();
+        assert!(out.recovery_leaf.is_some(), "backup occupies the recovery slot");
+        assert!(out.inheritance_leaf.is_none(), "no third leaf at all in this shape");
+        assert!(out.protector_leaf.is_none());
+    }
+
+    #[test]
+    fn founders_and_backup_only_both_leaves_have_valid_control_blocks() {
+        let out = build_multileaf(&founders_and_backup_only_policy()).unwrap();
+        let script_ver = |s: &bitcoin::ScriptBuf| (s.clone(), bitcoin::taproot::LeafVersion::TapScript);
+        assert!(out.spend_info.control_block(&script_ver(&out.founder_leaf)).is_some());
+        assert!(
+            out.spend_info
+                .control_block(&script_ver(out.recovery_leaf.as_ref().unwrap()))
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn founders_and_backup_only_descriptor_has_no_nested_braces() {
+        // Exactly two leaves -> tr(key,{a,b}), never a nested tap_branch.
+        let out = build_multileaf(&founders_and_backup_only_policy()).unwrap();
+        assert_eq!(out.descriptor.matches('{').count(), 1);
+        assert_eq!(out.descriptor.matches('}').count(), 1);
+    }
+
+    #[test]
+    fn protector_is_rejected_on_a_backup_only_shape_with_no_inheritance() {
+        let mut p = founders_and_backup_only_policy();
+        p.protector_keys = protectors();
+        p.protector_quorum = Some(1);
+        p.protector_after = Some(150_000);
+        match build_multileaf(&p) {
+            Err(PolicyError::ProtectorRequiresInheritance) => {}
+            other => panic!("expected ProtectorRequiresInheritance, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn compiles_end_to_end_through_the_real_tr_multileaf_path() {
+        let v = compile_dynasty_policy_tr_multileaf(founders_and_backup_only_policy(), Network::Testnet).unwrap();
+        assert!(v.address.to_string().starts_with("tb1p"));
+        assert_eq!(v.address_type, AddressType::TrMultileaf);
+        // A pure thresh() branch never emits OP_CLTV.
+        assert!(!v.miniscript_policy.contains("after("));
+    }
+}
+
 #[cfg(test)]
 mod gift_locker_tests {
     //! "Gift Locker" vault shape (decided 2026-08-08): founders-now
@@ -1329,6 +1737,8 @@ mod gift_locker_tests {
             protector_after: None,
             consent_keys: vec![],
             consent_quorum: None,
+            backup_keys: vec![],
+            backup_quorum: None,
         }
     }
 

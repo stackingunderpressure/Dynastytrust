@@ -28,13 +28,16 @@ export function buildStandardTrustDoc(opts: {
   config: StandardConfig;
 }): TrustDoc {
   const { vaultName, templatePurpose, config: c } = opts;
-  const isGiftLocker = c.mode === 'inheritance' && !c.recoveryEnabled && c.plannedHeirs > 0;
+  const isGiftLocker = c.mode === 'inheritance' && !c.recoveryEnabled && !c.backupEnabled && c.plannedHeirs > 0;
+  const isBackupOnly = c.mode === 'inheritance' && c.backupEnabled && c.plannedHeirs === 0;
 
   const purpose = templatePurpose
     ? `${vaultName} -- ${templatePurpose}`
-    : c.mode === 'inheritance'
-      ? `${vaultName} is a ${c.founderQ}-of-${c.plannedFounders} Bitcoin vault with an inheritance path to ${c.heirQ}-of-${c.plannedHeirs} successor keys.`
-      : `${vaultName} is a ${c.founderQ}-of-${c.plannedFounders} Bitcoin vault. No inheritance path is configured -- only the founder quorum can ever spend.`;
+    : isBackupOnly
+      ? `${vaultName} is a ${c.founderQ}-of-${c.plannedFounders} Bitcoin vault with an always-available backup path (${c.backupQ}-of-${c.plannedBackups} separate keys, no timelock) instead of a timelocked recovery leg.`
+      : c.mode === 'inheritance'
+        ? `${vaultName} is a ${c.founderQ}-of-${c.plannedFounders} Bitcoin vault with an inheritance path to ${c.heirQ}-of-${c.plannedHeirs} successor keys.`
+        : `${vaultName} is a ${c.founderQ}-of-${c.plannedFounders} Bitcoin vault. No inheritance path is configured -- only the founder quorum can ever spend.`;
 
   const rules: string[] = [
     `Day to day, any ${c.founderQ} of the ${c.plannedFounders} founder key${c.plannedFounders === 1 ? '' : 's'} can spend at any time -- no waiting, no timelock.`,
@@ -49,12 +52,24 @@ export function buildStandardTrustDoc(opts: {
       `A separate protector path lets ${c.protectorQ} of ${c.plannedProtectors} protector key${c.plannedProtectors === 1 ? '' : 's'} intervene after ${when(c.protectorAfter)} of inactivity -- an early safety valve to move funds to a fresh vault if something looks wrong, independent of the paths below.`,
     );
   }
+  if (c.backupEnabled) {
+    rules.push(
+      `A separate backup path lets ${c.backupQ} of ${c.plannedBackups} backup key${c.plannedBackups === 1 ? '' : 's'} -- held by the founders themselves, kept apart from the day-to-day keys -- spend at any time, no waiting. This is not a committee override: it exists so the founders can always move funds even if the day-to-day quorum can't be reached, at the cost of more physical effort to gather the backup keys.`,
+    );
+  }
   rules.push(
     'Add any real financial policy below -- spending caps, required approvals, what the funds are actually for -- as free text or as enforced per-proposal rules.',
   );
 
   const successionParts: string[] = [];
-  if (c.mode === 'inheritance') {
+  if (isBackupOnly) {
+    successionParts.push(
+      `This vault has no separate inheritance leg -- the backup path (${c.backupQ}-of-${c.plannedBackups} keys, no timelock) is the only path beyond the day-to-day founder quorum. It is always available, not gated by time; the friction is retrieving enough of the backup keys, not waiting out a clock.`,
+    );
+    successionParts.push(
+      'If estate planning / true succession also matters for these funds, pair this vault with a dedicated inheritance arrangement -- this shape intentionally does not provide one.',
+    );
+  } else if (c.mode === 'inheritance') {
     if (isGiftLocker) {
       successionParts.push(
         `This vault has no separate recovery path by design: before the gift date, only the ${c.founderQ}-of-${c.plannedFounders} founders together can spend. After ${when(c.inheritanceAfter)}, ${c.heirQ} of ${c.plannedHeirs} recipient key${c.plannedHeirs === 1 ? '' : 's'} can spend alone -- no founder signature needed, and no founder can block it once the date arrives.`,
@@ -107,6 +122,8 @@ export function standardConfigFromCompiledVault(
     protector_after: number | null;
     consent_quorum: number | null;
     consent_keys: string[];
+    backup_quorum?: number | null;
+    backup_keys?: string[];
   },
   tip: number | null,
 ): StandardConfig {
@@ -119,6 +136,8 @@ export function standardConfigFromCompiledVault(
   const hasProtector =
     vault.protector_keys.length > 0 && vault.protector_quorum != null && vault.protector_after != null;
   const hasConsent = vault.consent_keys.length > 0 && vault.consent_quorum != null;
+  const backupKeys = vault.backup_keys ?? [];
+  const hasBackup = backupKeys.length > 0 && vault.backup_quorum != null;
   return {
     mode: hasHeirs ? 'inheritance' : 'plain',
     plannedFounders: vault.founder_keys.length,
@@ -135,6 +154,9 @@ export function standardConfigFromCompiledVault(
     consentEnabled: hasConsent,
     consentQ: vault.consent_quorum ?? 1,
     plannedConsenters: vault.consent_keys.length,
+    backupEnabled: hasBackup,
+    backupQ: vault.backup_quorum ?? 1,
+    plannedBackups: backupKeys.length,
   };
 }
 

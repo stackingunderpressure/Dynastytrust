@@ -76,6 +76,15 @@ export interface Vault {
    *  beneficiary can't or won't cosign. Empty = not configured. */
   consent_keys: string[];
   consent_quorum: number | null;
+  /** "Anytime, harder" fallback branch (027_backup_path.sql) -- the
+   *  owner's own SEPARATE, harder-to-reach key set (e.g. keys split
+   *  across physical locations), spendable immediately with no
+   *  timelock, at a quorum typically stricter than founder_quorum.
+   *  Mutually exclusive with a timelocked recovery leaf (recovery_after
+   *  > 0) -- the compiler rejects both set at once. Empty = not
+   *  configured, meaning recovery_after (if any) governs Path 2 instead. */
+  backup_keys: string[];
+  backup_quorum: number | null;
   archived: boolean;
   status: VaultStatus;
   /** Caller's role in this vault -- attached server-side so the
@@ -101,7 +110,8 @@ export interface Vault {
    *  not a separate type column, is the discriminator (023_bloc_vaults.sql). */
   bloc_policy: BlocPolicy | null;
   /** Hex-encoded tapscript leaf bytes per role ("founders_now",
-   *  "recovery", "inheritance", "protector"), populated by the compiler
+   *  "recovery" OR "backup" -- mutually exclusive, "inheritance",
+   *  "protector"), populated by the compiler
    *  for a tr_multileaf vault only (026_leaf_scripts.sql). This is the
    *  source data for minting a vault-membership attestation (Cut C3,
    *  circle-membership-delivery.ts) -- what proves to a Tapit circle
@@ -449,6 +459,7 @@ export const api = {
       protector_quorum?: number | null;
       protector_after?: number | null;
       consent_quorum?: number | null;
+      backup_quorum?: number | null;
     }) =>
       req<{ ok: true; vault: Vault }>('/vaults', {
         method: 'POST',
@@ -465,6 +476,7 @@ export const api = {
       heir_keys?: { pubkey: string; xpub: string; fingerprint: string; derivation_path: string }[];
       protector_keys?: { pubkey: string; xpub: string; fingerprint: string; derivation_path: string }[];
       consent_keys?: { pubkey: string; xpub: string; fingerprint: string; derivation_path: string }[];
+      backup_keys?: { pubkey: string; xpub: string; fingerprint: string; derivation_path: string }[];
     }) =>
       req<{ ok: true; vault: Vault }>('/vaults-compile', {
         method: 'POST',

@@ -19,6 +19,8 @@ fn main() {
         protector_after: None,
         consent_keys: vec![],
         consent_quorum: None,
+        backup_keys: vec![],
+        backup_quorum: None,
     };
     let r = compile_dynasty_policy_tr_multileaf(policy, Network::Testnet);
     match r {

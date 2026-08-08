@@ -112,6 +112,12 @@ struct CompileRequest {
     #[serde(default)] protector_after: Option<u32>,
     #[serde(default)] consent_keys: Vec<String>,
     #[serde(default)] consent_quorum: Option<usize>,
+    /// "Anytime, harder" fallback (2026-08-08) -- an untimelocked branch
+    /// over a SEPARATE key set the owner controls directly, occupying the
+    /// same tree slot the timelocked recovery branch would. Mutually
+    /// exclusive with recovery_after > 0; see DynastyPolicy::has_backup.
+    #[serde(default)] backup_keys: Vec<String>,
+    #[serde(default)] backup_quorum: Option<usize>,
 }
 fn default_addr_type() -> String { "tr".to_string() }
 
@@ -120,8 +126,9 @@ struct CompileResponse {
     ok: bool, name: String, network: String, address_type: String,
     miniscript_policy: String, descriptor: String, address: String,
     /// Hex-encoded tapscript leaf bytes for a tr_multileaf vault, keyed by
-    /// role ("founders_now", "recovery", "inheritance", "protector") --
-    /// present only for the roles the policy actually compiled a leaf for.
+    /// role ("founders_now", "recovery" OR "backup" -- mutually exclusive,
+    /// "inheritance", "protector") -- present only for the roles the
+    /// policy actually compiled a leaf for.
     /// None for non-multileaf address types. This is what a vault-membership
     /// attestation (DynastyTrust -> Tapit Cut C3) names per signer so the
     /// receiving wallet can later verify a psbt-cosign request's tapLeafScript
@@ -142,6 +149,7 @@ async fn compile(
     let heirs    = parse_pubkeys(&req.heir_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
     let protectors = parse_pubkeys(&req.protector_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
     let consenters = parse_pubkeys(&req.consent_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+    let backups = parse_pubkeys(&req.backup_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
     let policy = DynastyPolicy {
         founder_keys: founders, founder_quorum: req.founder_quorum,
         recovery_quorum: req.recovery_quorum,
@@ -152,6 +160,8 @@ async fn compile(
         protector_after: req.protector_after,
         consent_keys: consenters,
         consent_quorum: req.consent_quorum,
+        backup_keys: backups,
+        backup_quorum: req.backup_quorum,
     };
     // Cloned up front (cheap -- a handful of Vec<PublicKey>): the compile
     // functions below take `policy` by value, but a tr_multileaf compile
@@ -169,7 +179,12 @@ async fn compile(
             let mut m = std::collections::HashMap::new();
             m.insert("founders_now".to_string(), hex::encode(out.founder_leaf.as_bytes()));
             if let Some(l) = &out.recovery_leaf {
-                m.insert("recovery".to_string(), hex::encode(l.as_bytes()));
+                // Mutually exclusive slot -- recovery_leaf IS the backup
+                // leaf when the policy set backup_keys instead of a
+                // timelocked recovery_after (see MultileafOutput's doc
+                // comment); label it accordingly, never both.
+                let key = if policy_for_leaves.has_backup() { "backup" } else { "recovery" };
+                m.insert(key.to_string(), hex::encode(l.as_bytes()));
             }
             if let Some(l) = &out.inheritance_leaf {
                 m.insert("inheritance".to_string(), hex::encode(l.as_bytes()));
@@ -343,10 +358,12 @@ struct PsbtBinaryRequest {
     #[serde(default)] protector_keys: Vec<String>,
     #[serde(default)] protector_quorum: Option<usize>,
     #[serde(default)] protector_after: Option<u32>,
+    #[serde(default)] backup_keys: Vec<String>,
+    #[serde(default)] backup_quorum: Option<usize>,
     // Which leaf the caller intends to spend via. Needed so we can
-    // set tx.lock_time for CLTV-gated paths; founders_now leaves
-    // lock_time at 0. Values: "founders_now" | "recovery" |
-    // "inheritance" | "protector".
+    // set tx.lock_time for CLTV-gated paths; founders_now and backup
+    // both leave lock_time at 0. Values: "founders_now" | "recovery" |
+    // "inheritance" | "protector" | "backup".
     #[serde(default)] path: Option<String>,
     // Fallback raw scripts (if policy params not provided)
     leaf_script_hex:    Option<String>,
@@ -469,8 +486,9 @@ async fn psbt_binary(
             parse_pubkeys(hk),
             parse_pubkeys(&req.protector_keys),
             parse_pubkeys(&req.consent_keys),
+            parse_pubkeys(&req.backup_keys),
         ) {
-            (Ok(founders), Ok(heirs), Ok(protectors), Ok(consenters)) => {
+            (Ok(founders), Ok(heirs), Ok(protectors), Ok(consenters), Ok(backups)) => {
                 let pol = DynastyPolicy {
                     founder_keys: founders, founder_quorum: fq,
                     recovery_quorum: req.recovery_quorum,
@@ -481,6 +499,8 @@ async fn psbt_binary(
                     protector_after: req.protector_after,
                     consent_keys: consenters,
                     consent_quorum: req.consent_quorum,
+                    backup_keys: backups,
+                    backup_quorum: req.backup_quorum,
                 };
                 build_multileaf(&pol).ok()
             }
@@ -529,7 +549,12 @@ async fn psbt_binary(
     // "protector" with no protector configured) correctly yields None,
     // same as a full policy-parse failure above.
     let selected_leaf: Option<ScriptBuf> = full_output.as_ref().and_then(|out| match intended_path {
-        "recovery" => out.recovery_leaf.clone(),
+        // "backup" shares recovery_leaf's tree slot -- see
+        // MultileafOutput's doc comment (policy_compiler.rs). Its
+        // lock_time already stayed at ZERO above (not listed in that
+        // match, falls to the default no-timelock case) since a backup
+        // leaf is never CLTV-gated.
+        "recovery" | "backup" => out.recovery_leaf.clone(),
         "inheritance" => out.inheritance_leaf.clone(),
         "protector" => out.protector_leaf.clone(),
         _ => Some(out.founder_leaf.clone()),
@@ -1104,7 +1129,28 @@ mod psbt_binary_tests {
             protector_after: None,
             consent_keys: vec![],
             consent_quorum: None,
+            backup_keys: vec![],
+            backup_quorum: None,
         }
+    }
+
+    const BACKUP_A: &str = "025cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc";
+    const BACKUP_B: &str = "02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9";
+    const BACKUP_C: &str = "03fff97bd5755eeea420453a14355235d382f6472f8568a18b2f057a1460297556";
+
+    /// Same shape as sample_policy() but with recovery_after cleared and
+    /// a 2-of-3 backup branch (own key set, no timelock) in its place --
+    /// the "anytime, harder" fallback.
+    fn sample_backup_policy() -> DynastyPolicy {
+        let mut p = sample_policy();
+        p.recovery_after = 0;
+        p.backup_keys = vec![
+            PublicKey::from_str(BACKUP_A).unwrap(),
+            PublicKey::from_str(BACKUP_B).unwrap(),
+            PublicKey::from_str(BACKUP_C).unwrap(),
+        ];
+        p.backup_quorum = Some(2);
+        p
     }
 
     fn xonly_bytes(pk_hex: &str) -> [u8; 32] {
@@ -1112,7 +1158,10 @@ mod psbt_binary_tests {
     }
 
     async fn build_psbt(path: &str, key_origins: Vec<KeyOrigin>) -> Psbt {
-        let policy = sample_policy();
+        build_psbt_with_policy(sample_policy(), path, key_origins).await
+    }
+
+    async fn build_psbt_with_policy(policy: DynastyPolicy, path: &str, key_origins: Vec<KeyOrigin>) -> Psbt {
         let compiled = compile_dynasty_policy_tr_multileaf(policy.clone(), Network::Testnet).unwrap();
         let addr = compiled.address.to_string();
         let spk_hex = hex::encode(compiled.address.script_pubkey().as_bytes());
@@ -1142,6 +1191,8 @@ mod psbt_binary_tests {
             protector_keys: vec![],
             protector_quorum: None,
             protector_after: None,
+            backup_keys: policy.backup_keys.iter().map(|k| k.to_string()).collect(),
+            backup_quorum: policy.backup_quorum,
             path: Some(path.into()),
             leaf_script_hex: None,
             witness_script_hex: None,
@@ -1189,6 +1240,140 @@ mod psbt_binary_tests {
     }
 
     #[tokio::test]
+    async fn backup_path_attaches_the_backup_leaf_with_no_locktime() {
+        // "Anytime, harder" -- the backup leaf uses a SEPARATE key set
+        // from founders (never the founder keys) and, unlike recovery,
+        // is spendable immediately: no CLTV, same as founders_now.
+        let psbt = build_psbt_with_policy(sample_backup_policy(), "backup", vec![]).await;
+        let (leaf, _) = psbt.inputs[0].tap_scripts.values().next().expect("a leaf must be attached");
+        assert!(
+            leaf.as_bytes().windows(32).any(|w| w == xonly_bytes(BACKUP_A)),
+            "backup spend must attach the backup leaf (containing a backup key)"
+        );
+        assert!(
+            !leaf.as_bytes().windows(32).any(|w| w == xonly_bytes(FOUNDER_A)),
+            "the backup leaf must use the SEPARATE backup key set, never the founder keys"
+        );
+        assert_eq!(
+            psbt.unsigned_tx.lock_time,
+            bitcoin::absolute::LockTime::ZERO,
+            "backup is never timelocked -- the friction is retrieving enough keys, not waiting"
+        );
+    }
+
+    #[tokio::test]
+    async fn founders_now_path_still_works_unchanged_on_a_backup_policy() {
+        // Adding a backup leaf must not disturb founders_now for a vault
+        // that has one configured.
+        let psbt = build_psbt_with_policy(sample_backup_policy(), "founders_now", vec![]).await;
+        let (leaf, _) = psbt.inputs[0].tap_scripts.values().next().expect("a leaf must be attached");
+        assert!(leaf.as_bytes().windows(32).any(|w| w == xonly_bytes(FOUNDER_A)));
+        assert_eq!(psbt.unsigned_tx.lock_time, bitcoin::absolute::LockTime::ZERO);
+    }
+
+    #[tokio::test]
+    async fn inheritance_path_still_works_unchanged_on_a_backup_policy() {
+        let psbt = build_psbt_with_policy(sample_backup_policy(), "inheritance", vec![]).await;
+        let (leaf, _) = psbt.inputs[0].tap_scripts.values().next().expect("a leaf must be attached");
+        assert!(leaf.as_bytes().windows(32).any(|w| w == xonly_bytes(HEIR_A)));
+        assert_ne!(psbt.unsigned_tx.lock_time, bitcoin::absolute::LockTime::ZERO);
+    }
+
+    #[tokio::test]
+    async fn compile_response_labels_the_middle_leaf_backup_not_recovery_when_configured() {
+        let policy = sample_backup_policy();
+        let req = CompileRequest {
+            name: None, network: "testnet".into(),
+            founder_keys: policy.founder_keys.iter().map(|k| k.to_string()).collect(),
+            founder_quorum: policy.founder_quorum,
+            recovery_quorum: None,
+            heir_keys: policy.heir_keys.iter().map(|k| k.to_string()).collect(),
+            heir_quorum: policy.heir_quorum,
+            recovery_after: policy.recovery_after,
+            inheritance_after: policy.inheritance_after,
+            address_type: "tr_multileaf".into(),
+            protector_keys: vec![],
+            protector_quorum: None,
+            protector_after: None,
+            consent_keys: vec![],
+            consent_quorum: None,
+            backup_keys: policy.backup_keys.iter().map(|k| k.to_string()).collect(),
+            backup_quorum: policy.backup_quorum,
+        };
+        let state = Arc::new(AppState { secret: None });
+        let Json(resp) = compile(State(state), HeaderMap::new(), Json(req)).await.unwrap();
+        let leaf_scripts = resp.leaf_scripts.expect("tr_multileaf compile must return leaf_scripts");
+
+        assert!(leaf_scripts.contains_key("backup"), "middle leaf must be labeled 'backup'");
+        assert!(!leaf_scripts.contains_key("recovery"), "must never carry both labels for the same slot");
+
+        // Byte-consistency, same discipline as the recovery/inheritance
+        // version of this test: the labeled hex must match what
+        // psbt_binary actually attaches for that path.
+        let backup_psbt = build_psbt_with_policy(sample_backup_policy(), "backup", vec![]).await;
+        let (backup_leaf, _) = backup_psbt.inputs[0].tap_scripts.values().next().unwrap();
+        assert_eq!(leaf_scripts["backup"], hex::encode(backup_leaf.as_bytes()));
+    }
+
+    /// The ACTUAL Tapit Circle shape: a phone-verified circle for
+    /// founders_now, the owner's own harder key set for backup, no third
+    /// leaf -- no heirs, no estate-planning timelock at all.
+    fn sample_tapit_circle_policy() -> DynastyPolicy {
+        let mut p = sample_backup_policy();
+        p.heir_keys = vec![];
+        p.heir_quorum = 0;
+        p.inheritance_after = 0;
+        p
+    }
+
+    #[tokio::test]
+    async fn tapit_circle_shape_compiles_and_spends_via_both_leaves_end_to_end() {
+        let policy = sample_tapit_circle_policy();
+        let req = CompileRequest {
+            name: None, network: "testnet".into(),
+            founder_keys: policy.founder_keys.iter().map(|k| k.to_string()).collect(),
+            founder_quorum: policy.founder_quorum,
+            recovery_quorum: None,
+            heir_keys: vec![],
+            heir_quorum: 0,
+            recovery_after: 0,
+            inheritance_after: 0,
+            address_type: "tr_multileaf".into(),
+            protector_keys: vec![],
+            protector_quorum: None,
+            protector_after: None,
+            consent_keys: vec![],
+            consent_quorum: None,
+            backup_keys: policy.backup_keys.iter().map(|k| k.to_string()).collect(),
+            backup_quorum: policy.backup_quorum,
+        };
+        let state = Arc::new(AppState { secret: None });
+        let Json(resp) = compile(State(state), HeaderMap::new(), Json(req)).await.unwrap();
+        let leaf_scripts = resp.leaf_scripts.expect("tr_multileaf compile must return leaf_scripts");
+        assert!(leaf_scripts.contains_key("founders_now"));
+        assert!(leaf_scripts.contains_key("backup"));
+        assert!(!leaf_scripts.contains_key("inheritance"), "this shape has no third leaf");
+
+        let founders_psbt = build_psbt_with_policy(sample_tapit_circle_policy(), "founders_now", vec![]).await;
+        let (f_leaf, _) = founders_psbt.inputs[0].tap_scripts.values().next().unwrap();
+        assert!(f_leaf.as_bytes().windows(32).any(|w| w == xonly_bytes(FOUNDER_A)));
+        assert_eq!(founders_psbt.unsigned_tx.lock_time, bitcoin::absolute::LockTime::ZERO);
+
+        let backup_psbt = build_psbt_with_policy(sample_tapit_circle_policy(), "backup", vec![]).await;
+        let (b_leaf, _) = backup_psbt.inputs[0].tap_scripts.values().next().unwrap();
+        assert!(b_leaf.as_bytes().windows(32).any(|w| w == xonly_bytes(BACKUP_A)));
+        assert!(
+            !b_leaf.as_bytes().windows(32).any(|w| w == xonly_bytes(FOUNDER_A)),
+            "backup leaf must use the separate backup key set, never founder keys"
+        );
+        assert_eq!(
+            backup_psbt.unsigned_tx.lock_time,
+            bitcoin::absolute::LockTime::ZERO,
+            "backup is never timelocked, same as founders_now"
+        );
+    }
+
+    #[tokio::test]
     async fn compile_leaf_scripts_match_the_leaf_bytes_psbt_binary_actually_attaches() {
         // Cut C3 (DynastyTrust -> Tapit vault-membership attestation) will
         // mint each signer's `leaf_scripts` field straight from this
@@ -1214,6 +1399,8 @@ mod psbt_binary_tests {
             protector_after: None,
             consent_keys: vec![],
             consent_quorum: None,
+            backup_keys: vec![],
+            backup_quorum: None,
         };
         let state = Arc::new(AppState { secret: None });
         let Json(resp) = compile(State(state), HeaderMap::new(), Json(req)).await.unwrap();

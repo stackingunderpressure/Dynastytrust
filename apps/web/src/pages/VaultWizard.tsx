@@ -49,6 +49,7 @@ const DEFAULT_STANDARD_CONFIG: StandardConfig = {
   recoveryEnabled: true, recoveryAfter: 26_280, inheritanceAfter: 52_560,
   protectorEnabled: false, protectorAfter: 39_000, protectorQ: 1, plannedProtectors: 1,
   consentEnabled: false, consentQ: 1, plannedConsenters: 1,
+  backupEnabled: false, backupQ: 4, plannedBackups: 5,
 };
 
 const DEFAULT_BLOC_CONFIG: BlocConfig = {
@@ -60,6 +61,7 @@ const DEFAULT_BLOC_CONFIG: BlocConfig = {
 
 function templateToStandardConfig(t: VaultTemplate): StandardConfig {
   const c = t.config;
+  const backupEnabled = !!c.backupEnabled;
   return {
     mode: c.mode,
     plannedFounders: c.plannedFounders, founderQ: c.founderQ,
@@ -67,8 +69,9 @@ function templateToStandardConfig(t: VaultTemplate): StandardConfig {
     // A template that ships with recoveryAfter: 0 means "Gift Locker"
     // shaped -- no recovery leaf at all -- so the toggle starts off; the
     // fallback default (26_280, ~6 months) only matters if the user
-    // re-enables it from here.
-    recoveryEnabled: c.recoveryAfter > 0,
+    // re-enables it from here. Mutually exclusive with backup -- a
+    // template can never legitimately ship both enabled.
+    recoveryEnabled: !backupEnabled && c.recoveryAfter > 0,
     recoveryAfter: c.recoveryAfter > 0 ? c.recoveryAfter : 26_280,
     inheritanceAfter: c.inheritanceAfter,
     protectorEnabled: !!c.protectorEnabled,
@@ -78,6 +81,9 @@ function templateToStandardConfig(t: VaultTemplate): StandardConfig {
     consentEnabled: !!c.consentEnabled,
     consentQ: c.consentQ ?? 1,
     plannedConsenters: c.plannedConsenters ?? 1,
+    backupEnabled,
+    backupQ: c.backupQ ?? 4,
+    plannedBackups: c.plannedBackups ?? 5,
   };
 }
 
@@ -203,6 +209,7 @@ export default function VaultWizard() {
   const [heirKeys, setHeirKeys] = useState<SelectedKey[]>([]);
   const [protectorKeys, setProtectorKeys] = useState<SelectedKey[]>([]);
   const [consentKeys, setConsentKeys] = useState<SelectedKey[]>([]);
+  const [backupKeys, setBackupKeys] = useState<SelectedKey[]>([]);
   const [parentKeys, setParentKeys] = useState<SelectedKey[]>([]);
   const [kidKeys, setKidKeys] = useState<SelectedKey[]>([]);
 
@@ -234,6 +241,7 @@ export default function VaultWizard() {
     else if (role === 'heir') setHeirKeys(p => [...p, sk]);
     else if (role === 'protector') setProtectorKeys(p => [...p, sk]);
     else if (role === 'consent') setConsentKeys(p => [...p, sk]);
+    else if (role === 'backup') setBackupKeys(p => [...p, sk]);
     else if (role === 'parent') setParentKeys(p => [...p, sk]);
     else if (role === 'kid') setKidKeys(p => [...p, sk]);
   }
@@ -290,6 +298,7 @@ export default function VaultWizard() {
           protector_quorum: c.protectorEnabled ? c.protectorQ : null,
           protector_after: c.protectorEnabled ? c.protectorAfter : null,
           consent_quorum: c.consentEnabled ? c.consentQ : null,
+          backup_quorum: c.backupEnabled ? c.backupQ : null,
         });
         setDraftVault(res.vault);
       } else {
@@ -325,11 +334,12 @@ export default function VaultWizard() {
       const heirsReady = c.mode !== 'inheritance' || c.plannedHeirs === 0 || heirKeys.length >= c.plannedHeirs;
       const protectorsReady = !c.protectorEnabled || protectorKeys.length >= c.plannedProtectors;
       const consentersReady = !c.consentEnabled || consentKeys.length >= c.plannedConsenters;
-      return foundersReady && heirsReady && protectorsReady && consentersReady;
+      const backupsReady = !c.backupEnabled || backupKeys.length >= c.plannedBackups;
+      return foundersReady && heirsReady && protectorsReady && consentersReady && backupsReady;
     }
     const c = blocConfig;
     return parentKeys.length >= c.plannedParents && kidKeys.length >= c.plannedKids;
-  }, [shape, stdConfig, blocConfig, founderKeys, heirKeys, protectorKeys, consentKeys, parentKeys, kidKeys]);
+  }, [shape, stdConfig, blocConfig, founderKeys, heirKeys, protectorKeys, consentKeys, backupKeys, parentKeys, kidKeys]);
 
   // Best-effort: the vault is already compiled and usable by the time this
   // runs, so a failed save here shouldn't surface as a compile error --
@@ -365,10 +375,11 @@ export default function VaultWizard() {
           heir_keys: toDirect(heirKeys),
           protector_keys: stdConfig.protectorEnabled ? toDirect(protectorKeys) : [],
           consent_keys: stdConfig.consentEnabled ? toDirect(consentKeys) : [],
+          backup_keys: stdConfig.backupEnabled ? toDirect(backupKeys) : [],
         });
         // Upgrade the descriptor to Nunchuk/Sparrow key-origin form,
         // same post-processing PolicyBuilder's save() already did.
-        const origins = buildKeyOrigins([...founderKeys, ...heirKeys, ...protectorKeys, ...consentKeys]);
+        const origins = buildKeyOrigins([...founderKeys, ...heirKeys, ...protectorKeys, ...consentKeys, ...backupKeys]);
         const upgraded = res.vault.descriptor ? upgradeDescriptor(res.vault.descriptor, origins) : res.vault.descriptor;
         setCompiledVault({ ...res.vault, descriptor: upgraded });
         void saveGeneratedTrustDoc(res.vault.id, buildStandardTrustDoc({
@@ -448,6 +459,7 @@ export default function VaultWizard() {
           heirKeys={heirKeys} setHeirKeys={setHeirKeys}
           protectorKeys={protectorKeys} setProtectorKeys={setProtectorKeys}
           consentKeys={consentKeys} setConsentKeys={setConsentKeys}
+          backupKeys={backupKeys} setBackupKeys={setBackupKeys}
           parentKeys={parentKeys} setParentKeys={setParentKeys}
           kidKeys={kidKeys} setKidKeys={setKidKeys}
           network={network}
@@ -661,10 +673,11 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
                 <QuorumPicker max={config.plannedHeirs} value={config.heirQ} onChange={n => setConfig(c => ({ ...c, heirQ: n }))} color={colors.blue} />
               )}
             </Field>
-            <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: config.backupEnabled ? 'not-allowed' : 'pointer' }}>
               <input
                 type="checkbox"
                 checked={config.recoveryEnabled}
+                disabled={config.backupEnabled}
                 onChange={e => setConfig(c => ({
                   ...c,
                   recoveryEnabled: e.target.checked,
@@ -674,11 +687,12 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
                   protectorEnabled: e.target.checked ? c.protectorEnabled : false,
                 }))}
               />
-              <span style={{ fontSize: 13, color: colors.sub }}>
+              <span style={{ fontSize: 13, color: config.backupEnabled ? colors.muted : colors.sub }}>
                 Add a separate recovery path (founders can also spend after a delay, before the heir path opens)
+                {config.backupEnabled && ' -- disabled while the backup path (below) is on; the two are mutually exclusive'}
               </span>
             </label>
-            {!config.recoveryEnabled && (
+            {!config.recoveryEnabled && !config.backupEnabled && (
               <div style={{ fontSize: 12, color: colors.muted, marginTop: -8 }}>
                 "Gift Locker" shape: founders spend now, or the heir alone after the timelock below -- nothing in between.
               </div>
@@ -690,9 +704,47 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
           </>
         )}
 
-        <details>
-          <summary style={{ fontSize: 12, color: colors.muted, cursor: 'pointer' }}>Advanced: protector + beneficiary consent</summary>
+        <details open={config.backupEnabled}>
+          <summary style={{ fontSize: 12, color: colors.muted, cursor: 'pointer' }}>Advanced: backup, protector + beneficiary consent</summary>
           <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={config.backupEnabled}
+                onChange={e => setConfig(c => ({
+                  ...c,
+                  backupEnabled: e.target.checked,
+                  // Mutually exclusive with recovery -- both occupy the
+                  // same tree slot server-side; turning backup on turns
+                  // recovery (and protector, which requires it) off.
+                  recoveryEnabled: e.target.checked ? false : c.recoveryEnabled,
+                  protectorEnabled: e.target.checked ? false : c.protectorEnabled,
+                }))}
+              />
+              <span style={{ fontSize: 13, color: colors.sub }}>
+                Add a backup path -- your own separate, harder-to-reach keys, spendable anytime with no timelock
+              </span>
+            </label>
+            {config.backupEnabled && (
+              <>
+                <div style={{ fontSize: 12, color: colors.muted, marginTop: -8 }}>
+                  "Anytime, harder": no waiting, but a stricter quorum -- the friction is retrieving enough of your
+                  own keys, not a clock. Mutually exclusive with the recovery path above.
+                </div>
+                <Field label="How many backup keys?">
+                  <CountStepper
+                    value={config.plannedBackups}
+                    min={1}
+                    label="backup keys"
+                    color={colors.orange}
+                    onChange={plannedBackups => setConfig(c => ({
+                      ...c, plannedBackups, backupQ: Math.min(c.backupQ, plannedBackups) || 1,
+                    }))}
+                  />
+                  <QuorumPicker max={config.plannedBackups} value={config.backupQ} onChange={n => setConfig(c => ({ ...c, backupQ: n }))} color={colors.orange} />
+                </Field>
+              </>
+            )}
             <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: config.recoveryEnabled ? 'pointer' : 'not-allowed' }}>
               <input
                 type="checkbox"
@@ -837,6 +889,7 @@ function KeysStep({
   shape, stdConfig, blocConfig, allKeys,
   founderKeys, setFounderKeys, heirKeys, setHeirKeys,
   protectorKeys, setProtectorKeys, consentKeys, setConsentKeys,
+  backupKeys, setBackupKeys,
   parentKeys, setParentKeys, kidKeys, setKidKeys,
   network, genRole, setGenRole, onGenerateKey, onImportXpub, onImportTapitKey,
   slotsReady, onContinue, onSaveForLater,
@@ -847,6 +900,7 @@ function KeysStep({
   heirKeys: SelectedKey[]; setHeirKeys: (fn: (p: SelectedKey[]) => SelectedKey[]) => void;
   protectorKeys: SelectedKey[]; setProtectorKeys: (fn: (p: SelectedKey[]) => SelectedKey[]) => void;
   consentKeys: SelectedKey[]; setConsentKeys: (fn: (p: SelectedKey[]) => SelectedKey[]) => void;
+  backupKeys: SelectedKey[]; setBackupKeys: (fn: (p: SelectedKey[]) => SelectedKey[]) => void;
   parentKeys: SelectedKey[]; setParentKeys: (fn: (p: SelectedKey[]) => SelectedKey[]) => void;
   kidKeys: SelectedKey[]; setKidKeys: (fn: (p: SelectedKey[]) => SelectedKey[]) => void;
   network: NetworkChoice;
@@ -858,7 +912,7 @@ function KeysStep({
   onContinue: () => void;
   onSaveForLater: () => void;
 }) {
-  const claimed = new Set([...founderKeys, ...heirKeys, ...protectorKeys, ...consentKeys, ...parentKeys, ...kidKeys].map(k => k.keyId));
+  const claimed = new Set([...founderKeys, ...heirKeys, ...protectorKeys, ...consentKeys, ...backupKeys, ...parentKeys, ...kidKeys].map(k => k.keyId));
   const availableKeys = allKeys.filter(k => !claimed.has(k.keyId) && keyNetworkMatches(k.network, network));
 
   function role(
@@ -909,6 +963,8 @@ function KeysStep({
             role('protector', 'Protector keys', stdConfig.plannedProtectors, protectorKeys, setProtectorKeys, colors.orange)}
           {stdConfig.consentEnabled &&
             role('consent', 'Beneficiary-consent keys', stdConfig.plannedConsenters, consentKeys, setConsentKeys, colors.green)}
+          {stdConfig.backupEnabled &&
+            role('backup', 'Backup keys', stdConfig.plannedBackups, backupKeys, setBackupKeys, colors.orange)}
         </>
       ) : (
         <>

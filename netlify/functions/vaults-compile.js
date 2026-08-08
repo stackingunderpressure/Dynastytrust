@@ -41,7 +41,7 @@ const COMPILER_URL = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
 
 const VAULT_FIELDS =
-  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc, predecessor_id, leaf_scripts";
+  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc, predecessor_id, leaf_scripts, backup_keys, backup_quorum";
 
 // Replace every occurrence of a raw pubkey hex in the descriptor
 // with its Nunchuk-format key origin expression. Pure string work,
@@ -113,13 +113,14 @@ export async function handler(event) {
   };
 
   const dk = body.direct_keys;
-  let founders, heirs, protectors, consenters;
+  let founders, heirs, protectors, consenters, backups;
   if (dk && typeof dk === "object") {
     const clean = (arr) => (Array.isArray(arr) ? arr : []).filter(isProvisioned);
     founders = clean(dk.founder_keys);
     heirs = clean(dk.heir_keys);
     protectors = clean(dk.protector_keys);
     consenters = clean(dk.consent_keys);
+    backups = clean(dk.backup_keys);
   } else {
     const { data: members, error: memErr } = await supabase
       .from("vault_members")
@@ -133,6 +134,9 @@ export async function handler(event) {
     heirs = ready.filter(m => m.role === "heir");
     protectors = ready.filter(m => m.role === "protector");
     consenters = ready.filter(m => m.role === "beneficiary");
+    // Backup keys are the owner's own -- never invited, never a
+    // vault_members role. Invite-based vaults simply never have any.
+    backups = [];
   }
 
   const plannedF = vault.planned_founder_count ?? founders.length;
@@ -158,6 +162,12 @@ export async function handler(event) {
     protectors.length > 0 &&
     vault.protector_quorum != null &&
     vault.protector_after != null;
+  // No timelock to convert -- backup is always immediately spendable.
+  // Mutually exclusive with a timelocked recovery leaf (the Rust
+  // compiler rejects both set at once); the wizard is responsible for
+  // never setting recovery_after > 0 on a vault that also has backup
+  // keys, same as it already keeps protector's ordering constraints.
+  const hasBackup = backups.length > 0 && vault.backup_quorum != null;
   let tipHeight = 0;
   if (vault.recovery_after || vault.inheritance_after ||
       (hasProtector && vault.protector_after)) {
@@ -203,6 +213,12 @@ export async function handler(event) {
       ? {
           consent_keys: consenters.map(keyPubkeyHex),
           consent_quorum: vault.consent_quorum,
+        }
+      : {}),
+    ...(hasBackup
+      ? {
+          backup_keys: backups.map(keyPubkeyHex),
+          backup_quorum: vault.backup_quorum,
         }
       : {}),
   };
@@ -266,6 +282,7 @@ export async function handler(event) {
       protector_keys: protectors.map(keyStoreValue),
       consent_keys:
         vault.consent_quorum != null ? consenters.map(keyStoreValue) : [],
+      backup_keys: backups.map(keyStoreValue),
       // Overwrite the draft's relative offsets with the absolute
       // CLTV heights that got baked into the compiled leaves.
       recovery_after: absRecoveryAfter,
