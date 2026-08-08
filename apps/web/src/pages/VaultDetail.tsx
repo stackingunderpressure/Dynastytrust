@@ -1986,8 +1986,16 @@ function SendTab({ vault, balance, onDone, prefill }: {
           </div>
         </div>
 
-        {/* Browser keys signing */}
-        {signing.signers.length > 0 && (
+        {/* Browser keys signing -- Tapit-origin keys hold no local private
+            material (importTapitPubkey stores pubkey only, see keystore.ts)
+            so they can never actually unlock here; they're excluded from
+            this list and only ever offered via "Notify circle via Nostr"
+            below, which is what they were always meant for. Filtering by
+            index (not a plain .filter()) keeps each row's signWithKey(i)
+            call pointed at the right entry in the full signing.signers
+            array, which NotifyCircleViaNostr and the quorum progress bar
+            above both still read unfiltered. */}
+        {signing.signers.some(s => s.key.origin !== "tapit") && (
           <div
             style={{
               background: colors.surface,
@@ -2006,6 +2014,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
                 : "Only 1 signature needed."}
             </div>
             {signing.signers.map((signer, i) => {
+              if (signer.key.origin === "tapit") return null;
               const statusIcon =
                 signer.status === "signed"
                   ? "Signed"
