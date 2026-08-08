@@ -1,9 +1,16 @@
 # Phase 2 Integration -- The Vault Key Bridge
 
-Status: grounded execution plan. Companion to `docs/integration-phase1-signin-and-bridge.md`
-(Cut A/B: sign-in, and the PSBT signing bridge -- both shipped) and
-`docs/build-map-and-cut-lists.md` (the cross-repo map). Written after reading the
-real code in both repos, not from memory of the plan docs alone.
+Status: C1 (manual half) and C2 shipped 2026-08-08. B3 slice 1 ("prove the
+pipe" -- publish + receive a psbt-cosign request over Nostr, no signing yet)
+also shipped 2026-08-08, ahead of this doc's original C1-C3 sequencing,
+because the operator's own description of how they wanted the Tapit Circle
+vault to actually work day-to-day named it directly: real friends on their
+own phones, notified automatically, not sharing a browser tab with the
+vault owner. See "What actually shipped" below for the concrete state.
+Companion to `docs/integration-phase1-signin-and-bridge.md` (Cut A/B: sign-in,
+and the PSBT signing bridge -- both shipped) and `docs/build-map-and-cut-lists.md`
+(the cross-repo map). Written after reading the real code in both repos, not
+from memory of the plan docs alone.
 
 Operator request (2026-08-08): a new vault template gated by a close circle of
 3-5 people who each hold their key in Tapit Wallet, all of whom must sign for
@@ -77,6 +84,58 @@ a signature for it.
   Tapit pubkey pasted or scanned there today would currently be
   misinterpreted as an xpub and rejected -- the fallback path needs a real
   "this is a bare pubkey, not an xpub" branch, not just a UI label change.
+
+---
+
+## What actually shipped (2026-08-08)
+
+- **C1, manual half** -- tapit-wallet: `features/settings/PublicKeySection.tsx`,
+  a "Your public key" panel (copy + QR, no passphrase gate). Nothing
+  deep-link yet.
+- **C2** -- DynastyTrust: `keystore.ts`'s `importTapitPubkey()` (lifts the
+  32-byte x-only key to the 33-byte compressed form via the standard even-Y
+  convention, no invented xpub/fingerprint/derivationPath), `VaultWizard.tsx`'s
+  "From Tapit" InlineKeyCreate tab (manual paste), the Tapit Circle template
+  + StartVault intent card + signet test variant, and the KeyPicker/KeyManager
+  "no dead screens" fixes for a key with no xpub.
+- **B3 slice 1 ("prove the pipe")** -- both repos, done out of the original
+  C1-C3-then-B3 order because the operator's own description of the vault's
+  day-to-day signing flow named Nostr delivery directly, not as a later
+  nice-to-have:
+  - tapit-wallet: `features/sign-request/psbtCosignChannel.ts` (send/subscribe
+    on kind 9576, mirrors `encryptedInbox.ts`'s `sendEnvelopeTo`/`subscribeInbox`
+    shape), `usePsbtCosignRequests.ts` (reads wallet/transport from
+    WalletContext -- WalletProvider.tsx is at its 800-line hard limit),
+    `IncomingPsbtCosignBanner.tsx` (the two-line HomeScreen mount that makes
+    receipt visible).
+  - DynastyTrust: new vendored package `packages/nip44/` (NIP-44 v2,
+    byte-identical to `tapit-attest/src/core/nip44.ts`; its parity test
+    doesn't rely on deterministic encryption -- it hardcodes two real
+    ciphertexts, one produced by each repo's actual implementation and
+    proven to decrypt correctly under the OTHER repo's real code, run and
+    verified during this pass, not assumed), `lib/tapit-nostr-cosign.ts`
+    (ephemeral-keypair sender, builds+encrypts+publishes the request),
+    `VaultDetail.tsx`'s `NotifyCircleViaNostr` card (mounted in both the
+    main Send flow and the tranche-claim flow).
+  - **Deliberately not built yet**: nothing decrypts-and-acts on the Tapit
+    side beyond parsing and displaying the request shape -- no `approveSignRequest`
+    call, no signature produced, nothing published back. `approveRequest.ts`'s
+    psbt-cosign branch still hardcodes a `window.location.href` redirect to
+    the request's `callback` URL, which is meaningless over Nostr (no page to
+    redirect to) -- giving it a non-redirect delivery path is slice 2's first
+    task, alongside DynastyTrust subscribing for the response and merging it
+    into `signing` automatically via the existing `externalImport` path.
+  - `wallet_identities`/`vault_members` join from this doc's original C3
+    sketch turned out to be unnecessary for slice 1: a Tapit Circle vault's
+    founder keys are pasted in directly by the owner (no DynastyTrust account
+    needed for a circle member), so the real x-only pubkey is already sitting
+    on the local `LocalKey.tapitXOnlyPubkey` from C2 -- nothing to resolve
+    via a members table.
+
+Gates green in both repos at each commit (tapit-wallet: typecheck, lint,
+844/844 tests, build + bundle budgets; DynastyTrust: typecheck/lint matching
+the pre-existing baseline exactly, policy tests, and both new packages'
+own test suites).
 
 ---
 
