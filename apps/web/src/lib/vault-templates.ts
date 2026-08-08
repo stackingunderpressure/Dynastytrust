@@ -621,6 +621,77 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
     },
   },
 
+  {
+    id: 'gift-locker',
+    title: 'Gift Locker',
+    tagline: '2-of-2 now . 1 gifted key after a set date',
+    useCase:
+      "Lock a gift for someone until a specific future date -- a graduation, a birthday, coming of age, a wedding. You (the gifter) and a co-signer (a lawyer or another family member) can spend normally at any time before then, for corrections or if plans change. The recipient holds one key of their own that, alone, unlocks the moment the date arrives -- no need to involve you or the co-signer once it opens. No middle recovery step: just now, or the gift date, nothing in between.",
+    config: {
+      mode: 'inheritance',
+      plannedFounders: 2,
+      founderQ: 2,
+      plannedHeirs: 1,
+      heirQ: 1,
+      recoveryAfter: 0, // Gift Locker shape: no separate recovery leaf
+      inheritanceAfter: 78_840, // ~18 months -- adjust to the real gift date at Configure
+    },
+    scenarios: [
+      {
+        title: 'You change your mind about the amount or the date',
+        trigger: 'Plans change before the gift date arrives.',
+        outcome:
+          'You and the co-signer can spend together at any time on Path 1 -- move funds out, adjust the amount, or rebuild the vault with a new date.',
+        actions: [
+          'Sign a 2-of-2 spend with your co-signer to redirect or resize the gift.',
+          'Recompile a fresh Gift Locker vault if the recipient or date changes.',
+        ],
+        severity: 'info',
+      },
+      {
+        title: 'The gift date arrives',
+        trigger: 'The chain reaches the specified unlock height.',
+        outcome:
+          "The recipient's single key alone can now spend -- no co-signer needed, no waiting on you.",
+        actions: [
+          'The recipient signs alone and sweeps to a wallet they control.',
+          "Recommend they move it to their own fresh vault promptly rather than leaving it on this vault's address.",
+        ],
+        severity: 'info',
+      },
+      {
+        title: 'You lose your key before the gift date',
+        trigger: "You or the co-signer loses a device before the unlock height.",
+        outcome:
+          'Path 1 needs BOTH keys -- with one gone, neither of you can spend early. The gift is safe but frozen until the date arrives; there is no recovery leaf to fall back on in this shape.',
+        actions: [
+          'Wait for the gift date -- the recipient can still claim it on schedule regardless.',
+          'If early access matters more to you than simplicity, use Family Inheritance or Lost-Device Insurance instead, which both include a recovery path.',
+        ],
+        severity: 'warn',
+      },
+      {
+        title: 'The recipient loses their key before the gift date',
+        trigger: "The recipient's device or backup is lost before the unlock height.",
+        outcome:
+          'No immediate problem -- Path 1 (you + co-signer) still works right up until the gift date. Replace the recipient key before that date arrives.',
+        actions: [
+          'You and the co-signer spend on Path 1 to move funds to a rebuilt Gift Locker with a fresh recipient key.',
+          "Confirm the recipient's new backup is solid well before the original gift date.",
+        ],
+        severity: 'warn',
+      },
+    ],
+    trustDoc: {
+      purpose:
+        'A timelocked gift: the gifter and a co-signer jointly control the funds until a specified future date, at which point the named recipient can claim it alone with their own key. No recovery path exists between the two -- only immediate (both signers) or delayed (recipient alone).',
+      distribution_rules:
+        'Before the gift date, only a joint spend (gifter + co-signer) may move funds, and only to redirect, resize, or rebuild the gift. After the gift date, the recipient may spend alone and without restriction.',
+      succession_notes:
+        "Set the gift date to the real occasion this is timed for. The recipient's key should be backed up as carefully as any other -- if it's lost before the date, only the gifter + co-signer can act (to rebuild), not the recipient. There is no in-between recovery path in this shape by design; use Family Inheritance instead if that matters more than simplicity.",
+    },
+  },
+
   // // -- Test-mode templates -------------------------------------
   // Same shapes, timelocks measured in blocks (hours-to-a-day on
   // signet at 10-min blocks) so a full recovery / inheritance /
@@ -780,6 +851,42 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
       purpose: 'Signet test sandbox for the Social Recovery shape. Not for real value.',
       distribution_rules: 'Test distributions only. Reset mnemonics + vault after verification.',
       succession_notes: 'Test vault. Delete the seeds after you have rehearsed the peer-rescue path.',
+    },
+    testMode: true,
+  },
+  {
+    id: 'test-gift-locker',
+    title: '[TEST] Gift Locker',
+    tagline: '2-of-2 now . 1 gifted key . 30 blocks',
+    useCase:
+      'Software-key sandbox for the Gift Locker shape. The gift date opens ~30 blocks after compile (~5 hours on signet). Verify both paths -- the joint gifter+co-signer spend before the date, and the recipient-alone spend after -- then rebuild the real vault with the actual gift date.',
+    config: {
+      mode: 'inheritance',
+      plannedFounders: 2,
+      founderQ: 2,
+      plannedHeirs: 1,
+      heirQ: 1,
+      recoveryAfter: 0, // Gift Locker shape: no separate recovery leaf
+      inheritanceAfter: 30,
+    },
+    scenarios: [
+      {
+        title: 'Test both paths without waiting months',
+        trigger: 'You want to see the joint spend and the solo gift-date spend both actually work.',
+        outcome:
+          'Path 1 (gifter + co-signer) works immediately after funding. The recipient-alone path opens ~5 hours later on signet.',
+        actions: [
+          'Compile, fund from the signet faucet, sign a joint 2-of-2 spend first.',
+          'Wait for tip to cross inheritance_after; sign a spend with the recipient key alone.',
+          'Once satisfied, recompile the production "Gift Locker" template with the real gift date.',
+        ],
+        severity: 'info',
+      },
+    ],
+    trustDoc: {
+      purpose: 'Signet test sandbox for the Gift Locker shape. Not for real value.',
+      distribution_rules: 'Test distributions only. Reset mnemonics + vault after verification.',
+      succession_notes: 'Test vault. Delete the seeds after you have verified both spending paths.',
     },
     testMode: true,
   },
