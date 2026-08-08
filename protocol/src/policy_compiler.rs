@@ -61,6 +61,19 @@ impl DynastyPolicy {
             && self.protector_keys.is_empty()
     }
 
+    /// True when the tree has a distinct recovery leaf (Path 2 --
+    /// founders, after a delay). False for a "Gift Locker"-style
+    /// two-leaf vault: founders-now, OR a single beneficiary key that
+    /// unlocks after a specified time, with no separate founders-after-
+    /// delay path in between. `recovery_after == 0` is the existing
+    /// sentinel `is_plain()` already uses for "no recovery" -- reused
+    /// here rather than adding a new field, since a real recovery delay
+    /// must clear `MIN_RECOVERY_BLOCKS` and could never legitimately be
+    /// zero.
+    pub fn has_recovery(&self) -> bool {
+        self.recovery_after > 0
+    }
+
     pub fn has_protector(&self) -> bool {
         !self.protector_keys.is_empty()
             && self.protector_quorum.is_some()
@@ -106,6 +119,10 @@ pub enum PolicyError {
     RecoveryTooSoon,
     #[error("inheritance_after must be > recovery_after")]
     InheritanceTooSoon,
+    #[error("inheritance_after must be > 0 when heir_keys is set")]
+    InheritanceRequiresDelay,
+    #[error("a protector branch requires a recovery branch (recovery_after > 0); protector sits between them")]
+    ProtectorRequiresRecovery,
     #[error("miniscript policy error: {0}")]
     Miniscript(String),
     #[error("descriptor error: {0}")]
@@ -209,14 +226,17 @@ pub fn compile_dynasty_policy_tr(
 /// (wrong) attached leaf and the signer would report "not a signer for
 /// this input" -- masking a server-side leaf-selection bug as a missing
 /// key.
+#[derive(Debug)]
 pub struct MultileafOutput {
     pub spend_info: TaprootSpendInfo,
     pub founder_leaf: bitcoin::ScriptBuf,
-    /// Present whenever the policy is not `is_plain()` -- every non-plain
-    /// tree has a recovery branch. None only for a plain (founders-only,
-    /// no timelocks) policy, which has just the one leaf.
+    /// Present only when `policy.has_recovery()` -- None both for a
+    /// plain (founders-only) policy AND for a "Gift Locker"-shaped one
+    /// (founders-now OR a single timelocked beneficiary path, no
+    /// separate founders-after-a-delay leaf).
     pub recovery_leaf: Option<bitcoin::ScriptBuf>,
-    /// Present whenever the policy is not `is_plain()`, same as recovery.
+    /// Present whenever the policy is not `is_plain()` -- unlike
+    /// `recovery_leaf`, a Gift Locker-shaped policy still has this one.
     pub inheritance_leaf: Option<bitcoin::ScriptBuf>,
     /// Present only when `policy.has_protector()`.
     pub protector_leaf: Option<bitcoin::ScriptBuf>,
@@ -299,17 +319,48 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
         .iter()
         .map(|k| format!("pk({k})"))
         .collect();
-    let recovery_quorum = policy.recovery_quorum.unwrap_or(policy.founder_quorum);
-    let recovery_thresh = format!("thresh({},{})", recovery_quorum, founders.join(","));
-    let recovery_branch = format!("and(after({}),{})", policy.recovery_after, recovery_thresh);
     let inheritance_branch = format!(
         "and(after({}),thresh({},{}))",
         policy.inheritance_after,
         policy.heir_quorum,
         heirs.join(","),
     );
-    let ms_recovery = compile_leaf(&recovery_branch)?;
     let ms_inheritance = compile_leaf(&inheritance_branch)?;
+
+    if !policy.has_recovery() {
+        // "Gift Locker" shape: founders-now OR a single beneficiary
+        // path that unlocks after a specified time -- exactly two
+        // leaves, no founders-after-a-delay path in between.
+        // `verify()` already rejects has_protector() here, so this is
+        // never reached with a protector branch to also place.
+        let builder = TaprootBuilder::new()
+            .add_leaf(1, founder_leaf.clone())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?
+            .add_leaf(1, ms_inheritance.encode())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf inheritance: {e:?}")))?;
+        let spend_info = builder
+            .finalize(&secp, internal_key)
+            .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
+        let descriptor = format!(
+            "tr({},{{{},{}}})",
+            internal_key, ms_founder, ms_inheritance
+        );
+        let miniscript_policy = format!("or({},{})", founder_thresh, inheritance_branch);
+        return Ok(MultileafOutput {
+            spend_info,
+            founder_leaf,
+            recovery_leaf: None,
+            inheritance_leaf: Some(ms_inheritance.encode()),
+            protector_leaf: None,
+            descriptor,
+            miniscript_policy,
+        });
+    }
+
+    let recovery_quorum = policy.recovery_quorum.unwrap_or(policy.founder_quorum);
+    let recovery_thresh = format!("thresh({},{})", recovery_quorum, founders.join(","));
+    let recovery_branch = format!("and(after({}),{})", policy.recovery_after, recovery_thresh);
+    let ms_recovery = compile_leaf(&recovery_branch)?;
 
     if policy.has_protector() {
         let protectors: Vec<String> = policy
@@ -859,18 +910,23 @@ fn build_policy_string(policy: &DynastyPolicy) -> String {
         .iter()
         .map(|k| format!("pk({k})"))
         .collect();
-
-    // Recovery branch uses its own quorum when the trust asked for
-    // one; otherwise falls back to founder_quorum (legacy rows).
-    let recovery_quorum = policy.recovery_quorum.unwrap_or(policy.founder_quorum);
-    let recovery_thresh = format!("thresh({},{})", recovery_quorum, founders.join(","));
-    let recovery_branch = format!("and(after({}),{})", policy.recovery_after, recovery_thresh);
     let inheritance_branch = format!(
         "and(after({}),thresh({},{}))",
         policy.inheritance_after,
         policy.heir_quorum,
         heirs.join(",")
     );
+
+    if !policy.has_recovery() {
+        // Gift Locker shape: no recovery branch to fold in.
+        return format!("or({},{})", founder_thresh, inheritance_branch);
+    }
+
+    // Recovery branch uses its own quorum when the trust asked for
+    // one; otherwise falls back to founder_quorum (legacy rows).
+    let recovery_quorum = policy.recovery_quorum.unwrap_or(policy.founder_quorum);
+    let recovery_thresh = format!("thresh({},{})", recovery_quorum, founders.join(","));
+    let recovery_branch = format!("and(after({}),{})", policy.recovery_after, recovery_thresh);
 
     let base = format!(
         "or({},or({},{}))",
@@ -929,12 +985,23 @@ fn verify(policy: &DynastyPolicy) -> Result<(), PolicyError> {
         return Err(PolicyError::InvalidQuorum);
     }
 
-    if policy.recovery_after < MIN_RECOVERY_BLOCKS {
-        return Err(PolicyError::RecoveryTooSoon);
+    if policy.has_protector() && !policy.has_recovery() {
+        return Err(PolicyError::ProtectorRequiresRecovery);
     }
 
-    if policy.inheritance_after <= policy.recovery_after {
-        return Err(PolicyError::InheritanceTooSoon);
+    if policy.has_recovery() {
+        if policy.recovery_after < MIN_RECOVERY_BLOCKS {
+            return Err(PolicyError::RecoveryTooSoon);
+        }
+
+        if policy.inheritance_after <= policy.recovery_after {
+            return Err(PolicyError::InheritanceTooSoon);
+        }
+    } else if policy.inheritance_after == 0 {
+        // "Gift Locker" shape (founders-now OR a single beneficiary key
+        // after a delay, no separate recovery leaf): still needs a real
+        // timelock on the one delayed path that exists.
+        return Err(PolicyError::InheritanceRequiresDelay);
     }
 
     Ok(())
@@ -1219,6 +1286,131 @@ mod multileaf_leaf_exposure_tests {
                 .is_some(),
             "protector_leaf control block"
         );
+    }
+}
+
+#[cfg(test)]
+mod gift_locker_tests {
+    //! "Gift Locker" vault shape (decided 2026-08-08): founders-now
+    //! (typically 2-of-2: the gifter plus a lawyer/family-member
+    //! co-signer) OR a single gifted key that alone unlocks after a
+    //! specified absolute time -- no separate founders-after-a-delay
+    //! recovery leaf in between. Reuses the existing tr_multileaf
+    //! compiler via `DynastyPolicy::has_recovery() == false`, not a
+    //! separate wallet type.
+    use super::*;
+
+    fn pk(s: &str) -> PublicKey {
+        PublicKey::from_str(s).unwrap()
+    }
+
+    fn gifter_and_helper() -> Vec<PublicKey> {
+        vec![
+            pk("02a3ed2c2b57903abe5b89108c66f4a144e8a316af2f013b739cf8975fc0365e97"),
+            pk("02d76c6752934c92bcafb0e575051b36e5ac4035db5329544521e203d6a7337569"),
+        ]
+    }
+
+    fn gift_key() -> Vec<PublicKey> {
+        vec![pk("03defdea4cdb677750a420fee807eacf21eb9898ae79b9768766e4faa04a2d4a34")]
+    }
+
+    fn gift_locker_policy() -> DynastyPolicy {
+        DynastyPolicy {
+            founder_keys: gifter_and_helper(),
+            founder_quorum: 2,
+            recovery_quorum: None,
+            heir_keys: gift_key(),
+            heir_quorum: 1,
+            recovery_after: 0,
+            inheritance_after: 800_000,
+            protector_keys: vec![],
+            protector_quorum: None,
+            protector_after: None,
+            consent_keys: vec![],
+            consent_quorum: None,
+        }
+    }
+
+    #[test]
+    fn is_not_plain_and_has_no_recovery() {
+        let p = gift_locker_policy();
+        assert!(!p.is_plain());
+        assert!(!p.has_recovery());
+    }
+
+    #[test]
+    fn exposes_exactly_founder_and_inheritance_leaves() {
+        let out = build_multileaf(&gift_locker_policy()).unwrap();
+        assert!(out.recovery_leaf.is_none(), "no separate recovery leaf in this shape");
+        assert!(out.inheritance_leaf.is_some());
+        assert!(out.protector_leaf.is_none());
+    }
+
+    #[test]
+    fn both_leaves_have_a_valid_control_block_against_the_same_tree() {
+        let out = build_multileaf(&gift_locker_policy()).unwrap();
+        let script_ver = |s: &bitcoin::ScriptBuf| (s.clone(), bitcoin::taproot::LeafVersion::TapScript);
+        assert!(
+            out.spend_info.control_block(&script_ver(&out.founder_leaf)).is_some(),
+            "founder_leaf control block"
+        );
+        assert!(
+            out.spend_info
+                .control_block(&script_ver(out.inheritance_leaf.as_ref().unwrap()))
+                .is_some(),
+            "inheritance_leaf control block"
+        );
+    }
+
+    #[test]
+    fn descriptor_has_exactly_two_leaves_no_nested_braces() {
+        // Two leaves at the same depth is a single level of braces --
+        // tr(key,{a,b}) -- not the nested tr(key,{a,{b,c}}) shape a
+        // 3-leaf tree produces.
+        let out = build_multileaf(&gift_locker_policy()).unwrap();
+        assert_eq!(out.descriptor.matches('{').count(), 1);
+        assert_eq!(out.descriptor.matches('}').count(), 1);
+    }
+
+    #[test]
+    fn compiles_end_to_end_through_the_real_tr_multileaf_path() {
+        // The actual function the compiler HTTP service calls
+        // (address_type == "tr_multileaf") -- round-trips the
+        // descriptor through rust-miniscript's own parser, not just
+        // build_multileaf() in isolation.
+        let compiled = compile_dynasty_policy_tr_multileaf(gift_locker_policy(), bitcoin::Network::Testnet).unwrap();
+        assert_eq!(compiled.address_type, AddressType::TrMultileaf);
+        assert!(compiled.miniscript_policy.starts_with("or("));
+    }
+
+    #[test]
+    fn protector_without_recovery_is_rejected() {
+        let mut p = gift_locker_policy();
+        p.protector_keys = vec![pk("03acd484e2f0c7f65309ad178a9f559abde09796974c57e714c35f110dfc27ccbe")];
+        p.protector_quorum = Some(1);
+        p.protector_after = Some(400_000);
+        let err = build_multileaf(&p).unwrap_err();
+        assert!(matches!(err, PolicyError::ProtectorRequiresRecovery));
+    }
+
+    #[test]
+    fn zero_inheritance_delay_with_no_recovery_is_rejected() {
+        // Must still have a real timelock on the one delayed path that
+        // exists -- "gift unlocks at a specified time" requires a
+        // specified time.
+        let mut p = gift_locker_policy();
+        p.inheritance_after = 0;
+        let err = build_multileaf(&p).unwrap_err();
+        assert!(matches!(err, PolicyError::InheritanceRequiresDelay));
+    }
+
+    #[test]
+    fn build_policy_string_matches_the_two_leaf_shape() {
+        let s = build_policy_string(&gift_locker_policy());
+        assert!(s.starts_with("or("));
+        // No middle recovery clause -- exactly one nested or(...), not two.
+        assert_eq!(s.matches("or(").count(), 1);
     }
 }
 

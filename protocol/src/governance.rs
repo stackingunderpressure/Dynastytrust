@@ -14,7 +14,7 @@
 //!
 //! ## Spending Paths
 //!
-//! Every dynasty vault has exactly three spending paths:
+//! A standard dynasty vault has three spending paths:
 //!
 //! ```text
 //! Path A — Founders Now:    thresh(Q_f, pk(f1), pk(f2), ...)
@@ -23,6 +23,12 @@
 //! ```
 //!
 //! At any block height, paths B and/or C may or may not be unlocked.
+//!
+//! A "Gift Locker"-shaped vault (`recovery_after == 0`, the same
+//! sentinel `DynastyPolicy::has_recovery()` uses in policy_compiler.rs)
+//! has only Path A and Path C -- Recovery never appears in
+//! `active_paths` and is rejected as a proposed spend path regardless of
+//! block height, since no such leaf exists in its descriptor.
 
 use serde::{Deserialize, Serialize};
 
@@ -122,7 +128,13 @@ pub fn evaluate_vault_status(
     policy: &VaultPolicy,
     current_block: u32,
 ) -> VaultStatus {
-    let recovery_unlocked    = current_block >= policy.recovery_after;
+    // recovery_after == 0 is a "Gift Locker"-shaped vault (see module
+    // doc comment): no recovery leaf exists in the descriptor at all,
+    // so `current_block >= 0` (always true) must NOT be read as
+    // "recovery is unlocked" -- that would show a phantom spending
+    // path the PSBT builder would then refuse to actually build.
+    let has_recovery         = policy.recovery_after > 0;
+    let recovery_unlocked    = has_recovery && current_block >= policy.recovery_after;
     let inheritance_unlocked = current_block >= policy.inheritance_after;
 
     let mut active_paths = vec![SpendingPath::FoundersNow];
@@ -137,7 +149,7 @@ pub fn evaluate_vault_status(
         VaultPhase::Active
     };
 
-    let blocks_until_recovery = if recovery_unlocked {
+    let blocks_until_recovery = if !has_recovery || recovery_unlocked {
         None
     } else {
         Some(policy.recovery_after - current_block)
@@ -150,10 +162,15 @@ pub fn evaluate_vault_status(
     };
 
     let status_label = match phase {
-        VaultPhase::Active =>
+        VaultPhase::Active if has_recovery =>
             format!(
                 "Active — founders can spend. Recovery unlocks in ~{} days.",
                 blocks_until_recovery.map(|b| (b as f64 / BLOCKS_PER_DAY) as u32).unwrap_or(0)
+            ),
+        VaultPhase::Active =>
+            format!(
+                "Active — founders can spend. Gift unlocks in ~{} days.",
+                blocks_until_inheritance.map(|b| (b as f64 / BLOCKS_PER_DAY) as u32).unwrap_or(0)
             ),
         VaultPhase::RecoveryUnlocked =>
             format!(
@@ -216,9 +233,16 @@ pub fn evaluate_spend_proposal(
     utxo_age_blocks: u32,
     signer_statuses: &[SignerStatus],
 ) -> SpendEvaluation {
+    // recovery_after == 0 means this vault has no recovery leaf at all
+    // (the "Gift Locker" shape -- see module doc comment); a Recovery
+    // spend must never be reported satisfied just because
+    // `utxo_age_blocks >= 0` is trivially true. The PSBT builder
+    // already refuses to attach a nonexistent recovery leaf, so this
+    // keeps the evaluation consistent with what can actually be built.
+    let has_recovery = policy.recovery_after > 0;
     let timelock_satisfied = match path {
         SpendingPath::FoundersNow => true,
-        SpendingPath::Recovery    => utxo_age_blocks >= policy.recovery_after,
+        SpendingPath::Recovery    => has_recovery && utxo_age_blocks >= policy.recovery_after,
         SpendingPath::Inheritance => utxo_age_blocks >= policy.inheritance_after,
     };
 
@@ -243,6 +267,8 @@ pub fn evaluate_spend_proposal(
         format!(
             "{path} spend is valid. {signed_count} of {required_signers} required signatures collected."
         )
+    } else if path == SpendingPath::Recovery && !has_recovery {
+        "This vault has no separate recovery path -- founders spend via Founders Now at any time.".to_string()
     } else if !timelock_satisfied {
         let needed = match path {
             SpendingPath::Recovery    => policy.recovery_after.saturating_sub(utxo_age_blocks),
@@ -480,6 +506,15 @@ mod tests {
         }).collect()
     }
 
+    /// "Gift Locker" shape: no recovery leaf (recovery_after == 0).
+    fn gift_locker_policy() -> VaultPolicy {
+        VaultPolicy {
+            founder_quorum: 2, founder_key_count: 2,
+            heir_quorum: 1,    heir_key_count: 1,
+            recovery_after: 0, inheritance_after: 52_560,
+        }
+    }
+
     #[test]
     fn active_phase_before_any_timelock() {
         let s = evaluate_vault_status(&policy(), 1_000);
@@ -514,6 +549,61 @@ mod tests {
             assert!(s.active_paths.contains(&SpendingPath::FoundersNow),
                 "FoundersNow must always be active (block {})", blocks);
         }
+    }
+
+    #[test]
+    fn gift_locker_never_shows_recovery_as_active() {
+        // recovery_after == 0 must NOT be read as "recovery already
+        // unlocked" -- there's no recovery leaf in this vault's
+        // descriptor at all.
+        for blocks in [0, 1_000, 26_000, 52_560, 100_000] {
+            let s = evaluate_vault_status(&gift_locker_policy(), blocks);
+            assert!(!s.active_paths.contains(&SpendingPath::Recovery),
+                "Recovery must never be active for a Gift Locker vault (block {})", blocks);
+            assert!(s.blocks_until_recovery.is_none(),
+                "no recovery countdown to show (block {})", blocks);
+        }
+    }
+
+    #[test]
+    fn gift_locker_phase_is_active_then_inheritance_unlocked_never_recovery() {
+        let before = evaluate_vault_status(&gift_locker_policy(), 1_000);
+        assert_eq!(before.phase, VaultPhase::Active);
+
+        let after = evaluate_vault_status(&gift_locker_policy(), 60_000);
+        assert_eq!(after.phase, VaultPhase::InheritanceUnlocked);
+    }
+
+    #[test]
+    fn gift_locker_recovery_spend_is_always_rejected() {
+        let eval = evaluate_spend_proposal(
+            &gift_locker_policy(),
+            SpendingPath::Recovery,
+            100_000, // far past any real timelock
+            &signers(&[0, 1], 2),
+        );
+        assert!(!eval.allowed, "no recovery leaf exists to spend from");
+        assert!(!eval.timelock_satisfied);
+        assert!(eval.reason.contains("no separate recovery path"));
+    }
+
+    #[test]
+    fn gift_locker_founders_now_and_inheritance_still_work_normally() {
+        let now = evaluate_spend_proposal(
+            &gift_locker_policy(), SpendingPath::FoundersNow, 0, &signers(&[0, 1], 2),
+        );
+        assert!(now.allowed);
+
+        let too_early = evaluate_spend_proposal(
+            &gift_locker_policy(), SpendingPath::Inheritance, 1_000, &signers(&[0], 1),
+        );
+        assert!(!too_early.allowed);
+        assert!(too_early.timelock_satisfied == false);
+
+        let unlocked = evaluate_spend_proposal(
+            &gift_locker_policy(), SpendingPath::Inheritance, 60_000, &signers(&[0], 1),
+        );
+        assert!(unlocked.allowed);
     }
 
     #[test]
