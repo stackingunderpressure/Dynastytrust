@@ -394,6 +394,16 @@ export default function Dashboard() {
         })}
       </div>
 
+      <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap", paddingTop: space[3] }}>
+        <button
+          type="button"
+          onClick={() => navigate("/keys")}
+          style={{ background: "none", border: "none", color: colors.muted, cursor: "pointer", fontSize: 13, padding: 0 }}
+        >
+          Manage keys
+        </button>
+      </div>
+
       {showTrustCode && (
         <TrustCodeModal onClose={() => setShowTrustCode(false)} />
       )}
