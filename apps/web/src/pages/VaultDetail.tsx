@@ -402,14 +402,6 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
           </div>
         )}
         {vault.status === "compiled" && (
-          <VaultMembershipSetup
-            vaultDescriptor={vault.descriptor}
-            vaultName={vault.name}
-            founderKeys={vault.founder_keys}
-            leafScripts={vault.leaf_scripts}
-          />
-        )}
-        {vault.status === "compiled" && (
           <CirclePhraseSetup
             vaultDescriptor={vault.descriptor}
             vaultName={vault.name}
@@ -2699,6 +2691,14 @@ function MembersTab({ vault }: { vault: Vault }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {vault.status === "compiled" && (
+        <VaultMembershipSetup
+          vaultDescriptor={vault.descriptor}
+          vaultName={vault.name}
+          founderKeys={vault.founder_keys}
+          leafScripts={vault.leaf_scripts}
+        />
+      )}
       {myself && (
         <YourMembershipCard
           me={myself}
