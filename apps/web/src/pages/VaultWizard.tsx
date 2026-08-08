@@ -609,7 +609,16 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
             <Input
               type="number" min={1} style={{ width: 90 }}
               value={config.plannedFounders}
-              onChange={e => setConfig(c => ({ ...c, plannedFounders: Math.max(1, Number(e.target.value) || 1) }))}
+              onChange={e => setConfig(c => {
+                const plannedFounders = Math.max(1, Number(e.target.value) || 1);
+                // A quorum higher than the new signer count would fail
+                // server-side at compile time with a raw Rust error
+                // ("quorum must be > 0 and <= number of keys") and no
+                // visible cue in the picker that anything needs fixing --
+                // the button matching the stale quorum simply stops
+                // rendering. Keep it valid the moment the count changes.
+                return { ...c, plannedFounders, founderQ: Math.min(c.founderQ, plannedFounders) };
+              })}
             />
             <span style={{ fontSize: 12, color: colors.muted }}>signers</span>
           </div>
@@ -632,7 +641,11 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
                 <Input
                   type="number" min={0} style={{ width: 90 }}
                   value={config.plannedHeirs}
-                  onChange={e => setConfig(c => ({ ...c, plannedHeirs: Math.max(0, Number(e.target.value) || 0) }))}
+                  onChange={e => setConfig(c => {
+                    const plannedHeirs = Math.max(0, Number(e.target.value) || 0);
+                    // Same stale-quorum guard as plannedFounders above.
+                    return { ...c, plannedHeirs, heirQ: Math.min(c.heirQ, plannedHeirs) || (plannedHeirs > 0 ? 1 : 0) };
+                  })}
                 />
                 <span style={{ fontSize: 12, color: colors.muted }}>heirs</span>
               </div>
