@@ -34,7 +34,7 @@ const STORE_KEY = 'dynastytrust:keyring:v1';
 // on our side; the signet/testnet distinction is only meaningful
 // when talking to mempool.space or broadcasting.
 export type Network   = 'testnet' | 'signet' | 'mainnet';
-export type KeyOrigin = 'software' | 'imported_xpub';
+export type KeyOrigin = 'software' | 'imported_xpub' | 'tapit';
 export type KeyStatus = 'active' | 'archived' | 'compromised';
 
 export interface EncryptedBlob {
@@ -64,6 +64,16 @@ export interface LocalKey {
   masterFingerprint?: string;
   /** Whether backup verify has been completed */
   backedUp: boolean;
+  /**
+   * origin: 'tapit' only. The real BIP340 x-only pubkey (32 bytes, 64
+   * hex chars) as Tapit Wallet reported it -- kept verbatim for display
+   * and for matching a future signed PSBT back to this key. `pubkey`
+   * above stores the LIFTED compressed form ('02' + this value) so the
+   * rest of this file's/the compiler's 66-char-hex assumptions keep
+   * working unmodified; see importTapitPubkey's doc comment for why
+   * that lift is standard, not a hack.
+   */
+  tapitXOnlyPubkey?: string;
 }
 
 export interface KeyCreateResult {
@@ -314,6 +324,78 @@ export function importXpub(opts: {
 }
 
 /**
+ * Import a public key handed over by Tapit Wallet -- see
+ * docs/integration-phase2-vault-key-bridge.md for the full design.
+ *
+ * Tapit's identity key has no BIP32 derivation at all (a flat
+ * secp256k1/Schnorr keypair, no chain code, no xpub -- see
+ * tapit-attest/src/core/wallet.ts). It reports a 32-byte BIP340
+ * x-only pubkey (64 hex chars), not the 33-byte compressed form
+ * (66 hex chars) this file's `pubkey` field and the Rust compiler's
+ * `PublicKey::from_str` both expect.
+ *
+ * The fix is not a hack: BIP340 always generates keys with an even Y
+ * coordinate (its own pubkey_gen negates the private key when needed
+ * to guarantee this), so prefixing '02' onto an x-only key IS its
+ * correct, standard compressed form under secp256k1 point encoding --
+ * the same lift `XOnlyPublicKey::public_key(Parity::Even)` performs in
+ * rust-bitcoin. Once compiled into a Taproot leaf, the script only
+ * ever stores the x-only key back out again, so the on-chain key is
+ * byte-identical to what Tapit reported either way -- this is purely
+ * satisfying this file's/the compiler's compressed-pubkey type, not a
+ * different key.
+ *
+ * No xpub, fingerprint, or derivationPath -- left empty (not
+ * invented). `buildKeyOrigins()`/`buildPsbtKeyOrigins()` in
+ * descriptor-keys.ts already gracefully skip any key missing those
+ * fields, so a Tapit key's leaf simply carries a bare pubkey in the
+ * compiled descriptor instead of a `[fp/path]xpub/0/0` key-origin
+ * expression -- honest, since it isn't a hardware wallet.
+ */
+export function importTapitPubkey(opts: {
+  label: string;
+  network: Network;
+  xOnlyPubkey: string;
+  persona: string;
+}): LocalKey {
+  const clean = opts.xOnlyPubkey.trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(clean)) {
+    throw new Error('Invalid Tapit public key — expected 64 hex characters (32 bytes, x-only).');
+  }
+
+  const key: LocalKey = {
+    keyId:            crypto.randomUUID(),
+    label:            opts.label,
+    persona:          opts.persona,
+    origin:           'tapit',
+    network:          opts.network,
+    fingerprint:      displayTag(clean),
+    derivationPath:   '',
+    xpub:             '',
+    pubkey:           '02' + clean,
+    tapitXOnlyPubkey: clean,
+    status:           'active',
+    createdAt:        new Date().toISOString(),
+    backedUp:         true, // the key lives in Tapit; nothing to back up here
+  };
+
+  const all = loadAll();
+  all.push(key);
+  saveAll(all);
+  return key;
+}
+
+// A short, stable, non-BIP32 tag derived from the pubkey itself, used
+// only so a Tapit key's KeyPicker chip has something better than a
+// blank field to show next to its persona/network -- never fed into
+// buildKeyOrigins (which requires xpub + derivationPath too, both
+// deliberately empty on a Tapit key) so it can never be mistaken for
+// a real BIP32 fingerprint by the compile path.
+function displayTag(hex: string): string {
+  return toHex(sha256(new TextEncoder().encode(hex))).slice(0, 8);
+}
+
+/**
  * Split a BIP-380 key-origin descriptor fragment -- [<8-hex fingerprint>/
  * <hardened path>]<xpub>, e.g. [c8fe8d4e/48'/1'/0'/2']tpub... -- into its
  * xpub and derivation-path parts. This is the format that carries BOTH
@@ -556,7 +638,13 @@ export function importKeyringJson(json: string): number {
   const existingIds = new Set(existing.map(k => k.keyId));
   let added = 0;
   for (const k of data.keys as LocalKey[]) {
-    if (!k.keyId || !k.xpub || existingIds.has(k.keyId)) continue;
+    // A Tapit-sourced key has no xpub (see importTapitPubkey) -- its
+    // pubkey is the only identifying public data it carries, same as
+    // every other key exports right now (no mnemonics either way).
+    // Requiring xpub unconditionally here would silently drop a Tapit
+    // key on every export/re-import round trip.
+    const hasIdentifyingData = k.origin === 'tapit' ? !!k.pubkey : !!k.xpub;
+    if (!k.keyId || !hasIdentifyingData || existingIds.has(k.keyId)) continue;
     existing.push({ ...k, status: 'active', backedUp: true });
     added++;
   }
