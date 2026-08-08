@@ -160,7 +160,12 @@ export default function VaultWizard() {
   const [shape, setShape] = useState<Shape>('standard');
   const [step, setStep] = useState<Step>('configure');
   const [name, setName] = useState('My Vault');
-  const [network, setNetwork] = useState<NetworkChoice>('testnet');
+  // Signet, not testnet -- testnet3's faucets are unreliable and its
+  // consensus rules make block timing erratic; every scenario/template's
+  // own copy already says "signet faucet." Defaulting here to testnet was
+  // the trap: nothing stopped a new vault from silently landing on the
+  // network this app doesn't actually support end to end.
+  const [network, setNetwork] = useState<NetworkChoice>('signet');
 
   const [stdConfig, setStdConfig] = useState<StandardConfig>(DEFAULT_STANDARD_CONFIG);
   const [blocConfig, setBlocConfig] = useState<BlocConfig>(DEFAULT_BLOC_CONFIG);
@@ -557,7 +562,14 @@ function ConfigureStep({
           </Field>
           <Field label="Network">
             <div style={{ display: 'flex', gap: 8 }}>
-              {(['testnet', 'signet', 'bitcoin'] as const).map(n => (
+              {/* Testnet deliberately isn't offered here -- one real test
+                  network only (signet), matching every template's own
+                  "fund from the signet faucet" copy. Offering both let a
+                  vault silently land on the one this app doesn't actually
+                  support end to end (unreliable faucets, erratic block
+                  timing). Existing testnet vaults from before this change
+                  still load fine; nothing NEW gets created there. */}
+              {(['signet', 'bitcoin'] as const).map(n => (
                 <Button key={n} size="sm" variant={network === n ? 'primary' : 'ghost'} onClick={() => setNetwork(n)}>
                   {n}
                 </Button>
