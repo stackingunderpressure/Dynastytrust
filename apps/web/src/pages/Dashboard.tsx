@@ -190,9 +190,6 @@ export default function Dashboard() {
         >
           Join with trust code
         </Button>
-        <Button variant="ghost" size="sm" onClick={() => navigate("/keys")}>
-          Manage keys
-        </Button>
         <Button size="sm" onClick={() => navigate("/start")}>
           + Add vault
         </Button>
