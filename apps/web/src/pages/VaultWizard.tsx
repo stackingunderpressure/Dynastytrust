@@ -11,6 +11,7 @@ import {
 import { api, type Vault, type VaultProposal, type BlocPolicy } from '../lib/api';
 import { downloadVault } from '../lib/descriptor-backup';
 import { blocksToHuman, TIMELOCK_PRESETS } from '../lib/blocks';
+import { approxWallclockDate, blocksUntilDate } from '../lib/chain';
 import { VAULT_TEMPLATES, type VaultMode, type VaultTemplate } from '../lib/vault-templates';
 import { colors, radii } from '../theme';
 import { Button, Input, Card, Field } from '../components/ui';
@@ -699,7 +700,38 @@ function BlocConfigureFields({ config, setConfig }: { config: BlocConfig; setCon
   );
 }
 
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+// Local-time (not UTC) YYYY-MM-DD / HH:MM strings for <input type="date">
+// and <input type="time"> -- those inputs are always local wall-clock,
+// so formatting with toISOString() here would silently shift by the
+// browser's UTC offset.
+function localDateStr(d: Date): string {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+function localTimeStr(d: Date): string {
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
 function TimelockField({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+  // Derived straight from `value` every render (no local state to drift
+  // out of sync when a preset button or the raw-blocks input changes it
+  // from underneath the date/time pickers).
+  const target = approxWallclockDate(value);
+  const dateStr = localDateStr(target);
+  const timeStr = localTimeStr(target);
+
+  function pickDateTime(newDateStr: string, newTimeStr: string) {
+    if (!newDateStr) return;
+    const [y, m, d] = newDateStr.split('-').map(Number);
+    const [hh, mm] = (newTimeStr || '00:00').split(':').map(Number);
+    const picked = new Date(y, m - 1, d, hh, mm);
+    if (Number.isNaN(picked.getTime())) return;
+    onChange(blocksUntilDate(picked));
+  }
+
   return (
     <Field label={label}>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
@@ -709,9 +741,26 @@ function TimelockField({ label, value, onChange }: { label: string; value: numbe
           </Button>
         ))}
       </div>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+        <Input
+          type="date"
+          value={dateStr}
+          onChange={e => pickDateTime(e.target.value, timeStr)}
+          style={{ width: 168 }}
+        />
+        <Input
+          type="time"
+          value={timeStr}
+          onChange={e => pickDateTime(dateStr, e.target.value)}
+          style={{ width: 118 }}
+        />
+        <span style={{ fontSize: 12, color: colors.muted }}>a specific date -- your local time</span>
+      </div>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <Input type="number" min={0} style={{ width: 140 }} value={value} onChange={e => onChange(Math.max(0, Number(e.target.value) || 0))} />
-        <span style={{ fontSize: 12, color: colors.muted }}>blocks ({blocksToHuman(value)})</span>
+        <span style={{ fontSize: 12, color: colors.muted }}>
+          blocks ({blocksToHuman(value)}, unlocks around {target.toLocaleDateString()})
+        </span>
       </div>
     </Field>
   );

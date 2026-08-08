@@ -54,3 +54,17 @@ export function approxWallclockDate(blocksFromNow: number): Date {
   const ms = blocksFromNow * 10 * 60 * 1000;
   return new Date(Date.now() + ms);
 }
+
+/**
+ * Inverse of approxWallclockDate: how many blocks from now (at the
+ * same ~10-min average) until a target wall-clock instant. Lets the
+ * vault builder accept a real calendar date + time (a graduation, a
+ * birthday, a wedding) and store it the same way every other timelock
+ * is stored -- a relative block count the compiler adds to the chain
+ * tip at compile time. Clamped to 0: a date already in the past just
+ * means "available now," same as any other zero-or-negative timelock.
+ */
+export function blocksUntilDate(target: Date): number {
+  const ms = target.getTime() - Date.now();
+  return Math.max(0, Math.round(ms / (10 * 60 * 1000)));
+}
