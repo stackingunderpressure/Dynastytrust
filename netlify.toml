@@ -1,17 +1,26 @@
 [build]
-  # apps/web depends on three sibling workspace packages
-  # (bip341-psbt-signer, nostr-transport, policy-engine), each of which
-  # is only resolvable once its own `tsc` build has produced dist/index.js
-  # (their package.json "main"). It also depends on `tapit-attest`
-  # (apps/web/package.json: "tapit-attest": "file:../../tapit-attest"),
-  # a file: dependency living at the repo root, OUTSIDE the
-  # `workspaces` glob (["apps/*", "packages/*"]) -- so root `npm
-  # install` never installs tapit-attest's own devDependencies (it
-  # has its own package-lock.json) and never runs its `tsc` build.
-  # Build order: install + build the three workspace packages, then
+  # apps/web depends on four sibling workspace packages
+  # (bip341-psbt-signer, nostr-transport, policy-engine, nip44), each of
+  # which is only resolvable once its own `tsc` build has produced
+  # dist/index.js (their package.json "main"). It also depends on
+  # `tapit-attest` (apps/web/package.json: "tapit-attest":
+  # "file:../../tapit-attest"), a file: dependency living at the repo
+  # root, OUTSIDE the `workspaces` glob (["apps/*", "packages/*"]) -- so
+  # root `npm install` never installs tapit-attest's own devDependencies
+  # (it has its own package-lock.json) and never runs its `tsc` build.
+  # Build order: install + build the four workspace packages, then
   # separately install + build tapit-attest (via --prefix, since it
   # isn't a workspace member), then build the app last.
-  command = "npm install && npm run build --workspace=@dynastytrust/bip341-psbt-signer --workspace=@dynastytrust/nostr-transport --workspace=@dynastytrust/policy-engine && npm --prefix tapit-attest install && npm --prefix tapit-attest run build && npm run build --workspace=@dynastytrust/web"
+  #
+  # nip44 was added 2026-08-08 (Cut B3) and left out of this list at the
+  # time -- Netlify's fresh clone has no dist/ checked in for it, so
+  # Vite's resolver failed with "Failed to resolve entry for package
+  # @dynastytrust/nip44" even though it built fine locally, where a
+  # prior `npm run build` in packages/nip44 had already left a dist/
+  # behind. Every workspace package apps/web imports MUST be listed
+  # here, or a from-scratch build (Netlify, a fresh clone, CI) breaks
+  # even when a dev machine's leftover dist/ hides the same gap.
+  command = "npm install && npm run build --workspace=@dynastytrust/bip341-psbt-signer --workspace=@dynastytrust/nostr-transport --workspace=@dynastytrust/policy-engine --workspace=@dynastytrust/nip44 && npm --prefix tapit-attest install && npm --prefix tapit-attest run build && npm run build --workspace=@dynastytrust/web"
   publish = "apps/web/dist"
 
 [build.environment]
