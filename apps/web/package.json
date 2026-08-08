@@ -14,6 +14,8 @@
   },
   "dependencies": {
     "@dynastytrust/bip341-psbt-signer": "*",
+    "@dynastytrust/nip44": "*",
+    "@dynastytrust/nostr-transport": "*",
     "@dynastytrust/policy-engine": "*",
     "@gandlaf21/bc-ur": "^1.1.12",
     "@noble/ciphers": "^2.2.0",

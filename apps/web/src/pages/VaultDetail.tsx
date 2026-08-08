@@ -57,6 +57,7 @@ import { TrustTab } from "../components/TrustTab";
 import { RemindersBanner } from "../components/RemindersBanner";
 import { tipHeight, blocksToApproxLabel, approxWallclockDate } from "../lib/chain";
 import { buildStandardTrustDoc, standardConfigFromCompiledVault } from "../lib/trust-doc";
+import { sendPsbtCosignRequestOverNostr } from "../lib/tapit-nostr-cosign";
 
 
 function satsToBtc(sats: number): string {
@@ -1124,6 +1125,88 @@ interface SigningState {
   txid?: string;
 }
 
+// Cut B stage B3, slice 1 (docs/integration-phase2-vault-key-bridge.md) --
+// "prove the pipe": send the current proposal directly into each Tapit
+// circle member's encrypted Nostr inbox instead of relying on "Sign via
+// Tapit" above, which only works when the signer shares this browser tab.
+// Deliberately notify-only: Tapit's receive side (psbtCosignChannel.ts)
+// shows the request arrived but does not yet sign and publish a response,
+// so this does not (yet) merge anything back into `signing` automatically
+// -- the next slice closes that loop.
+function NotifyCircleViaNostr({
+  psbtHex, vaultDescriptor, vaultName, signers,
+}: {
+  psbtHex: string;
+  vaultDescriptor: string | null;
+  vaultName: string;
+  signers: Array<{ key: LocalKey; status: "pending" | "signing" | "signed" | "error"; error?: string }>;
+}) {
+  const toast = useToast();
+  const [busyKeyId, setBusyKeyId] = useState<string | null>(null);
+  const [notified, setNotified] = useState<Set<string>>(new Set());
+
+  const pending = signers.filter(
+    s => s.key.origin === "tapit" && s.key.tapitXOnlyPubkey && s.status !== "signed",
+  );
+  if (pending.length === 0) return null;
+
+  async function notify(key: LocalKey) {
+    setBusyKeyId(key.keyId);
+    try {
+      await sendPsbtCosignRequestOverNostr({
+        psbtHex,
+        vaultContext: { vault_descriptor: vaultDescriptor ?? "", vault_name: vaultName },
+        recipientXOnlyPubkey: key.tapitXOnlyPubkey!,
+      });
+      setNotified(prev => new Set(prev).add(key.keyId));
+      toast.success(`Notified ${key.label} via Nostr`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to notify");
+    } finally {
+      setBusyKeyId(null);
+    }
+  }
+
+  return (
+    <div
+      style={{
+        background: colors.surface,
+        border: `1px solid ${colors.border}`,
+        borderRadius: 12,
+        padding: 20,
+        marginBottom: 16,
+      }}
+    >
+      <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+        Notify circle via Nostr
+      </div>
+      <div style={{ fontSize: 12, color: colors.muted, marginBottom: 14 }}>
+        Delivers the spend request straight into each signer's Tapit inbox -- no link to hand
+        them by hand. They still verify with you and sign from their own device; this only gets
+        the request there. Their signature doesn't merge back in automatically yet.
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {pending.map(s => (
+          <div key={s.key.keyId} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+            <div style={{ fontSize: 13, color: colors.text, minWidth: 0 }}>
+              {s.key.label} <span style={{ color: colors.muted }}>({s.key.persona})</span>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              style={{ fontSize: 12, flexShrink: 0 }}
+              disabled={busyKeyId === s.key.keyId}
+              onClick={() => void notify(s.key)}
+            >
+              {notified.has(s.key.keyId) ? "Notified" : busyKeyId === s.key.keyId ? "Sending..." : "Notify via Nostr"}
+            </Button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SendTab({ vault, balance, onDone, prefill }: {
   vault: Vault;
   balance: BalanceResult | null;
@@ -1912,6 +1995,13 @@ function SendTab({ vault, balance, onDone, prefill }: {
             Sign via Tapit
           </Button>
         </div>
+
+        <NotifyCircleViaNostr
+          psbtHex={signing.psbt_hex}
+          vaultDescriptor={vault.descriptor}
+          vaultName={vault.name}
+          signers={signing.signers}
+        />
 
         {/* Hardware wallet / external PSBT */}
         <div
@@ -6564,6 +6654,13 @@ function TrancheClaimModal({
                 Sign via Tapit
               </Button>
             </div>
+
+            <NotifyCircleViaNostr
+              psbtHex={psbtHex}
+              vaultDescriptor={tranche.descriptor}
+              vaultName={`${wallet.name} tranche ${tranche.index + 1}`}
+              signers={signers}
+            />
 
             <div
               style={{
