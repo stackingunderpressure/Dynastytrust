@@ -190,7 +190,7 @@ export default function Dashboard() {
         >
           Join with trust code
         </Button>
-        <Button size="sm" onClick={() => navigate("/policy")}>
+        <Button size="sm" onClick={() => navigate("/start")}>
           + Add vault
         </Button>
       </div>
@@ -232,7 +232,7 @@ export default function Dashboard() {
           </p>
           {!search && (
             <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
-              <Button onClick={() => navigate("/policy")}>Build your first vault</Button>
+              <Button onClick={() => navigate("/start")}>Build your first vault</Button>
               <Button variant="ghost" onClick={() => setShowTrustCode(true)}>
                 Join with trust code
               </Button>
