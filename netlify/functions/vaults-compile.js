@@ -41,7 +41,7 @@ const COMPILER_URL = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
 
 const VAULT_FIELDS =
-  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc, predecessor_id";
+  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc, predecessor_id, leaf_scripts";
 
 // Replace every occurrence of a raw pubkey hex in the descriptor
 // with its Nunchuk-format key origin expression. Pure string work,
@@ -272,6 +272,10 @@ export async function handler(event) {
       inheritance_after: absInheritanceAfter,
       protector_after: hasProtector ? absProtectorAfter : vault.protector_after,
       status: "compiled",
+      // Per-role tapscript leaf bytes (Cut C3 prerequisite) -- absent
+      // for non-tr_multileaf address types, since the compiler only
+      // populates it for that shape.
+      leaf_scripts: compiled.leaf_scripts ?? null,
     })
     .eq("id", vaultId)
     .select(VAULT_FIELDS)

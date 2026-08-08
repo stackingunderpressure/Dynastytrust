@@ -57,6 +57,7 @@ import { TrustTab } from "../components/TrustTab";
 import { RemindersBanner } from "../components/RemindersBanner";
 import { HaltVaultBar } from "../components/HaltVaultBar";
 import { CirclePhraseSetup } from "../components/CirclePhraseSetup";
+import { VaultMembershipSetup } from "../components/VaultMembershipSetup";
 import { tipHeight, blocksToApproxLabel, approxWallclockDate } from "../lib/chain";
 import { buildStandardTrustDoc, standardConfigFromCompiledVault } from "../lib/trust-doc";
 import { sendPsbtCosignRequestOverNostr } from "../lib/tapit-nostr-cosign";
@@ -397,6 +398,14 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
           <div style={{ marginBottom: 16 }}>
             <HaltVaultBar duress={effectiveDuress} busy={duressBusy} onToggle={toggleDuress} />
           </div>
+        )}
+        {vault.status === "compiled" && (
+          <VaultMembershipSetup
+            vaultDescriptor={vault.descriptor}
+            vaultName={vault.name}
+            founderKeys={vault.founder_keys}
+            leafScripts={vault.leaf_scripts}
+          />
         )}
         {vault.status === "compiled" && (
           <CirclePhraseSetup

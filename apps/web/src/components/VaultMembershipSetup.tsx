@@ -1,44 +1,41 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getTapitCircleMembers } from '../lib/tapit-circle-members';
-import { sendCirclePhrasePairOverNostr } from '../lib/circle-phrase-delivery';
+import { leafScriptsForRole, sendVaultMembershipRequestOverNostr } from '../lib/circle-membership-delivery';
 import { colors, radii, space } from '../theme';
-import { Button, Input, Label } from './ui';
+import { Button } from './ui';
 import { useToast } from './toast';
 
 /**
- * CirclePhraseSetup -- the owner's side of the phone-callback phrase pair
- * (2026-08-08 follow-up). Visible only when the vault has at least one
- * Tapit-origin founder key on file (a Tapit Circle vault, or any vault
- * where the owner pasted in a circle member's Tapit pubkey). One shared
- * normal phrase + one shared duress phrase for the whole circle, typed
- * once here and sent, NIP-44 encrypted, to each member -- never stored on
- * this side once the sends resolve.
+ * VaultMembershipSetup -- Cut C3's owner-facing action. A Tapit circle
+ * member's wallet refuses to sign anything for this vault (or, once the
+ * phrase gate wires all the way through, even to be trusted as a
+ * watchtower for it) until it holds a self-signed vault-membership
+ * attestation naming this vault's descriptor, this member's role, and the
+ * exact tapscript leaf bytes their key appears in. This card sends that
+ * request. DynastyTrust never signs it -- the member's own wallet reviews
+ * the claim and mints + signs it itself (see circle-membership-delivery.ts's
+ * header for why).
  */
-export function CirclePhraseSetup({
+export function VaultMembershipSetup({
   vaultDescriptor,
   vaultName,
   founderKeys,
+  leafScripts,
 }: {
   vaultDescriptor: string | null;
   vaultName: string;
   founderKeys: string[];
+  leafScripts: Record<string, string> | null;
 }) {
   const toast = useToast();
-  const [normalPhrase, setNormalPhrase] = useState('');
-  const [duressPhrase, setDuressPhrase] = useState('');
   const [busyKeyId, setBusyKeyId] = useState<string | null>(null);
   const [sentTo, setSentTo] = useState<Map<string, 'delivered' | 'queued'>>(new Map());
 
   const { circleMembers, bareFounderPubkeys } = getTapitCircleMembers(founderKeys);
+  const founderLeaves = leafScriptsForRole(leafScripts, 'founder');
 
   if (circleMembers.length === 0) {
-    // This card used to just disappear here -- which is indistinguishable
-    // from "nothing to see" whether the vault genuinely has no Tapit
-    // circle member OR it does and this browser's Key Manager just
-    // doesn't hold a matching local key for it (a different device, a
-    // cleared keystore, a key that was later archived). Say which one is
-    // actually true instead of going silent either way.
     if (bareFounderPubkeys.length === 0) return null;
     return (
       <div
@@ -51,40 +48,35 @@ export function CirclePhraseSetup({
         }}
       >
         <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
-          Circle safety phrase
+          Circle membership
         </div>
         <p style={{ fontSize: 12, color: colors.sub, margin: 0 }}>
           This vault has {bareFounderPubkeys.length} founder key{bareFounderPubkeys.length === 1 ? '' : 's'} that
-          look like they came from Tapit (no extended public key attached), but none of them match a
-          Tapit-origin key in this browser's Key Manager right now. If you added that key on a different
-          device or browser, add it here too before you can send the safety phrase to that person --{' '}
+          look like they came from Tapit, but none of them match a Tapit-origin key in this
+          browser's Key Manager right now --{' '}
           <Link to="/keys" style={{ color: colors.gold }}>open Key Manager</Link>.
         </p>
       </div>
     );
   }
 
-  const ready =
-    vaultDescriptor !== null &&
-    normalPhrase.trim().length > 0 &&
-    duressPhrase.trim().length > 0 &&
-    normalPhrase.trim().toLowerCase() !== duressPhrase.trim().toLowerCase();
+  const ready = vaultDescriptor !== null && founderLeaves.length > 0;
 
-  async function sendTo(keyId: string, xOnlyPubkey: string, label: string) {
+  async function grant(keyId: string, xOnlyPubkey: string, label: string) {
     if (!ready || !vaultDescriptor) return;
     setBusyKeyId(keyId);
     try {
-      const result = await sendCirclePhrasePairOverNostr({
+      const result = await sendVaultMembershipRequestOverNostr({
         vaultDescriptor,
         vaultName,
-        normalPhrase: normalPhrase.trim(),
-        duressPhrase: duressPhrase.trim(),
+        role: 'founder',
+        leafScripts: founderLeaves,
         recipientXOnlyPubkey: xOnlyPubkey,
       });
       setSentTo(prev => new Map(prev).set(keyId, result.delivered ? 'delivered' : 'queued'));
       toast.success(
         result.delivered
-          ? `Sent to ${label}`
+          ? `Membership request sent to ${label}`
           : `Queued for ${label} -- no relay confirmed yet, will keep retrying`,
       );
     } catch (e) {
@@ -105,32 +97,19 @@ export function CirclePhraseSetup({
       }}
     >
       <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
-        Circle safety phrase
+        Circle membership
       </div>
       <p style={{ fontSize: 12, color: colors.muted, marginBottom: 14 }}>
-        Pick one word or phrase your circle uses to confirm it's really you on a call, and a
-        different duress phrase that silently means "I'm being forced." Send both, once, to each
-        circle member's Tapit wallet -- they're never stored here after the send.
+        Each circle member's Tapit wallet needs to hold a membership record for this vault before
+        it will recognize a spend request as real. Send it once per member -- their wallet reviews
+        it and holds its own copy; nothing is signed on your end.
       </p>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
-        <div>
-          <Label>Normal phrase</Label>
-          <Input
-            value={normalPhrase}
-            onChange={e => setNormalPhrase(e.target.value)}
-            placeholder="e.g. blue harbor"
-          />
-        </div>
-        <div>
-          <Label>Duress phrase (different from above)</Label>
-          <Input
-            value={duressPhrase}
-            onChange={e => setDuressPhrase(e.target.value)}
-            placeholder="e.g. red harbor"
-          />
-        </div>
-      </div>
+      {!ready && vaultDescriptor !== null && (
+        <p style={{ fontSize: 12, color: colors.gold, marginBottom: 10 }}>
+          No leaf scripts on file for this vault yet -- recompile to refresh them before sending.
+        </p>
+      )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {circleMembers.map(k => (
@@ -143,7 +122,7 @@ export function CirclePhraseSetup({
               size="sm"
               style={{ fontSize: 12, flexShrink: 0 }}
               disabled={!ready || busyKeyId === k.keyId}
-              onClick={() => void sendTo(k.keyId, k.tapitXOnlyPubkey!, k.label)}
+              onClick={() => void grant(k.keyId, k.tapitXOnlyPubkey!, k.label)}
             >
               {sentTo.get(k.keyId) === 'delivered'
                 ? 'Sent'
@@ -151,7 +130,7 @@ export function CirclePhraseSetup({
                   ? 'Queued -- retrying'
                   : busyKeyId === k.keyId
                     ? 'Sending…'
-                    : 'Send'}
+                    : 'Grant membership'}
             </Button>
           </div>
         ))}

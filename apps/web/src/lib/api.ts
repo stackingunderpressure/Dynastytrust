@@ -100,6 +100,16 @@ export interface Vault {
    *  shape) -- null for every standard founders/heirs vault. Presence,
    *  not a separate type column, is the discriminator (023_bloc_vaults.sql). */
   bloc_policy: BlocPolicy | null;
+  /** Hex-encoded tapscript leaf bytes per role ("founders_now",
+   *  "recovery", "inheritance", "protector"), populated by the compiler
+   *  for a tr_multileaf vault only (026_leaf_scripts.sql). This is the
+   *  source data for minting a vault-membership attestation (Cut C3,
+   *  circle-membership-delivery.ts) -- what proves to a Tapit circle
+   *  member's wallet which exact leaf its key appears in, so a later
+   *  psbt-cosign request can be checked against a leaf the wallet was
+   *  actually told about at vault-creation time. Null for non-multileaf
+   *  address types and Bloc vaults. */
+  leaf_scripts: Record<string, string> | null;
 }
 
 /** The whole Bloc policy the compiler needs to rebuild the exact tree

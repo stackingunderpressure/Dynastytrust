@@ -119,6 +119,16 @@ fn default_addr_type() -> String { "tr".to_string() }
 struct CompileResponse {
     ok: bool, name: String, network: String, address_type: String,
     miniscript_policy: String, descriptor: String, address: String,
+    /// Hex-encoded tapscript leaf bytes for a tr_multileaf vault, keyed by
+    /// role ("founders_now", "recovery", "inheritance", "protector") --
+    /// present only for the roles the policy actually compiled a leaf for.
+    /// None for non-multileaf address types. This is what a vault-membership
+    /// attestation (DynastyTrust -> Tapit Cut C3) names per signer so the
+    /// receiving wallet can later verify a psbt-cosign request's tapLeafScript
+    /// against a leaf it was actually told about at vault-creation time,
+    /// not merely a leaf that arrives labeled with a familiar descriptor.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    leaf_scripts: Option<std::collections::HashMap<String, String>>,
 }
 
 async fn compile(
@@ -143,16 +153,41 @@ async fn compile(
         consent_keys: consenters,
         consent_quorum: req.consent_quorum,
     };
+    // Cloned up front (cheap -- a handful of Vec<PublicKey>): the compile
+    // functions below take `policy` by value, but a tr_multileaf compile
+    // also needs a second, independent pass through build_multileaf to
+    // recover the per-role leaf ScriptBufs, which compile_dynasty_policy_tr_
+    // multileaf computes internally and then discards before returning.
+    let policy_for_leaves = policy.clone();
     let compiled = match req.address_type.as_str() {
         "wsh"          => compile_dynasty_policy(policy, network),
         "tr_multileaf" => compile_dynasty_policy_tr_multileaf(policy, network),
         _              => compile_dynasty_policy_tr(policy, network),
     }.map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+    let leaf_scripts = if req.address_type == "tr_multileaf" {
+        build_multileaf(&policy_for_leaves).ok().map(|out| {
+            let mut m = std::collections::HashMap::new();
+            m.insert("founders_now".to_string(), hex::encode(out.founder_leaf.as_bytes()));
+            if let Some(l) = &out.recovery_leaf {
+                m.insert("recovery".to_string(), hex::encode(l.as_bytes()));
+            }
+            if let Some(l) = &out.inheritance_leaf {
+                m.insert("inheritance".to_string(), hex::encode(l.as_bytes()));
+            }
+            if let Some(l) = &out.protector_leaf {
+                m.insert("protector".to_string(), hex::encode(l.as_bytes()));
+            }
+            m
+        })
+    } else {
+        None
+    };
     Ok(Json(CompileResponse {
         ok: true, name: req.name.unwrap_or_else(|| "Vault".to_string()),
         network: req.network, address_type: compiled.address_type.to_string(),
         miniscript_policy: compiled.miniscript_policy,
         descriptor: compiled.descriptor, address: compiled.address.to_string(),
+        leaf_scripts,
     }))
 }
 
@@ -269,6 +304,9 @@ async fn compile_bloc(
         miniscript_policy: compiled.miniscript_policy,
         descriptor: compiled.descriptor,
         address: compiled.address.to_string(),
+        // Bloc vaults are a different vault family, not part of the Tapit
+        // Circle vault-membership flow -- no per-role leaf export needed here.
+        leaf_scripts: None,
     }))
 }
 
@@ -1148,6 +1186,52 @@ mod psbt_binary_tests {
         // founders_now does not).
         assert!(leaf.as_bytes().windows(32).any(|w| w == xonly_bytes(FOUNDER_A)));
         assert_ne!(psbt.unsigned_tx.lock_time, bitcoin::absolute::LockTime::ZERO);
+    }
+
+    #[tokio::test]
+    async fn compile_leaf_scripts_match_the_leaf_bytes_psbt_binary_actually_attaches() {
+        // Cut C3 (DynastyTrust -> Tapit vault-membership attestation) will
+        // mint each signer's `leaf_scripts` field straight from this
+        // endpoint's response. If those hex strings ever drifted from the
+        // leaf bytes psbt_binary actually attaches at spend time, a wallet
+        // holding the attestation would never recognize a real spend's
+        // tapLeafScript (vaultTrail.ts's isKnownLeafScript, Tapit repo) --
+        // silently refusing every legitimate signature forever. This test
+        // is the tripwire for that drift.
+        let policy = sample_policy();
+        let req = CompileRequest {
+            name: None, network: "testnet".into(),
+            founder_keys: policy.founder_keys.iter().map(|k| k.to_string()).collect(),
+            founder_quorum: policy.founder_quorum,
+            recovery_quorum: None,
+            heir_keys: policy.heir_keys.iter().map(|k| k.to_string()).collect(),
+            heir_quorum: policy.heir_quorum,
+            recovery_after: policy.recovery_after,
+            inheritance_after: policy.inheritance_after,
+            address_type: "tr_multileaf".into(),
+            protector_keys: vec![],
+            protector_quorum: None,
+            protector_after: None,
+            consent_keys: vec![],
+            consent_quorum: None,
+        };
+        let state = Arc::new(AppState { secret: None });
+        let Json(resp) = compile(State(state), HeaderMap::new(), Json(req)).await.unwrap();
+        let leaf_scripts = resp.leaf_scripts.expect("tr_multileaf compile must return leaf_scripts");
+
+        let founders_psbt = build_psbt("founders_now", vec![]).await;
+        let (founders_leaf, _) = founders_psbt.inputs[0].tap_scripts.values().next().unwrap();
+        assert_eq!(leaf_scripts["founders_now"], hex::encode(founders_leaf.as_bytes()));
+
+        let inheritance_psbt = build_psbt("inheritance", vec![]).await;
+        let (inheritance_leaf, _) = inheritance_psbt.inputs[0].tap_scripts.values().next().unwrap();
+        assert_eq!(leaf_scripts["inheritance"], hex::encode(inheritance_leaf.as_bytes()));
+
+        let recovery_psbt = build_psbt("recovery", vec![]).await;
+        let (recovery_leaf, _) = recovery_psbt.inputs[0].tap_scripts.values().next().unwrap();
+        assert_eq!(leaf_scripts["recovery"], hex::encode(recovery_leaf.as_bytes()));
+
+        assert!(!leaf_scripts.contains_key("protector"), "sample_policy has no protector configured");
     }
 
     #[tokio::test]
