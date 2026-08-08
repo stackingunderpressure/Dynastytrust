@@ -631,6 +631,15 @@ function OverviewTab({
     return Math.max(0, abs - chainTip);
   };
 
+  // "Gift Locker"-shaped vaults (recovery_after === 0 but heirs +
+  // inheritance_after ARE set -- see DynastyPolicy::has_recovery() in
+  // protocol/src/policy_compiler.rs) have no recovery leaf at all.
+  // `plain` alone can't detect this shape (it requires heir_keys empty
+  // too), so the Recovery path entry needs its own explicit gate --
+  // showing it here would describe a spending path that doesn't exist
+  // in this vault's actual descriptor.
+  const hasRecoveryPath = !plain && vault.recovery_after > 0;
+
   const paths = plain
     ? [
         {
@@ -647,15 +656,19 @@ function OverviewTab({
           title: "Trustees - Now",
           body: `${vault.founder_quorum} of ${vault.founder_keys.length} trustee signatures required. Available at any time.`,
         },
-        {
-          num: 2,
-          color: colors.blue,
-          title: "Recovery - " + blocksToLabel(blocksFromNow(vault.recovery_after)),
-          body:
-            vault.recovery_quorum != null && vault.recovery_quorum !== vault.founder_quorum
-              ? `${vault.recovery_quorum} of ${vault.founder_keys.length} trustee signatures after ${blocksFromNow(vault.recovery_after).toLocaleString()} blocks. Insurance against a lost device: quorum drops below the normal ${vault.founder_quorum}-of-${vault.founder_keys.length} so trustees can still spend if one key is gone.`
-              : `Trustees can recover after ${blocksFromNow(vault.recovery_after).toLocaleString()} blocks. Note: the recovery quorum matches the normal quorum, so this path grants no extra capability.`,
-        },
+        ...(hasRecoveryPath
+          ? [
+              {
+                num: 2,
+                color: colors.blue,
+                title: "Recovery - " + blocksToLabel(blocksFromNow(vault.recovery_after)),
+                body:
+                  vault.recovery_quorum != null && vault.recovery_quorum !== vault.founder_quorum
+                    ? `${vault.recovery_quorum} of ${vault.founder_keys.length} trustee signatures after ${blocksFromNow(vault.recovery_after).toLocaleString()} blocks. Insurance against a lost device: quorum drops below the normal ${vault.founder_quorum}-of-${vault.founder_keys.length} so trustees can still spend if one key is gone.`
+                    : `Trustees can recover after ${blocksFromNow(vault.recovery_after).toLocaleString()} blocks. Note: the recovery quorum matches the normal quorum, so this path grants no extra capability.`,
+              },
+            ]
+          : []),
         {
           num: 3,
           color: colors.green,
@@ -751,7 +764,9 @@ function OverviewTab({
           ["Address type", vault.address_type.toUpperCase()],
           ["Trustee quorum", `${vault.founder_quorum} of ${vault.founder_keys.length}`],
           ["Successor quorum", `${vault.heir_quorum} of ${vault.heir_keys.length}`],
-          ["Recovery", `unlocks at block ${vault.recovery_after.toLocaleString()} (${blocksToLabel(blocksFromNow(vault.recovery_after))})`],
+          ...(hasRecoveryPath
+            ? [["Recovery", `unlocks at block ${vault.recovery_after.toLocaleString()} (${blocksToLabel(blocksFromNow(vault.recovery_after))})`]]
+            : []),
           ["Inheritance", `unlocks at block ${vault.inheritance_after.toLocaleString()} (${blocksToLabel(blocksFromNow(vault.inheritance_after))})`],
         ].map(([k, v]) => (
           <div
@@ -4515,8 +4530,14 @@ function TimelockCountdown({ vault }: { vault: Vault }) {
   // block heights (baked into the Taproot leaf's `after(N)`).
   // Subtract the current tip to get the relative blocks-until-
   // unlock for display.
+  // "Gift Locker"-shaped vaults have recovery_after === 0 (no recovery
+  // leaf at all) -- omit that row rather than showing a fake
+  // "Unlocked" / "unlocks at block 0" countdown for a path that
+  // doesn't exist in the descriptor.
   const rows = [
-    { label: "Recovery", absHeight: vault.recovery_after, color: colors.blue },
+    ...(vault.recovery_after > 0
+      ? [{ label: "Recovery", absHeight: vault.recovery_after, color: colors.blue }]
+      : []),
     { label: "Inheritance", absHeight: vault.inheritance_after, color: colors.green },
   ];
 

@@ -46,6 +46,12 @@ interface StandardConfig {
   founderQ: number;
   plannedHeirs: number;
   heirQ: number;
+  // "Gift Locker"-shaped vaults (founders-now OR a single timelocked
+  // beneficiary path, no separate founders-after-a-delay recovery leaf
+  // in between) turn this off -- see DynastyPolicy::has_recovery() in
+  // protocol/src/policy_compiler.rs. When false, recoveryAfter is never
+  // sent to the compiler (forced to 0 in confirmConfigure()).
+  recoveryEnabled: boolean;
   recoveryAfter: number;
   inheritanceAfter: number;
   protectorEnabled: boolean;
@@ -75,7 +81,7 @@ const DEFAULT_STANDARD_CONFIG: StandardConfig = {
   mode: 'inheritance',
   plannedFounders: 2, founderQ: 2,
   plannedHeirs: 2, heirQ: 2,
-  recoveryAfter: 26_280, inheritanceAfter: 52_560,
+  recoveryEnabled: true, recoveryAfter: 26_280, inheritanceAfter: 52_560,
   protectorEnabled: false, protectorAfter: 39_000, protectorQ: 1, plannedProtectors: 1,
   consentEnabled: false, consentQ: 1, plannedConsenters: 1,
 };
@@ -93,7 +99,13 @@ function templateToStandardConfig(t: VaultTemplate): StandardConfig {
     mode: c.mode,
     plannedFounders: c.plannedFounders, founderQ: c.founderQ,
     plannedHeirs: c.plannedHeirs, heirQ: c.heirQ,
-    recoveryAfter: c.recoveryAfter, inheritanceAfter: c.inheritanceAfter,
+    // A template that ships with recoveryAfter: 0 means "Gift Locker"
+    // shaped -- no recovery leaf at all -- so the toggle starts off; the
+    // fallback default (26_280, ~6 months) only matters if the user
+    // re-enables it from here.
+    recoveryEnabled: c.recoveryAfter > 0,
+    recoveryAfter: c.recoveryAfter > 0 ? c.recoveryAfter : 26_280,
+    inheritanceAfter: c.inheritanceAfter,
     protectorEnabled: !!c.protectorEnabled,
     protectorAfter: c.protectorAfter ?? 39_000,
     protectorQ: c.protectorQ ?? 1,
@@ -278,7 +290,7 @@ export default function VaultWizard() {
           address_type: 'tr_multileaf',
           founder_quorum: c.founderQ,
           heir_quorum: c.mode === 'inheritance' ? c.heirQ : 1,
-          recovery_after: c.mode === 'inheritance' ? c.recoveryAfter : 0,
+          recovery_after: c.mode === 'inheritance' && c.recoveryEnabled ? c.recoveryAfter : 0,
           inheritance_after: c.mode === 'inheritance' ? c.inheritanceAfter : 0,
           planned_founder_count: c.plannedFounders,
           planned_heir_count: c.mode === 'inheritance' ? c.plannedHeirs : 0,
@@ -602,7 +614,31 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
                 <QuorumPicker max={config.plannedHeirs} value={config.heirQ} onChange={n => setConfig(c => ({ ...c, heirQ: n }))} color={colors.blue} />
               )}
             </Field>
-            <TimelockField label="Recovery unlocks after" value={config.recoveryAfter} onChange={v => setConfig(c => ({ ...c, recoveryAfter: v }))} />
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={config.recoveryEnabled}
+                onChange={e => setConfig(c => ({
+                  ...c,
+                  recoveryEnabled: e.target.checked,
+                  // A protector branch requires a recovery branch --
+                  // turning recovery off while a protector is configured
+                  // would otherwise get rejected server-side.
+                  protectorEnabled: e.target.checked ? c.protectorEnabled : false,
+                }))}
+              />
+              <span style={{ fontSize: 13, color: colors.sub }}>
+                Add a separate recovery path (founders can also spend after a delay, before the heir path opens)
+              </span>
+            </label>
+            {!config.recoveryEnabled && (
+              <div style={{ fontSize: 12, color: colors.muted, marginTop: -8 }}>
+                "Gift Locker" shape: founders spend now, or the heir alone after the timelock below -- nothing in between.
+              </div>
+            )}
+            {config.recoveryEnabled && (
+              <TimelockField label="Recovery unlocks after" value={config.recoveryAfter} onChange={v => setConfig(c => ({ ...c, recoveryAfter: v }))} />
+            )}
             <TimelockField label="Inheritance unlocks after" value={config.inheritanceAfter} onChange={v => setConfig(c => ({ ...c, inheritanceAfter: v }))} />
           </>
         )}
@@ -610,9 +646,16 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
         <details>
           <summary style={{ fontSize: 12, color: colors.muted, cursor: 'pointer' }}>Advanced: protector + beneficiary consent</summary>
           <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
-              <input type="checkbox" checked={config.protectorEnabled} onChange={e => setConfig(c => ({ ...c, protectorEnabled: e.target.checked }))} />
-              <span style={{ fontSize: 13, color: colors.sub }}>Add a protector (independent rescue path)</span>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: config.recoveryEnabled ? 'pointer' : 'not-allowed' }}>
+              <input
+                type="checkbox"
+                checked={config.protectorEnabled}
+                disabled={!config.recoveryEnabled}
+                onChange={e => setConfig(c => ({ ...c, protectorEnabled: e.target.checked }))}
+              />
+              <span style={{ fontSize: 13, color: config.recoveryEnabled ? colors.sub : colors.muted }}>
+                Add a protector (independent rescue path){!config.recoveryEnabled && ' -- requires a recovery path'}
+              </span>
             </label>
             {config.protectorEnabled && (
               <TimelockField label="Protector unlocks after" value={config.protectorAfter} onChange={v => setConfig(c => ({ ...c, protectorAfter: v }))} />
