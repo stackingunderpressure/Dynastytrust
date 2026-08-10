@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { NostrTransport, type Subscription } from "@dynastytrust/nostr-transport";
 import { sendPsbtCosignRequestOverNostr, DEFAULT_RELAYS } from "../lib/tapit-nostr-cosign";
 import { subscribePsbtCosignResponses } from "../lib/psbt-cosign-response-channel";
+import { notifiedSigners } from "../lib/notifiedSigners";
 import type { LocalKey } from "../lib/keystore";
 import { colors } from "../theme";
 import { Button } from "./ui";
@@ -18,9 +19,21 @@ import { useToast } from "./toast";
 // The subscription is addressed to the ephemeral reply keypair minted for
 // THAT specific request (sendPsbtCosignRequestOverNostr's return value), so
 // a response can only ever match the request it actually answers.
+//
+// `subjectId` (the proposal id) + notifiedSigners.ts give this a durable,
+// per-signer "already asked" memory that survives a reload -- without it,
+// every remount showed a blank "Notify via Nostr" button regardless of
+// history, indistinguishable from never having sent anything (operator,
+// 2026-08-08). A reload can't resume the OLD listening subscription (the
+// reply key is ephemeral and never persisted, by design), so a previously-
+// notified signer gets an honest "notified earlier -- send again" rather
+// than a fake "still listening" state.
 export function NotifyCircleViaNostr({
-  psbtHex, vaultDescriptor, vaultName, signers, onSigned,
+  subjectId, psbtHex, vaultDescriptor, vaultName, signers, onSigned,
 }: {
+  /** Stable id this notification is about (the proposal id) -- keys the
+   *  durable "already notified" record so it survives a reload. */
+  subjectId: string;
   psbtHex: string;
   vaultDescriptor: string | null;
   vaultName: string;
@@ -29,7 +42,7 @@ export function NotifyCircleViaNostr({
 }) {
   const toast = useToast();
   const [busyKeyId, setBusyKeyId] = useState<string | null>(null);
-  const [status, setStatus] = useState<Map<string, "sent" | "queued" | "signed">>(new Map());
+  const [status, setStatus] = useState<Map<string, "sent" | "queued" | "signed" | "notified-earlier">>(new Map());
   const transportRef = useRef<NostrTransport | null>(null);
   const subsRef = useRef<Subscription[]>([]);
 
@@ -45,6 +58,34 @@ export function NotifyCircleViaNostr({
   const pending = signers.filter(
     s => s.key.origin === "tapit" && s.key.tapitXOnlyPubkey && s.status !== "signed",
   );
+
+  // Load prior-notification state once per subjectId. Never overwrites a
+  // status this session already set (a fresh send/response takes priority
+  // over history read from before this mount).
+  useEffect(() => {
+    if (!subjectId) return;
+    let cancelled = false;
+    void Promise.all(
+      pending.map(async s => {
+        const record = await notifiedSigners.get(subjectId, s.key.tapitXOnlyPubkey!);
+        return { keyId: s.key.keyId, record };
+      }),
+    ).then(results => {
+      if (cancelled) return;
+      setStatus(prev => {
+        const next = new Map(prev);
+        for (const { keyId, record } of results) {
+          if (record && !next.has(keyId)) next.set(keyId, "notified-earlier");
+        }
+        return next;
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subjectId]);
+
   if (pending.length === 0) return null;
 
   async function notify(key: LocalKey) {
@@ -56,6 +97,7 @@ export function NotifyCircleViaNostr({
         recipientXOnlyPubkey: key.tapitXOnlyPubkey!,
       });
       setStatus(prev => new Map(prev).set(key.keyId, result.delivered ? "sent" : "queued"));
+      await notifiedSigners.mark(subjectId, key.tapitXOnlyPubkey!, result.delivered);
       toast.success(
         result.delivered
           ? `Notified ${key.label} via Nostr`
@@ -117,7 +159,9 @@ export function NotifyCircleViaNostr({
                     ? "Queued -- retrying"
                     : busyKeyId === s.key.keyId
                       ? "Sending..."
-                      : "Notify via Nostr"}
+                      : status.get(s.key.keyId) === "notified-earlier"
+                        ? "Notified earlier -- send again?"
+                        : "Notify via Nostr"}
             </Button>
           </div>
         ))}

@@ -292,6 +292,7 @@ export default function ProposalDetail() {
 
       {!terminal && (
         <NotifyCircleViaNostr
+          subjectId={proposal.id}
           psbtHex={mergedPsbt || proposal.psbt_hex || ""}
           vaultDescriptor={vault.descriptor}
           vaultName={vault.name}
@@ -731,6 +732,11 @@ function DiscussionSection({
       setBody("");
       setVote("");
       toast.success(vote ? `Vote recorded: ${vote}` : "Comment posted");
+      // Don't rely on the realtime subscription alone to reflect this back --
+      // if it's slow, disabled, or misconfigured on the Supabase project,
+      // a genuinely-saved vote just never appears until an unrelated reload,
+      // which reads as "the vote doesn't get recorded" even though it did.
+      await load();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Could not post");
     } finally {
@@ -743,6 +749,7 @@ function DiscussionSection({
     try {
       await api.proposalComments.remove(id);
       toast.success("Deleted");
+      await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Delete failed");
     }

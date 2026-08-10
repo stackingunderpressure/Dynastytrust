@@ -1933,6 +1933,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
             stays in use for Tranche distribution-wallet claims elsewhere
             in this file, which have no Nostr-notify equivalent yet. */}
         <NotifyCircleViaNostr
+          subjectId={signing.proposal_id ?? ""}
           psbtHex={signing.psbt_hex}
           vaultDescriptor={vault.descriptor}
           vaultName={vault.name}
@@ -6653,6 +6654,7 @@ function TrancheClaimModal({
             </div>
 
             <NotifyCircleViaNostr
+              subjectId={`${wallet.id}-tranche-${tranche.index}`}
               psbtHex={psbtHex}
               vaultDescriptor={tranche.descriptor}
               vaultName={`${wallet.name} tranche ${tranche.index + 1}`}
