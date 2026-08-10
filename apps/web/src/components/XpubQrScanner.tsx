@@ -113,7 +113,7 @@ export function XpubQrScanner({ onResult, onCancel }: XpubQrScannerProps) {
       try {
         dec.receivePart(trimmed);
         const est = (dec.expectedPartCount?.() ?? 0) || 0;
-        const got = dec.receivedPartIndexes?.()?.size ?? 0;
+        const got = dec.receivedPartIndexes?.()?.length ?? 0;
         setExpected(est);
         setReceived(got);
         setProgress(dec.estimatedPercentComplete?.() ?? 0);
