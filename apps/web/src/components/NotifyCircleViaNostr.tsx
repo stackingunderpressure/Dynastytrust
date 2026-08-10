@@ -26,8 +26,16 @@ import { useToast } from "./toast";
 // history, indistinguishable from never having sent anything (operator,
 // 2026-08-08). A reload can't resume the OLD listening subscription (the
 // reply key is ephemeral and never persisted, by design), so a previously-
-// notified signer gets an honest "notified earlier -- send again" rather
-// than a fake "still listening" state.
+// notified signer gets an honest "sent Nx, no response yet" rather than a
+// fake "still listening" state or a plain relabeled button (operator:
+// "not just another label on the button ... the app knows the state the
+// button is in. You've already sent seven messages and you've got no
+// received").
+interface SignerStatus {
+  phase: "sent" | "queued" | "signed" | "known";
+  sentCount: number;
+}
+
 export function NotifyCircleViaNostr({
   subjectId, psbtHex, vaultDescriptor, vaultName, signers, onSigned,
 }: {
@@ -42,7 +50,7 @@ export function NotifyCircleViaNostr({
 }) {
   const toast = useToast();
   const [busyKeyId, setBusyKeyId] = useState<string | null>(null);
-  const [status, setStatus] = useState<Map<string, "sent" | "queued" | "signed" | "notified-earlier">>(new Map());
+  const [status, setStatus] = useState<Map<string, SignerStatus>>(new Map());
   const transportRef = useRef<NostrTransport | null>(null);
   const subsRef = useRef<Subscription[]>([]);
 
@@ -75,7 +83,9 @@ export function NotifyCircleViaNostr({
       setStatus(prev => {
         const next = new Map(prev);
         for (const { keyId, record } of results) {
-          if (record && !next.has(keyId)) next.set(keyId, "notified-earlier");
+          if (record && !next.has(keyId)) {
+            next.set(keyId, { phase: "known", sentCount: record.sentCount });
+          }
         }
         return next;
       });
@@ -96,11 +106,16 @@ export function NotifyCircleViaNostr({
         vaultContext: { vault_descriptor: vaultDescriptor ?? "", vault_name: vaultName },
         recipientXOnlyPubkey: key.tapitXOnlyPubkey!,
       });
-      setStatus(prev => new Map(prev).set(key.keyId, result.delivered ? "sent" : "queued"));
-      await notifiedSigners.mark(subjectId, key.tapitXOnlyPubkey!, result.delivered);
+      const record = await notifiedSigners.mark(subjectId, key.tapitXOnlyPubkey!, result.delivered);
+      setStatus(prev =>
+        new Map(prev).set(key.keyId, {
+          phase: result.delivered ? "sent" : "queued",
+          sentCount: record.sentCount,
+        }),
+      );
       toast.success(
         result.delivered
-          ? `Notified ${key.label} via Nostr`
+          ? `Notified ${key.label} via Nostr (sent ${record.sentCount}x)`
           : `Queued for ${key.label} -- no relay confirmed yet, will keep retrying`,
       );
 
@@ -108,7 +123,10 @@ export function NotifyCircleViaNostr({
         transportRef.current = new NostrTransport({ relays: DEFAULT_RELAYS });
       }
       const sub = subscribePsbtCosignResponses(transportRef.current, result.replyPrivateKey, item => {
-        setStatus(prev => new Map(prev).set(key.keyId, "signed"));
+        setStatus(prev => {
+          const priorCount = prev.get(key.keyId)?.sentCount ?? record.sentCount;
+          return new Map(prev).set(key.keyId, { phase: "signed", sentCount: priorCount });
+        });
         toast.success(`${key.label} signed -- merged in`);
         onSigned(item.psbtHex, key.label);
       });
@@ -138,33 +156,48 @@ export function NotifyCircleViaNostr({
         them by hand. They still verify with you by phone before signing; once they do, their
         signature merges in here automatically.
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {pending.map(s => (
-          <div key={s.key.keyId} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-            <div style={{ fontSize: 13, color: colors.text, minWidth: 0 }}>
-              {s.key.label} <span style={{ color: colors.muted }}>({s.key.persona})</span>
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              style={{ fontSize: 12, flexShrink: 0 }}
-              disabled={busyKeyId === s.key.keyId || status.get(s.key.keyId) === "signed"}
-              onClick={() => void notify(s.key)}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {pending.map(s => {
+          const st = status.get(s.key.keyId);
+          const sentCount = st?.sentCount ?? 0;
+          const received = st?.phase === "signed";
+          return (
+            <div
+              key={s.key.keyId}
+              style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}
             >
-              {status.get(s.key.keyId) === "signed"
-                ? "Signed"
-                : status.get(s.key.keyId) === "sent"
-                  ? "Waiting for signature..."
-                  : status.get(s.key.keyId) === "queued"
-                    ? "Queued -- retrying"
-                    : busyKeyId === s.key.keyId
-                      ? "Sending..."
-                      : status.get(s.key.keyId) === "notified-earlier"
-                        ? "Notified earlier -- send again?"
-                        : "Notify via Nostr"}
-            </Button>
-          </div>
-        ))}
+              <div style={{ fontSize: 13, color: colors.text, minWidth: 0 }}>
+                <div>
+                  {s.key.label} <span style={{ color: colors.muted }}>({s.key.persona})</span>
+                </div>
+                {sentCount > 0 && (
+                  <div style={{ fontSize: 11, marginTop: 2, color: received ? colors.green : colors.muted }}>
+                    Sent {sentCount}x -- {received ? "signed response received" : "no response yet"}
+                  </div>
+                )}
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                style={{ fontSize: 12, flexShrink: 0 }}
+                disabled={busyKeyId === s.key.keyId || received}
+                onClick={() => void notify(s.key)}
+              >
+                {received
+                  ? "Signed"
+                  : busyKeyId === s.key.keyId
+                    ? "Sending..."
+                    : st?.phase === "sent"
+                      ? "Waiting for signature..."
+                      : st?.phase === "queued"
+                        ? "Queued -- retrying"
+                        : sentCount > 0
+                          ? "Notify again"
+                          : "Notify via Nostr"}
+              </Button>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
