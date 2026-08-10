@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
+import { Buffer } from 'buffer';
 import { UR, UREncoder } from '@gandlaf21/bc-ur';
 import { colors, fonts, radii } from '../theme';
 
