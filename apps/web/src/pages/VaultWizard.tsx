@@ -624,10 +624,27 @@ function ConfigureStep({
   );
 }
 
+// Operator, 2026-08-10, looking at the old single flowing form: "This is
+// really confusing to even me a Bitcoiner ... those top keys are my first
+// level. Then I always want my hard backup no time lock. Then inheritance
+// timelocked out with heir keys only. Each with its own section and
+// settings and more precise clarity on what each is doing to the wallet
+// in easy to read and understand. No fluff. Or big words." Rebuilt as
+// three separate, numbered, always-visible sections matching that exact
+// mental model -- no config shape changed, no new fields, this is
+// presentation and wording only. "Recovery" (founders-after-a-delay) and
+// "protector" were never part of the operator's own three-part model, so
+// they move into a clearly-separate, still-optional section at the end
+// instead of sitting inside the inheritance block where they used to
+// confuse the heir-only path.
 function StandardConfigureFields({ config, setConfig }: { config: StandardConfig; setConfig: (fn: (c: StandardConfig) => StandardConfig) => void }) {
   return (
-    <Card>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <Card>
+        <SectionHeader step={1} title="Spend now" color={colors.gold} />
+        <p style={{ fontSize: 13, color: colors.muted, marginTop: -4, marginBottom: 14 }}>
+          Your everyday signers. The moment enough of them agree, funds move -- no waiting.
+        </p>
         <Field label="How many people sign?">
           <CountStepper
             value={config.plannedFounders}
@@ -646,7 +663,70 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
           />
           <QuorumPicker max={config.plannedFounders} value={config.founderQ} onChange={n => setConfig(c => ({ ...c, founderQ: n }))} color={colors.gold} />
         </Field>
+        <p style={{ fontSize: 12, color: colors.muted, marginTop: -8 }}>
+          {config.founderQ} of {config.plannedFounders} of these signers must agree to move funds, any time, forever --
+          this path never expires and is never disabled by anything else on this page.
+        </p>
+      </Card>
 
+      <Card>
+        <SectionHeader step={2} title="Backup -- no waiting" color={colors.orange} />
+        <p style={{ fontSize: 13, color: colors.muted, marginTop: -4, marginBottom: 14 }}>
+          A second, separate set of keys that also works right away, with no waiting period -- for when your
+          everyday signers above are lost, unavailable, or compromised. Keep these keys somewhere different
+          from your everyday signers; making them harder to gather on purpose is what keeps this path safe.
+        </p>
+        <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={config.backupEnabled}
+            onChange={e => setConfig(c => ({
+              ...c,
+              backupEnabled: e.target.checked,
+              // Mutually exclusive with recovery -- both occupy the same
+              // tree slot server-side; turning backup on turns recovery
+              // (and protector, which requires it) off.
+              recoveryEnabled: e.target.checked ? false : c.recoveryEnabled,
+              protectorEnabled: e.target.checked ? false : c.protectorEnabled,
+            }))}
+          />
+          <span style={{ fontSize: 13, color: colors.sub }}>Add a backup path</span>
+        </label>
+        {config.backupEnabled ? (
+          <div style={{ marginTop: 12 }}>
+            <Field label="How many backup keys?">
+              <CountStepper
+                value={config.plannedBackups}
+                min={1}
+                label="backup keys"
+                color={colors.orange}
+                onChange={plannedBackups => setConfig(c => ({
+                  ...c, plannedBackups, backupQ: Math.min(c.backupQ, plannedBackups) || 1,
+                }))}
+              />
+              <QuorumPicker max={config.plannedBackups} value={config.backupQ} onChange={n => setConfig(c => ({ ...c, backupQ: n }))} color={colors.orange} />
+            </Field>
+            <p style={{ fontSize: 12, color: colors.muted, marginTop: -8 }}>
+              {config.backupQ} of {config.plannedBackups} of these backup keys can move funds any time, with
+              zero wait. Nothing about this path is on a clock -- the only friction is physically gathering
+              enough of these keys, which is the point.
+            </p>
+          </div>
+        ) : (
+          <p style={{ fontSize: 12, color: colors.muted, marginTop: 8 }}>
+            Off. If your everyday signers above are ever lost or compromised, there is no separate way in
+            until the inheritance wait below finishes.
+          </p>
+        )}
+      </Card>
+
+      <Card>
+        <SectionHeader step={3} title="Inheritance -- heirs only, after a wait" color={colors.blue} />
+        <p style={{ fontSize: 13, color: colors.muted, marginTop: -4, marginBottom: 14 }}>
+          After the waiting period you set below, your heirs -- and only your heirs -- can move funds.
+          Your everyday signers above cannot use this path once it opens, and nobody can use it before
+          the wait is up.
+        </p>
         <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
           <input
             type="checkbox"
@@ -655,9 +735,8 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
           />
           <span style={{ fontSize: 13, color: colors.sub }}>Add heirs + an inheritance path</span>
         </label>
-
-        {config.mode === 'inheritance' && (
-          <>
+        {config.mode === 'inheritance' ? (
+          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 16 }}>
             <Field label="How many heirs?">
               <CountStepper
                 value={config.plannedHeirs}
@@ -673,100 +752,89 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
                 <QuorumPicker max={config.plannedHeirs} value={config.heirQ} onChange={n => setConfig(c => ({ ...c, heirQ: n }))} color={colors.blue} />
               )}
             </Field>
-            <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: config.backupEnabled ? 'not-allowed' : 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={config.recoveryEnabled}
-                disabled={config.backupEnabled}
-                onChange={e => setConfig(c => ({
-                  ...c,
-                  recoveryEnabled: e.target.checked,
-                  // A protector branch requires a recovery branch --
-                  // turning recovery off while a protector is configured
-                  // would otherwise get rejected server-side.
-                  protectorEnabled: e.target.checked ? c.protectorEnabled : false,
-                }))}
-              />
-              <span style={{ fontSize: 13, color: config.backupEnabled ? colors.muted : colors.sub }}>
-                Add a separate recovery path (founders can also spend after a delay, before the heir path opens)
-                {config.backupEnabled && ' -- disabled while the backup path (below) is on; the two are mutually exclusive'}
-              </span>
-            </label>
-            {!config.recoveryEnabled && !config.backupEnabled && (
-              <div style={{ fontSize: 12, color: colors.muted, marginTop: -8 }}>
-                "Gift Locker" shape: founders spend now, or the heir alone after the timelock below -- nothing in between.
-              </div>
-            )}
-            {config.recoveryEnabled && (
-              <TimelockField label="Recovery unlocks after" value={config.recoveryAfter} onChange={v => setConfig(c => ({ ...c, recoveryAfter: v }))} />
-            )}
             <TimelockField label="Inheritance unlocks after" value={config.inheritanceAfter} onChange={v => setConfig(c => ({ ...c, inheritanceAfter: v }))} />
-          </>
-        )}
-
-        <details open={config.backupEnabled}>
-          <summary style={{ fontSize: 12, color: colors.muted, cursor: 'pointer' }}>Advanced: backup, protector + beneficiary consent</summary>
-          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={config.backupEnabled}
-                onChange={e => setConfig(c => ({
-                  ...c,
-                  backupEnabled: e.target.checked,
-                  // Mutually exclusive with recovery -- both occupy the
-                  // same tree slot server-side; turning backup on turns
-                  // recovery (and protector, which requires it) off.
-                  recoveryEnabled: e.target.checked ? false : c.recoveryEnabled,
-                  protectorEnabled: e.target.checked ? false : c.protectorEnabled,
-                }))}
-              />
-              <span style={{ fontSize: 13, color: colors.sub }}>
-                Add a backup path -- your own separate, harder-to-reach keys, spendable anytime with no timelock
-              </span>
-            </label>
-            {config.backupEnabled && (
-              <>
-                <div style={{ fontSize: 12, color: colors.muted, marginTop: -8 }}>
-                  "Anytime, harder": no waiting, but a stricter quorum -- the friction is retrieving enough of your
-                  own keys, not a clock. Mutually exclusive with the recovery path above.
-                </div>
-                <Field label="How many backup keys?">
-                  <CountStepper
-                    value={config.plannedBackups}
-                    min={1}
-                    label="backup keys"
-                    color={colors.orange}
-                    onChange={plannedBackups => setConfig(c => ({
-                      ...c, plannedBackups, backupQ: Math.min(c.backupQ, plannedBackups) || 1,
-                    }))}
-                  />
-                  <QuorumPicker max={config.plannedBackups} value={config.backupQ} onChange={n => setConfig(c => ({ ...c, backupQ: n }))} color={colors.orange} />
-                </Field>
-              </>
+            {config.plannedHeirs > 0 && (
+              <p style={{ fontSize: 12, color: colors.muted, marginTop: -8 }}>
+                Before {blocksToHuman(config.inheritanceAfter)}: only your everyday signers (and backup keys,
+                if you turned that on above) can spend. After {blocksToHuman(config.inheritanceAfter)}:
+                {' '}{config.heirQ} of {config.plannedHeirs} heirs can spend, on their own -- your everyday
+                signers no longer have a say.
+              </p>
             )}
-            <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: config.recoveryEnabled ? 'pointer' : 'not-allowed' }}>
-              <input
-                type="checkbox"
-                checked={config.protectorEnabled}
-                disabled={!config.recoveryEnabled}
-                onChange={e => setConfig(c => ({ ...c, protectorEnabled: e.target.checked }))}
-              />
-              <span style={{ fontSize: 13, color: config.recoveryEnabled ? colors.sub : colors.muted }}>
-                Add a protector (independent rescue path){!config.recoveryEnabled && ' -- requires a recovery path'}
-              </span>
-            </label>
-            {config.protectorEnabled && (
-              <TimelockField label="Protector unlocks after" value={config.protectorAfter} onChange={v => setConfig(c => ({ ...c, protectorAfter: v }))} />
-            )}
-            <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
-              <input type="checkbox" checked={config.consentEnabled} onChange={e => setConfig(c => ({ ...c, consentEnabled: e.target.checked }))} />
-              <span style={{ fontSize: 13, color: colors.sub }}>Require beneficiary consent on every normal spend</span>
-            </label>
           </div>
-        </details>
+        ) : (
+          <p style={{ fontSize: 12, color: colors.muted, marginTop: 8 }}>
+            Off. Funds only ever move through your everyday signers above (and backup keys, if that path
+            is on) -- nothing passes to anyone else automatically.
+          </p>
+        )}
+      </Card>
+
+      <details open={config.recoveryEnabled || config.protectorEnabled || config.consentEnabled}>
+        <summary style={{ fontSize: 12, color: colors.muted, cursor: 'pointer' }}>
+          More options: recovery, protector + beneficiary consent
+        </summary>
+        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: config.backupEnabled ? 'not-allowed' : 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={config.recoveryEnabled}
+              disabled={config.backupEnabled}
+              onChange={e => setConfig(c => ({
+                ...c,
+                recoveryEnabled: e.target.checked,
+                // A protector branch requires a recovery branch --
+                // turning recovery off while a protector is configured
+                // would otherwise get rejected server-side.
+                protectorEnabled: e.target.checked ? c.protectorEnabled : false,
+              }))}
+            />
+            <span style={{ fontSize: 13, color: config.backupEnabled ? colors.muted : colors.sub }}>
+              Also let everyday signers spend after a delay, before the heir-only path opens
+              {config.backupEnabled && ' -- turned off while your backup path (section 2 above) is on; a vault can only have one of the two'}
+            </span>
+          </label>
+          {config.recoveryEnabled && (
+            <TimelockField label="Recovery unlocks after" value={config.recoveryAfter} onChange={v => setConfig(c => ({ ...c, recoveryAfter: v }))} />
+          )}
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: config.recoveryEnabled ? 'pointer' : 'not-allowed' }}>
+            <input
+              type="checkbox"
+              checked={config.protectorEnabled}
+              disabled={!config.recoveryEnabled}
+              onChange={e => setConfig(c => ({ ...c, protectorEnabled: e.target.checked }))}
+            />
+            <span style={{ fontSize: 13, color: config.recoveryEnabled ? colors.sub : colors.muted }}>
+              Add a protector (independent rescue path){!config.recoveryEnabled && ' -- requires the recovery option above'}
+            </span>
+          </label>
+          {config.protectorEnabled && (
+            <TimelockField label="Protector unlocks after" value={config.protectorAfter} onChange={v => setConfig(c => ({ ...c, protectorAfter: v }))} />
+          )}
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+            <input type="checkbox" checked={config.consentEnabled} onChange={e => setConfig(c => ({ ...c, consentEnabled: e.target.checked }))} />
+            <span style={{ fontSize: 13, color: colors.sub }}>Require beneficiary consent on every normal spend</span>
+          </label>
+        </div>
+      </details>
+    </div>
+  );
+}
+
+function SectionHeader({ step, title, color }: { step: number; title: string; color: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+      <div
+        style={{
+          width: 22, height: 22, borderRadius: '50%', background: color,
+          color: colors.bg, fontSize: 12, fontWeight: 700,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+        }}
+      >
+        {step}
       </div>
-    </Card>
+      <div style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>{title}</div>
+    </div>
   );
 }
 
