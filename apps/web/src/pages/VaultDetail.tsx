@@ -897,6 +897,18 @@ function OverviewTab({
               variant="ghost"
               size="sm"
               style={{ padding: "3px 9px", fontSize: 11 }}
+              disabled={vault.status !== "compiled"}
+              onClick={async () => {
+                const url = await api.pdfUrl(vault.id);
+                window.open(url, "_blank");
+              }}
+            >
+              Download PDF
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              style={{ padding: "3px 9px", fontSize: 11 }}
               disabled={!vault.descriptor}
               onClick={() => setShowDescriptorQr(v => !v)}
             >

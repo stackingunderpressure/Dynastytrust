@@ -24,9 +24,33 @@ export interface VaultBackupLike {
   inheritance_after: number;
   founder_keys: string[];
   heir_keys: string[];
+  /** Optional fourth/fifth/sixth leaves -- absent on plain founders/heirs
+   *  vaults and on older backups' worth of data, so every field here is
+   *  optional and defaulted at read time rather than widening the
+   *  required shape every caller has to satisfy. */
+  protector_keys?: string[];
+  protector_quorum?: number | null;
+  protector_after?: number | null;
+  consent_keys?: string[];
+  consent_quorum?: number | null;
+  backup_keys?: string[];
+  backup_quorum?: number | null;
+  second_heir_keys?: string[];
+  second_heir_quorum?: number | null;
+  second_inheritance_after?: number | null;
 }
 
 export function vaultBackupText(v: VaultBackupLike): string {
+  const protectorKeys = v.protector_keys ?? [];
+  const hasProtector = protectorKeys.length > 0 && v.protector_quorum != null && v.protector_after != null;
+  const consentKeys = v.consent_keys ?? [];
+  const hasConsent = consentKeys.length > 0 && v.consent_quorum != null;
+  const backupKeys = v.backup_keys ?? [];
+  const hasBackup = backupKeys.length > 0 && v.backup_quorum != null;
+  const secondHeirKeys = v.second_heir_keys ?? [];
+  const hasSecondInheritance =
+    secondHeirKeys.length > 0 && v.second_heir_quorum != null && v.second_inheritance_after != null;
+
   const lines = [
     `# DynastyTrust vault backup`,
     `# Name: ${v.name}`,
@@ -44,16 +68,27 @@ export function vaultBackupText(v: VaultBackupLike): string {
     v.miniscript_policy ?? '(not compiled yet)',
     ``,
     `# Spending rules`,
-    `Founders:       ${v.founder_quorum} of ${v.founder_keys.length}`,
+    `Founders:       ${v.founder_quorum} of ${v.founder_keys.length} -- no waiting`,
+    ...(hasConsent ? [`  + beneficiary consent: ${v.consent_quorum} of ${consentKeys.length} (required on every founders spend)`] : []),
+    ...(hasBackup
+      ? [`Backup:         ${v.backup_quorum} of ${backupKeys.length} -- separate key set, no waiting`]
+      : [`Recovery after: ${v.recovery_after.toLocaleString()} blocks -- same founder keys as above`]),
     `Heirs:          ${v.heir_quorum} of ${v.heir_keys.length}`,
-    `Recovery after: ${v.recovery_after.toLocaleString()} blocks`,
     `Inheritance after: ${v.inheritance_after.toLocaleString()} blocks`,
+    ...(hasProtector ? [`Protector:      ${v.protector_quorum} of ${protectorKeys.length} -- after ${v.protector_after!.toLocaleString()} blocks`] : []),
+    ...(hasSecondInheritance
+      ? [`Second inheritance: ${v.second_heir_quorum} of ${secondHeirKeys.length} -- after ${v.second_inheritance_after!.toLocaleString()} blocks (independent heir group)`]
+      : []),
     ``,
     `# Founder xpubs`,
     ...v.founder_keys,
     ``,
     `# Heir xpubs`,
     ...v.heir_keys,
+    ...(hasProtector ? [``, `# Protector xpubs`, ...protectorKeys] : []),
+    ...(hasConsent ? [``, `# Beneficiary-consent xpubs`, ...consentKeys] : []),
+    ...(hasBackup ? [``, `# Backup xpubs (separate from founders -- keep these apart)`, ...backupKeys] : []),
+    ...(hasSecondInheritance ? [``, `# Second inheritance xpubs (independent heir group)`, ...secondHeirKeys] : []),
     ``,
     `# ---------------------------------------------------------------`,
     `# RECOVERY INSTRUCTIONS (if DynastyTrust ever goes offline)`,

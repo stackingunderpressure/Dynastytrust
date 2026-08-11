@@ -22,13 +22,19 @@ const JWKS = createRemoteJWKSet(
 );
 
 /**
- * Verify the Bearer token in the event headers.
+ * Verify the Bearer token in the event headers, falling back to a
+ * `?token=` query-string param when there's no Authorization header --
+ * needed for endpoints opened as a plain navigation/link (window.open,
+ * <a href>), which can't set custom request headers. Used by vault-pdf.js
+ * and vault-tax-summary.js, both built to hand back a `pdfUrl`/
+ * `taxSummaryUrl` with the token embedded in the query string for exactly
+ * this reason.
  * Returns { userId } on success or { error } on failure.
  */
 export async function requireUser(event) {
   const auth =
     event.headers?.authorization || event.headers?.Authorization || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : (event.queryStringParameters?.token || null);
 
   if (!token) {
     return { error: "Missing Authorization: Bearer <token>" };
