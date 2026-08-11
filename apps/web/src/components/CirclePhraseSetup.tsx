@@ -44,6 +44,7 @@ export function CirclePhraseSetup({
   const [normalPhrase, setNormalPhrase] = useState('');
   const [duressPhrase, setDuressPhrase] = useState('');
   const [busyKeyId, setBusyKeyId] = useState<string | null>(null);
+  const [sendingAll, setSendingAll] = useState(false);
   const [sentTo, setSentTo] = useState<Map<string, 'delivered' | 'queued'>>(new Map());
   const [saving, setSaving] = useState(false);
   const [savedOk, setSavedOk] = useState(false);
@@ -88,9 +89,11 @@ export function CirclePhraseSetup({
     duressPhrase.trim().length > 0 &&
     normalPhrase.trim().toLowerCase() !== duressPhrase.trim().toLowerCase();
 
-  async function sendTo(keyId: string, xOnlyPubkey: string, label: string) {
-    if (!ready || !vaultDescriptor) return;
-    setBusyKeyId(keyId);
+  // Shared low-level delivery, used by both the per-member Send button and
+  // Send to all -- one place that actually talks to Nostr, so the two
+  // entry points can never drift in behavior.
+  async function deliverTo(keyId: string, xOnlyPubkey: string): Promise<'delivered' | 'queued' | 'failed'> {
+    if (!vaultDescriptor) return 'failed';
     try {
       const result = await sendCirclePhrasePairOverNostr({
         vaultDescriptor,
@@ -99,17 +102,56 @@ export function CirclePhraseSetup({
         duressPhrase: duressPhrase.trim(),
         recipientXOnlyPubkey: xOnlyPubkey,
       });
-      setSentTo(prev => new Map(prev).set(keyId, result.delivered ? 'delivered' : 'queued'));
+      const outcome = result.delivered ? 'delivered' : 'queued';
+      setSentTo(prev => new Map(prev).set(keyId, outcome));
+      return outcome;
+    } catch {
+      return 'failed';
+    }
+  }
+
+  async function sendTo(keyId: string, xOnlyPubkey: string, label: string) {
+    if (!ready || !vaultDescriptor) return;
+    setBusyKeyId(keyId);
+    const outcome = await deliverTo(keyId, xOnlyPubkey);
+    if (outcome === 'failed') {
+      toast.error(`Failed to send to ${label}`);
+    } else {
       toast.success(
-        result.delivered
+        outcome === 'delivered'
           ? `Sent to ${label}`
           : `Queued for ${label} -- no relay confirmed yet, will keep retrying`,
       );
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to send');
-    } finally {
-      setBusyKeyId(null);
     }
+    setBusyKeyId(null);
+  }
+
+  // "It should automatically send it to each member of the vault when we
+  // click send" (operator, 2026-08-11) -- one action instead of clicking
+  // Send N times. Sequential, not parallel, so relay/toast noise stays
+  // readable and one member's slow connection doesn't race another's.
+  // Individual Send buttons stay below for a one-off resend (e.g. someone
+  // was offline the first time).
+  async function sendToAll() {
+    if (!ready || !vaultDescriptor) return;
+    setSendingAll(true);
+    let delivered = 0, queued = 0, failed = 0;
+    for (const k of circleMembers) {
+      if (!k.tapitXOnlyPubkey) continue;
+      setBusyKeyId(k.keyId);
+      const outcome = await deliverTo(k.keyId, k.tapitXOnlyPubkey);
+      if (outcome === 'delivered') delivered++;
+      else if (outcome === 'queued') queued++;
+      else failed++;
+    }
+    setBusyKeyId(null);
+    setSendingAll(false);
+    const parts = [
+      delivered > 0 ? `${delivered} delivered` : null,
+      queued > 0 ? `${queued} queued` : null,
+      failed > 0 ? `${failed} failed` : null,
+    ].filter((p): p is string => p !== null);
+    toast[failed > 0 ? 'error' : 'success'](`Sent to circle: ${parts.join(', ') || 'nobody to send to'}`);
   }
 
   async function saveRecoverableCopy() {
@@ -157,12 +199,33 @@ export function CirclePhraseSetup({
       <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
         Circle safety phrase
       </div>
-      <p style={{ fontSize: 12, color: colors.muted, marginBottom: 14 }}>
+      <p style={{ fontSize: 12, color: colors.muted, marginBottom: 10 }}>
         Pick one word or phrase your circle uses to confirm it's really you on a call, and a
         different duress phrase that silently means "I'm being forced." Send both, once, to each
-        circle member's Tapit wallet -- they're never stored here after the send, unless you save
-        a recoverable copy below.
+        circle member's Tapit wallet.
       </p>
+
+      <div
+        style={{
+          background: colors.dangerBg,
+          border: `1px solid ${colors.borderDanger}`,
+          borderRadius: 8,
+          padding: '10px 12px',
+          marginBottom: 14,
+        }}
+      >
+        <p style={{ fontSize: 12, color: colors.red, fontWeight: 600, marginBottom: 4 }}>
+          Remember this phrase -- there is no reset.
+        </p>
+        <p style={{ fontSize: 12, color: colors.sub, lineHeight: 1.5 }}>
+          Once this is sent, your circle's phone-verification ritual depends on it: if you forget
+          it, you can't correctly confirm yourself (or a duress signal) to any circle member on a
+          call, and signing for this vault effectively stalls until you pick a new phrase and
+          re-send it to everyone. It is never stored here in plain text, so there's no support
+          path to look it up for you. <strong>Save a recoverable copy below before you send</strong> --
+          that's the only way back if it slips your mind.
+        </p>
+      </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
         <div>
@@ -181,9 +244,8 @@ export function CirclePhraseSetup({
             placeholder="e.g. red harbor"
           />
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <Button
-            variant="ghost"
             size="sm"
             style={{ fontSize: 12 }}
             disabled={!ready || saving}
@@ -199,6 +261,18 @@ export function CirclePhraseSetup({
         </div>
       </div>
 
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+        <Button
+          variant="ghost"
+          size="sm"
+          style={{ fontSize: 12 }}
+          disabled={!ready || sendingAll || busyKeyId !== null}
+          onClick={() => void sendToAll()}
+        >
+          {sendingAll ? 'Sending to circle…' : `Send to all (${circleMembers.length})`}
+        </Button>
+      </div>
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {circleMembers.map(k => (
           <div key={k.keyId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
@@ -209,7 +283,7 @@ export function CirclePhraseSetup({
               variant="ghost"
               size="sm"
               style={{ fontSize: 12, flexShrink: 0 }}
-              disabled={!ready || busyKeyId === k.keyId}
+              disabled={!ready || sendingAll || busyKeyId === k.keyId}
               onClick={() => void sendTo(k.keyId, k.tapitXOnlyPubkey!, k.label)}
             >
               {sentTo.get(k.keyId) === 'delivered'
