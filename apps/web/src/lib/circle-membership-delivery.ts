@@ -20,6 +20,19 @@
  * exactly: an EPHEMERAL per-delivery keypair as the Nostr sender identity,
  * NIP-44 encrypt to the recipient's real Tapit x-only pubkey, durable
  * outbox enqueue before any network attempt, best-effort immediate publish.
+ *
+ * 2026-08-11 follow-up (operator: "we need to have a return roster of
+ * it... a verified member that's signed it"): the request now also
+ * names a `response_channel` -- a SECOND ephemeral keypair, distinct
+ * from the sender identity above, whose public half Tapit's
+ * acceptVaultMembership/decline flow addresses its ack to (kind 9580,
+ * vault-membership-ack-channel.ts). Unlike tapit-nostr-cosign.ts's reply
+ * key (kept in memory only, for one signing session), this one is
+ * PERSISTED by the caller (VaultMembershipSetup.tsx, via
+ * api.vaultMembershipGrants.create) -- a membership grant can sit
+ * unanswered for hours or days, long after the tab that sent it is
+ * closed, so the key that will eventually decrypt the ack has to
+ * outlive this call entirely.
  */
 
 import { schnorr } from '@noble/curves/secp256k1';
@@ -103,6 +116,11 @@ export interface VaultMembershipRequestPayload {
   /** Decimal sats string; absent means "always require the callback"
    *  (vaultTrail.ts's requiresCallbackConfirmation fail-closed default). */
   high_value_threshold_sats?: string;
+  /** Where Tapit should publish its accept/decline acknowledgment.
+   *  Optional for backward compatibility with already-sent requests that
+   *  predate this field -- Tapit's schema validator treats its absence
+   *  as "no ack channel available," not a malformed request. */
+  response_channel?: { kind: 'nostr'; requester_pubkey: string };
 }
 
 export interface SendVaultMembershipResult {
@@ -111,6 +129,13 @@ export interface SendVaultMembershipResult {
    *  means the event is safely queued in the durable outbox -- see
    *  nostrOutbox.ts's header for exactly what "durable" means here. */
   delivered: boolean;
+  /** This request's ack-channel reply keypair (see this file's header).
+   *  The caller persists `replyPrivateKey` (api.vaultMembershipGrants.create)
+   *  -- it is NOT a Bitcoin key, only what decrypts the eventual
+   *  accept/decline ack. `replyPublicKey` is the same value embedded in
+   *  `response_channel.requester_pubkey` above. */
+  replyPrivateKey: string;
+  replyPublicKey: string;
 }
 
 /**
@@ -145,6 +170,7 @@ export async function sendVaultMembershipRequestOverNostr(opts: {
   relays?: readonly string[];
 }): Promise<SendVaultMembershipResult> {
   const ephemeral = generateEphemeralKeypair();
+  const replyChannel = generateEphemeralKeypair();
   const payload: VaultMembershipRequestPayload = {
     v: 1,
     vault_descriptor: opts.vaultDescriptor,
@@ -154,6 +180,7 @@ export async function sendVaultMembershipRequestOverNostr(opts: {
     ...(opts.highValueThresholdSats !== undefined
       ? { high_value_threshold_sats: opts.highValueThresholdSats.toString() }
       : {}),
+    response_channel: { kind: 'nostr', requester_pubkey: replyChannel.publicKey },
   };
   const ciphertext = encryptTo(
     JSON.stringify(payload),
@@ -176,17 +203,18 @@ export async function sendVaultMembershipRequestOverNostr(opts: {
   });
 
   const transport = new NostrTransport({ relays });
+  const replyKeys = { replyPrivateKey: replyChannel.privateKey, replyPublicKey: replyChannel.publicKey };
   try {
     const publish = await transport.publish(event);
     if (publish.accepted.length > 0) {
       await nostrOutbox.markSent(event.id);
-      return { eventId: event.id, delivered: true };
+      return { eventId: event.id, delivered: true, ...replyKeys };
     }
     await nostrOutbox.markAttempt(event.id, 'no relay accepted on first attempt');
-    return { eventId: event.id, delivered: false };
+    return { eventId: event.id, delivered: false, ...replyKeys };
   } catch (e) {
     await nostrOutbox.markAttempt(event.id, e instanceof Error ? e.message : 'publish failed');
-    return { eventId: event.id, delivered: false };
+    return { eventId: event.id, delivered: false, ...replyKeys };
   } finally {
     transport.close();
   }

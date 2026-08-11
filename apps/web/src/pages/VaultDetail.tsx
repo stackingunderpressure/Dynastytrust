@@ -2622,6 +2622,7 @@ function MembersTab({ vault }: { vault: Vault }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {vault.status === "compiled" && (
         <VaultMembershipSetup
+          vaultId={vault.id}
           vaultDescriptor={vault.descriptor}
           vaultName={vault.name}
           founderKeys={vault.founder_keys}

@@ -169,6 +169,27 @@ export interface SentSecret {
   created_at: string;
 }
 
+// Persisted "granted membership" state + the accept/decline ack round
+// trip (033_vault_membership_grants.sql). One row per (vault, role, key)
+// a membership request was sent for; status moves sent -> accepted /
+// declined once the member's wallet acks over the vault-membership-ack
+// Nostr channel (vault-membership-ack-channel.ts).
+export interface VaultMembershipGrant {
+  id: string;
+  role: string;
+  key_id: string;
+  recipient_label: string;
+  recipient_persona: string;
+  recipient_pubkey: string;
+  request_event_id: string | null;
+  reply_pubkey: string;
+  reply_privkey: string;
+  status: 'sent' | 'accepted' | 'declined';
+  responded_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface TrustDoc {
   /** One or two sentences: why does this trust exist? */
   purpose?: string;
@@ -1271,6 +1292,37 @@ export const api = {
 
     remove: (id: string) =>
       req<{ ok: true }>(`/sent-secrets?id=${id}`, { method: 'DELETE' }),
+  },
+
+  // "Circle membership" persisted grant + accept/decline roster
+  // (033_vault_membership_grants.sql). Send-side of VaultMembershipSetup
+  // upserts a grant per (vault, role, key) it sends to; the ack channel
+  // PATCHes status when the member's wallet responds.
+  vaultMembershipGrants: {
+    list: (vault_id: string) =>
+      req<{ ok: true; grants: VaultMembershipGrant[] }>(`/vault-membership-grants?vault_id=${vault_id}`),
+
+    create: (body: {
+      vault_id: string;
+      role: string;
+      key_id: string;
+      recipient_label: string;
+      recipient_persona: string;
+      recipient_pubkey: string;
+      request_event_id: string | null;
+      reply_pubkey: string;
+      reply_privkey: string;
+    }) =>
+      req<{ ok: true; grant: VaultMembershipGrant }>(`/vault-membership-grants`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+
+    updateStatus: (id: string, status: 'accepted' | 'declined') =>
+      req<{ ok: true; grant: VaultMembershipGrant }>(`/vault-membership-grants?id=${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      }),
   },
 
   attestations: {
