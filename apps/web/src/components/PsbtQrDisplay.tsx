@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { Buffer } from 'buffer';
+import { encode as cborEncode } from 'cborg';
 import { UR, UREncoder } from '@gandlaf21/bc-ur';
 import { colors, fonts, radii } from '../theme';
 
@@ -15,28 +16,42 @@ import { colors, fonts, radii } from '../theme';
  * convention).
  *
  * Operator, 2026-08-11: "The seed signer will not scan the transaction
- * qr. it needs more display settings speed bright." Two real bugs,
- * confirmed by direct comparison against Tapit Wallet's QrShow.tsx
- * (which hit and fixed the exact same thing in an earlier session):
- * (1) this rendered light-colored modules on a near-black background
- * to match the app's dark theme -- standard QR decoders (SeedSigner's
- * camera-side scanner included) are tuned for dark modules on a light
- * background; "matching the dark theme" quietly inverted the polarity
- * every scanner expects. Fixed to always render true black-on-white,
- * inside a white card, regardless of the surrounding page theme --
- * exactly the fix QrShow.tsx already proved necessary. (2) the cycle
- * speed was a hardcoded 150ms with no way to slow it down for a
- * specific device. Confirmed against SeedSigner's own source
- * (gui/screens/scan_screens.py): on Pi-Zero-class hardware it
+ * qr. it needs more display settings speed bright." Then, after the
+ * fixes below still didn't work: "I cannot get it to even recognize it
+ * at all... it's not the same format." That second report was correct
+ * and pointed at the real, total blocker -- three real bugs found:
+ *
+ * (1) FORMAT (the actual blocker): `UR.fromBuffer(buf, 'crypto-psbt')`
+ * looks like it takes a type argument, but @gandlaf21/bc-ur's actual
+ * `UR.fromBuffer(buf: Buffer): UR` only accepts one parameter -- the
+ * `'crypto-psbt'` argument was silently dropped and `UR`'s type
+ * defaulted to `'bytes'`. Every fragment this component ever rendered
+ * was `UR:BYTES/1-9/...`, never `UR:CRYPTO-PSBT/1-9/...`. SeedSigner's
+ * decode_qr.py classifies a scan as a PSBT UR2 by regex-matching the
+ * literal prefix `^UR:CRYPTO-PSBT/` (case-insensitive) -- a `bytes`-typed
+ * UR never matches that, so SeedSigner never even attempted to decode
+ * it as a PSBT. This is why brightness/speed changes made no
+ * difference: the device wasn't failing to read the code, it was
+ * correctly refusing to recognize a code that was never actually typed
+ * as a PSBT. Fixed by building the UR through its public constructor
+ * (`new UR(cborPayload, 'crypto-psbt')`) with the CBOR payload encoded
+ * via `cborg` directly -- the same library bc-ur's own (unexported)
+ * `cborEncode` helper wraps internally -- instead of the broken
+ * `fromBuffer` static method.
+ *
+ * (2) POLARITY: this rendered light-colored modules on a near-black
+ * background to match the app's dark theme -- standard QR decoders
+ * (SeedSigner's camera-side scanner included) are tuned for dark
+ * modules on a light background. Fixed to always render true
+ * black-on-white, inside a white card, regardless of page theme --
+ * matching the fix Tapit Wallet's QrShow.tsx already proved necessary.
+ *
+ * (3) SPEED: the cycle speed was a hardcoded 150ms with no way to slow
+ * it down for a specific device. Confirmed against SeedSigner's own
+ * source (gui/screens/scan_screens.py): on Pi-Zero-class hardware it
  * deliberately targets just 5fps (~200ms/frame) for its whole capture
- * + decode + render pipeline -- "at this pace the decoder and live
- * display can more or less keep up." The old 150ms cycle was faster
- * than SeedSigner's own documented decode budget, so a frame could
- * change before the device even had a chance to attempt it. Presets
- * below sit at and above that ~200ms floor. Added a Speed control
- * (Slow/Normal/Fast) so the operator can back it off per-device
- * instead of needing a code change every time a new signer turns out
- * to need it slower.
+ * + decode + render pipeline. Presets below sit at and above that
+ * ~200ms floor, with a visible Slow/Normal/Fast control.
  */
 
 const SPEED_PRESETS = { slow: 500, normal: 300, fast: 180 } as const;
@@ -77,7 +92,12 @@ export function PsbtQrDisplay({
   useEffect(() => {
     try {
       const bytes = hexToBytes(psbtHex);
-      const ur = UR.fromBuffer(Buffer.from(bytes), 'crypto-psbt');
+      // UR.fromBuffer() ignores any type argument and always defaults
+      // to 'bytes' -- see this file's header comment. Build the UR via
+      // its public constructor instead, so the emitted fragments are
+      // actually typed 'crypto-psbt'.
+      const cborPayload = Buffer.from(cborEncode(Buffer.from(bytes)));
+      const ur = new UR(cborPayload, 'crypto-psbt');
       const enc = new UREncoder(ur, fragmentLength, 0, 8);
       encoderRef.current = enc;
       setTotalFragments(enc.fragmentsLength);
