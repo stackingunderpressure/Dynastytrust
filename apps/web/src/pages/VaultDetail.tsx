@@ -394,7 +394,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
         />
       )}
 
-      <main className="dt-page-main dt-page-main--narrow">
+      <main className="dt-page-main dt-page-main--narrow" style={{ paddingBottom: 64 }}>
         {vault.status === "compiled" && (
           <div style={{ marginBottom: 16 }}>
             <HaltVaultBar duress={effectiveDuress} busy={duressBusy} onToggle={toggleDuress} />
