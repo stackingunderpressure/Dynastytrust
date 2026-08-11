@@ -153,6 +153,22 @@ export interface BlocPolicy {
   key_origins: { pubkey: string; fingerprint: string; derivation_path: string }[];
 }
 
+/** A password-encrypted record of a secret the owner sent to a circle
+ *  member (032_sent_secrets.sql). recipients/label/kind/created_at are
+ *  plain (just bookkeeping); ciphertext_b64/salt_b64/nonce_b64 are the
+ *  AES-256-GCM-encrypted secret fields -- decrypt client-side only, via
+ *  lib/sent-secrets.ts's unwrapSentSecret. */
+export interface SentSecret {
+  id: string;
+  kind: string;
+  label: string;
+  recipients: { label: string; persona: string }[];
+  ciphertext_b64: string;
+  salt_b64: string;
+  nonce_b64: string;
+  created_at: string;
+}
+
 export interface TrustDoc {
   /** One or two sentences: why does this trust exist? */
   purpose?: string;
@@ -1231,6 +1247,30 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify(body),
       }),
+  },
+
+  // "Secrets I've sent" recall (032_sent_secrets.sql) -- a password-
+  // encrypted record of things like the circle safety phrase pair, so
+  // the owner can look up what they told someone without it ever sitting
+  // in plaintext anywhere.
+  sentSecrets: {
+    list: (vault_id: string) =>
+      req<{ ok: true; secrets: SentSecret[] }>(`/sent-secrets?vault_id=${vault_id}`),
+
+    create: (body: {
+      vault_id: string;
+      kind: string;
+      label: string;
+      recipients: { label: string; persona: string }[];
+      blob: { ciphertextB64: string; saltB64: string; nonceB64: string };
+    }) =>
+      req<{ ok: true; secret: SentSecret }>(`/sent-secrets`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+
+    remove: (id: string) =>
+      req<{ ok: true }>(`/sent-secrets?id=${id}`, { method: 'DELETE' }),
   },
 
   attestations: {

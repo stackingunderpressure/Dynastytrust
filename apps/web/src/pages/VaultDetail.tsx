@@ -57,6 +57,7 @@ import { TrustTab } from "../components/TrustTab";
 import { RemindersBanner } from "../components/RemindersBanner";
 import { HaltVaultBar } from "../components/HaltVaultBar";
 import { CirclePhraseSetup } from "../components/CirclePhraseSetup";
+import { SentSecretsPanel } from "../components/SentSecretsPanel";
 import { VaultMembershipSetup } from "../components/VaultMembershipSetup";
 import { NotifyCircleViaNostr } from "../components/NotifyCircleViaNostr";
 import { MessagingKeyBackupPanel } from "../components/MessagingKeyBackupPanel";
@@ -402,11 +403,13 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
         )}
         {vault.status === "compiled" && (
           <CirclePhraseSetup
+            vaultId={vault.id}
             vaultDescriptor={vault.descriptor}
             vaultName={vault.name}
             founderKeys={vault.founder_keys}
           />
         )}
+        {vault.status === "compiled" && <SentSecretsPanel vaultId={vault.id} />}
         {/* Balance hero */}
         <div
           style={{
