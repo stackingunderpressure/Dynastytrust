@@ -30,7 +30,7 @@ export function CirclePhraseSetup({
   const [busyKeyId, setBusyKeyId] = useState<string | null>(null);
   const [sentTo, setSentTo] = useState<Map<string, 'delivered' | 'queued'>>(new Map());
 
-  const { circleMembers, bareFounderPubkeys } = getTapitCircleMembers(founderKeys);
+  const { circleMembers, barePubkeys } = getTapitCircleMembers(founderKeys);
 
   if (circleMembers.length === 0) {
     // This card used to just disappear here -- which is indistinguishable
@@ -39,7 +39,7 @@ export function CirclePhraseSetup({
     // doesn't hold a matching local key for it (a different device, a
     // cleared keystore, a key that was later archived). Say which one is
     // actually true instead of going silent either way.
-    if (bareFounderPubkeys.length === 0) return null;
+    if (barePubkeys.length === 0) return null;
     return (
       <div
         style={{
@@ -54,7 +54,7 @@ export function CirclePhraseSetup({
           Circle safety phrase
         </div>
         <p style={{ fontSize: 12, color: colors.sub, margin: 0 }}>
-          This vault has {bareFounderPubkeys.length} founder key{bareFounderPubkeys.length === 1 ? '' : 's'} that
+          This vault has {barePubkeys.length} founder key{barePubkeys.length === 1 ? '' : 's'} that
           look like they came from Tapit (no extended public key attached), but none of them match a
           Tapit-origin key in this browser's Key Manager right now. If you added that key on a different
           device or browser, add it here too before you can send the safety phrase to that person --{' '}

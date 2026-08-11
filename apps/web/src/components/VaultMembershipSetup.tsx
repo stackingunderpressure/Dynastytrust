@@ -1,7 +1,11 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getTapitCircleMembers } from '../lib/tapit-circle-members';
-import { leafScriptsForRole, sendVaultMembershipRequestOverNostr } from '../lib/circle-membership-delivery';
+import {
+  leafScriptsForRole,
+  sendVaultMembershipRequestOverNostr,
+  type VaultMembershipRole,
+} from '../lib/circle-membership-delivery';
 import { colors, radii, space } from '../theme';
 import { Button } from './ui';
 import { useToast } from './toast';
@@ -16,27 +20,79 @@ import { useToast } from './toast';
  * request. DynastyTrust never signs it -- the member's own wallet reviews
  * the claim and mints + signs it itself (see circle-membership-delivery.ts's
  * header for why).
+ *
+ * 2026-08-11 fix: this used to only ever look at founder_keys and always
+ * send role: 'founder' -- a Tapit key sitting in any other role (heir,
+ * protector, backup, consent) silently got no way to request membership
+ * at all. Tapit's own receiving side (vaultTrail.ts) never restricted
+ * role to a fixed set in the first place, so the restriction was purely
+ * an artifact of this component's own construction, not anything the
+ * protocol needed. Now scans all five of a vault's key arrays and sends
+ * each Tapit-origin key found the correct role for whichever array it's
+ * actually in.
  */
+const ROLE_LABELS: Record<VaultMembershipRole, string> = {
+  founder: 'Founder',
+  heir: 'Heir',
+  protector: 'Protector',
+  backup: 'Backup',
+  consent: 'Consent',
+};
+
+interface RoleMember {
+  key: import('../lib/keystore').LocalKey;
+  role: VaultMembershipRole;
+}
+
 export function VaultMembershipSetup({
   vaultDescriptor,
   vaultName,
   founderKeys,
+  heirKeys,
+  protectorKeys,
+  backupKeys,
+  consentKeys,
   leafScripts,
 }: {
   vaultDescriptor: string | null;
   vaultName: string;
   founderKeys: string[];
+  heirKeys: string[];
+  protectorKeys: string[];
+  backupKeys: string[];
+  consentKeys: string[];
   leafScripts: Record<string, string> | null;
 }) {
   const toast = useToast();
   const [busyKeyId, setBusyKeyId] = useState<string | null>(null);
   const [sentTo, setSentTo] = useState<Map<string, 'delivered' | 'queued'>>(new Map());
 
-  const { circleMembers, bareFounderPubkeys } = getTapitCircleMembers(founderKeys);
-  const founderLeaves = leafScriptsForRole(leafScripts, 'founder');
+  const roleArrays: [VaultMembershipRole, string[]][] = [
+    ['founder', founderKeys],
+    ['heir', heirKeys],
+    ['protector', protectorKeys],
+    ['backup', backupKeys],
+    ['consent', consentKeys],
+  ];
 
-  if (circleMembers.length === 0) {
-    if (bareFounderPubkeys.length === 0) return null;
+  // Any bare (Tapit-shaped) pubkey across every role, whether or not a
+  // matching local key was found for it -- feeds the "circle exists but
+  // this browser doesn't hold a matching key" message below.
+  let anyBarePubkeys = 0;
+  const members: RoleMember[] = [];
+  const seenKeyIds = new Set<string>();
+  for (const [role, keys] of roleArrays) {
+    const { circleMembers, barePubkeys } = getTapitCircleMembers(keys);
+    anyBarePubkeys += barePubkeys.length;
+    for (const key of circleMembers) {
+      if (seenKeyIds.has(key.keyId)) continue; // same local key named in >1 array
+      seenKeyIds.add(key.keyId);
+      members.push({ key, role });
+    }
+  }
+
+  if (members.length === 0) {
+    if (anyBarePubkeys === 0) return null;
     return (
       <div
         style={{
@@ -51,7 +107,7 @@ export function VaultMembershipSetup({
           Circle membership
         </div>
         <p style={{ fontSize: 12, color: colors.sub, margin: 0 }}>
-          This vault has {bareFounderPubkeys.length} founder key{bareFounderPubkeys.length === 1 ? '' : 's'} that
+          This vault has {anyBarePubkeys} key{anyBarePubkeys === 1 ? '' : 's'} that
           look like they came from Tapit, but none of them match a Tapit-origin key in this
           browser's Key Manager right now --{' '}
           <Link to="/keys" style={{ color: colors.gold }}>open Key Manager</Link>.
@@ -60,17 +116,22 @@ export function VaultMembershipSetup({
     );
   }
 
-  const ready = vaultDescriptor !== null && founderLeaves.length > 0;
+  const ready = vaultDescriptor !== null && leafScripts !== null;
 
-  async function grant(keyId: string, xOnlyPubkey: string, label: string) {
+  async function grant(keyId: string, role: VaultMembershipRole, xOnlyPubkey: string, label: string) {
     if (!ready || !vaultDescriptor) return;
+    const roleLeaves = leafScriptsForRole(leafScripts, role);
+    if (roleLeaves.length === 0) {
+      toast.error(`No leaf scripts on file for the ${ROLE_LABELS[role].toLowerCase()} role -- recompile to refresh them.`);
+      return;
+    }
     setBusyKeyId(keyId);
     try {
       const result = await sendVaultMembershipRequestOverNostr({
         vaultDescriptor,
         vaultName,
-        role: 'founder',
-        leafScripts: founderLeaves,
+        role,
+        leafScripts: roleLeaves,
         recipientXOnlyPubkey: xOnlyPubkey,
       });
       setSentTo(prev => new Map(prev).set(keyId, result.delivered ? 'delivered' : 'queued'));
@@ -112,17 +173,20 @@ export function VaultMembershipSetup({
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {circleMembers.map(k => (
+        {members.map(({ key: k, role }) => (
           <div key={k.keyId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
             <div style={{ fontSize: 13, color: colors.text, minWidth: 0 }}>
-              {k.label} <span style={{ color: colors.muted }}>({k.persona})</span>
+              {k.label}{' '}
+              <span style={{ color: colors.muted }}>
+                ({k.persona}, {ROLE_LABELS[role]})
+              </span>
             </div>
             <Button
               variant="ghost"
               size="sm"
               style={{ fontSize: 12, flexShrink: 0 }}
               disabled={!ready || busyKeyId === k.keyId}
-              onClick={() => void grant(k.keyId, k.tapitXOnlyPubkey!, k.label)}
+              onClick={() => void grant(k.keyId, role, k.tapitXOnlyPubkey!, k.label)}
             >
               {sentTo.get(k.keyId) === 'delivered'
                 ? 'Sent'

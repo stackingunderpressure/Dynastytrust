@@ -2539,6 +2539,10 @@ function MembersTab({ vault }: { vault: Vault }) {
           vaultDescriptor={vault.descriptor}
           vaultName={vault.name}
           founderKeys={vault.founder_keys}
+          heirKeys={vault.heir_keys}
+          protectorKeys={vault.protector_keys}
+          backupKeys={vault.backup_keys}
+          consentKeys={vault.consent_keys}
           leafScripts={vault.leaf_scripts}
         />
       )}
