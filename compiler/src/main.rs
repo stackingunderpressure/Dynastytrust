@@ -533,6 +533,7 @@ async fn psbt_binary(
             attach_tap_change_output_metadata(
                 &mut psbt.outputs[1],
                 internal_key,
+                out.tap_tree.clone(),
                 &leaves,
                 &req.key_origins,
             );
@@ -1469,6 +1470,38 @@ mod psbt_binary_tests {
         assert!(
             psbt.outputs[1].tap_internal_key.is_some(),
             "change output must carry tap_internal_key so a signer can identify the tree it belongs to"
+        );
+    }
+
+    #[tokio::test]
+    async fn change_output_tap_tree_reconstructs_the_real_change_scriptpubkey() {
+        // 2026-08-11 fix: tap_internal_key + tap_key_origins alone are
+        // enough for a signer that trusts its own key match, but a
+        // stronger signer (SeedSigner) independently rebuilds the whole
+        // tree from PSBT_OUT_TAP_TREE and tweaks it, then compares
+        // byte-for-byte against the real scriptPubkey -- exactly what
+        // this test does, so a regression that drops tap_tree (or attaches
+        // a tree that doesn't match spend_info) fails here, not just in
+        // a live SeedSigner scan.
+        let psbt = build_psbt("founders_now", vec![]).await;
+        assert_eq!(psbt.unsigned_tx.output.len(), 2);
+
+        let tap_tree = psbt.outputs[1]
+            .tap_tree
+            .clone()
+            .expect("change output must carry PSBT_OUT_TAP_TREE for a signer to verify against");
+        let internal_key = psbt.outputs[1]
+            .tap_internal_key
+            .expect("change output must carry tap_internal_key");
+
+        let secp = Secp256k1::verification_only();
+        let node_info = bitcoin::taproot::NodeInfo::from(tap_tree);
+        let spend_info = bitcoin::taproot::TaprootSpendInfo::from_node_info(&secp, internal_key, node_info);
+        let real_output_script = bitcoin::ScriptBuf::new_p2tr_tweaked(spend_info.output_key());
+
+        assert_eq!(
+            real_output_script, psbt.unsigned_tx.output[1].script_pubkey,
+            "tap_tree + tap_internal_key must independently reconstruct the change output's real scriptPubkey"
         );
     }
 

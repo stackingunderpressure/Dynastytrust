@@ -252,16 +252,31 @@ pub fn attach_tap_key_origins(input: &mut PsbtInput, leaf: &ScriptBuf, key_origi
 /// and recovery leaves), so this walks every leaf in `leaves` and collects
 /// every matching TapLeafHash per key, rather than assuming one leaf.
 ///
+/// 2026-08-11 fix: this used to stop at tap_internal_key + tap_key_origins,
+/// which is enough for a signer that trusts its own key match, but SeedSigner
+/// (and any signer doing the stronger, correct check) additionally verifies a
+/// multi-leaf output by independently rebuilding the whole tree from
+/// PSBT_OUT_TAP_TREE and comparing the tweaked result byte-for-byte against
+/// the real scriptPubkey -- a genuine cryptographic proof, not a trust-the-
+/// claim shortcut. Without PSBT_OUT_TAP_TREE that check has nothing to
+/// verify against and correctly refuses to call the output change, so real
+/// change appeared as a second "Will Send" recipient, reading as if the
+/// whole balance were being spent. `tap_tree` is the caller's job to supply
+/// (from the SAME builder MultileafOutput's spend_info came from, so the two
+/// can never drift), same as `internal_key`.
+///
 /// Deliberately infallible, same convention as `attach_tap_key_origins`: a
-/// malformed entry is skipped, not fatal -- the old behavior (no output
-/// metadata at all) is the fallback, not a broken PSBT.
+/// malformed key-origin entry is skipped, not fatal -- the old behavior (no
+/// key-origin metadata) is the fallback, not a broken PSBT.
 pub fn attach_tap_change_output_metadata(
     output: &mut PsbtOutput,
     internal_key: XOnlyPublicKey,
+    tap_tree: bitcoin::taproot::TapTree,
     leaves: &[&ScriptBuf],
     key_origins: &[KeyOrigin],
 ) {
     output.tap_internal_key = Some(internal_key);
+    output.tap_tree = Some(tap_tree);
     if key_origins.is_empty() {
         return;
     }
@@ -1068,11 +1083,26 @@ mod output_change_metadata_tests {
         XOnlyPublicKey::from_str(NUMS_HEX).unwrap()
     }
 
+    // Standalone from the `leaves` slice these tests pass -- these tests
+    // only exercise key-origin matching, not tree structure, so any
+    // valid single-leaf tree does. What matters for production code is
+    // that MultileafOutput.tap_tree comes from the SAME builder as
+    // spend_info (see policy_compiler.rs), not what shape a test uses.
+    fn dummy_tap_tree() -> bitcoin::taproot::TapTree {
+        let leaf = leaf_containing(PRESENT);
+        bitcoin::taproot::TapTree::try_from(
+            bitcoin::taproot::TaprootBuilder::new()
+                .add_leaf(0, leaf)
+                .unwrap(),
+        )
+        .unwrap()
+    }
+
     #[test]
     fn always_sets_internal_key_even_with_no_key_origins() {
         let leaf = leaf_containing(PRESENT);
         let mut output = PsbtOutput::default();
-        attach_tap_change_output_metadata(&mut output, nums(), &[&leaf], &[]);
+        attach_tap_change_output_metadata(&mut output, nums(), dummy_tap_tree(), &[&leaf], &[]);
         assert_eq!(output.tap_internal_key, Some(nums()));
         assert!(output.tap_key_origins.is_empty());
     }
@@ -1101,6 +1131,7 @@ mod output_change_metadata_tests {
         attach_tap_change_output_metadata(
             &mut output,
             nums(),
+            dummy_tap_tree(),
             &[&founders_leaf, &recovery_leaf, &inheritance_leaf],
             &[KeyOrigin {
                 pubkey: PRESENT.into(),
@@ -1124,6 +1155,7 @@ mod output_change_metadata_tests {
         attach_tap_change_output_metadata(
             &mut output,
             nums(),
+            dummy_tap_tree(),
             &[&leaf],
             &[KeyOrigin {
                 pubkey: ABSENT.into(),
@@ -1142,6 +1174,7 @@ mod output_change_metadata_tests {
         attach_tap_change_output_metadata(
             &mut output,
             nums(),
+            dummy_tap_tree(),
             &[&leaf],
             &[
                 KeyOrigin { pubkey: "garbage".into(), fingerprint: "deadbeef".into(), derivation_path: "m/86'/1'/0'/0/0".into() },

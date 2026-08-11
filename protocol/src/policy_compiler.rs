@@ -1,6 +1,6 @@
 use bitcoin::{Address, Network, PublicKey};
 use bitcoin::secp256k1::{Secp256k1, XOnlyPublicKey};
-use bitcoin::taproot::{TaprootBuilder, TaprootSpendInfo};
+use bitcoin::taproot::{TapTree, TaprootBuilder, TaprootSpendInfo};
 use miniscript::policy::{Concrete, Liftable};
 use miniscript::{Descriptor, Miniscript};
 use serde::{Deserialize, Serialize};
@@ -284,6 +284,18 @@ pub fn compile_dynasty_policy_tr(
 #[derive(Debug)]
 pub struct MultileafOutput {
     pub spend_info: TaprootSpendInfo,
+    /// Same tree as `spend_info`, in the `TapTree` shape a PSBT output's
+    /// PSBT_OUT_TAP_TREE field needs (2026-08-11 fix). Without this on a
+    /// change output, a signer verifying a multi-leaf change output has
+    /// no tree to reconstruct/verify against and correctly refuses to
+    /// call it change -- see attach_tap_change_output_metadata's call
+    /// site in the compiler for the full account of the bug this closed
+    /// ("spending the whole UTXO" turned out to be real change that no
+    /// signer could recognize as change). Captured from the SAME builder
+    /// that produces spend_info, before it's consumed by finalize(), so
+    /// the two can never drift apart the way two separate constructions
+    /// could.
+    pub tap_tree: TapTree,
     pub founder_leaf: bitcoin::ScriptBuf,
     /// Present when `policy.has_middle_leaf()` -- the timelocked
     /// recovery branch OR the untimelocked backup branch, whichever the
@@ -357,6 +369,8 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
         let builder = TaprootBuilder::new()
             .add_leaf(0, founder_leaf.clone())
             .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?;
+        let tap_tree = TapTree::try_from(builder.clone())
+            .map_err(|e| PolicyError::Descriptor(format!("tap_tree: {e:?}")))?;
         let spend_info = builder
             .finalize(&secp, internal_key)
             .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
@@ -367,6 +381,7 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
         let descriptor = format!("tr({},{})", internal_key, ms_founder);
         return Ok(MultileafOutput {
             spend_info,
+            tap_tree,
             founder_leaf,
             recovery_leaf: None,
             inheritance_leaf: None,
@@ -396,6 +411,8 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
             .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?
             .add_leaf(1, ms_backup.encode())
             .map_err(|e| PolicyError::Descriptor(format!("leaf backup: {e:?}")))?;
+        let tap_tree = TapTree::try_from(builder.clone())
+            .map_err(|e| PolicyError::Descriptor(format!("tap_tree: {e:?}")))?;
         let spend_info = builder
             .finalize(&secp, internal_key)
             .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
@@ -403,6 +420,7 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
         let miniscript_policy = format!("or({},{})", founder_thresh, backup_branch);
         return Ok(MultileafOutput {
             spend_info,
+            tap_tree,
             founder_leaf,
             recovery_leaf: Some(ms_backup.encode()),
             inheritance_leaf: None,
@@ -436,6 +454,8 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
             .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?
             .add_leaf(1, ms_inheritance.encode())
             .map_err(|e| PolicyError::Descriptor(format!("leaf inheritance: {e:?}")))?;
+        let tap_tree = TapTree::try_from(builder.clone())
+            .map_err(|e| PolicyError::Descriptor(format!("tap_tree: {e:?}")))?;
         let spend_info = builder
             .finalize(&secp, internal_key)
             .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
@@ -446,6 +466,7 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
         let miniscript_policy = format!("or({},{})", founder_thresh, inheritance_branch);
         return Ok(MultileafOutput {
             spend_info,
+            tap_tree,
             founder_leaf,
             recovery_leaf: None,
             inheritance_leaf: Some(ms_inheritance.encode()),
@@ -497,6 +518,8 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
             .map_err(|e| PolicyError::Descriptor(format!("leaf inheritance: {e:?}")))?
             .add_leaf(3, ms_protector.encode())
             .map_err(|e| PolicyError::Descriptor(format!("leaf protector: {e:?}")))?;
+        let tap_tree = TapTree::try_from(builder.clone())
+            .map_err(|e| PolicyError::Descriptor(format!("tap_tree: {e:?}")))?;
         let spend_info = builder
             .finalize(&secp, internal_key)
             .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
@@ -510,6 +533,7 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
         );
         Ok(MultileafOutput {
             spend_info,
+            tap_tree,
             founder_leaf,
             recovery_leaf: Some(ms_recovery.encode()),
             inheritance_leaf: Some(ms_inheritance.encode()),
@@ -525,6 +549,8 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
             .map_err(|e| PolicyError::Descriptor(format!("leaf recovery: {e:?}")))?
             .add_leaf(2, ms_inheritance.encode())
             .map_err(|e| PolicyError::Descriptor(format!("leaf inheritance: {e:?}")))?;
+        let tap_tree = TapTree::try_from(builder.clone())
+            .map_err(|e| PolicyError::Descriptor(format!("tap_tree: {e:?}")))?;
         let spend_info = builder
             .finalize(&secp, internal_key)
             .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
@@ -538,6 +564,7 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
         );
         Ok(MultileafOutput {
             spend_info,
+            tap_tree,
             founder_leaf,
             recovery_leaf: Some(ms_recovery.encode()),
             inheritance_leaf: Some(ms_inheritance.encode()),
