@@ -190,6 +190,20 @@ export interface VaultMembershipGrant {
   updated_at: string;
 }
 
+// Persisted send-status for the circle safety phrase pair
+// (034_circle_phrase_deliveries.sql) -- never the phrase text itself,
+// only who/when. See CirclePhraseSetup.tsx.
+export interface CirclePhraseDelivery {
+  id: string;
+  recipient_key_id: string;
+  recipient_label: string;
+  recipient_persona: string;
+  status: 'delivered' | 'queued';
+  delivered_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface TrustDoc {
   /** One or two sentences: why does this trust exist? */
   purpose?: string;
@@ -1322,6 +1336,25 @@ export const api = {
       req<{ ok: true; grant: VaultMembershipGrant }>(`/vault-membership-grants?id=${id}`, {
         method: 'PATCH',
         body: JSON.stringify({ status }),
+      }),
+  },
+
+  // Persisted send-status for the circle safety phrase pair
+  // (034_circle_phrase_deliveries.sql) -- never the phrase text itself.
+  circlePhraseDeliveries: {
+    list: (vault_id: string) =>
+      req<{ ok: true; deliveries: CirclePhraseDelivery[] }>(`/circle-phrase-deliveries?vault_id=${vault_id}`),
+
+    upsert: (body: {
+      vault_id: string;
+      recipient_key_id: string;
+      recipient_label: string;
+      recipient_persona: string;
+      status: 'delivered' | 'queued';
+    }) =>
+      req<{ ok: true; delivery: CirclePhraseDelivery }>(`/circle-phrase-deliveries`, {
+        method: 'POST',
+        body: JSON.stringify(body),
       }),
   },
 
