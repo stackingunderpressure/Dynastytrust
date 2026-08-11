@@ -276,6 +276,20 @@ export async function generateSoftwareKey(opts: {
 
 /**
  * Import an xpub from a hardware wallet.
+ *
+ * `masterFingerprint`, when the caller has one (from scanning or pasting
+ * a real `[fingerprint/path]xpub...` key-origin string -- see
+ * parseXpubText), is the ONLY trustworthy source of the master fingerprint
+ * a hardware wallet needs to recognize its own key (buildKeyOrigins /
+ * buildPsbtKeyOrigins prefer it over `fingerprint` below). A bare xpub
+ * carries no information about its own ancestors, so there is no way to
+ * derive the true master fingerprint from the xpub alone -- 2026-08-11
+ * fix: this function used to try anyway (computing the fingerprint of the
+ * xpub's OWN key, an account-level value, not the master's) and silently
+ * mislabel it as correct. When the caller has no real fingerprint, this
+ * key simply won't get hardware-wallet key-origin metadata attached at
+ * spend time, same graceful degradation buildPsbtKeyOrigins already
+ * applies to any key missing derivation data.
  */
 export function importXpub(opts: {
   label: string;
@@ -283,6 +297,7 @@ export function importXpub(opts: {
   xpub: string;
   derivationPath?: string;
   persona: string;
+  masterFingerprint?: string;
 }): LocalKey {
   if (!opts.xpub.match(/^[xt]pub|^[XY]pub/)) {
     throw new Error('Invalid xpub — expected xpub…, tpub…, Xpub…');
@@ -291,11 +306,20 @@ export function importXpub(opts: {
   let fp = '00000000';
   let pubkey = '';
   try {
-    const hd = HDKey.fromExtendedKey(opts.xpub);
+    // 2026-08-11 fix: this omitted the network's version bytes, so
+    // HDKey.fromExtendedKey defaulted to MAINNET-only validation --
+    // any testnet/signet "tpub..." failed that check and threw,
+    // silently landing on the '00000000' fallback below AND leaving
+    // `pubkey` empty (which breaks vault compilation for this key
+    // entirely -- toPubkeyHex throws "missing its pubkey"). Passing
+    // the real network versions fixes both for every network, not
+    // just mainnet.
+    const hd = HDKey.fromExtendedKey(opts.xpub, networkVersions(opts.network));
     // For descriptor compilation, we need the pubkey that appears in
-    // the miniscript leaf at receive index 0: xpub/0/0. The xpub's
-    // own fingerprint also needs to be the BIP32 standard so
-    // hardware-wallet compat works.
+    // the miniscript leaf at receive index 0: xpub/0/0. `fp` here is
+    // this xpub's OWN fingerprint (an account-level value) -- a real,
+    // deterministic display value, but NOT the master fingerprint (see
+    // this function's doc comment); use opts.masterFingerprint for that.
     const child00 = hd.deriveChild(0).deriveChild(0);
     if (hd.publicKey) fp = bip32Fingerprint(hd.publicKey);
     if (child00.publicKey) pubkey = toHex(child00.publicKey);
@@ -309,6 +333,7 @@ export function importXpub(opts: {
     origin:         'imported_xpub',
     network:        opts.network,
     fingerprint:    fp,
+    ...(opts.masterFingerprint ? { masterFingerprint: opts.masterFingerprint.toLowerCase() } : {}),
     derivationPath: opts.derivationPath ?? `m/48'/${coin}'/0'/2'`,
     xpub:           opts.xpub,
     pubkey,
@@ -440,11 +465,13 @@ export function splitKeyOrigin(raw: string): { xpub: string; path: string; finge
  * get the two strings into the form; it doesn't need to duplicate
  * that gate.
  */
-export function parseHardwareWalletExport(json: unknown): { xpub: string; path: string } | null {
+export function parseHardwareWalletExport(
+  json: unknown,
+): { xpub: string; path: string; fingerprint: string | null } | null {
   if (!json || typeof json !== 'object') return null;
   const obj = json as Record<string, unknown>;
 
-  function readPair(o: unknown): { xpub: string; path: string } | null {
+  function readPair(o: unknown): { xpub: string; path: string; fingerprint: string | null } | null {
     if (!o || typeof o !== 'object') return null;
     const r = o as Record<string, unknown>;
     const xpub = r.xpub ?? r.Xpub ?? r.zpub ?? r.Zpub ?? r.ypub ?? r.Ypub;
@@ -453,11 +480,12 @@ export function parseHardwareWalletExport(json: unknown): { xpub: string; path: 
     // all -- split it out first so that path isn't silently lost.
     if (typeof xpub === 'string') {
       const split = splitKeyOrigin(xpub);
-      if (split) return { xpub: split.xpub, path: split.path };
+      if (split) return { xpub: split.xpub, path: split.path, fingerprint: split.fingerprint };
     }
     const path = r.deriv ?? r.path ?? r.bip32_path ?? r.derivation;
+    const fp = r.xfp ?? r.fingerprint ?? r.master_fingerprint;
     if (typeof xpub === 'string' && xpub.length > 50 && typeof path === 'string' && path.length > 0) {
-      return { xpub, path };
+      return { xpub, path, fingerprint: typeof fp === 'string' ? fp.toLowerCase() : null };
     }
     return null;
   }
@@ -492,12 +520,29 @@ export function parseHardwareWalletExport(json: unknown): { xpub: string; path: 
  * derivation path means a signer can't re-derive the matching private
  * key later (the exact failure this repo's known-issues history already
  * documents once).
+ *
+ * fingerprint is null whenever the source didn't carry one (bare xpub,
+ * or a JSON export shape with no xfp/fingerprint field) -- 2026-08-11
+ * fix: this used to be silently dropped even when splitKeyOrigin (or a
+ * JSON export's xfp field) DID have a real one, because importXpub()
+ * had no parameter to receive it and instead tried to recompute a
+ * fingerprint from the bare xpub alone -- which is mathematically
+ * impossible to get right (an xpub carries no information about its
+ * own ancestors, only the master seed does), and produced either the
+ * wrong value (an account-level fingerprint mislabeled as the master
+ * one hardware-wallet matching needs) or, for any non-mainnet network,
+ * literally "00000000" because the recompute itself silently failed
+ * (see importXpub's own fix). Callers should now thread this straight
+ * through into importXpub's masterFingerprint parameter instead of
+ * letting it recompute a guess.
  */
-export function parseXpubText(raw: string): { xpub: string; path: string | null } | null {
+export function parseXpubText(
+  raw: string,
+): { xpub: string; path: string | null; fingerprint: string | null } | null {
   const trimmed = raw.trim();
   const origin = splitKeyOrigin(trimmed);
-  if (origin) return { xpub: origin.xpub, path: origin.path };
-  if (/^[a-zA-Z]pub[a-zA-Z0-9]{80,}$/.test(trimmed)) return { xpub: trimmed, path: null };
+  if (origin) return { xpub: origin.xpub, path: origin.path, fingerprint: origin.fingerprint };
+  if (/^[a-zA-Z]pub[a-zA-Z0-9]{80,}$/.test(trimmed)) return { xpub: trimmed, path: null, fingerprint: null };
   try {
     const parsed = parseHardwareWalletExport(JSON.parse(trimmed));
     if (parsed) return parsed;

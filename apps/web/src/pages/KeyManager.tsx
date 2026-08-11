@@ -479,6 +479,13 @@ function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => v
   const [network, setNetwork] = useState<Network>("testnet");
   const [xpub, setXpub] = useState("");
   const [path, setPath] = useState("m/48'/1'/0'/2'");
+  // The ONLY trustworthy source of the master fingerprint hardware-wallet
+  // signing needs -- there is no way to derive it from a bare xpub after
+  // the fact (see keystore.ts's importXpub doc comment). Populated from a
+  // scanned/imported [fingerprint/path]xpub string when available; editable
+  // so a bare-xpub paste can still get one by typing what the signer's own
+  // screen shows.
+  const [masterFingerprint, setMasterFingerprint] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [showQrScan, setShowQrScan] = useState(false);
@@ -489,9 +496,10 @@ function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => v
     setPath("m/48'/" + (n === "mainnet" ? "0" : "1") + "'/0'/2'");
   }
 
-  function handleQrResult(scannedXpub: string, scannedPath: string | null) {
+  function handleQrResult(scannedXpub: string, scannedPath: string | null, scannedFingerprint: string | null) {
     setXpub(scannedXpub);
     if (scannedPath) setPath(scannedPath);
+    if (scannedFingerprint) setMasterFingerprint(scannedFingerprint);
     setFileName(null);
     setShowQrScan(false);
   }
@@ -512,12 +520,18 @@ function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => v
     // xpub, no brackets) -- leave whatever was already in the field
     // rather than blank out a value that might already be correct.
     if (parsed.path) setPath(parsed.path);
+    if (parsed.fingerprint) setMasterFingerprint(parsed.fingerprint);
     setFileName(file.name);
   }
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
+    const fp = masterFingerprint.trim().toLowerCase();
+    if (fp && !/^[0-9a-f]{8}$/.test(fp)) {
+      setErr("Fingerprint must be 8 hex characters, e.g. c8fe8d4e.");
+      return;
+    }
     try {
       importXpub({
         label: label.trim() || persona,
@@ -525,6 +539,7 @@ function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => v
         network,
         xpub: xpub.trim(),
         derivationPath: path.trim(),
+        masterFingerprint: fp || undefined,
       });
       onDone();
     } catch (e) {
@@ -576,6 +591,20 @@ function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => v
             <div>
               <Label>Derivation path</Label>
               <Input mono value={path} onChange={e => setPath(e.target.value)} />
+            </div>
+            <div>
+              <Label>Master fingerprint</Label>
+              <Input
+                mono
+                value={masterFingerprint}
+                onChange={e => setMasterFingerprint(e.target.value)}
+                placeholder="e.g. c8fe8d4e -- from the signer's export"
+              />
+              <div style={{ fontSize: 11, color: colors.muted, marginTop: 5 }}>
+                Filled in automatically from a scan or file import. Without it, this key
+                won't be recognized by a hardware wallet at spend time -- a bare xpub
+                alone can't supply it, so type it in if you pasted the xpub manually.
+              </div>
             </div>
             {err && <p style={{ color: colors.red, fontSize: 13 }}>{err}</p>}
             <div style={{ display: "flex", gap: 10 }}>

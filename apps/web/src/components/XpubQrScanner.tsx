@@ -54,8 +54,12 @@ import { Button } from './ui';
 interface XpubQrScannerProps {
   /** path is null when the scan only found a bare xpub -- the caller
    *  should leave its own derivation-path field untouched rather than
-   *  overwrite it with information this scan doesn't have. */
-  onResult: (xpub: string, path: string | null) => void;
+   *  overwrite it with information this scan doesn't have. fingerprint
+   *  is null under the same condition, and matters even more: it is the
+   *  ONLY trustworthy source of the master fingerprint a hardware wallet
+   *  needs (see keystore.ts's importXpub doc comment -- there is no way
+   *  to derive it from a bare xpub after the fact). */
+  onResult: (xpub: string, path: string | null, fingerprint: string | null) => void;
   onCancel?: () => void;
 }
 
@@ -106,7 +110,7 @@ export function XpubQrScanner({ onResult, onCancel }: XpubQrScannerProps) {
     function tryText(text: string): boolean {
       const parsed = parseXpubText(text);
       if (!parsed) return false;
-      onResult(parsed.xpub, parsed.path);
+      onResult(parsed.xpub, parsed.path, parsed.fingerprint);
       return true;
     }
 

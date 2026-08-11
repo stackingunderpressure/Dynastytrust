@@ -261,9 +261,9 @@ export default function VaultWizard() {
     setGenRole(null);
   }
 
-  function onImportXpub(role: string, xpub: string, derivationPath: string) {
+  function onImportXpub(role: string, xpub: string, derivationPath: string, masterFingerprint?: string) {
     const netForKey = network === 'bitcoin' ? 'mainnet' : network;
-    const key = importXpub({ label: `${role[0].toUpperCase()}${role.slice(1)} (imported)`, network: netForKey, xpub, derivationPath, persona: role });
+    const key = importXpub({ label: `${role[0].toUpperCase()}${role.slice(1)} (imported)`, network: netForKey, xpub, derivationPath, persona: role, masterFingerprint });
     refreshKeys();
     addKeyToRole(role, key);
     setGenRole(null);
@@ -974,7 +974,7 @@ function KeysStep({
   network: NetworkChoice;
   genRole: string | null; setGenRole: (r: string | null) => void;
   onGenerateKey: (role: string, mode: 'test' | 'secure', password?: string) => void;
-  onImportXpub: (role: string, xpub: string, derivationPath: string) => void;
+  onImportXpub: (role: string, xpub: string, derivationPath: string, masterFingerprint?: string) => void;
   onImportTapitKey: (role: string, xOnlyPubkey: string) => void;
   slotsReady: boolean;
   onContinue: () => void;
@@ -1011,7 +1011,7 @@ function KeysStep({
           <InlineKeyCreate
             role={key}
             onGenerate={(mode, pw) => onGenerateKey(key, mode, pw)}
-            onImport={(xpub, path) => onImportXpub(key, xpub, path)}
+            onImport={(xpub, path, fp) => onImportXpub(key, xpub, path, fp)}
             onImportTapit={xOnlyPubkey => onImportTapitKey(key, xOnlyPubkey)}
             onCancel={() => setGenRole(null)}
           />
@@ -1056,7 +1056,7 @@ function InlineKeyCreate({
 }: {
   role: string;
   onGenerate: (mode: 'test' | 'secure', password?: string) => void;
-  onImport: (xpub: string, derivationPath: string) => void;
+  onImport: (xpub: string, derivationPath: string, masterFingerprint?: string) => void;
   onImportTapit: (xOnlyPubkey: string) => void;
   onCancel: () => void;
 }) {
@@ -1065,6 +1065,12 @@ function InlineKeyCreate({
   const [password, setPassword] = useState('');
   const [xpub, setXpub] = useState('');
   const [path, setPath] = useState("m/48'/1'/0'/2'");
+  // The ONLY trustworthy source of the master fingerprint hardware-wallet
+  // signing needs -- a bare xpub carries no information about its own
+  // ancestors, so there's no way to derive it after the fact (see
+  // keystore.ts's importXpub doc comment). Populated from a scan/file
+  // import when available; editable so a manual paste can still supply it.
+  const [masterFingerprint, setMasterFingerprint] = useState('');
   const [fileName, setFileName] = useState<string | null>(null);
   const [fileErr, setFileErr] = useState<string | null>(null);
   const [showQrScan, setShowQrScan] = useState(false);
@@ -1072,9 +1078,10 @@ function InlineKeyCreate({
   const [tapitPubkey, setTapitPubkey] = useState('');
   const [tapitErr, setTapitErr] = useState<string | null>(null);
 
-  function handleQrResult(scannedXpub: string, scannedPath: string | null) {
+  function handleQrResult(scannedXpub: string, scannedPath: string | null, scannedFingerprint: string | null) {
     setXpub(scannedXpub);
     if (scannedPath) setPath(scannedPath);
+    if (scannedFingerprint) setMasterFingerprint(scannedFingerprint);
     setFileName(null);
     setShowQrScan(false);
   }
@@ -1095,6 +1102,7 @@ function InlineKeyCreate({
     // xpub, no brackets) -- leave whatever was already in the field
     // rather than blank out a value that might already be correct.
     if (parsed.path) setPath(parsed.path);
+    if (parsed.fingerprint) setMasterFingerprint(parsed.fingerprint);
     setFileName(file.name);
   }
 
@@ -1167,7 +1175,27 @@ function InlineKeyCreate({
           {fileErr && <div style={{ fontSize: 11, color: colors.red }}>{fileErr}</div>}
           <Input placeholder="xpub / tpub from a hardware signer" value={xpub} onChange={e => { setXpub(e.target.value); setFileName(null); }} />
           <Input placeholder="Derivation path" value={path} onChange={e => setPath(e.target.value)} />
-          <Button size="sm" disabled={!xpub.trim()} onClick={() => onImport(xpub.trim(), path.trim())}>
+          <Input
+            placeholder="Master fingerprint (e.g. c8fe8d4e) -- from the signer's export"
+            value={masterFingerprint}
+            onChange={e => setMasterFingerprint(e.target.value)}
+          />
+          <div style={{ fontSize: 11, color: colors.muted }}>
+            Filled in automatically from a scan or file import. Without it, this key
+            won't be recognized by a hardware wallet at spend time.
+          </div>
+          <Button
+            size="sm"
+            disabled={!xpub.trim()}
+            onClick={() => {
+              const fp = masterFingerprint.trim().toLowerCase();
+              if (fp && !/^[0-9a-f]{8}$/.test(fp)) {
+                setFileErr('Fingerprint must be 8 hex characters, e.g. c8fe8d4e.');
+                return;
+              }
+              onImport(xpub.trim(), path.trim(), fp || undefined);
+            }}
+          >
             Import
           </Button>
         </>
