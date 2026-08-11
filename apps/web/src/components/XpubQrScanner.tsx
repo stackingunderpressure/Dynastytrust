@@ -33,11 +33,22 @@ import { Button } from './ui';
  *      puts its file-export JSON into a QR instead of (or in addition
  *      to) a file works too.
  *   4. Anything else UR-encoded that ISN'T JSON once decoded (a real
- *      BCR crypto-hdkey/crypto-account CBOR payload) is deliberately
- *      NOT hand-parsed -- getting key-derivation metadata wrong is a
- *      worse failure than not supporting a format yet, so this surfaces
- *      an honest error instead of guessing at an unfamiliar binary
- *      encoding of key material.
+ *      BCR crypto-hdkey/crypto-account CBOR payload -- this is what
+ *      SeedSigner's "UR2 / BC-UR" xpub export FORMAT sends; the
+ *      operator hit this directly) is deliberately NOT hand-parsed --
+ *      getting key-derivation metadata wrong is a worse failure than
+ *      not supporting a format yet, so this surfaces an honest error
+ *      instead of guessing at an unfamiliar binary encoding of key
+ *      material. Workaround until real BCR registry decoding is built:
+ *      on the signer, export the xpub as "Static" (single QR, plain
+ *      `[fingerprint/path]xpub...` text per BIP-380) instead of the
+ *      animated UR format -- format #1 above already handles that
+ *      correctly. 2026-08-11 fix: decoding a structured type used to
+ *      throw partway through and get swallowed by the catch-all below
+ *      (meant only for "malformed fragment, keep scanning"), so the
+ *      screen hung forever at "100% received" with no error and no
+ *      hint toward the Static workaround -- see the isolated try/catch
+ *      around the decode below.
  */
 
 interface XpubQrScannerProps {
@@ -120,12 +131,27 @@ export function XpubQrScanner({ onResult, onCancel }: XpubQrScannerProps) {
         if (dec.isComplete()) {
           if (dec.isSuccess()) {
             const ur = dec.resultUR();
-            const decoded = ur.decodeCBOR();
-            const buf: Uint8Array = decoded instanceof Uint8Array ? decoded : new Uint8Array(decoded);
-            const asText = new TextDecoder().decode(buf);
-            if (tryText(asText)) return true;
+            // A structured BCR type (crypto-account, crypto-hdkey -- what
+            // SeedSigner's animated "UR2 / BC-UR" xpub export format sends)
+            // decodes to a nested CBOR array/map, not flat bytes -- this
+            // app doesn't parse that registry yet (see file header comment,
+            // point 4). Converting it as if it were bytes throws, and that
+            // throw used to escape to the outer catch below, which is only
+            // meant for "malformed fragment, keep scanning" -- so the whole
+            // screen went silent forever at "100% received" with the real
+            // fix (switch SeedSigner to Static QR format) never surfaced.
+            // Isolate the decode so a structured-type failure always
+            // reaches the intended error message instead of hanging.
+            try {
+              const decoded = ur.decodeCBOR();
+              const buf: Uint8Array = decoded instanceof Uint8Array ? decoded : new Uint8Array(decoded);
+              const asText = new TextDecoder().decode(buf);
+              if (tryText(asText)) return true;
+            } catch {
+              /* fall through to the "doesn't parse yet" message below */
+            }
             setError(
-              `Scanned a "${ur.type}" QR this app doesn't parse yet -- use the file or paste-in import instead.`,
+              `Scanned a "${ur.type}" QR this app doesn't parse yet -- on the signer, switch the xpub export format to "Static" (a single QR, not animated) and scan again.`,
             );
           } else {
             setError('QR scan failed -- try again.');
