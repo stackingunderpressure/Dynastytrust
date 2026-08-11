@@ -9,8 +9,13 @@ interface QrImageProps {
 
 // // -- QR display
 // Renders `data` as a PNG data URL sized for comfortable mobile
-// scanning. Uses the theme's dark surface + light foreground so the
-// image works on our dark theme without inverting.
+// scanning. Standard black-on-white polarity, wrapped in a white card
+// -- NOT the theme's dark surface + light foreground. Operator,
+// 2026-08-11 ("The seed signer will not scan the transaction qr ...
+// needs more display settings speed bright"): that dark-theme-matching
+// choice quietly inverted the polarity every camera-based QR decoder
+// (SeedSigner's included) is tuned for. See PsbtQrDisplay.tsx's header
+// comment for the fuller account -- same bug, same fix, applied here.
 
 export function QrImage({ data, size = 240 }: QrImageProps) {
   const [src, setSrc] = useState<string | null>(null);
@@ -19,9 +24,9 @@ export function QrImage({ data, size = 240 }: QrImageProps) {
     let cancelled = false;
     QRCode.toDataURL(data, {
       width: size,
-      margin: 2,
-      errorCorrectionLevel: 'M',
-      color: { dark: colors.text, light: colors.bg },
+      margin: 3,
+      errorCorrectionLevel: 'L',
+      color: { dark: '#000000', light: '#FFFFFF' },
     })
       .then(url => {
         if (!cancelled) setSrc(url);
@@ -48,12 +53,14 @@ export function QrImage({ data, size = 240 }: QrImageProps) {
   }
 
   return (
-    <img
-      src={src}
-      alt="QR"
-      width={size}
-      height={size}
-      style={{ borderRadius: 8, display: 'block' }}
-    />
+    <div style={{ background: '#FFFFFF', padding: 12, borderRadius: 8, lineHeight: 0, display: 'inline-block' }}>
+      <img
+        src={src}
+        alt="QR"
+        width={size}
+        height={size}
+        style={{ display: 'block' }}
+      />
+    </div>
   );
 }

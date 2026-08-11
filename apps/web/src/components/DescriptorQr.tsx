@@ -33,8 +33,12 @@ export function DescriptorQr({ descriptor, size = 260, label }: DescriptorQrProp
     QRCode.toDataURL(descriptor, {
       errorCorrectionLevel: 'L',
       width: size,
-      margin: 2,
-      color: { dark: colors.qrModule, light: colors.inset },
+      margin: 3,
+      // Standard black-on-white polarity -- not colors.qrModule/inset,
+      // which matched the app's dark theme but inverted the polarity
+      // camera-based QR decoders (SeedSigner's scanner, Sparrow's,
+      // etc.) are tuned for. See PsbtQrDisplay.tsx's header comment.
+      color: { dark: '#000000', light: '#FFFFFF' },
     })
       .then(url => { if (!cancelled) { setSrc(url); setErr(null); } })
       .catch(e => { if (!cancelled) setErr(e instanceof Error ? e.message : 'QR failed'); });
@@ -80,13 +84,15 @@ export function DescriptorQr({ descriptor, size = 260, label }: DescriptorQrProp
       {err && <p style={{ color: colors.red, fontSize: 12 }}>{err}</p>}
 
       {src ? (
-        <img
-          src={src}
-          alt="Descriptor QR"
-          width={size}
-          height={size}
-          style={{ background: colors.inset, borderRadius: 6 }}
-        />
+        <div style={{ background: '#FFFFFF', padding: 10, borderRadius: 6, lineHeight: 0 }}>
+          <img
+            src={src}
+            alt="Descriptor QR"
+            width={size}
+            height={size}
+            style={{ display: 'block' }}
+          />
+        </div>
       ) : (
         <div style={{ width: size, height: size, background: colors.surface, borderRadius: 6 }} />
       )}

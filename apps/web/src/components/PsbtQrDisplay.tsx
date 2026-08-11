@@ -6,15 +6,41 @@ import { colors, fonts, radii } from '../theme';
 
 /**
  * Animated UR-encoded PSBT QR. Splits the binary PSBT into UR
- * fragments and cycles them at ~150 ms each so air-gapped wallets
- * (Coldcard Q, Jade, Passport, Foundation) can scan the whole
- * payload without USB or paste. The encoder is stateless -- each
- * fragment is self-describing, so the scanning device reassembles
- * with no pairing.
+ * fragments and cycles them so air-gapped wallets (Coldcard Q, Jade,
+ * Passport, Foundation, SeedSigner) can scan the whole payload without
+ * USB or paste. The encoder is stateless -- each fragment is
+ * self-describing, so the scanning device reassembles with no pairing.
  *
  * Uses UR `crypto-psbt` registry type (Bitcoin Core / Sparrow / BCR
  * convention).
+ *
+ * Operator, 2026-08-11: "The seed signer will not scan the transaction
+ * qr. it needs more display settings speed bright." Two real bugs,
+ * confirmed by direct comparison against Tapit Wallet's QrShow.tsx
+ * (which hit and fixed the exact same thing in an earlier session):
+ * (1) this rendered light-colored modules on a near-black background
+ * to match the app's dark theme -- standard QR decoders (SeedSigner's
+ * camera-side scanner included) are tuned for dark modules on a light
+ * background; "matching the dark theme" quietly inverted the polarity
+ * every scanner expects. Fixed to always render true black-on-white,
+ * inside a white card, regardless of the surrounding page theme --
+ * exactly the fix QrShow.tsx already proved necessary. (2) the cycle
+ * speed was a hardcoded 150ms with no way to slow it down for a
+ * specific device. Confirmed against SeedSigner's own source
+ * (gui/screens/scan_screens.py): on Pi-Zero-class hardware it
+ * deliberately targets just 5fps (~200ms/frame) for its whole capture
+ * + decode + render pipeline -- "at this pace the decoder and live
+ * display can more or less keep up." The old 150ms cycle was faster
+ * than SeedSigner's own documented decode budget, so a frame could
+ * change before the device even had a chance to attempt it. Presets
+ * below sit at and above that ~200ms floor. Added a Speed control
+ * (Slow/Normal/Fast) so the operator can back it off per-device
+ * instead of needing a code change every time a new signer turns out
+ * to need it slower.
  */
+
+const SPEED_PRESETS = { slow: 500, normal: 300, fast: 180 } as const;
+type Speed = keyof typeof SPEED_PRESETS;
 
 interface PsbtQrDisplayProps {
   /** PSBT as hex string. */
@@ -23,8 +49,6 @@ interface PsbtQrDisplayProps {
   size?: number;
   /** Max bytes per fragment (smaller = more readable but more frames). */
   fragmentLength?: number;
-  /** Frame interval in ms. ~150 is comfortable for most cameras. */
-  intervalMs?: number;
 }
 
 function hexToBytes(hex: string): Uint8Array {
@@ -40,13 +64,14 @@ export function PsbtQrDisplay({
   psbtHex,
   size = 280,
   fragmentLength = 200,
-  intervalMs = 150,
 }: PsbtQrDisplayProps) {
   const encoderRef = useRef<UREncoder | null>(null);
   const [src, setSrc] = useState<string | null>(null);
   const [frame, setFrame] = useState(0);
   const [totalFragments, setTotalFragments] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [speed, setSpeed] = useState<Speed>('normal');
+  const intervalMs = SPEED_PRESETS[speed];
 
   // Build the UR encoder once per PSBT.
   useEffect(() => {
@@ -72,9 +97,17 @@ export function PsbtQrDisplay({
       try {
         const url = await QRCode.toDataURL(part.toUpperCase(), {
           width: size,
-          margin: 2,
-          errorCorrectionLevel: 'M',
-          color: { dark: colors.text, light: colors.bg },
+          margin: 3,
+          // 'L' (not 'M') keeps module density down -- fewer, larger
+          // modules are easier for a low-resolution camera (SeedSigner's
+          // Pi camera runs 512x384) to resolve distinctly. Fragment loss
+          // from a lower correction level is fine; the animation just
+          // re-cycles past it and the device catches it next lap.
+          errorCorrectionLevel: 'L',
+          // Standard black-on-white polarity, not the app's dark theme
+          // colors -- see this file's header comment for why. Never
+          // vary this with the page theme.
+          color: { dark: '#000000', light: '#FFFFFF' },
         });
         if (!cancelled) {
           setSrc(url);
@@ -107,18 +140,54 @@ export function PsbtQrDisplay({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-      <img
-        src={src}
-        alt="PSBT QR"
-        width={size}
-        height={size}
-        style={{ borderRadius: 8, display: 'block' }}
-      />
+      <div
+        style={{
+          background: '#FFFFFF',
+          padding: 12,
+          borderRadius: 8,
+          lineHeight: 0,
+        }}
+      >
+        <img
+          src={src}
+          alt="PSBT QR"
+          width={size}
+          height={size}
+          style={{ display: 'block' }}
+        />
+      </div>
       <div style={{ fontSize: 11, color: colors.muted, fontFamily: fonts.mono }}>
         {totalFragments > 1
           ? `frame ${(frame % totalFragments) + 1} of ${totalFragments}`
           : 'single QR'}
       </div>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <span style={{ fontSize: 11, color: colors.muted, fontFamily: fonts.sans }}>Speed:</span>
+        {(Object.keys(SPEED_PRESETS) as Speed[]).map(s => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => setSpeed(s)}
+            style={{
+              padding: '4px 10px',
+              fontSize: 11,
+              background: speed === s ? colors.gold : 'none',
+              border: `1px solid ${speed === s ? colors.gold : colors.border}`,
+              borderRadius: radii.md,
+              color: speed === s ? colors.bg : colors.sub,
+              cursor: 'pointer',
+              fontFamily: fonts.sans,
+              textTransform: 'capitalize',
+            }}
+          >
+            {s}
+          </button>
+        ))}
+      </div>
+      <p style={{ fontSize: 11, color: colors.muted, textAlign: 'center', maxWidth: size }}>
+        Scanner missing frames? Try "Slow." Also turn your screen brightness all the way up --
+        a dim screen is the most common reason an air-gapped signer can't lock onto the code.
+      </p>
       <button
         type="button"
         onClick={() => setPaused(p => !p)}
