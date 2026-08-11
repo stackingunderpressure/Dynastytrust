@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getTapitCircleMembers } from '../lib/tapit-circle-members';
 import { sendCirclePhrasePairOverNostr } from '../lib/circle-phrase-delivery';
+import { DEFAULT_RELAYS } from '../lib/tapit-nostr-cosign';
+import { NostrTransport } from '@dynastytrust/nostr-transport';
+import { subscribeCirclePhraseAcks } from '../lib/circle-phrase-ack-channel';
 import { wrapSentSecret } from '../lib/sent-secrets';
 import { api, type CirclePhraseDelivery } from '../lib/api';
 import { colors, radii, space } from '../theme';
@@ -34,8 +37,19 @@ import { usePrompt } from './dialog';
  * when (never the phrase text itself, same as before). The form starts
  * LOCKED (a summary + per-member status, no text inputs) whenever at
  * least one delivery is on file; "Change phrase" is the only way back
- * into the editable form, so this card no longer defaults to inviting a
- * resend the moment the owner looks at it again.
+ * into the editable form.
+ *
+ * 2026-08-11, later same session (operator, still seeing the unlocked
+ * form: "These phrases never changed the look... message couldn't drop
+ * in that situation"): two real gaps. First, a failed status load (e.g.
+ * the 034/035 migrations not yet applied) used to fail open to the
+ * SAME unlocked view as "never sent" with no way to tell the two apart
+ * -- now shown with an explicit inline error. Second, "Sent" only ever
+ * meant a relay accepted the publish, never that the recipient's wallet
+ * actually got it; 035_circle_phrase_delivery_confirm.sql +
+ * circle-phrase-ack-channel.ts add a real receipt ack from Tapit
+ * (mirrors the vault-membership grant/ack round trip), so this card
+ * can now show "Confirmed received" as a fact, not an assumption.
  */
 export function CirclePhraseSetup({
   vaultId,
@@ -55,17 +69,21 @@ export function CirclePhraseSetup({
   const [busyKeyId, setBusyKeyId] = useState<string | null>(null);
   const [sendingAll, setSendingAll] = useState(false);
   const [deliveries, setDeliveries] = useState<CirclePhraseDelivery[]>([]);
+  const deliveriesRef = useRef<CirclePhraseDelivery[]>([]);
+  deliveriesRef.current = deliveries;
   const [unlocked, setUnlocked] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedOk, setSavedOk] = useState(false);
 
   // Load the persisted delivery roster on mount. Starts locked (summary
   // view) whenever at least one member already has a delivery on file;
   // starts unlocked (the original always-editable form) the first time,
-  // when nothing has ever been sent. A load failure fails OPEN (editable,
-  // just without persisted status showing yet) rather than blocking the
-  // owner from sending at all.
+  // when nothing has ever been sent. A load failure ALSO shows the
+  // unlocked form (so sending is never blocked) but flags loadError so
+  // the card can say so plainly instead of looking identical to a vault
+  // that's genuinely never had a phrase sent.
   useEffect(() => {
     let alive = true;
     void api.circlePhraseDeliveries.list(vaultId).then(res => {
@@ -76,12 +94,39 @@ export function CirclePhraseSetup({
     }).catch(() => {
       if (!alive) return;
       setUnlocked(true);
+      setLoadError(true);
       setLoaded(true);
     });
     return () => {
       alive = false;
     };
   }, [vaultId]);
+
+  // Live receipt-ack listener: one long-lived NostrTransport for the
+  // life of this mount, re-subscribed whenever the set of still-
+  // unconfirmed reply pubkeys changes. No `since` cutoff, so an ack that
+  // arrived while this page was closed still gets caught on the next
+  // mount -- same pattern VaultMembershipSetup.tsx uses for its own
+  // accept/decline roster.
+  const pendingReplyKeys = deliveries.filter(d => !d.confirmed_at && d.reply_privkey).map(d => d.reply_privkey!);
+  const pendingKeysSignature = pendingReplyKeys.slice().sort().join(',');
+  useEffect(() => {
+    if (pendingReplyKeys.length === 0) return;
+    const transport = new NostrTransport({ relays: DEFAULT_RELAYS });
+    const sub = subscribeCirclePhraseAcks(transport, pendingReplyKeys, ack => {
+      const d = deliveriesRef.current.find(x => x.reply_pubkey === ack.replyPubkey);
+      if (!d || d.confirmed_at) return;
+      void api.circlePhraseDeliveries.confirm(ack.replyPubkey).then(res => {
+        setDeliveries(prev => prev.map(x => (x.id === res.delivery.id ? res.delivery : x)));
+        toast.success(`${d.recipient_label} confirmed receipt of the safety phrase`);
+      });
+    });
+    return () => {
+      sub.close();
+      transport.close();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingKeysSignature]);
 
   const { circleMembers, barePubkeys } = getTapitCircleMembers(founderKeys);
 
@@ -127,10 +172,25 @@ export function CirclePhraseSetup({
     return deliveries.find(d => d.recipient_key_id === keyId) ?? null;
   }
 
+  // Sent -- relay accepted the publish. Confirmed -- the recipient's own
+  // Tapit wallet acked that it actually stored the pair. These are
+  // deliberately different facts (operator: "message couldn't drop in
+  // that situation") -- never collapse "confirmed" into "sent."
+  function statusText(d: CirclePhraseDelivery): string {
+    if (d.confirmed_at) return `Confirmed received -- ${new Date(d.confirmed_at).toLocaleString()}`;
+    if (d.status === 'delivered') return `Sent -- awaiting confirmation -- ${new Date(d.delivered_at).toLocaleString()}`;
+    return `Queued -- retrying -- ${new Date(d.delivered_at).toLocaleString()}`;
+  }
+  function statusColor(d: CirclePhraseDelivery): string {
+    if (d.confirmed_at) return colors.green;
+    return colors.gold;
+  }
+
   // Shared low-level delivery, used by both the per-member Send button and
   // Send to all -- one place that actually talks to Nostr, so the two
   // entry points can never drift in behavior. Persists a delivery record
-  // on success/queue so the status survives a reload.
+  // (plus a fresh ack-channel reply keypair) on success/queue so both the
+  // status and the eventual receipt confirmation survive a reload.
   async function deliverTo(
     keyId: string,
     xOnlyPubkey: string,
@@ -153,6 +213,8 @@ export function CirclePhraseSetup({
         recipient_label: label,
         recipient_persona: persona,
         status: outcome,
+        reply_pubkey: result.replyPublicKey,
+        reply_privkey: result.replyPrivateKey,
       });
       setDeliveries(prev => [...prev.filter(d => d.id !== saved.delivery.id), saved.delivery]);
       return outcome;
@@ -170,7 +232,7 @@ export function CirclePhraseSetup({
     } else {
       toast.success(
         outcome === 'delivered'
-          ? `Sent to ${label}`
+          ? `Sent to ${label} -- waiting on their wallet to confirm receipt`
           : `Queued for ${label} -- no relay confirmed yet, will keep retrying`,
       );
     }
@@ -202,11 +264,13 @@ export function CirclePhraseSetup({
       queued > 0 ? `${queued} queued` : null,
       failed > 0 ? `${failed} failed` : null,
     ].filter((p): p is string => p !== null);
-    toast[failed > 0 ? 'error' : 'success'](`Sent to circle: ${parts.join(', ') || 'nobody to send to'}`);
+    toast[failed > 0 ? 'error' : 'success'](`Sent to circle: ${parts.join(', ') || 'nobody to send to'} -- confirmation from each wallet will show up here as it arrives`);
     // Lock back down once everyone the owner meant to reach has a
     // delivery on file -- a reload would show the same locked summary
     // anyway; doing it right away avoids the form sitting open and
-    // "inviting a resend" the moment sendToAll finishes.
+    // "inviting a resend" the moment sendToAll finishes. Confirmation
+    // status keeps updating live even while locked (the ack subscription
+    // above doesn't care whether the form is open).
     if (failed === 0) setUnlocked(false);
   }
 
@@ -214,6 +278,7 @@ export function CirclePhraseSetup({
     setNormalPhrase('');
     setDuressPhrase('');
     setSavedOk(false);
+    setLoadError(false);
     setUnlocked(true);
   }
 
@@ -250,6 +315,7 @@ export function CirclePhraseSetup({
   }
 
   const sentCount = circleMembers.filter(k => deliveryFor(k.keyId) !== null).length;
+  const confirmedCount = circleMembers.filter(k => deliveryFor(k.keyId)?.confirmed_at).length;
 
   return (
     <div
@@ -268,8 +334,9 @@ export function CirclePhraseSetup({
       {!unlocked && loaded ? (
         <>
           <p style={{ fontSize: 12, color: colors.muted, marginBottom: 12 }}>
-            Phrase set -- sent to {sentCount} of {circleMembers.length} member{circleMembers.length === 1 ? '' : 's'}.
-            It's never stored here in plain text, so this card can't show you what it is -- only that it went out.
+            Phrase set -- sent to {sentCount} of {circleMembers.length} member{circleMembers.length === 1 ? '' : 's'},
+            confirmed received by {confirmedCount}. It's never stored here in plain text, so this card
+            can't show you what it is -- only that it went out and whether it actually landed.
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
             {circleMembers.map(k => {
@@ -279,8 +346,8 @@ export function CirclePhraseSetup({
                   <div style={{ fontSize: 13, color: colors.text, minWidth: 0 }}>
                     {k.label} <span style={{ color: colors.muted }}>({k.persona})</span>
                   </div>
-                  <div style={{ fontSize: 11, color: d ? (d.status === 'delivered' ? colors.green : colors.gold) : colors.sub, flexShrink: 0 }}>
-                    {d ? `${d.status === 'delivered' ? 'Sent' : 'Queued'} -- ${new Date(d.delivered_at).toLocaleDateString()}` : 'Not sent yet'}
+                  <div style={{ fontSize: 11, color: d ? statusColor(d) : colors.sub, flexShrink: 0, textAlign: 'right' }}>
+                    {d ? statusText(d) : 'Not sent yet'}
                   </div>
                 </div>
               );
@@ -292,6 +359,23 @@ export function CirclePhraseSetup({
         </>
       ) : (
         <>
+          {loadError && (
+            <div
+              style={{
+                background: colors.dangerBg,
+                border: `1px solid ${colors.borderDanger}`,
+                borderRadius: 8,
+                padding: '8px 12px',
+                marginBottom: 10,
+              }}
+            >
+              <p style={{ fontSize: 12, color: colors.red, margin: 0 }}>
+                Couldn't check whether this vault already has a phrase on file -- reload this page to
+                try again. You can still send below either way; it just won't show past history until
+                that loads.
+              </p>
+            </div>
+          )}
           <p style={{ fontSize: 12, color: colors.muted, marginBottom: 10 }}>
             Pick one word or phrase your circle uses to confirm it's really you on a call, and a
             different duress phrase that silently means "I'm being forced." Send both, once, to each
@@ -390,8 +474,8 @@ export function CirclePhraseSetup({
                     </Button>
                   </div>
                   {d && (
-                    <div style={{ fontSize: 11, color: d.status === 'delivered' ? colors.green : colors.gold, paddingLeft: 2 }}>
-                      {d.status === 'delivered' ? 'Sent' : 'Queued'} -- {new Date(d.delivered_at).toLocaleString()}
+                    <div style={{ fontSize: 11, color: statusColor(d), paddingLeft: 2 }}>
+                      {statusText(d)}
                     </div>
                   )}
                 </div>

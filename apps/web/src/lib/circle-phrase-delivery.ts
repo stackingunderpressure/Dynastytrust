@@ -15,6 +15,16 @@
  * module's arguments and the encrypted event body only, both transient.
  * Tapit's own circlePhrase.ts stores only a salted PBKDF2 hash on receipt;
  * this side stores nothing at all once the publish resolves.
+ *
+ * 2026-08-11 follow-up (operator: "message couldn't drop in that
+ * situation" -- a relay accepting the publish never proved the
+ * recipient's wallet actually got it): the delivery now also names a
+ * `response_channel` -- a second ephemeral keypair, distinct from the
+ * send identity above -- for Tapit to ack real receipt back to (kind
+ * 9581, circle-phrase-ack-channel.ts). The caller (CirclePhraseSetup.tsx)
+ * persists `replyPrivateKey` via api.circlePhraseDeliveries.upsert, same
+ * durable-not-session-only posture as circle-membership-delivery.ts's
+ * own response_channel.
  */
 
 import { schnorr } from '@noble/curves/secp256k1';
@@ -46,6 +56,12 @@ export interface SendCirclePhraseResult {
    *  background worker keeps retrying with backoff until a relay accepts
    *  it -- NOT lost, just not confirmed yet. See nostrOutbox.ts's header. */
   delivered: boolean;
+  /** This delivery's ack-channel reply keypair (see this file's header).
+   *  The caller persists `replyPrivateKey` -- it is NOT a Bitcoin key,
+   *  only what decrypts the eventual real-receipt ack. `replyPublicKey`
+   *  is the same value embedded in `response_channel.requester_pubkey`. */
+  replyPrivateKey: string;
+  replyPublicKey: string;
 }
 
 /**
@@ -65,12 +81,14 @@ export async function sendCirclePhrasePairOverNostr(opts: {
   relays?: readonly string[];
 }): Promise<SendCirclePhraseResult> {
   const ephemeral = generateEphemeralKeypair();
+  const replyChannel = generateEphemeralKeypair();
   const delivery = {
     v: 1 as const,
     vault_descriptor: opts.vaultDescriptor,
     vault_name: opts.vaultName,
     normal_phrase: opts.normalPhrase,
     duress_phrase: opts.duressPhrase,
+    response_channel: { kind: 'nostr' as const, requester_pubkey: replyChannel.publicKey },
   };
   const ciphertext = encryptTo(
     JSON.stringify(delivery),
@@ -93,17 +111,18 @@ export async function sendCirclePhrasePairOverNostr(opts: {
   });
 
   const transport = new NostrTransport({ relays });
+  const replyKeys = { replyPrivateKey: replyChannel.privateKey, replyPublicKey: replyChannel.publicKey };
   try {
     const publish = await transport.publish(event);
     if (publish.accepted.length > 0) {
       await nostrOutbox.markSent(event.id);
-      return { eventId: event.id, delivered: true };
+      return { eventId: event.id, delivered: true, ...replyKeys };
     }
     await nostrOutbox.markAttempt(event.id, 'no relay accepted on first attempt');
-    return { eventId: event.id, delivered: false };
+    return { eventId: event.id, delivered: false, ...replyKeys };
   } catch (e) {
     await nostrOutbox.markAttempt(event.id, e instanceof Error ? e.message : 'publish failed');
-    return { eventId: event.id, delivered: false };
+    return { eventId: event.id, delivered: false, ...replyKeys };
   } finally {
     transport.close();
   }

@@ -191,8 +191,12 @@ export interface VaultMembershipGrant {
 }
 
 // Persisted send-status for the circle safety phrase pair
-// (034_circle_phrase_deliveries.sql) -- never the phrase text itself,
-// only who/when. See CirclePhraseSetup.tsx.
+// (034_circle_phrase_deliveries.sql, 035_circle_phrase_delivery_confirm.sql)
+// -- never the phrase text itself, only who/when/confirmed. `status`
+// reflects relay-publish only; `confirmed_at` is set only once the
+// recipient's own Tapit wallet acks actual receipt (kind 9581,
+// circle-phrase-ack-channel.ts) -- see that migration's header for why
+// these are two different, both-honest facts. See CirclePhraseSetup.tsx.
 export interface CirclePhraseDelivery {
   id: string;
   recipient_key_id: string;
@@ -200,6 +204,9 @@ export interface CirclePhraseDelivery {
   recipient_persona: string;
   status: 'delivered' | 'queued';
   delivered_at: string;
+  reply_pubkey: string | null;
+  reply_privkey: string | null;
+  confirmed_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -1351,10 +1358,21 @@ export const api = {
       recipient_label: string;
       recipient_persona: string;
       status: 'delivered' | 'queued';
+      reply_pubkey?: string;
+      reply_privkey?: string;
     }) =>
       req<{ ok: true; delivery: CirclePhraseDelivery }>(`/circle-phrase-deliveries`, {
         method: 'POST',
         body: JSON.stringify(body),
+      }),
+
+    /** Record a real receipt ack from the recipient's Tapit wallet
+     *  (circle-phrase-ack-channel.ts calls this on a verified, decrypted
+     *  ack -- never on the relay-publish outcome alone). */
+    confirm: (reply_pubkey: string) =>
+      req<{ ok: true; delivery: CirclePhraseDelivery }>(`/circle-phrase-deliveries`, {
+        method: 'PATCH',
+        body: JSON.stringify({ reply_pubkey }),
       }),
   },
 
