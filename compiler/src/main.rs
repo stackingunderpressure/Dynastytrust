@@ -118,6 +118,13 @@ struct CompileRequest {
     /// exclusive with recovery_after > 0; see DynastyPolicy::has_backup.
     #[serde(default)] backup_keys: Vec<String>,
     #[serde(default)] backup_quorum: Option<usize>,
+    /// Second, independent inheritance leaf (2026-08-11) -- a distinct
+    /// heir cohort with its own key set, quorum, and absolute timelock
+    /// alongside the primary heir_keys/heir_quorum/inheritance_after
+    /// leaf. See DynastyPolicy::has_second_inheritance.
+    #[serde(default)] second_heir_keys: Vec<String>,
+    #[serde(default)] second_heir_quorum: Option<usize>,
+    #[serde(default)] second_inheritance_after: Option<u32>,
 }
 fn default_addr_type() -> String { "tr".to_string() }
 
@@ -150,6 +157,7 @@ async fn compile(
     let protectors = parse_pubkeys(&req.protector_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
     let consenters = parse_pubkeys(&req.consent_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
     let backups = parse_pubkeys(&req.backup_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+    let second_heirs = parse_pubkeys(&req.second_heir_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
     let policy = DynastyPolicy {
         founder_keys: founders, founder_quorum: req.founder_quorum,
         recovery_quorum: req.recovery_quorum,
@@ -162,6 +170,9 @@ async fn compile(
         consent_quorum: req.consent_quorum,
         backup_keys: backups,
         backup_quorum: req.backup_quorum,
+        second_heir_keys: second_heirs,
+        second_heir_quorum: req.second_heir_quorum,
+        second_inheritance_after: req.second_inheritance_after,
     };
     // Cloned up front (cheap -- a handful of Vec<PublicKey>): the compile
     // functions below take `policy` by value, but a tr_multileaf compile
@@ -191,6 +202,9 @@ async fn compile(
             }
             if let Some(l) = &out.protector_leaf {
                 m.insert("protector".to_string(), hex::encode(l.as_bytes()));
+            }
+            if let Some(l) = &out.second_inheritance_leaf {
+                m.insert("second_inheritance".to_string(), hex::encode(l.as_bytes()));
             }
             m
         })
@@ -360,10 +374,15 @@ struct PsbtBinaryRequest {
     #[serde(default)] protector_after: Option<u32>,
     #[serde(default)] backup_keys: Vec<String>,
     #[serde(default)] backup_quorum: Option<usize>,
+    // Second, independent inheritance leaf (2026-08-11) -- see
+    // DynastyPolicy::has_second_inheritance.
+    #[serde(default)] second_heir_keys: Vec<String>,
+    #[serde(default)] second_heir_quorum: Option<usize>,
+    #[serde(default)] second_inheritance_after: Option<u32>,
     // Which leaf the caller intends to spend via. Needed so we can
     // set tx.lock_time for CLTV-gated paths; founders_now and backup
     // both leave lock_time at 0. Values: "founders_now" | "recovery" |
-    // "inheritance" | "protector" | "backup".
+    // "inheritance" | "protector" | "backup" | "second_inheritance".
     #[serde(default)] path: Option<String>,
     // Fallback raw scripts (if policy params not provided)
     leaf_script_hex:    Option<String>,
@@ -451,6 +470,7 @@ async fn psbt_binary(
         "recovery" => req.recovery_after,
         "inheritance" => req.inheritance_after,
         "protector" => req.protector_after,
+        "second_inheritance" => req.second_inheritance_after,
         _ => None,
     };
     let lock_time = match locktime_height {
@@ -489,20 +509,28 @@ async fn psbt_binary(
             parse_pubkeys(&req.backup_keys),
         ) {
             (Ok(founders), Ok(heirs), Ok(protectors), Ok(consenters), Ok(backups)) => {
-                let pol = DynastyPolicy {
-                    founder_keys: founders, founder_quorum: fq,
-                    recovery_quorum: req.recovery_quorum,
-                    heir_keys: heirs,       heir_quorum: hq,
-                    recovery_after: ra,     inheritance_after: ia,
-                    protector_keys: protectors,
-                    protector_quorum: req.protector_quorum,
-                    protector_after: req.protector_after,
-                    consent_keys: consenters,
-                    consent_quorum: req.consent_quorum,
-                    backup_keys: backups,
-                    backup_quorum: req.backup_quorum,
-                };
-                build_multileaf(&pol).ok()
+                match parse_pubkeys(&req.second_heir_keys) {
+                    Ok(second_heirs) => {
+                        let pol = DynastyPolicy {
+                            founder_keys: founders, founder_quorum: fq,
+                            recovery_quorum: req.recovery_quorum,
+                            heir_keys: heirs,       heir_quorum: hq,
+                            recovery_after: ra,     inheritance_after: ia,
+                            protector_keys: protectors,
+                            protector_quorum: req.protector_quorum,
+                            protector_after: req.protector_after,
+                            consent_keys: consenters,
+                            consent_quorum: req.consent_quorum,
+                            backup_keys: backups,
+                            backup_quorum: req.backup_quorum,
+                            second_heir_keys: second_heirs,
+                            second_heir_quorum: req.second_heir_quorum,
+                            second_inheritance_after: req.second_inheritance_after,
+                        };
+                        build_multileaf(&pol).ok()
+                    }
+                    Err(_) => None,
+                }
             }
             _ => None,
         }
@@ -529,6 +557,7 @@ async fn psbt_binary(
                 .chain(out.recovery_leaf.as_ref())
                 .chain(out.inheritance_leaf.as_ref())
                 .chain(out.protector_leaf.as_ref())
+                .chain(out.second_inheritance_leaf.as_ref())
                 .collect();
             attach_tap_change_output_metadata(
                 &mut psbt.outputs[1],
@@ -558,6 +587,7 @@ async fn psbt_binary(
         "recovery" | "backup" => out.recovery_leaf.clone(),
         "inheritance" => out.inheritance_leaf.clone(),
         "protector" => out.protector_leaf.clone(),
+        "second_inheritance" => out.second_inheritance_leaf.clone(),
         _ => Some(out.founder_leaf.clone()),
     });
     let full_spend_info = full_output
@@ -1150,6 +1180,9 @@ mod psbt_binary_tests {
             consent_quorum: None,
             backup_keys: vec![],
             backup_quorum: None,
+            second_heir_keys: vec![],
+            second_heir_quorum: None,
+            second_inheritance_after: None,
         }
     }
 
@@ -1212,6 +1245,9 @@ mod psbt_binary_tests {
             protector_after: None,
             backup_keys: policy.backup_keys.iter().map(|k| k.to_string()).collect(),
             backup_quorum: policy.backup_quorum,
+            second_heir_keys: policy.second_heir_keys.iter().map(|k| k.to_string()).collect(),
+            second_heir_quorum: policy.second_heir_quorum,
+            second_inheritance_after: policy.second_inheritance_after,
             path: Some(path.into()),
             leaf_script_hex: None,
             witness_script_hex: None,
@@ -1244,6 +1280,51 @@ mod psbt_binary_tests {
             !leaf.as_bytes().windows(32).any(|w| w == xonly_bytes(FOUNDER_A)),
             "the inheritance leaf must not be the founders leaf"
         );
+    }
+
+    const SECOND_HEIR_A: &str = "03acd484e2f0c7f65309ad178a9f559abde09796974c57e714c35f110dfc27ccbe";
+
+    fn sample_second_inheritance_policy() -> DynastyPolicy {
+        let mut p = sample_policy();
+        p.second_heir_keys = vec![PublicKey::from_str(SECOND_HEIR_A).unwrap()];
+        p.second_heir_quorum = Some(1);
+        p.second_inheritance_after = Some(500_000);
+        p
+    }
+
+    #[tokio::test]
+    async fn second_inheritance_path_attaches_its_own_leaf_and_locktime() {
+        // Mirrors the inheritance-vs-founders regression test above: an
+        // independent second heir cohort must attach ITS OWN leaf (not
+        // founders_now, not the primary inheritance leaf) and set
+        // tx.lock_time to second_inheritance_after, not inheritance_after.
+        let psbt = build_psbt_with_policy(sample_second_inheritance_policy(), "second_inheritance", vec![]).await;
+        let (leaf, _) = psbt.inputs[0].tap_scripts.values().next().expect("a leaf must be attached");
+        assert!(
+            leaf.as_bytes().windows(32).any(|w| w == xonly_bytes(SECOND_HEIR_A)),
+            "second_inheritance spend must attach the second inheritance leaf"
+        );
+        assert!(
+            !leaf.as_bytes().windows(32).any(|w| w == xonly_bytes(HEIR_A)),
+            "must not be the primary inheritance leaf"
+        );
+        assert!(
+            !leaf.as_bytes().windows(32).any(|w| w == xonly_bytes(FOUNDER_A)),
+            "must not be the founders leaf"
+        );
+        assert_eq!(
+            psbt.unsigned_tx.lock_time.to_consensus_u32(),
+            500_000,
+            "lock_time must be second_inheritance_after, not inheritance_after"
+        );
+    }
+
+    #[tokio::test]
+    async fn founders_now_still_works_unchanged_on_a_second_inheritance_policy() {
+        let psbt = build_psbt_with_policy(sample_second_inheritance_policy(), "founders_now", vec![]).await;
+        let (leaf, _) = psbt.inputs[0].tap_scripts.values().next().expect("a leaf must be attached");
+        assert!(leaf.as_bytes().windows(32).any(|w| w == xonly_bytes(FOUNDER_A)));
+        assert_eq!(psbt.unsigned_tx.lock_time.to_consensus_u32(), 0);
     }
 
     #[tokio::test]
@@ -1318,6 +1399,9 @@ mod psbt_binary_tests {
             consent_quorum: None,
             backup_keys: policy.backup_keys.iter().map(|k| k.to_string()).collect(),
             backup_quorum: policy.backup_quorum,
+            second_heir_keys: vec![],
+            second_heir_quorum: None,
+            second_inheritance_after: None,
         };
         let state = Arc::new(AppState { secret: None });
         let Json(resp) = compile(State(state), HeaderMap::new(), Json(req)).await.unwrap();
@@ -1365,6 +1449,9 @@ mod psbt_binary_tests {
             consent_quorum: None,
             backup_keys: policy.backup_keys.iter().map(|k| k.to_string()).collect(),
             backup_quorum: policy.backup_quorum,
+            second_heir_keys: vec![],
+            second_heir_quorum: None,
+            second_inheritance_after: None,
         };
         let state = Arc::new(AppState { secret: None });
         let Json(resp) = compile(State(state), HeaderMap::new(), Json(req)).await.unwrap();
@@ -1420,6 +1507,9 @@ mod psbt_binary_tests {
             consent_quorum: None,
             backup_keys: vec![],
             backup_quorum: None,
+            second_heir_keys: vec![],
+            second_heir_quorum: None,
+            second_inheritance_after: None,
         };
         let state = Arc::new(AppState { secret: None });
         let Json(resp) = compile(State(state), HeaderMap::new(), Json(req)).await.unwrap();

@@ -21,6 +21,9 @@ fn main() {
         consent_quorum: None,
         backup_keys: vec![],
         backup_quorum: None,
+        second_heir_keys: vec![],
+        second_heir_quorum: None,
+        second_inheritance_after: None,
     };
     let r = compile_dynasty_policy_tr_multileaf(policy, Network::Testnet);
     match r {

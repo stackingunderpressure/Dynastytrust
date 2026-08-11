@@ -57,6 +57,11 @@ export function buildStandardTrustDoc(opts: {
       `A separate backup path lets ${c.backupQ} of ${c.plannedBackups} backup key${c.plannedBackups === 1 ? '' : 's'} -- held by the founders themselves, kept apart from the day-to-day keys -- spend at any time, no waiting. This is not a committee override: it exists so the founders can always move funds even if the day-to-day quorum can't be reached, at the cost of more physical effort to gather the backup keys.`,
     );
   }
+  if (c.secondInheritanceEnabled) {
+    rules.push(
+      `A second, independent inheritance path lets ${c.secondHeirQ} of ${c.plannedSecondHeirs} second-group heir key${c.plannedSecondHeirs === 1 ? '' : 's'} spend alone after ${when(c.secondInheritanceAfter)} -- a completely separate heir group and timeline from the inheritance path above, with no required ordering between the two.`,
+    );
+  }
   rules.push(
     'Add any real financial policy below -- spending caps, required approvals, what the funds are actually for -- as free text or as enforced per-proposal rules.',
   );
@@ -124,6 +129,9 @@ export function standardConfigFromCompiledVault(
     consent_keys: string[];
     backup_quorum?: number | null;
     backup_keys?: string[];
+    second_heir_quorum?: number | null;
+    second_heir_keys?: string[];
+    second_inheritance_after?: number | null;
   },
   tip: number | null,
 ): StandardConfig {
@@ -138,6 +146,9 @@ export function standardConfigFromCompiledVault(
   const hasConsent = vault.consent_keys.length > 0 && vault.consent_quorum != null;
   const backupKeys = vault.backup_keys ?? [];
   const hasBackup = backupKeys.length > 0 && vault.backup_quorum != null;
+  const secondHeirKeys = vault.second_heir_keys ?? [];
+  const hasSecondInheritance =
+    secondHeirKeys.length > 0 && vault.second_heir_quorum != null && vault.second_inheritance_after != null;
   return {
     mode: hasHeirs ? 'inheritance' : 'plain',
     plannedFounders: vault.founder_keys.length,
@@ -157,6 +168,10 @@ export function standardConfigFromCompiledVault(
     backupEnabled: hasBackup,
     backupQ: vault.backup_quorum ?? 1,
     plannedBackups: backupKeys.length,
+    secondInheritanceEnabled: hasSecondInheritance,
+    secondInheritanceAfter: hasSecondInheritance ? relative(vault.second_inheritance_after) : 0,
+    secondHeirQ: vault.second_heir_quorum ?? 1,
+    plannedSecondHeirs: secondHeirKeys.length,
   };
 }
 

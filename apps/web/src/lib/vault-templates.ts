@@ -48,6 +48,12 @@ export type VaultTemplate = {
     backupEnabled?: boolean;
     backupQ?: number;
     plannedBackups?: number;
+    /** Second, independent inheritance leaf (2026-08-11) -- see
+     *  StandardConfig's doc comment above. */
+    secondInheritanceEnabled?: boolean;
+    secondInheritanceAfter?: number;
+    secondHeirQ?: number;
+    plannedSecondHeirs?: number;
   };
   scenarios: Scenario[];
   /**
@@ -104,6 +110,16 @@ export interface StandardConfig {
   backupEnabled: boolean;
   backupQ: number;
   plannedBackups: number;
+  // Second, independent inheritance leaf (2026-08-11) -- a distinct heir
+  // cohort with its own key set, quorum, and absolute timelock alongside
+  // the primary heir_keys/heirQ/inheritanceAfter leaf. Requires
+  // plannedHeirs > 0 -- the compiler rejects a second cohort without a
+  // first (SecondInheritanceRequiresInheritance). Deliberately unordered
+  // relative to inheritanceAfter: either shorter or longer is valid.
+  secondInheritanceEnabled: boolean;
+  secondInheritanceAfter: number;
+  secondHeirQ: number;
+  plannedSecondHeirs: number;
 }
 
 export interface BlocConfig {

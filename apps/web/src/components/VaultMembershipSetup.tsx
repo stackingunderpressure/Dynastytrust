@@ -37,6 +37,7 @@ const ROLE_LABELS: Record<VaultMembershipRole, string> = {
   protector: 'Protector',
   backup: 'Backup',
   consent: 'Consent',
+  second_heir: 'Second heir',
 };
 
 interface RoleMember {
@@ -52,6 +53,7 @@ export function VaultMembershipSetup({
   protectorKeys,
   backupKeys,
   consentKeys,
+  secondHeirKeys,
   leafScripts,
 }: {
   vaultDescriptor: string | null;
@@ -61,6 +63,7 @@ export function VaultMembershipSetup({
   protectorKeys: string[];
   backupKeys: string[];
   consentKeys: string[];
+  secondHeirKeys: string[];
   leafScripts: Record<string, string> | null;
 }) {
   const toast = useToast();
@@ -73,6 +76,7 @@ export function VaultMembershipSetup({
     ['protector', protectorKeys],
     ['backup', backupKeys],
     ['consent', consentKeys],
+    ['second_heir', secondHeirKeys],
   ];
 
   // Any bare (Tapit-shaped) pubkey across every role, whether or not a

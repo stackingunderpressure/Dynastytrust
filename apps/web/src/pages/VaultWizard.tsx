@@ -50,6 +50,7 @@ const DEFAULT_STANDARD_CONFIG: StandardConfig = {
   protectorEnabled: false, protectorAfter: 39_000, protectorQ: 1, plannedProtectors: 1,
   consentEnabled: false, consentQ: 1, plannedConsenters: 1,
   backupEnabled: false, backupQ: 4, plannedBackups: 5,
+  secondInheritanceEnabled: false, secondInheritanceAfter: 105_120, secondHeirQ: 1, plannedSecondHeirs: 1,
 };
 
 const DEFAULT_BLOC_CONFIG: BlocConfig = {
@@ -84,6 +85,10 @@ function templateToStandardConfig(t: VaultTemplate): StandardConfig {
     backupEnabled,
     backupQ: c.backupQ ?? 4,
     plannedBackups: c.plannedBackups ?? 5,
+    secondInheritanceEnabled: !!c.secondInheritanceEnabled,
+    secondInheritanceAfter: c.secondInheritanceAfter ?? 105_120,
+    secondHeirQ: c.secondHeirQ ?? 1,
+    plannedSecondHeirs: c.plannedSecondHeirs ?? 1,
   };
 }
 
@@ -210,6 +215,7 @@ export default function VaultWizard() {
   const [protectorKeys, setProtectorKeys] = useState<SelectedKey[]>([]);
   const [consentKeys, setConsentKeys] = useState<SelectedKey[]>([]);
   const [backupKeys, setBackupKeys] = useState<SelectedKey[]>([]);
+  const [secondHeirKeys, setSecondHeirKeys] = useState<SelectedKey[]>([]);
   const [parentKeys, setParentKeys] = useState<SelectedKey[]>([]);
   const [kidKeys, setKidKeys] = useState<SelectedKey[]>([]);
 
@@ -242,6 +248,7 @@ export default function VaultWizard() {
     else if (role === 'protector') setProtectorKeys(p => [...p, sk]);
     else if (role === 'consent') setConsentKeys(p => [...p, sk]);
     else if (role === 'backup') setBackupKeys(p => [...p, sk]);
+    else if (role === 'second_heir') setSecondHeirKeys(p => [...p, sk]);
     else if (role === 'parent') setParentKeys(p => [...p, sk]);
     else if (role === 'kid') setKidKeys(p => [...p, sk]);
   }
@@ -299,6 +306,8 @@ export default function VaultWizard() {
           protector_after: c.protectorEnabled ? c.protectorAfter : null,
           consent_quorum: c.consentEnabled ? c.consentQ : null,
           backup_quorum: c.backupEnabled ? c.backupQ : null,
+          second_heir_quorum: c.secondInheritanceEnabled ? c.secondHeirQ : null,
+          second_inheritance_after: c.secondInheritanceEnabled ? c.secondInheritanceAfter : null,
         });
         setDraftVault(res.vault);
       } else {
@@ -335,11 +344,12 @@ export default function VaultWizard() {
       const protectorsReady = !c.protectorEnabled || protectorKeys.length >= c.plannedProtectors;
       const consentersReady = !c.consentEnabled || consentKeys.length >= c.plannedConsenters;
       const backupsReady = !c.backupEnabled || backupKeys.length >= c.plannedBackups;
-      return foundersReady && heirsReady && protectorsReady && consentersReady && backupsReady;
+      const secondHeirsReady = !c.secondInheritanceEnabled || secondHeirKeys.length >= c.plannedSecondHeirs;
+      return foundersReady && heirsReady && protectorsReady && consentersReady && backupsReady && secondHeirsReady;
     }
     const c = blocConfig;
     return parentKeys.length >= c.plannedParents && kidKeys.length >= c.plannedKids;
-  }, [shape, stdConfig, blocConfig, founderKeys, heirKeys, protectorKeys, consentKeys, backupKeys, parentKeys, kidKeys]);
+  }, [shape, stdConfig, blocConfig, founderKeys, heirKeys, protectorKeys, consentKeys, backupKeys, secondHeirKeys, parentKeys, kidKeys]);
 
   // Best-effort: the vault is already compiled and usable by the time this
   // runs, so a failed save here shouldn't surface as a compile error --
@@ -376,10 +386,11 @@ export default function VaultWizard() {
           protector_keys: stdConfig.protectorEnabled ? toDirect(protectorKeys) : [],
           consent_keys: stdConfig.consentEnabled ? toDirect(consentKeys) : [],
           backup_keys: stdConfig.backupEnabled ? toDirect(backupKeys) : [],
+          second_heir_keys: stdConfig.secondInheritanceEnabled ? toDirect(secondHeirKeys) : [],
         });
         // Upgrade the descriptor to Nunchuk/Sparrow key-origin form,
         // same post-processing PolicyBuilder's save() already did.
-        const origins = buildKeyOrigins([...founderKeys, ...heirKeys, ...protectorKeys, ...consentKeys, ...backupKeys]);
+        const origins = buildKeyOrigins([...founderKeys, ...heirKeys, ...protectorKeys, ...consentKeys, ...backupKeys, ...secondHeirKeys]);
         const upgraded = res.vault.descriptor ? upgradeDescriptor(res.vault.descriptor, origins) : res.vault.descriptor;
         setCompiledVault({ ...res.vault, descriptor: upgraded });
         void saveGeneratedTrustDoc(res.vault.id, buildStandardTrustDoc({
@@ -460,6 +471,7 @@ export default function VaultWizard() {
           protectorKeys={protectorKeys} setProtectorKeys={setProtectorKeys}
           consentKeys={consentKeys} setConsentKeys={setConsentKeys}
           backupKeys={backupKeys} setBackupKeys={setBackupKeys}
+          secondHeirKeys={secondHeirKeys} setSecondHeirKeys={setSecondHeirKeys}
           parentKeys={parentKeys} setParentKeys={setParentKeys}
           kidKeys={kidKeys} setKidKeys={setKidKeys}
           network={network}
@@ -770,6 +782,52 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
         )}
       </Card>
 
+      {config.mode === 'inheritance' && config.plannedHeirs > 0 && (
+        <Card>
+          <SectionHeader step={4} title="Second inheritance -- a different heir group, its own wait" color={colors.green} />
+          <p style={{ fontSize: 13, color: colors.muted, marginTop: -4, marginBottom: 14 }}>
+            Optional. A completely separate group of heirs, with their own keys and their own waiting
+            period -- independent of the inheritance path above. Use this for a second beneficiary group
+            that should unlock sooner (or later) than the first, e.g. a spouse who can act quickly and
+            extended family who wait longer.
+          </p>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={config.secondInheritanceEnabled}
+              onChange={e => setConfig(c => ({ ...c, secondInheritanceEnabled: e.target.checked }))}
+            />
+            <span style={{ fontSize: 13, color: colors.sub }}>Add a second inheritance path</span>
+          </label>
+          {config.secondInheritanceEnabled ? (
+            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <Field label="How many second-group heirs?">
+                <CountStepper
+                  value={config.plannedSecondHeirs}
+                  min={1}
+                  label="heirs"
+                  color={colors.green}
+                  onChange={plannedSecondHeirs => setConfig(c => ({
+                    ...c, plannedSecondHeirs, secondHeirQ: Math.min(c.secondHeirQ, plannedSecondHeirs) || 1,
+                  }))}
+                />
+                <QuorumPicker max={config.plannedSecondHeirs} value={config.secondHeirQ} onChange={n => setConfig(c => ({ ...c, secondHeirQ: n }))} color={colors.green} />
+              </Field>
+              <TimelockField label="Second inheritance unlocks after" value={config.secondInheritanceAfter} onChange={v => setConfig(c => ({ ...c, secondInheritanceAfter: v }))} />
+              <p style={{ fontSize: 12, color: colors.muted, marginTop: -8 }}>
+                After {blocksToHuman(config.secondInheritanceAfter)}, {config.secondHeirQ} of {config.plannedSecondHeirs}
+                {' '}second-group heirs can spend, on their own -- entirely independent of the first inheritance
+                path above; this timing has no required relationship to it, sooner or later both work.
+              </p>
+            </div>
+          ) : (
+            <p style={{ fontSize: 12, color: colors.muted, marginTop: 8 }}>
+              Off. Only the single inheritance path above exists.
+            </p>
+          )}
+        </Card>
+      )}
+
       <details open={config.recoveryEnabled || config.protectorEnabled || config.consentEnabled}>
         <summary style={{ fontSize: 12, color: colors.muted, cursor: 'pointer' }}>
           More options: recovery, protector + beneficiary consent
@@ -957,7 +1015,7 @@ function KeysStep({
   shape, stdConfig, blocConfig, allKeys,
   founderKeys, setFounderKeys, heirKeys, setHeirKeys,
   protectorKeys, setProtectorKeys, consentKeys, setConsentKeys,
-  backupKeys, setBackupKeys,
+  backupKeys, setBackupKeys, secondHeirKeys, setSecondHeirKeys,
   parentKeys, setParentKeys, kidKeys, setKidKeys,
   network, genRole, setGenRole, onGenerateKey, onImportXpub, onImportTapitKey,
   slotsReady, onContinue, onSaveForLater,
@@ -969,6 +1027,7 @@ function KeysStep({
   protectorKeys: SelectedKey[]; setProtectorKeys: (fn: (p: SelectedKey[]) => SelectedKey[]) => void;
   consentKeys: SelectedKey[]; setConsentKeys: (fn: (p: SelectedKey[]) => SelectedKey[]) => void;
   backupKeys: SelectedKey[]; setBackupKeys: (fn: (p: SelectedKey[]) => SelectedKey[]) => void;
+  secondHeirKeys: SelectedKey[]; setSecondHeirKeys: (fn: (p: SelectedKey[]) => SelectedKey[]) => void;
   parentKeys: SelectedKey[]; setParentKeys: (fn: (p: SelectedKey[]) => SelectedKey[]) => void;
   kidKeys: SelectedKey[]; setKidKeys: (fn: (p: SelectedKey[]) => SelectedKey[]) => void;
   network: NetworkChoice;
@@ -980,7 +1039,7 @@ function KeysStep({
   onContinue: () => void;
   onSaveForLater: () => void;
 }) {
-  const claimed = new Set([...founderKeys, ...heirKeys, ...protectorKeys, ...consentKeys, ...backupKeys, ...parentKeys, ...kidKeys].map(k => k.keyId));
+  const claimed = new Set([...founderKeys, ...heirKeys, ...protectorKeys, ...consentKeys, ...backupKeys, ...secondHeirKeys, ...parentKeys, ...kidKeys].map(k => k.keyId));
   const availableKeys = allKeys.filter(k => !claimed.has(k.keyId) && keyNetworkMatches(k.network, network));
 
   function role(
@@ -1033,6 +1092,8 @@ function KeysStep({
             role('consent', 'Beneficiary-consent keys', stdConfig.plannedConsenters, consentKeys, setConsentKeys, colors.green)}
           {stdConfig.backupEnabled &&
             role('backup', 'Backup keys', stdConfig.plannedBackups, backupKeys, setBackupKeys, colors.orange)}
+          {stdConfig.secondInheritanceEnabled &&
+            role('second_heir', 'Second inheritance keys', stdConfig.plannedSecondHeirs, secondHeirKeys, setSecondHeirKeys, colors.green)}
         </>
       ) : (
         <>

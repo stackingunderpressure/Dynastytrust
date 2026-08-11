@@ -85,6 +85,15 @@ export interface Vault {
    *  configured, meaning recovery_after (if any) governs Path 2 instead. */
   backup_keys: string[];
   backup_quorum: number | null;
+  /** Second, independent inheritance leaf (2026-08-11) -- a distinct
+   *  heir cohort with its own key set, quorum, and absolute timelock
+   *  alongside the primary heir_keys/heir_quorum/inheritance_after leaf.
+   *  Requires the primary leaf to already be configured (heir_keys
+   *  non-empty); deliberately unordered relative to inheritance_after --
+   *  either shorter or longer is a valid design. Empty = not configured. */
+  second_heir_keys: string[];
+  second_heir_quorum: number | null;
+  second_inheritance_after: number | null;
   archived: boolean;
   status: VaultStatus;
   /** Caller's role in this vault -- attached server-side so the
@@ -460,6 +469,8 @@ export const api = {
       protector_after?: number | null;
       consent_quorum?: number | null;
       backup_quorum?: number | null;
+      second_heir_quorum?: number | null;
+      second_inheritance_after?: number | null;
     }) =>
       req<{ ok: true; vault: Vault }>('/vaults', {
         method: 'POST',
@@ -477,6 +488,7 @@ export const api = {
       protector_keys?: { pubkey: string; xpub: string; fingerprint: string; derivation_path: string }[];
       consent_keys?: { pubkey: string; xpub: string; fingerprint: string; derivation_path: string }[];
       backup_keys?: { pubkey: string; xpub: string; fingerprint: string; derivation_path: string }[];
+      second_heir_keys?: { pubkey: string; xpub: string; fingerprint: string; derivation_path: string }[];
     }) =>
       req<{ ok: true; vault: Vault }>('/vaults-compile', {
         method: 'POST',

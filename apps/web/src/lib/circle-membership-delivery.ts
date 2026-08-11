@@ -43,7 +43,7 @@ export const VAULT_MEMBERSHIP_REQUEST_KIND = 9578;
  *  Tapit's receiving side -- vaultTrail.ts's role field is a bare string,
  *  never validated against a fixed set -- so the restriction was only
  *  ever on this sending side. */
-export type VaultMembershipRole = 'founder' | 'heir' | 'protector' | 'backup' | 'consent';
+export type VaultMembershipRole = 'founder' | 'heir' | 'protector' | 'backup' | 'consent' | 'second_heir';
 
 /** The leaf names (compiler/src/main.rs's CompileResponse.leaf_scripts
  *  keys) a given role's key is a legitimate signer on. A founder signs
@@ -60,7 +60,10 @@ export type VaultMembershipRole = 'founder' | 'heir' | 'protector' | 'backup' | 
  *  keys are compiled directly INTO the founders_now leaf script itself
  *  (policy_compiler.rs ANDs the founder threshold with the consent
  *  threshold into one miniscript) -- there is no separate "consent" leaf
- *  to point at, so a consent key's real leaf is founders_now.
+ *  to point at, so a consent key's real leaf is founders_now. Second-
+ *  inheritance keys (2026-08-11) are an independent heir cohort with
+ *  their own leaf, named "second_inheritance" in the compiler's
+ *  leaf_scripts map -- see MultileafOutput's second_inheritance_leaf.
  */
 const LEAVES_FOR_ROLE: Record<VaultMembershipRole, readonly string[]> = {
   founder: ['founders_now', 'recovery'],
@@ -68,6 +71,7 @@ const LEAVES_FOR_ROLE: Record<VaultMembershipRole, readonly string[]> = {
   protector: ['protector'],
   backup: ['backup'],
   consent: ['founders_now'],
+  second_heir: ['second_inheritance'],
 };
 
 function toHex(bytes: Uint8Array): string {

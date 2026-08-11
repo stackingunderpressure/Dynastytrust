@@ -72,6 +72,27 @@ pub struct DynastyPolicy {
     pub backup_keys: Vec<PublicKey>,
     #[serde(default)]
     pub backup_quorum: Option<usize>,
+
+    /// Optional second inheritance branch (2026-08-11) -- an
+    /// INDEPENDENT heir cohort with its own key set, quorum, and
+    /// absolute timelock, distinct from the primary `heir_keys` /
+    /// `heir_quorum` / `inheritance_after` leaf above. Lets an
+    /// operator name two separate heir groups under one vault with
+    /// different timing (e.g. a spouse who unlocks sooner on a
+    /// shorter horizon, extended family later on a longer one)
+    /// rather than folding everyone into a single heir cohort.
+    /// Deliberately UNORDERED relative to `inheritance_after` --
+    /// "varied timelock" means either shorter or longer is a valid
+    /// design, so no relative constraint is enforced between the two.
+    /// This is an ADDITIONAL heir path, not a replacement, so it
+    /// requires `wants_inheritance()` (the primary leaf must exist).
+    /// All three fields must be set together.
+    #[serde(default)]
+    pub second_heir_keys: Vec<PublicKey>,
+    #[serde(default)]
+    pub second_heir_quorum: Option<usize>,
+    #[serde(default)]
+    pub second_inheritance_after: Option<u32>,
 }
 
 impl DynastyPolicy {
@@ -81,6 +102,7 @@ impl DynastyPolicy {
             && self.inheritance_after == 0
             && self.protector_keys.is_empty()
             && self.backup_keys.is_empty()
+            && self.second_heir_keys.is_empty()
     }
 
     /// True when the tree has a distinct TIMELOCKED recovery leaf (Path
@@ -134,6 +156,16 @@ impl DynastyPolicy {
     pub fn wants_inheritance(&self) -> bool {
         !self.heir_keys.is_empty()
     }
+
+    /// True when the tree has the optional second, independent
+    /// inheritance leaf -- a distinct heir cohort with its own key
+    /// set, quorum, and absolute timelock alongside the primary
+    /// inheritance leaf. See the field doc comment above.
+    pub fn has_second_inheritance(&self) -> bool {
+        !self.second_heir_keys.is_empty()
+            && self.second_heir_quorum.is_some()
+            && self.second_inheritance_after.is_some()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -178,6 +210,10 @@ pub enum PolicyError {
     BackupConflictsWithRecovery,
     #[error("a protector branch requires an inheritance leaf (heir_keys set); protector sits between them")]
     ProtectorRequiresInheritance,
+    #[error("a second inheritance branch requires the primary inheritance leaf (heir_keys set); it is an additional heir path, not a replacement")]
+    SecondInheritanceRequiresInheritance,
+    #[error("second_inheritance_after must be > 0 when second_heir_keys is set")]
+    SecondInheritanceRequiresDelay,
     #[error("miniscript policy error: {0}")]
     Miniscript(String),
     #[error("descriptor error: {0}")]
@@ -314,6 +350,9 @@ pub struct MultileafOutput {
     pub inheritance_leaf: Option<bitcoin::ScriptBuf>,
     /// Present only when `policy.has_protector()`.
     pub protector_leaf: Option<bitcoin::ScriptBuf>,
+    /// Present only when `policy.has_second_inheritance()` -- the
+    /// independent second heir cohort's leaf.
+    pub second_inheritance_leaf: Option<bitcoin::ScriptBuf>,
     pub descriptor: String,
     pub miniscript_policy: String,
 }
@@ -386,6 +425,7 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
             recovery_leaf: None,
             inheritance_leaf: None,
             protector_leaf: None,
+            second_inheritance_leaf: None,
             descriptor,
             miniscript_policy: founder_thresh,
         });
@@ -425,6 +465,7 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
             recovery_leaf: Some(ms_backup.encode()),
             inheritance_leaf: None,
             protector_leaf: None,
+            second_inheritance_leaf: None,
             descriptor,
             miniscript_policy,
         });
@@ -443,12 +484,73 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
     );
     let ms_inheritance = compile_leaf(&inheritance_branch)?;
 
+    // Second, independent inheritance leaf (optional) -- computed once
+    // here since the Gift Locker branch and both middle-slot branches
+    // below all need it when present.
+    let second_inheritance: Option<(String, Miniscript<PublicKey, miniscript::Tap>)> =
+        if policy.has_second_inheritance() {
+            let second_heirs: Vec<String> = policy
+                .second_heir_keys
+                .iter()
+                .map(|k| format!("pk({k})"))
+                .collect();
+            let second_inheritance_branch = format!(
+                "and(after({}),thresh({},{}))",
+                policy.second_inheritance_after.unwrap(),
+                policy.second_heir_quorum.unwrap(),
+                second_heirs.join(","),
+            );
+            let ms = compile_leaf(&second_inheritance_branch)?;
+            Some((second_inheritance_branch, ms))
+        } else {
+            None
+        };
+
     if !policy.has_middle_leaf() {
         // "Gift Locker" shape: founders-now OR a single beneficiary
         // path that unlocks after a specified time -- exactly two
         // leaves, no founders-after-a-delay (or backup) path in between.
         // `verify()` already rejects has_protector() here, so this is
-        // never reached with a protector branch to also place.
+        // never reached with a protector branch to also place. When a
+        // second inheritance leaf is also configured, it takes the
+        // third leaf slot alongside inheritance (same depth-2/depth-2
+        // pairing the "standard 3-leaf" shape below uses for
+        // recovery+inheritance, just applied to the two heir leaves
+        // here instead).
+        if let Some((second_inheritance_branch, ms_second_inheritance)) = &second_inheritance {
+            let builder = TaprootBuilder::new()
+                .add_leaf(1, founder_leaf.clone())
+                .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?
+                .add_leaf(2, ms_inheritance.encode())
+                .map_err(|e| PolicyError::Descriptor(format!("leaf inheritance: {e:?}")))?
+                .add_leaf(2, ms_second_inheritance.encode())
+                .map_err(|e| PolicyError::Descriptor(format!("leaf second inheritance: {e:?}")))?;
+            let tap_tree = TapTree::try_from(builder.clone())
+                .map_err(|e| PolicyError::Descriptor(format!("tap_tree: {e:?}")))?;
+            let spend_info = builder
+                .finalize(&secp, internal_key)
+                .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
+            let descriptor = format!(
+                "tr({},{{{},{{{},{}}}}})",
+                internal_key, ms_founder, ms_inheritance, ms_second_inheritance
+            );
+            let miniscript_policy = format!(
+                "or({},or({},{}))",
+                founder_thresh, inheritance_branch, second_inheritance_branch
+            );
+            return Ok(MultileafOutput {
+                spend_info,
+                tap_tree,
+                founder_leaf,
+                recovery_leaf: None,
+                inheritance_leaf: Some(ms_inheritance.encode()),
+                protector_leaf: None,
+                second_inheritance_leaf: Some(ms_second_inheritance.encode()),
+                descriptor,
+                miniscript_policy,
+            });
+        }
+
         let builder = TaprootBuilder::new()
             .add_leaf(1, founder_leaf.clone())
             .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?
@@ -471,6 +573,7 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
             recovery_leaf: None,
             inheritance_leaf: Some(ms_inheritance.encode()),
             protector_leaf: None,
+            second_inheritance_leaf: None,
             descriptor,
             miniscript_policy,
         });
@@ -509,6 +612,49 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
         );
         let ms_protector = compile_leaf(&protector_branch)?;
 
+        if let Some((second_inheritance_branch, ms_second_inheritance)) = &second_inheritance {
+            // Full 5-leaf tree: founder(d1) / recovery(d2) /
+            // inheritance(d3) / {protector, second_inheritance}(d4,d4).
+            // Same right-comb construction the 4-leaf protector case
+            // uses, extended one level deeper to fit the fifth leaf --
+            // depths 1+2+3+4+4 sum to 1 (0.5+0.25+0.125+0.0625+0.0625).
+            let builder = TaprootBuilder::new()
+                .add_leaf(1, founder_leaf.clone())
+                .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?
+                .add_leaf(2, ms_recovery.encode())
+                .map_err(|e| PolicyError::Descriptor(format!("leaf recovery: {e:?}")))?
+                .add_leaf(3, ms_inheritance.encode())
+                .map_err(|e| PolicyError::Descriptor(format!("leaf inheritance: {e:?}")))?
+                .add_leaf(4, ms_protector.encode())
+                .map_err(|e| PolicyError::Descriptor(format!("leaf protector: {e:?}")))?
+                .add_leaf(4, ms_second_inheritance.encode())
+                .map_err(|e| PolicyError::Descriptor(format!("leaf second inheritance: {e:?}")))?;
+            let tap_tree = TapTree::try_from(builder.clone())
+                .map_err(|e| PolicyError::Descriptor(format!("tap_tree: {e:?}")))?;
+            let spend_info = builder
+                .finalize(&secp, internal_key)
+                .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
+            let descriptor = format!(
+                "tr({},{{{},{{{},{{{},{{{},{}}}}}}}}})",
+                internal_key, ms_founder, ms_recovery, ms_inheritance, ms_protector, ms_second_inheritance
+            );
+            let miniscript_policy = format!(
+                "or({},or({},or({},or({},{}))))",
+                founder_thresh, recovery_branch, inheritance_branch, protector_branch, second_inheritance_branch
+            );
+            return Ok(MultileafOutput {
+                spend_info,
+                tap_tree,
+                founder_leaf,
+                recovery_leaf: Some(ms_recovery.encode()),
+                inheritance_leaf: Some(ms_inheritance.encode()),
+                protector_leaf: Some(ms_protector.encode()),
+                second_inheritance_leaf: Some(ms_second_inheritance.encode()),
+                descriptor,
+                miniscript_policy,
+            });
+        }
+
         let builder = TaprootBuilder::new()
             .add_leaf(1, founder_leaf.clone())
             .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?
@@ -538,6 +684,45 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
             recovery_leaf: Some(ms_recovery.encode()),
             inheritance_leaf: Some(ms_inheritance.encode()),
             protector_leaf: Some(ms_protector.encode()),
+            second_inheritance_leaf: None,
+            descriptor,
+            miniscript_policy,
+        })
+    } else if let Some((second_inheritance_branch, ms_second_inheritance)) = &second_inheritance {
+        // 4-leaf tree, no protector: founder(d1) / recovery(d2) /
+        // {inheritance, second_inheritance}(d3,d3) -- the exact same
+        // shape the protector-4-leaf case uses, with second_inheritance
+        // occupying the slot protector would.
+        let builder = TaprootBuilder::new()
+            .add_leaf(1, founder_leaf.clone())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?
+            .add_leaf(2, ms_recovery.encode())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf recovery: {e:?}")))?
+            .add_leaf(3, ms_inheritance.encode())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf inheritance: {e:?}")))?
+            .add_leaf(3, ms_second_inheritance.encode())
+            .map_err(|e| PolicyError::Descriptor(format!("leaf second inheritance: {e:?}")))?;
+        let tap_tree = TapTree::try_from(builder.clone())
+            .map_err(|e| PolicyError::Descriptor(format!("tap_tree: {e:?}")))?;
+        let spend_info = builder
+            .finalize(&secp, internal_key)
+            .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
+        let descriptor = format!(
+            "tr({},{{{},{{{},{{{},{}}}}}}})",
+            internal_key, ms_founder, ms_recovery, ms_inheritance, ms_second_inheritance
+        );
+        let miniscript_policy = format!(
+            "or({},or({},or({},{})))",
+            founder_thresh, recovery_branch, inheritance_branch, second_inheritance_branch
+        );
+        Ok(MultileafOutput {
+            spend_info,
+            tap_tree,
+            founder_leaf,
+            recovery_leaf: Some(ms_recovery.encode()),
+            inheritance_leaf: Some(ms_inheritance.encode()),
+            protector_leaf: None,
+            second_inheritance_leaf: Some(ms_second_inheritance.encode()),
             descriptor,
             miniscript_policy,
         })
@@ -569,6 +754,7 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
             recovery_leaf: Some(ms_recovery.encode()),
             inheritance_leaf: Some(ms_inheritance.encode()),
             protector_leaf: None,
+            second_inheritance_leaf: None,
             descriptor,
             miniscript_policy,
         })
@@ -1145,6 +1331,16 @@ fn verify(policy: &DynastyPolicy) -> Result<(), PolicyError> {
         }
     }
 
+    if policy.has_second_inheritance() {
+        let shq = policy.second_heir_quorum.unwrap();
+        if shq == 0 || shq > policy.second_heir_keys.len() {
+            return Err(PolicyError::InvalidQuorum);
+        }
+        if policy.second_inheritance_after.unwrap() == 0 {
+            return Err(PolicyError::SecondInheritanceRequiresDelay);
+        }
+    }
+
     if policy.has_recovery() && policy.has_backup() {
         return Err(PolicyError::BackupConflictsWithRecovery);
     }
@@ -1165,7 +1361,14 @@ fn verify(policy: &DynastyPolicy) -> Result<(), PolicyError> {
         if policy.has_protector() {
             return Err(PolicyError::ProtectorRequiresInheritance);
         }
+        if policy.has_second_inheritance() {
+            return Err(PolicyError::SecondInheritanceRequiresInheritance);
+        }
         return Ok(());
+    }
+
+    if policy.has_second_inheritance() && !policy.wants_inheritance() {
+        return Err(PolicyError::SecondInheritanceRequiresInheritance);
     }
 
     if policy.heir_quorum == 0 || policy.heir_quorum > policy.heir_keys.len() {
@@ -1401,6 +1604,9 @@ mod multileaf_leaf_exposure_tests {
             consent_quorum: None,
             backup_keys: vec![],
             backup_quorum: None,
+            second_heir_keys: vec![],
+            second_heir_quorum: None,
+            second_inheritance_after: None,
         }
     }
 
@@ -1527,6 +1733,9 @@ mod backup_leaf_tests {
             consent_quorum: None,
             backup_keys: backups(),
             backup_quorum: Some(2),
+            second_heir_keys: vec![],
+            second_heir_quorum: None,
+            second_inheritance_after: None,
         }
     }
 
@@ -1766,6 +1975,9 @@ mod gift_locker_tests {
             consent_quorum: None,
             backup_keys: vec![],
             backup_quorum: None,
+            second_heir_keys: vec![],
+            second_heir_quorum: None,
+            second_inheritance_after: None,
         }
     }
 
@@ -1848,6 +2060,169 @@ mod gift_locker_tests {
         assert!(s.starts_with("or("));
         // No middle recovery clause -- exactly one nested or(...), not two.
         assert_eq!(s.matches("or(").count(), 1);
+    }
+}
+
+// Second, independent inheritance leaf (2026-08-11) -- a distinct heir
+// cohort with its own key set, quorum, and absolute timelock alongside
+// the primary inheritance leaf. Covers all four tree shapes it can
+// attach to: Gift Locker (3 leaves), standard no-protector (4 leaves),
+// protector (5 leaves), and the validation gates.
+#[cfg(test)]
+mod second_inheritance_tests {
+    use super::*;
+
+    fn pk(s: &str) -> PublicKey {
+        PublicKey::from_str(s).unwrap()
+    }
+
+    fn founders() -> Vec<PublicKey> {
+        vec![
+            pk("02a3ed2c2b57903abe5b89108c66f4a144e8a316af2f013b739cf8975fc0365e97"),
+            pk("02d76c6752934c92bcafb0e575051b36e5ac4035db5329544521e203d6a7337569"),
+        ]
+    }
+    fn heirs() -> Vec<PublicKey> {
+        vec![pk("03defdea4cdb677750a420fee807eacf21eb9898ae79b9768766e4faa04a2d4a34")]
+    }
+    fn second_heirs() -> Vec<PublicKey> {
+        vec![
+            pk("025cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc"),
+            pk("02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9"),
+        ]
+    }
+    fn protectors() -> Vec<PublicKey> {
+        vec![pk("03acd484e2f0c7f65309ad178a9f559abde09796974c57e714c35f110dfc27ccbe")]
+    }
+
+    fn standard_policy() -> DynastyPolicy {
+        DynastyPolicy {
+            founder_keys: founders(),
+            founder_quorum: 2,
+            recovery_quorum: None,
+            heir_keys: heirs(),
+            heir_quorum: 1,
+            recovery_after: 100_000,
+            inheritance_after: 200_000,
+            protector_keys: vec![],
+            protector_quorum: None,
+            protector_after: None,
+            consent_keys: vec![],
+            consent_quorum: None,
+            backup_keys: vec![],
+            backup_quorum: None,
+            second_heir_keys: second_heirs(),
+            second_heir_quorum: Some(1),
+            second_inheritance_after: Some(500_000),
+        }
+    }
+
+    fn all_control_blocks_valid(out: &MultileafOutput) {
+        let script_ver = |s: &bitcoin::ScriptBuf| (s.clone(), bitcoin::taproot::LeafVersion::TapScript);
+        assert!(out.spend_info.control_block(&script_ver(&out.founder_leaf)).is_some(), "founder_leaf");
+        if let Some(l) = &out.recovery_leaf {
+            assert!(out.spend_info.control_block(&script_ver(l)).is_some(), "recovery_leaf");
+        }
+        if let Some(l) = &out.inheritance_leaf {
+            assert!(out.spend_info.control_block(&script_ver(l)).is_some(), "inheritance_leaf");
+        }
+        if let Some(l) = &out.protector_leaf {
+            assert!(out.spend_info.control_block(&script_ver(l)).is_some(), "protector_leaf");
+        }
+        if let Some(l) = &out.second_inheritance_leaf {
+            assert!(out.spend_info.control_block(&script_ver(l)).is_some(), "second_inheritance_leaf");
+        }
+    }
+
+    #[test]
+    fn has_second_inheritance_requires_all_three_fields() {
+        let mut p = standard_policy();
+        assert!(p.has_second_inheritance());
+        p.second_heir_quorum = None;
+        assert!(!p.has_second_inheritance());
+    }
+
+    #[test]
+    fn standard_shape_with_second_inheritance_exposes_four_leaves() {
+        let out = build_multileaf(&standard_policy()).unwrap();
+        assert!(out.recovery_leaf.is_some());
+        assert!(out.inheritance_leaf.is_some());
+        assert!(out.protector_leaf.is_none());
+        assert!(out.second_inheritance_leaf.is_some());
+        all_control_blocks_valid(&out);
+    }
+
+    #[test]
+    fn standard_shape_without_second_inheritance_is_unaffected() {
+        // Regression: the pre-existing 3-leaf shape must compile exactly
+        // as before when second_heir_keys is empty.
+        let mut p = standard_policy();
+        p.second_heir_keys = vec![];
+        p.second_heir_quorum = None;
+        p.second_inheritance_after = None;
+        let out = build_multileaf(&p).unwrap();
+        assert!(out.second_inheritance_leaf.is_none());
+        assert_eq!(out.descriptor.matches('{').count(), 2);
+        all_control_blocks_valid(&out);
+    }
+
+    #[test]
+    fn protector_shape_with_second_inheritance_exposes_five_leaves() {
+        let mut p = standard_policy();
+        p.protector_keys = protectors();
+        p.protector_quorum = Some(1);
+        p.protector_after = Some(150_000);
+        let out = build_multileaf(&p).unwrap();
+        assert!(out.recovery_leaf.is_some());
+        assert!(out.inheritance_leaf.is_some());
+        assert!(out.protector_leaf.is_some());
+        assert!(out.second_inheritance_leaf.is_some());
+        all_control_blocks_valid(&out);
+    }
+
+    #[test]
+    fn gift_locker_shape_with_second_inheritance_exposes_three_leaves() {
+        let mut p = standard_policy();
+        p.recovery_after = 0; // no middle leaf -> Gift Locker shape
+        let out = build_multileaf(&p).unwrap();
+        assert!(out.recovery_leaf.is_none());
+        assert!(out.inheritance_leaf.is_some());
+        assert!(out.second_inheritance_leaf.is_some());
+        all_control_blocks_valid(&out);
+    }
+
+    #[test]
+    fn second_inheritance_without_primary_inheritance_is_rejected() {
+        let mut p = standard_policy();
+        p.heir_keys = vec![];
+        p.heir_quorum = 0;
+        p.inheritance_after = 0;
+        let err = build_multileaf(&p).unwrap_err();
+        assert!(matches!(err, PolicyError::SecondInheritanceRequiresInheritance));
+    }
+
+    #[test]
+    fn second_inheritance_zero_delay_is_rejected() {
+        let mut p = standard_policy();
+        p.second_inheritance_after = Some(0);
+        let err = build_multileaf(&p).unwrap_err();
+        assert!(matches!(err, PolicyError::SecondInheritanceRequiresDelay));
+    }
+
+    #[test]
+    fn second_inheritance_invalid_quorum_is_rejected() {
+        let mut p = standard_policy();
+        p.second_heir_quorum = Some(99);
+        let err = build_multileaf(&p).unwrap_err();
+        assert!(matches!(err, PolicyError::InvalidQuorum));
+    }
+
+    #[test]
+    fn compiles_end_to_end_through_the_real_tr_multileaf_path() {
+        let compiled = compile_dynasty_policy_tr_multileaf(standard_policy(), Network::Testnet).unwrap();
+        assert!(compiled.address.to_string().starts_with("tb1p"));
+        assert_eq!(compiled.address_type, AddressType::TrMultileaf);
+        assert_eq!(compiled.miniscript_policy.matches("after(").count(), 3);
     }
 }
 

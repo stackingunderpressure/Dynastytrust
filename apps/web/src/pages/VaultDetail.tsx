@@ -1212,8 +1212,10 @@ function SendTab({ vault, balance, onDone, prefill }: {
   const hasProtector =
     vault.protector_keys.length > 0 && vault.protector_quorum != null && vault.protector_after != null;
   const hasBackup = vault.backup_keys.length > 0 && vault.backup_quorum != null;
+  const hasSecondInheritance =
+    vault.second_heir_keys.length > 0 && vault.second_heir_quorum != null && vault.second_inheritance_after != null;
   const [standardPath, setStandardPath] = useState<
-    "founders_now" | "recovery" | "inheritance" | "protector" | "backup"
+    "founders_now" | "recovery" | "inheritance" | "protector" | "backup" | "second_inheritance"
   >("founders_now");
 
   const confirmedSats = balance?.confirmed_sats ?? 0;
@@ -2101,7 +2103,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
         </div>
       )}
 
-      {!bp && (hasRecovery || hasInheritance || hasProtector || hasBackup) && (
+      {!bp && (hasRecovery || hasInheritance || hasProtector || hasBackup || hasSecondInheritance) && (
         <div>
           <Label>Spend path</Label>
           <select
@@ -2132,12 +2134,19 @@ function SendTab({ vault, balance, onDone, prefill }: {
                 Backup ({vault.backup_quorum} of {vault.backup_keys.length}) -- anytime, no timelock
               </option>
             )}
+            {hasSecondInheritance && (
+              <option value="second_inheritance">
+                Second inheritance ({vault.second_heir_quorum} of {vault.second_heir_keys.length} heirs) -- after its own timelock
+              </option>
+            )}
           </select>
           {standardPath !== "founders_now" && (
             <div style={{ fontSize: 11, color: colors.muted, marginTop: 5 }}>
               {standardPath === "backup"
                 ? "This path has no timelock, but it needs a separate set of keys from the day-to-day founders."
-                : "This path is only spendable once its timelock has passed -- the compiler will reject the build otherwise."}
+                : standardPath === "second_inheritance"
+                  ? "This path is a separate heir group from the main inheritance path, with its own timelock -- only spendable once that timelock has passed."
+                  : "This path is only spendable once its timelock has passed -- the compiler will reject the build otherwise."}
             </div>
           )}
         </div>
@@ -2543,6 +2552,7 @@ function MembersTab({ vault }: { vault: Vault }) {
           protectorKeys={vault.protector_keys}
           backupKeys={vault.backup_keys}
           consentKeys={vault.consent_keys}
+          secondHeirKeys={vault.second_heir_keys}
           leafScripts={vault.leaf_scripts}
         />
       )}

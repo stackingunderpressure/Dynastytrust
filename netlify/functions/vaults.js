@@ -2,7 +2,7 @@ import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 
 const VAULT_FIELDS =
-  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc, predecessor_id, duress, bloc_policy, leaf_scripts, backup_keys, backup_quorum";
+  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc, predecessor_id, duress, bloc_policy, leaf_scripts, backup_keys, backup_quorum, second_heir_keys, second_heir_quorum, second_inheritance_after";
 
 export async function handler(event) {
   const u = await requireUser(event);
@@ -168,6 +168,9 @@ export async function handler(event) {
         consent_quorum: body.consent_quorum ?? null,
         backup_keys: [],
         backup_quorum: body.backup_quorum ?? null,
+        second_heir_keys: [],
+        second_heir_quorum: body.second_heir_quorum ?? null,
+        second_inheritance_after: body.second_inheritance_after ?? null,
         founder_keys: [],
         heir_keys: [],
         status: "draft",
@@ -211,6 +214,9 @@ export async function handler(event) {
         consent_quorum: body.consent_quorum ?? null,
         backup_keys: body.backup_keys ?? [],
         backup_quorum: body.backup_quorum ?? null,
+        second_heir_keys: body.second_heir_keys ?? [],
+        second_heir_quorum: body.second_heir_quorum ?? null,
+        second_inheritance_after: body.second_inheritance_after ?? null,
         founder_keys: body.founder_keys ?? [],
         heir_keys: body.heir_keys ?? [],
         status: "compiled",

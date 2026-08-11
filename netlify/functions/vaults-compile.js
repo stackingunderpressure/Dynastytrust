@@ -41,7 +41,7 @@ const COMPILER_URL = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
 
 const VAULT_FIELDS =
-  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc, predecessor_id, leaf_scripts, backup_keys, backup_quorum";
+  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc, predecessor_id, leaf_scripts, backup_keys, backup_quorum, second_heir_keys, second_heir_quorum, second_inheritance_after";
 
 // Replace every occurrence of a raw pubkey hex in the descriptor
 // with its Nunchuk-format key origin expression. Pure string work,
@@ -113,7 +113,7 @@ export async function handler(event) {
   };
 
   const dk = body.direct_keys;
-  let founders, heirs, protectors, consenters, backups;
+  let founders, heirs, protectors, consenters, backups, secondHeirs;
   if (dk && typeof dk === "object") {
     const clean = (arr) => (Array.isArray(arr) ? arr : []).filter(isProvisioned);
     founders = clean(dk.founder_keys);
@@ -121,6 +121,7 @@ export async function handler(event) {
     protectors = clean(dk.protector_keys);
     consenters = clean(dk.consent_keys);
     backups = clean(dk.backup_keys);
+    secondHeirs = clean(dk.second_heir_keys);
   } else {
     const { data: members, error: memErr } = await supabase
       .from("vault_members")
@@ -134,9 +135,12 @@ export async function handler(event) {
     heirs = ready.filter(m => m.role === "heir");
     protectors = ready.filter(m => m.role === "protector");
     consenters = ready.filter(m => m.role === "beneficiary");
-    // Backup keys are the owner's own -- never invited, never a
-    // vault_members role. Invite-based vaults simply never have any.
+    // Backup keys and the second inheritance cohort are the owner's own
+    // (or independently-arranged) keys -- never invited, never a
+    // vault_members role. Same pattern as backup: direct_keys only.
+    // Invite-based vaults simply never have any.
     backups = [];
+    secondHeirs = [];
   }
 
   const plannedF = vault.planned_founder_count ?? founders.length;
@@ -168,9 +172,20 @@ export async function handler(event) {
   // never setting recovery_after > 0 on a vault that also has backup
   // keys, same as it already keeps protector's ordering constraints.
   const hasBackup = backups.length > 0 && vault.backup_quorum != null;
+  // Second, independent inheritance leaf (2026-08-11) -- its own key
+  // set, quorum, and absolute timelock alongside the primary
+  // inheritance leaf. Requires the primary inheritance leaf to already
+  // be configured (heirs.length > 0), matching the Rust compiler's
+  // SecondInheritanceRequiresInheritance gate.
+  const hasSecondInheritance =
+    secondHeirs.length > 0 &&
+    vault.second_heir_quorum != null &&
+    vault.second_inheritance_after != null &&
+    heirs.length > 0;
   let tipHeight = 0;
   if (vault.recovery_after || vault.inheritance_after ||
-      (hasProtector && vault.protector_after)) {
+      (hasProtector && vault.protector_after) ||
+      (hasSecondInheritance && vault.second_inheritance_after)) {
     try {
       tipHeight = await fetchTipHeight(vault.network);
     } catch (e) {
@@ -182,6 +197,7 @@ export async function handler(event) {
   const absRecoveryAfter    = relativeToAbsolute(vault.recovery_after,    tipHeight);
   const absInheritanceAfter = relativeToAbsolute(vault.inheritance_after, tipHeight);
   const absProtectorAfter   = relativeToAbsolute(vault.protector_after,   tipHeight);
+  const absSecondInheritanceAfter = relativeToAbsolute(vault.second_inheritance_after, tipHeight);
 
   // Xpub-based keys are re-derived from the xpub itself (never trust the
   // client-supplied pubkey for those -- verify it against the key
@@ -221,6 +237,13 @@ export async function handler(event) {
           backup_quorum: vault.backup_quorum,
         }
       : {}),
+    ...(hasSecondInheritance
+      ? {
+          second_heir_keys: secondHeirs.map(keyPubkeyHex),
+          second_heir_quorum: vault.second_heir_quorum,
+          second_inheritance_after: absSecondInheritanceAfter,
+        }
+      : {}),
   };
 
   let compiled;
@@ -256,7 +279,7 @@ export async function handler(event) {
     return json(502, { error: `Compiler unreachable: ${reason}` });
   }
 
-  const upgraded = upgradeDescriptor(compiled.descriptor, [...founders, ...heirs]);
+  const upgraded = upgradeDescriptor(compiled.descriptor, [...founders, ...heirs, ...secondHeirs]);
 
   // What gets stored in vaults.founder_keys/heir_keys/etc: the real xpub
   // when the key has one, so every reader that expects an xpub there
@@ -283,11 +306,13 @@ export async function handler(event) {
       consent_keys:
         vault.consent_quorum != null ? consenters.map(keyStoreValue) : [],
       backup_keys: backups.map(keyStoreValue),
+      second_heir_keys: secondHeirs.map(keyStoreValue),
       // Overwrite the draft's relative offsets with the absolute
       // CLTV heights that got baked into the compiled leaves.
       recovery_after: absRecoveryAfter,
       inheritance_after: absInheritanceAfter,
       protector_after: hasProtector ? absProtectorAfter : vault.protector_after,
+      second_inheritance_after: hasSecondInheritance ? absSecondInheritanceAfter : vault.second_inheritance_after,
       status: "compiled",
       // Per-role tapscript leaf bytes (Cut C3 prerequisite) -- absent
       // for non-tr_multileaf address types, since the compiler only

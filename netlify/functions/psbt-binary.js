@@ -66,6 +66,8 @@ function leafSignerCounts(vault, path) {
       return { quorum: vault.protector_quorum, total: (vault.protector_keys || []).length };
     case 'backup':
       return { quorum: vault.backup_quorum, total: (vault.backup_keys || []).length };
+    case 'second_inheritance':
+      return { quorum: vault.second_heir_quorum, total: (vault.second_heir_keys || []).length };
     case 'founders_now':
     default:
       return { quorum: vault.founder_quorum, total: (vault.founder_keys || []).length };
@@ -84,6 +86,8 @@ function leafCountForTree(vault) {
   else if ((vault.backup_keys || []).length > 0 && vault.backup_quorum != null) n += 1;
   if ((vault.heir_keys || []).length > 0) n += 1;
   if (vault.protector_quorum != null && vault.protector_after != null) n += 1;
+  if ((vault.second_heir_keys || []).length > 0 && vault.second_heir_quorum != null
+      && vault.second_inheritance_after != null) n += 1;
   return n;
 }
 
@@ -131,7 +135,7 @@ export async function handler(event) {
   const supabase = getSupabaseAdmin();
   const { data: vault, error } = await supabase
     .from('vaults')
-    .select('id, name, address, network, descriptor, address_type, recovery_after, inheritance_after, recovery_quorum, founder_quorum, heir_quorum, founder_keys, heir_keys, consent_keys, consent_quorum, protector_keys, protector_quorum, protector_after, backup_keys, backup_quorum')
+    .select('id, name, address, network, descriptor, address_type, recovery_after, inheritance_after, recovery_quorum, founder_quorum, heir_quorum, founder_keys, heir_keys, consent_keys, consent_quorum, protector_keys, protector_quorum, protector_after, backup_keys, backup_quorum, second_heir_keys, second_heir_quorum, second_inheritance_after')
     .eq('id', vault_id)
     .maybeSingle();
 
@@ -157,13 +161,14 @@ export async function handler(event) {
     if (k.length === 66) return k; // already pubkey hex
     return pubkeyFromXpub(k); // throws "Version mismatch" etc.
   };
-  let founderPubkeys, heirPubkeys, consentPubkeys, protectorPubkeys, backupPubkeys;
+  let founderPubkeys, heirPubkeys, consentPubkeys, protectorPubkeys, backupPubkeys, secondHeirPubkeys;
   try {
     founderPubkeys = (vault.founder_keys || []).map(toPubkeyHex);
     heirPubkeys = (vault.heir_keys || []).map(toPubkeyHex);
     consentPubkeys = (vault.consent_keys || []).map(toPubkeyHex);
     protectorPubkeys = (vault.protector_keys || []).map(toPubkeyHex);
     backupPubkeys = (vault.backup_keys || []).map(toPubkeyHex);
+    secondHeirPubkeys = (vault.second_heir_keys || []).map(toPubkeyHex);
   } catch (e) {
     return json(500, { error: 'Could not derive /0/0 pubkey from vault xpubs: ' + e.message });
   }
@@ -330,6 +335,13 @@ export async function handler(event) {
           : {}),
         ...(backupPubkeys.length > 0 && vault.backup_quorum != null
           ? { backup_keys: backupPubkeys, backup_quorum: vault.backup_quorum }
+          : {}),
+        ...(secondHeirPubkeys.length > 0 && vault.second_heir_quorum != null && vault.second_inheritance_after != null
+          ? {
+              second_heir_keys: secondHeirPubkeys,
+              second_heir_quorum: vault.second_heir_quorum,
+              second_inheritance_after: vault.second_inheritance_after,
+            }
           : {}),
       }),
     });
