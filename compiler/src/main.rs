@@ -892,7 +892,25 @@ async fn psbt_finalize(
             let msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
             let joined = msgs.join("; ");
             let lower = joined.to_lowercase();
-            let hint = if lower.contains("control block") {
+            let hint = if lower.contains("missing both witness and non-witness utxo") {
+                // miniscript::psbt::InputError::MissingUtxo -- a SPECIFIC,
+                // named error distinct from "not enough sigs": finalize
+                // could not find witness_utxo OR non_witness_utxo on some
+                // input at all. Every input gets witness_utxo attached
+                // unconditionally at psbt-binary build time, so this input
+                // either isn't the one this app built (a signed PSBT from
+                // a stale/different proposal build got pasted or scanned
+                // back in), or a merge step dropped it. Previously fell
+                // through to the generic "not enough signatures" hint,
+                // which sent the operator chasing more signers for a
+                // problem that has nothing to do with signer count.
+                "The PSBT is missing UTXO data for one of its inputs -- this is not a signature-\
+                 count problem. Most likely the signed PSBT that was scanned or pasted back in \
+                 was signed against a different build of this proposal (stale QR/paste from an \
+                 earlier attempt). Re-export the CURRENT PSBT from this page (Show QR / Copy PSBT \
+                 hex) fresh, sign that exact one, and scan/paste it back -- don't reuse an older \
+                 export."
+            } else if lower.contains("control block") {
                 // Merkle root mismatch between the PSBT's tap_scripts
                 // and the vault's actual tree -- the spend can never
                 // finalize, rebuild the PSBT.
@@ -1540,6 +1558,61 @@ mod psbt_binary_tests {
         assert_eq!(psbt.outputs[1].tap_key_origins.len(), 1);
         let (leaves, _) = psbt.outputs[1].tap_key_origins.values().next().unwrap();
         assert_eq!(leaves.len(), 1, "heir key is only in the inheritance leaf");
+    }
+}
+
+// 2026-08-11 fix regression coverage. Operator report: a real finalize
+// failure ("PSBT is missing both witness and non-witness UTXO at index 0")
+// was reported back as "Not enough signatures. Collect more signers" --
+// miniscript's InputError::MissingUtxo is a distinct, named error from a
+// quorum shortfall, and the generic fallback hint sent the operator
+// chasing more signers for a problem that had nothing to do with signer
+// count. This test proves the branch in psbt_finalize's error mapping
+// actually matches the REAL text miniscript::psbt::Psbt::finalize_mut
+// produces for this specific failure -- not just a plausible-looking
+// string check that happens to never fire in practice.
+#[cfg(test)]
+mod psbt_finalize_hint_tests {
+    use super::*;
+    use bitcoin::{OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid, Witness};
+    use std::str::FromStr;
+
+    #[test]
+    fn missing_utxo_error_text_matches_the_hint_branchs_own_check() {
+        // A minimal unsigned PSBT: one input with NO witness_utxo and NO
+        // non_witness_utxo attached at all (deliberately, unlike every
+        // real input this compiler builds -- witness_utxo is set
+        // unconditionally in psbt_binary). finalize_mut has nothing to
+        // determine this input's prevout value/script from, which is
+        // exactly InputError::MissingUtxo's trigger condition.
+        let txid = Txid::from_str(&"11".repeat(32)).unwrap();
+        let tx = Transaction {
+            version: bitcoin::transaction::Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: OutPoint { txid, vout: 0 },
+                script_sig: ScriptBuf::new(),
+                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                witness: Witness::default(),
+            }],
+            output: vec![TxOut {
+                value: Amount::from_sat(50_000),
+                script_pubkey: ScriptBuf::new(),
+            }],
+        };
+        let mut psbt = Psbt::from_unsigned_tx(tx).unwrap();
+
+        let secp = Secp256k1::verification_only();
+        let err = psbt.finalize_mut(&secp).unwrap_err();
+        let msgs: Vec<String> = err.iter().map(|e| e.to_string()).collect();
+        let joined = msgs.join("; ");
+        let lower = joined.to_lowercase();
+
+        assert!(
+            lower.contains("missing both witness and non-witness utxo"),
+            "miniscript's real error text for a UTXO-less input changed shape -- \
+             got: {joined}. Update psbt_finalize's hint branch to match."
+        );
     }
 }
 
