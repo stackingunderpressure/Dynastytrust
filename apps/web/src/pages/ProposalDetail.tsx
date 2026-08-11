@@ -114,16 +114,31 @@ export default function ProposalDetail() {
 
   const signedSessions = sessions.filter(s => s.signed && s.psbt_partial_hex);
   const partials = signedSessions.map(s => s.psbt_partial_hex!).filter(Boolean);
+  // 2026-08-11 fix (operator: "Finalization failed: PSBT is missing
+  // both witness and non-witness UTXO at index 0"). Always fold
+  // proposal.psbt_hex in as the merge base, ahead of every partial, when
+  // it's present -- it's the one PSBT guaranteed to carry witness_utxo/
+  // tap_internal_key/tap_scripts (set unconditionally at build time,
+  // compiler/src/main.rs's psbt_binary), so basing every merge on it
+  // repairs even a partial that got stored trimmed (no witness_utxo at
+  // all) before ExternalPsbt.addSignature/tapitSigned learned to merge
+  // against the base before submitting. Previously this used partials[0]
+  // as the merge base whenever more than one partial existed, and
+  // partials[0] ALONE -- no proposal.psbt_hex in the picture at all --
+  // whenever there was exactly one: a single trimmed hardware-wallet
+  // partial (SeedSigner's own PSBTParser.trim() strips everything but
+  // the signature, by design) became this proposal's live PSBT outright.
+  const mergeChain = proposal.psbt_hex ? [proposal.psbt_hex, ...partials] : partials;
   const mergedPsbt =
-    partials.length > 1
+    mergeChain.length > 1
       ? (() => {
           try {
-            return mergePsbts(partials);
+            return mergePsbts(mergeChain);
           } catch {
-            return partials[0];
+            return mergeChain[0];
           }
         })()
-      : partials[0] ?? proposal.psbt_hex ?? "";
+      : mergeChain[0] ?? "";
   const collected = mergedPsbt ? countSignatures(mergedPsbt) : 0;
   const required = vault.founder_quorum;
   const quorumMet = collected >= required;
@@ -157,9 +172,19 @@ export default function ProposalDetail() {
   async function tapitSigned(psbtHex: string, label: string) {
     if (!proposal) return;
     try {
+      // Same defensive merge as ExternalPsbt.addSignature below, and for
+      // the same reason: guarantee every psbt_partial_hex stored in
+      // signer_sessions is a COMPLETE PSBT, never a bare signature
+      // fragment, regardless of what the signing wallet chose to strip
+      // before handing the signature back. Tapit's own signer doesn't
+      // trim today, but nothing stops a future signer (or a Tapit change)
+      // from doing so, and this makes the guarantee hold structurally
+      // instead of by accident of which wallets happen not to trim.
+      const base = mergedPsbt || proposal.psbt_hex;
+      const merged = base ? mergePsbts([base, psbtHex]) : psbtHex;
       await api.signerSessions.submit({
         proposal_id: proposal.id,
-        psbt_partial_hex: psbtHex,
+        psbt_partial_hex: merged,
         label,
       });
       await load();
@@ -577,9 +602,32 @@ function ExternalPsbt({
     setErr(null);
     setBusy(true);
     try {
+      // 2026-08-11 fix (operator: "Finalization failed: PSBT is missing
+      // both witness and non-witness UTXO at index 0"). Hardware signers
+      // -- SeedSigner explicitly, by its own design comment on
+      // PSBTParser.trim() -- export back a TRIMMED PSBT carrying only the
+      // new signature, with witness_utxo/tap_internal_key/tap_scripts all
+      // stripped, on the assumption that "whoever merges this back in
+      // already has the original unsigned PSBT." This app's own
+      // mergePsbts already handles that correctly WHEN the first PSBT in
+      // its list is the full one -- but this function used to submit
+      // rawHex to signerSessions AS-IS, un-merged. As long as it was the
+      // only signature so far, load()'s mergedPsbt computation
+      // (ProposalDetail's own `partials.length > 1 ? mergePsbts(...) :
+      // partials[0] ?? proposal.psbt_hex`) used that bare trimmed hex
+      // DIRECTLY as the proposal's live PSBT, discarding proposal.psbt_hex
+      // (the only copy that actually has witness_utxo) entirely -- and
+      // once mergePsbts(partials) DOES run for a second signer, it uses
+      // partials[0] as ITS base too, so a still-trimmed first entry
+      // poisons every later merge as well. Fix: merge the freshly
+      // returned signature against psbtToSign (the same full PSBT this
+      // component showed as the QR/copy source) BEFORE persisting it, so
+      // every psbt_partial_hex ever stored in signer_sessions is
+      // guaranteed to be a complete PSBT, not a bare signature fragment.
+      const merged = mergePsbts([psbtToSign, rawHex]);
       await api.signerSessions.submit({
         proposal_id: proposalId,
-        psbt_partial_hex: rawHex,
+        psbt_partial_hex: merged,
         label: "Hardware wallet",
       });
       setHex("");
