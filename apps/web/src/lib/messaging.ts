@@ -32,6 +32,7 @@ import { hkdf } from '@noble/hashes/hkdf';
 import { sha256 } from '@noble/hashes/sha2';
 import { chacha20poly1305 } from '@noble/ciphers/chacha.js';
 import { randomBytes } from '@noble/hashes/utils';
+import { encryptText, decryptBlob, type EncryptedBlob } from './keystore';
 
 const MSG_KEY_STORE = 'dynastytrust:messaging:v1';
 
@@ -96,6 +97,64 @@ export function ensureMessagingKey(): LocalMessagingKey {
 
 export function getMessagingPubkey(): string {
   return ensureMessagingKey().pub;
+}
+
+/** True when a messaging keypair already exists in this browser's
+ *  localStorage, without generating one if it doesn't. Used to tell
+ *  apart "first time ever, nothing to restore" from "this browser is
+ *  missing a key a server backup could restore." */
+export function hasLocalMessagingKey(): boolean {
+  try {
+    const raw = localStorage.getItem(MSG_KEY_STORE);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw) as LocalMessagingKey;
+    return !!(parsed.priv && parsed.pub && parsed.priv.length === 64 && parsed.pub.length === 64);
+  } catch {
+    return false;
+  }
+}
+
+/** Overwrite this browser's local messaging keypair with an existing
+ *  one (hex priv/pub) -- used after a successful passphrase-based
+ *  restore from a server backup. Unlike ensureMessagingKey(), this
+ *  never generates; it only installs what the caller already has. */
+export function installMessagingKey(priv: string, pub: string): void {
+  const entry: LocalMessagingKey = { priv, pub, createdAt: new Date().toISOString() };
+  localStorage.setItem(MSG_KEY_STORE, JSON.stringify(entry));
+}
+
+/**
+ * Wrap this browser's current messaging private key under a
+ * passphrase for durable server-side backup (messaging-key-backup.js
+ * / db/migrations/030_messaging_key_backup.sql). Reuses keystore.ts's
+ * encryptText -- same AES-256-GCM + PBKDF2 (210,000 rounds) posture
+ * already used for "secure mode" Bitcoin keys, just applied to the
+ * messaging private key's hex encoding instead of a mnemonic. The
+ * server only ever receives the returned ciphertext -- the passphrase
+ * and the raw private key never leave this function.
+ */
+export async function wrapMessagingKeyForBackup(
+  passphrase: string,
+): Promise<{ pubkey: string; blob: EncryptedBlob }> {
+  const { priv, pub } = ensureMessagingKey();
+  const blob = await encryptText(priv, passphrase);
+  return { pubkey: pub, blob };
+}
+
+/**
+ * Unwrap a server-stored backup blob with the passphrase that
+ * produced it. Returns the recovered { priv, pub } hex pair, or
+ * throws (wrong passphrase / corrupt blob -- decryptBlob's AES-GCM
+ * tag check fails closed, same as everywhere else this pattern is
+ * used in the app).
+ */
+export async function unwrapMessagingKeyFromBackup(
+  blob: EncryptedBlob,
+  passphrase: string,
+): Promise<{ priv: string; pub: string }> {
+  const priv = await decryptBlob(blob, passphrase);
+  const pub = toHex(x25519.getPublicKey(fromHex(priv)));
+  return { priv, pub };
 }
 
 function deriveWrapKey(

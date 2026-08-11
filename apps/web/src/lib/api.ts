@@ -1183,6 +1183,26 @@ export const api = {
       }),
   },
 
+  messagingKeyBackup: {
+    get: () =>
+      req<{
+        ok: true;
+        backup: {
+          pubkey: string;
+          wrapped_priv_b64: string;
+          salt_b64: string;
+          nonce_b64: string;
+          updated_at: string;
+        } | null;
+      }>(`/messaging-key-backup`),
+
+    save: (body: { pubkey: string; wrapped_priv_b64: string; salt_b64: string; nonce_b64: string }) =>
+      req<{ ok: true; backup: unknown }>(`/messaging-key-backup`, {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      }),
+  },
+
   attestations: {
     list: (vault_id: string, type?: AttestationType) => {
       const qs = type ? `&type=${type}` : '';

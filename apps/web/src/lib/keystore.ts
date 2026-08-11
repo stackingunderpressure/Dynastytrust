@@ -120,7 +120,7 @@ function unb64(s: string): Uint8Array {
   return Uint8Array.from(atob(s), c => c.charCodeAt(0));
 }
 
-async function encryptText(text: string, password: string): Promise<EncryptedBlob> {
+export async function encryptText(text: string, password: string): Promise<EncryptedBlob> {
   const salt  = crypto.getRandomValues(new Uint8Array(32));
   const nonce = crypto.getRandomValues(new Uint8Array(12));
   const key   = await deriveKey(password, salt);
@@ -130,7 +130,7 @@ async function encryptText(text: string, password: string): Promise<EncryptedBlo
   return { version: 1, saltB64: b64(salt), nonceB64: b64(nonce), ciphertextB64: b64(new Uint8Array(ct)) };
 }
 
-async function decryptBlob(blob: EncryptedBlob, password: string): Promise<string> {
+export async function decryptBlob(blob: EncryptedBlob, password: string): Promise<string> {
   const key   = await deriveKey(password, unb64(blob.saltB64));
   const plain = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv: unb64(blob.nonceB64) }, key, unb64(blob.ciphertextB64),

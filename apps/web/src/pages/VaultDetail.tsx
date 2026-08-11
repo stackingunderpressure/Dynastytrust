@@ -59,6 +59,7 @@ import { HaltVaultBar } from "../components/HaltVaultBar";
 import { CirclePhraseSetup } from "../components/CirclePhraseSetup";
 import { VaultMembershipSetup } from "../components/VaultMembershipSetup";
 import { NotifyCircleViaNostr } from "../components/NotifyCircleViaNostr";
+import { MessagingKeyBackupPanel } from "../components/MessagingKeyBackupPanel";
 import { tipHeight, blocksToApproxLabel, approxWallclockDate } from "../lib/chain";
 import { buildStandardTrustDoc, standardConfigFromCompiledVault } from "../lib/trust-doc";
 
@@ -3113,6 +3114,7 @@ function MessagesTab({ vault }: { vault: Vault }) {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [showKeyReset, setShowKeyReset] = useState(false);
+  const [keyBackupRefresh, setKeyBackupRefresh] = useState(0);
 
   useEffect(() => {
     // Ensure local keypair exists before rendering.
@@ -3175,10 +3177,11 @@ function MessagesTab({ vault }: { vault: Vault }) {
   }
 
   async function rekey() {
-    if (!(await askConfirm({ title: "Regenerate messaging key", message: "Regenerate your messaging key? You will lose access to messages sent with your current key.", confirmLabel: "Regenerate", danger: true }))) return;
+    if (!(await askConfirm({ title: "Regenerate messaging key", message: "Regenerate your messaging key? You will lose access to messages sent with your current key unless you back up the new one too.", confirmLabel: "Regenerate", danger: true }))) return;
     localStorage.removeItem("dynastytrust:messaging:v1");
     ensureMessagingKey();
     setShowKeyReset(false);
+    setKeyBackupRefresh(n => n + 1);
     void load();
   }
 
@@ -3195,8 +3198,10 @@ function MessagesTab({ vault }: { vault: Vault }) {
           lineHeight: 1.5,
         }}
       >
-        <strong style={{ color: colors.gold }}>End-to-end encrypted.</strong> Messages are sealed to each recipient's X25519 key before they leave your browser. The server stores ciphertext only and cannot read them. Your private key lives in this browser's local storage -- clearing site data wipes your ability to read past messages.
+        <strong style={{ color: colors.gold }}>End-to-end encrypted.</strong> Messages are sealed to each recipient's X25519 key before they leave your browser. The server stores ciphertext only and cannot read them.
       </div>
+
+      <MessagingKeyBackupPanel refreshToken={keyBackupRefresh} onRestored={() => void load()} />
 
       {pendingMembers.length > 0 && (
         <div
