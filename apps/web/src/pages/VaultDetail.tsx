@@ -2334,13 +2334,30 @@ function HistoryTab({
   if (proposals.length === 0) {
     return <p style={{ color: colors.muted, fontSize: 14 }}>No transactions yet.</p>;
   }
+  // A proposal still waiting on signatures or broadcast is the thing the
+  // operator actually needs to act on -- it should never sit buried below
+  // old, finished (broadcast/cancelled) history just because those happen
+  // to be more recent rows. Active first (newest first within that group),
+  // then finished (newest first).
+  const sorted = [...proposals].sort((a, b) => {
+    const aTerminal = a.status === "broadcast" || a.status === "cancelled";
+    const bTerminal = b.status === "broadcast" || b.status === "cancelled";
+    if (aTerminal !== bTerminal) return aTerminal ? 1 : -1;
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  });
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      {proposals.map(p => (
+      {sorted.map(p => (
         <ProposalCard key={p.id} proposal={p} vault={vault} />
       ))}
     </div>
   );
+}
+
+function signerRoleLabel(role: string): string {
+  if (role === "founder") return "Founder";
+  if (role === "heir") return "Heir";
+  return role.charAt(0).toUpperCase() + role.slice(1);
 }
 
 function ProposalCard({ proposal: p, vault }: { proposal: Proposal; vault: Vault }) {
@@ -2400,7 +2417,17 @@ function ProposalCard({ proposal: p, vault }: { proposal: Proposal; vault: Vault
           >
             {p.status}
           </span>
-          <span style={{ color: colors.muted, fontSize: 12 }}>{expanded ? "^" : "v"}</span>
+          <span
+            style={{
+              color: colors.muted,
+              fontSize: 12,
+              padding: 8,
+              margin: -8,
+              lineHeight: 1,
+            }}
+          >
+            {expanded ? "^" : "v"}
+          </span>
         </div>
       </div>
 
@@ -2421,6 +2448,41 @@ function ProposalCard({ proposal: p, vault }: { proposal: Proposal; vault: Vault
           {p.memo && (
             <div style={{ fontSize: 12, color: colors.sub, marginBottom: 8 }}>
               Note: {p.memo}
+            </div>
+          )}
+          {!terminal && p.signer_sessions && p.signer_sessions.length > 0 && (
+            <div
+              style={{
+                marginBottom: 10,
+                padding: 10,
+                borderRadius: 8,
+                background: colors.inset,
+                border: `1px solid ${colors.border}`,
+              }}
+            >
+              <div style={{ fontSize: 12, fontWeight: 600, color: colors.text, marginBottom: 6 }}>
+                {p.signer_sessions.filter(s => s.signed).length} of {p.signer_sessions.length} signed
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {p.signer_sessions.map(s => (
+                  <div
+                    key={s.id}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      fontSize: 12,
+                    }}
+                  >
+                    <span style={{ color: colors.sub }}>
+                      {s.label || signerRoleLabel(s.signer_role)} <span style={{ color: colors.muted }}>({signerRoleLabel(s.signer_role)})</span>
+                    </span>
+                    <span style={{ color: s.signed ? colors.green : colors.muted, fontWeight: 600 }}>
+                      {s.signed ? "Signed" : "Waiting"}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           {p.txid && (

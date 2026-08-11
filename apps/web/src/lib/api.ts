@@ -264,6 +264,21 @@ export interface ProposalComment {
   vote: ProposalVote | null;
 }
 
+/** One signer's row on a proposal -- who's been asked to sign and whether
+ *  they have. Embedded on every Proposal returned by GET /proposals
+ *  (proposals.js's select already joins signer_sessions); this type just
+ *  names the shape so the UI can render it. */
+export interface ProposalSignerSession {
+  id: string;
+  signer_index: number;
+  signer_role: 'founder' | 'heir' | string;
+  label: string | null;
+  signed: boolean;
+  signed_at: string | null;
+  fingerprint: string | null;
+  member_id: string | null;
+}
+
 export interface Proposal {
   id: string;
   created_at: string;
@@ -278,6 +293,9 @@ export interface Proposal {
   txid?: string;
   memo?: string;
   governance_audit?: unknown;
+  /** Present on every proposal returned by GET /proposals (list); absent
+   *  on the single-proposal shape POST/PATCH return. */
+  signer_sessions?: ProposalSignerSession[];
 }
 
 export interface BalanceResult {
