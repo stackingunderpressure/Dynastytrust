@@ -1396,8 +1396,52 @@ function SendTab({ vault, balance, onDone, prefill }: {
           : blocPath === "parent_solo" ? bp.parent_solo_quorum
           : (blocRungQuorum ?? bp.kids_decay_floor_quorum);
       } else {
-        vault.founder_keys.forEach(addKey);
-        requiredSignatures = vault.founder_quorum;
+        // 2026-08-11 fix (operator: tested a single-key backup leaf with
+        // no timelock and the signing screen said "0 of 2 signatures
+        // needed" instead of "0 of 1") -- this used to always pull
+        // founder_keys/founder_quorum no matter which of the vault's
+        // leaves standardPath actually selected, so every non-founders
+        // path (recovery, inheritance, protector, backup,
+        // second_inheritance) showed the wrong signer set and the wrong
+        // required-signature count, even though the PSBT itself (built
+        // server-side via api.psbt.generate's own path param) was
+        // correctly scoped to the real leaf the whole time -- this was a
+        // display/signer-discovery bug only, never a signing-authority
+        // bug. founders_now ANDs in beneficiary consent when configured
+        // (policy_compiler.rs's founder_thresh: and(trustee_thresh,
+        // consent_thresh)) -- both quorums are required, not either/or,
+        // so their counts add rather than override.
+        switch (standardPath) {
+          case "recovery":
+            vault.founder_keys.forEach(addKey);
+            requiredSignatures = vault.recovery_quorum ?? vault.founder_quorum;
+            break;
+          case "inheritance":
+            vault.heir_keys.forEach(addKey);
+            requiredSignatures = vault.heir_quorum;
+            break;
+          case "protector":
+            vault.protector_keys.forEach(addKey);
+            requiredSignatures = vault.protector_quorum ?? 0;
+            break;
+          case "backup":
+            vault.backup_keys.forEach(addKey);
+            requiredSignatures = vault.backup_quorum ?? 0;
+            break;
+          case "second_inheritance":
+            vault.second_heir_keys.forEach(addKey);
+            requiredSignatures = vault.second_heir_quorum ?? 0;
+            break;
+          case "founders_now":
+          default:
+            vault.founder_keys.forEach(addKey);
+            requiredSignatures = vault.founder_quorum;
+            if (vault.consent_keys.length > 0 && vault.consent_quorum != null) {
+              vault.consent_keys.forEach(addKey);
+              requiredSignatures += vault.consent_quorum;
+            }
+            break;
+        }
       }
       const signingKeys = allLocalKeys.filter(k => vaultSignerPubkeys.has(k.pubkey));
 
