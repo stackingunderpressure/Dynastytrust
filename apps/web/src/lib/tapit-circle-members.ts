@@ -44,9 +44,27 @@ export function getTapitCircleMembers(keyArray: string[]): TapitCircleMembers {
     }
   }
 
-  const circleMembers = listKeys().filter(
-    k => k.status === 'active' && k.origin === 'tapit' && k.tapitXOnlyPubkey && signerPubkeys.has(k.pubkey),
-  );
+  // 2026-08-11 fix (operator: "Why two tapit sends for one key?"): this
+  // filter used to return every matching LocalKey record, unfiltered --
+  // if the local Key Manager happens to hold two separate LocalKey rows
+  // (different keyId, e.g. from importing/pasting the same Tapit pubkey
+  // twice) that share one real pubkey, both passed through and rendered
+  // as two identical-looking "Founder (Tapit)" rows, and notifying both
+  // sent the exact same psbt-cosign request twice to the exact same
+  // wallet. The vault's OWN key array was never the duplicate -- it's
+  // deduped into signerPubkeys (a Set) above -- so this is purely a
+  // local-keystore-side duplicate. Deduped by pubkey (keep the first
+  // matching LocalKey record) so one real vault signer is always exactly
+  // one row here, regardless of how many local records happen to point
+  // at the same key.
+  const seenPubkeys = new Set<string>();
+  const circleMembers = listKeys().filter(k => {
+    if (k.status !== 'active' || k.origin !== 'tapit' || !k.tapitXOnlyPubkey) return false;
+    if (!signerPubkeys.has(k.pubkey)) return false;
+    if (seenPubkeys.has(k.pubkey)) return false;
+    seenPubkeys.add(k.pubkey);
+    return true;
+  });
 
   return { circleMembers, barePubkeys };
 }

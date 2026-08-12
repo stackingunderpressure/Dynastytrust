@@ -547,6 +547,9 @@ function MembersSection({ members, sessions }: { members: VaultMember[]; session
             </div>
             <div
               style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
                 fontSize: 11,
                 fontWeight: 700,
                 letterSpacing: "0.06em",
@@ -557,6 +560,25 @@ function MembersSection({ members, sessions }: { members: VaultMember[]; session
                 textTransform: "uppercase",
               }}
             >
+              {hasSigned && (
+                <span
+                  aria-hidden
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: 14,
+                    height: 14,
+                    borderRadius: "50%",
+                    background: colors.green,
+                    color: "#fff",
+                    fontSize: 9,
+                    fontWeight: 700,
+                  }}
+                >
+                  ✓
+                </span>
+              )}
               {hasSigned ? "Signed" : m.fingerprint ? "Pending" : "No key"}
             </div>
           </div>
