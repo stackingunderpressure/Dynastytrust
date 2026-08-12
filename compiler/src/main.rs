@@ -41,17 +41,106 @@ fn api_err(status: StatusCode, msg: impl ToString) -> ApiError {
     (status, Json(ErrorResponse { ok: false, error: msg.to_string() }))
 }
 
+/// Constant-time byte comparison -- avoids leaking the secret's length-
+/// prefix match via response timing the way `token != secret` would.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 fn check_auth(headers: &HeaderMap, state: &AppState) -> Result<(), ApiError> {
-    let Some(ref secret) = state.secret else { return Ok(()); };
+    // Fail CLOSED, not open: an unset COMPILER_SECRET must never mean
+    // "accept every request." This service sits on the public internet
+    // (Fly.io) and every mutating endpoint (PSBT building, vault
+    // compilation) is reachable with no auth at all if this check is
+    // ever satisfied by a misconfiguration rather than a real secret.
+    let Some(ref secret) = state.secret else {
+        return Err(api_err(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Compiler is not configured with a secret -- refusing all requests until COMPILER_SECRET is set",
+        ));
+    };
     let token = headers
         .get("authorization").or_else(|| headers.get("Authorization"))
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .unwrap_or("");
-    if token != secret.as_str() {
+    if !constant_time_eq(token.as_bytes(), secret.as_bytes()) {
         return Err(api_err(StatusCode::UNAUTHORIZED, "Invalid or missing compiler secret"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod auth_tests {
+    use super::*;
+    use axum::http::HeaderValue;
+
+    fn headers_with_bearer(token: &str) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.insert("authorization", HeaderValue::from_str(&format!("Bearer {token}")).unwrap());
+        h
+    }
+
+    #[test]
+    fn unset_secret_rejects_every_request() {
+        let state = AppState { secret: None };
+        let result = check_auth(&headers_with_bearer("anything"), &state);
+        assert!(result.is_err(), "an unconfigured secret must fail closed, not open");
+        let result_no_header = check_auth(&HeaderMap::new(), &state);
+        assert!(result_no_header.is_err());
+    }
+
+    #[test]
+    fn correct_token_is_accepted() {
+        let state = AppState { secret: Some("s3cr3t".to_string()) };
+        assert!(check_auth(&headers_with_bearer("s3cr3t"), &state).is_ok());
+    }
+
+    #[test]
+    fn wrong_token_is_rejected() {
+        let state = AppState { secret: Some("s3cr3t".to_string()) };
+        assert!(check_auth(&headers_with_bearer("wrong"), &state).is_err());
+    }
+
+    #[test]
+    fn missing_header_is_rejected_when_secret_is_configured() {
+        let state = AppState { secret: Some("s3cr3t".to_string()) };
+        assert!(check_auth(&HeaderMap::new(), &state).is_err());
+    }
+
+    #[test]
+    fn constant_time_eq_matches_standard_equality() {
+        assert!(constant_time_eq(b"abc", b"abc"));
+        assert!(!constant_time_eq(b"abc", b"abd"));
+        assert!(!constant_time_eq(b"abc", b"ab"));
+        assert!(!constant_time_eq(b"", b"a"));
+        assert!(constant_time_eq(b"", b""));
+    }
+}
+
+// Shared by every non-auth-focused test below (psbt_binary_tests,
+// psbt_binary_tranche_tests, and the compile tests) so they can call a
+// handler directly without exercising check_auth's own behavior --
+// those tests are about PSBT/compile construction, not auth. Since
+// check_auth now fails closed on an unset secret, they need a real
+// secret + matching header rather than the old `secret: None` shortcut.
+#[cfg(test)]
+fn test_auth_state_and_headers() -> (Arc<AppState>, HeaderMap) {
+    const TEST_SECRET: &str = "test-secret-for-unit-tests";
+    let state = Arc::new(AppState { secret: Some(TEST_SECRET.to_string()) });
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "authorization",
+        axum::http::HeaderValue::from_str(&format!("Bearer {TEST_SECRET}")).unwrap(),
+    );
+    (state, headers)
 }
 
 fn parse_network(s: &str) -> Result<Network> {
@@ -551,6 +640,24 @@ async fn psbt_binary(
     // sit in both founders-now and recovery).
     if has_change {
         if let Some(ref out) = full_output {
+            // The change output's actual scriptPubkey comes from parsing
+            // req.change_address (line ~523) -- independent of the policy
+            // this request also supplied. Without this check, a request
+            // whose change_address didn't actually belong to the compiled
+            // policy would still get the policy's real tap_internal_key /
+            // tap_tree / tap_key_origins stamped onto it, describing a
+            // vault the output doesn't actually pay into. A signer that
+            // trusts "tap_key_origins contains my key" as proof of change,
+            // without independently recomputing the output key the way
+            // this check does, would be misled. Reject rather than attach
+            // mismatched metadata.
+            let compiled_change_script = bitcoin::ScriptBuf::new_p2tr_tweaked(out.spend_info.output_key());
+            if psbt.unsigned_tx.output[1].script_pubkey != compiled_change_script {
+                return Err(api_err(
+                    StatusCode::BAD_REQUEST,
+                    "change_address does not match the address this policy actually compiles to",
+                ));
+            }
             let nums_bytes = hex::decode(NUMS_HEX).unwrap();
             let internal_key = XOnlyPublicKey::from_slice(&nums_bytes).unwrap();
             let leaves: Vec<&ScriptBuf> = std::iter::once(&out.founder_leaf)
@@ -1017,9 +1124,16 @@ async fn psbt_merge(
             .map_err(|e| api_err(StatusCode::BAD_REQUEST, format!("merge: {e}")))?;
     }
 
+    // MIN across inputs, not sum: a multi-input spend is only actually
+    // fully signed once EVERY input independently clears the quorum --
+    // summing counted a 2-input, 2-signers-each spend as 4 signatures,
+    // which callers then compared against a single quorum threshold
+    // (e.g. founder_quorum == 2) and reported "fully signed" after only
+    // one signer had actually signed each input.
     let signature_count: usize = merged.inputs.iter()
         .map(|inp| inp.tap_script_sigs.len() + inp.partial_sigs.len())
-        .sum();
+        .min()
+        .unwrap_or(0);
 
     let psbt_bytes = merged.serialize();
     Ok(Json(PsbtMergeResponse {
@@ -1093,10 +1207,22 @@ async fn governance_audit(
         heir_quorum:    req.heir_quorum,    heir_key_count:    req.heir_key_count,
         recovery_after: req.recovery_after, inheritance_after: req.inheritance_after,
     };
+    // SpendingPath only models the three-leaf shape (founders_now /
+    // recovery / inheritance) -- protector, backup, and
+    // second_inheritance have no governance-audit equivalent here.
+    // Silently falling through to FoundersNow for any of those (or any
+    // typo) would rubber-stamp the audit as the MOST permissive path
+    // (no timelock, founder_quorum only) for a spend that may need
+    // different signers or a different timelock entirely -- reject
+    // instead of guessing.
     let path = match req.path.as_str() {
-        "recovery"    => SpendingPath::Recovery,
-        "inheritance" => SpendingPath::Inheritance,
-        _             => SpendingPath::FoundersNow,
+        "founders_now" => SpendingPath::FoundersNow,
+        "recovery"     => SpendingPath::Recovery,
+        "inheritance"  => SpendingPath::Inheritance,
+        other => return Err(api_err(
+            StatusCode::BAD_REQUEST,
+            format!("Unsupported governance path: {other} (expected founders_now, recovery, or inheritance)"),
+        )),
     };
     let signer_statuses: Vec<SignerStatus> = req.signers.iter().enumerate().map(|(i, s)| SignerStatus {
         index:  s.get("index").and_then(|v| v.as_u64()).unwrap_or(i as u64) as usize,
@@ -1253,10 +1379,76 @@ mod psbt_binary_tests {
             witness_script_hex: None,
             key_origins,
         };
-        let state = Arc::new(AppState { secret: None });
-        let Json(resp) = psbt_binary(State(state), HeaderMap::new(), Json(req)).await.unwrap();
+        let (state, headers) = test_auth_state_and_headers();
+        let Json(resp) = psbt_binary(State(state), headers, Json(req)).await.unwrap();
         let bytes = hex::decode(resp.psbt_hex).unwrap();
         Psbt::deserialize(&bytes).unwrap()
+    }
+
+    #[tokio::test]
+    async fn change_address_not_matching_the_compiled_policy_is_rejected() {
+        // A caller-supplied change_address that isn't actually the
+        // policy's own compiled address must never get that policy's
+        // real tap_internal_key / tap_tree / tap_key_origins stamped
+        // onto it -- that would describe a vault the output doesn't
+        // pay into. Build a legitimate policy + PSBT request but swap
+        // in an unrelated vault's address as change_address, and
+        // confirm the request is rejected rather than silently
+        // attaching mismatched metadata (or, worse, succeeding).
+        let policy = sample_policy();
+        let compiled = compile_dynasty_policy_tr_multileaf(policy.clone(), Network::Testnet).unwrap();
+        let addr = compiled.address.to_string();
+        let spk_hex = hex::encode(compiled.address.script_pubkey().as_bytes());
+
+        // A different vault entirely -- same shape, different keys, so
+        // its compiled address is provably not this vault's.
+        let mut other_policy = policy.clone();
+        other_policy.founder_keys = vec![
+            PublicKey::from_str(BACKUP_A).unwrap(),
+            PublicKey::from_str(BACKUP_B).unwrap(),
+        ];
+        let unrelated_addr = compile_dynasty_policy_tr_multileaf(other_policy, Network::Testnet)
+            .unwrap().address.to_string();
+        assert_ne!(addr, unrelated_addr, "test setup needs two genuinely different addresses");
+
+        let req = PsbtBinaryRequest {
+            inputs: vec![UtxoInput {
+                txid: "0000000000000000000000000000000000000000000000000000000000000001".into(),
+                vout: 0,
+                value_sats: 100_000,
+                script_pubkey: spk_hex,
+            }],
+            destination: addr,
+            amount_sats: 50_000,
+            fee_sats: 1_000,
+            change_address: unrelated_addr,
+            network: "testnet".into(),
+            founder_keys: Some(policy.founder_keys.iter().map(|k| k.to_string()).collect()),
+            founder_quorum: Some(policy.founder_quorum),
+            heir_keys: Some(policy.heir_keys.iter().map(|k| k.to_string()).collect()),
+            heir_quorum: Some(policy.heir_quorum),
+            recovery_after: Some(policy.recovery_after),
+            inheritance_after: Some(policy.inheritance_after),
+            address_type: Some("tr_multileaf".into()),
+            consent_keys: vec![],
+            consent_quorum: None,
+            recovery_quorum: None,
+            protector_keys: vec![],
+            protector_quorum: None,
+            protector_after: None,
+            backup_keys: policy.backup_keys.iter().map(|k| k.to_string()).collect(),
+            backup_quorum: policy.backup_quorum,
+            second_heir_keys: policy.second_heir_keys.iter().map(|k| k.to_string()).collect(),
+            second_heir_quorum: policy.second_heir_quorum,
+            second_inheritance_after: policy.second_inheritance_after,
+            path: Some("founders_now".into()),
+            leaf_script_hex: None,
+            witness_script_hex: None,
+            key_origins: vec![],
+        };
+        let (state, headers) = test_auth_state_and_headers();
+        let result = psbt_binary(State(state), headers, Json(req)).await;
+        assert!(result.is_err(), "a change_address for a different vault must be rejected");
     }
 
     #[tokio::test]
@@ -1403,8 +1595,8 @@ mod psbt_binary_tests {
             second_heir_quorum: None,
             second_inheritance_after: None,
         };
-        let state = Arc::new(AppState { secret: None });
-        let Json(resp) = compile(State(state), HeaderMap::new(), Json(req)).await.unwrap();
+        let (state, headers) = test_auth_state_and_headers();
+        let Json(resp) = compile(State(state), headers, Json(req)).await.unwrap();
         let leaf_scripts = resp.leaf_scripts.expect("tr_multileaf compile must return leaf_scripts");
 
         assert!(leaf_scripts.contains_key("backup"), "middle leaf must be labeled 'backup'");
@@ -1453,8 +1645,8 @@ mod psbt_binary_tests {
             second_heir_quorum: None,
             second_inheritance_after: None,
         };
-        let state = Arc::new(AppState { secret: None });
-        let Json(resp) = compile(State(state), HeaderMap::new(), Json(req)).await.unwrap();
+        let (state, headers) = test_auth_state_and_headers();
+        let Json(resp) = compile(State(state), headers, Json(req)).await.unwrap();
         let leaf_scripts = resp.leaf_scripts.expect("tr_multileaf compile must return leaf_scripts");
         assert!(leaf_scripts.contains_key("founders_now"));
         assert!(leaf_scripts.contains_key("backup"));
@@ -1511,8 +1703,8 @@ mod psbt_binary_tests {
             second_heir_quorum: None,
             second_inheritance_after: None,
         };
-        let state = Arc::new(AppState { secret: None });
-        let Json(resp) = compile(State(state), HeaderMap::new(), Json(req)).await.unwrap();
+        let (state, headers) = test_auth_state_and_headers();
+        let Json(resp) = compile(State(state), headers, Json(req)).await.unwrap();
         let leaf_scripts = resp.leaf_scripts.expect("tr_multileaf compile must return leaf_scripts");
 
         let founders_psbt = build_psbt("founders_now", vec![]).await;
@@ -1762,8 +1954,8 @@ mod psbt_binary_tranche_tests {
             path: path.into(),
             key_origins,
         };
-        let state = Arc::new(AppState { secret: None });
-        let Json(resp) = psbt_binary_tranche(State(state), HeaderMap::new(), Json(req)).await.unwrap();
+        let (state, headers) = test_auth_state_and_headers();
+        let Json(resp) = psbt_binary_tranche(State(state), headers, Json(req)).await.unwrap();
         let bytes = hex::decode(resp.psbt_hex).unwrap();
         Psbt::deserialize(&bytes).unwrap()
     }

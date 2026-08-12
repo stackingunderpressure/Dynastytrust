@@ -505,7 +505,7 @@ export async function handler(event) {
   // The auth helper reads Authorization header or the `token` query
   // param (the client passes the JWT in the query since <a href> can't
   // send headers).
-  const u = await requireUser(event);
+  const u = await requireUser(event, { allowQueryToken: true }); // opened as a plain link (window.open / <a href>), needs the ?token= fallback
   if (u.error) {
     return { statusCode: 401, body: JSON.stringify({ error: u.error }),
              headers: { 'content-type': 'application/json' } };

@@ -47,7 +47,7 @@ const COMPILER_SECRET = process.env.COMPILER_SECRET;
 const MIN_RECOVERY_BLOCKS = 26_000;
 
 const VAULT_FIELDS =
-  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc, predecessor_id, leaf_scripts, backup_keys, backup_quorum, second_heir_keys, second_heir_quorum, second_inheritance_after";
+  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc, predecessor_id, leaf_scripts, backup_keys, backup_quorum, second_heir_keys, second_heir_quorum, second_inheritance_after, key_origins";
 
 // Replace every occurrence of a raw pubkey hex in the descriptor
 // with its Nunchuk-format key origin expression. Pure string work,
@@ -293,6 +293,26 @@ export async function handler(event) {
 
   const upgraded = upgradeDescriptor(compiled.descriptor, [...founders, ...heirs, ...secondHeirs]);
 
+  // BIP32 origins for hardware-wallet signing, stored directly on the
+  // vault row rather than requiring a vault_members lookup. The
+  // invite-based path already has this covered by psbt-binary.js
+  // reading vault_members directly, but direct_keys mode -- a single
+  // owner bringing every key themselves -- never writes vault_members
+  // at all (that table is one row per HUMAN signer, unique on
+  // (vault_id, user_id), which can't represent "one owner, several
+  // keys" in the first place). Without this, every direct_keys vault
+  // silently degraded to browser/Tapit-only signing, same class of gap
+  // Bloc (vaults.bloc_policy.key_origins) and tranche
+  // (037_tranche_key_origins.sql) already closed. Computed uniformly
+  // for both paths so future readers have one place to look.
+  const keyOrigins = [...founders, ...heirs, ...protectors, ...consenters, ...backups, ...secondHeirs]
+    .filter((m) => m.pubkey && m.fingerprint && m.derivation_path)
+    .map((m) => ({
+      pubkey: m.pubkey,
+      fingerprint: m.fingerprint,
+      derivation_path: m.derivation_path.replace(/\/+$/, "") + "/0/0",
+    }));
+
   // What gets stored in vaults.founder_keys/heir_keys/etc: the real xpub
   // when the key has one, so every reader that expects an xpub there
   // (pubkeyFromXpub re-derivation, the descriptor upgrade) keeps working;
@@ -330,6 +350,7 @@ export async function handler(event) {
       // for non-tr_multileaf address types, since the compiler only
       // populates it for that shape.
       leaf_scripts: compiled.leaf_scripts ?? null,
+      key_origins: keyOrigins,
     })
     .eq("id", vaultId)
     .select(VAULT_FIELDS)

@@ -36,6 +36,16 @@ const TR_INPUT_VBYTES  = 57.5;
 const TR_OUTPUT_VBYTES = 43;
 const TX_OVERHEAD      = 10.5;
 
+// A caller-supplied fee_rate had no upper bound -- a request (or a
+// compromised coordinator forging one on a legitimate user's behalf)
+// could set an absurd sat/vB rate and drain most of a spend into miner
+// fees instead of the intended destination. 1000 sat/vB is far above
+// any real-world fee market spike and still bounds the damage to a
+// deliberately malicious request, not normal use. 1 sat/vB floor
+// rejects a zero-or-negative rate outright.
+const MIN_FEE_RATE_SAT_VB = 1;
+const MAX_FEE_RATE_SAT_VB = 1000;
+
 async function mempoolFetch(url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`mempool.space ${res.status}: ${url}`);
@@ -129,13 +139,16 @@ export async function handler(event) {
   if (!vault_id)    return json(400, { error: 'Missing: vault_id' });
   if (!destination) return json(400, { error: 'Missing: destination' });
   if (!amount_sats || amount_sats < 546) return json(400, { error: 'amount_sats must be >= 546' });
+  if (fee_rate != null && (fee_rate < MIN_FEE_RATE_SAT_VB || fee_rate > MAX_FEE_RATE_SAT_VB)) {
+    return json(400, { error: `fee_rate must be between ${MIN_FEE_RATE_SAT_VB} and ${MAX_FEE_RATE_SAT_VB} sat/vB` });
+  }
 
   // Load vault. Any active member may build a PSBT, not just the
   // owner -- same membership check proposals.js GET/PATCH/POST use.
   const supabase = getSupabaseAdmin();
   const { data: vault, error } = await supabase
     .from('vaults')
-    .select('id, name, address, network, descriptor, address_type, recovery_after, inheritance_after, recovery_quorum, founder_quorum, heir_quorum, founder_keys, heir_keys, consent_keys, consent_quorum, protector_keys, protector_quorum, protector_after, backup_keys, backup_quorum, second_heir_keys, second_heir_quorum, second_inheritance_after')
+    .select('id, name, address, network, descriptor, address_type, recovery_after, inheritance_after, recovery_quorum, founder_quorum, heir_quorum, founder_keys, heir_keys, consent_keys, consent_quorum, protector_keys, protector_quorum, protector_after, backup_keys, backup_quorum, second_heir_keys, second_heir_quorum, second_inheritance_after, key_origins')
     .eq('id', vault_id)
     .maybeSingle();
 
@@ -188,18 +201,31 @@ export async function handler(event) {
   // is stored as the ACCOUNT-level path (e.g. "m/48'/1'/0'/2'") to match
   // descriptor-keys.ts's convention -- append /0/0 for the specific
   // receive-chain child every leaf script actually embeds.
-  const { data: signers } = await supabase
-    .from('vault_members')
-    .select('pubkey, fingerprint, derivation_path')
-    .eq('vault_id', vault_id)
-    .eq('status', 'active');
-  const keyOrigins = (signers || [])
-    .filter((m) => m.pubkey && m.fingerprint && m.derivation_path)
-    .map((m) => ({
-      pubkey: m.pubkey,
-      fingerprint: m.fingerprint,
-      derivation_path: m.derivation_path.replace(/\/+$/, '') + '/0/0',
-    }));
+  //
+  // Prefer vault.key_origins (2026-08-12 fix): a direct_keys-compiled
+  // vault -- a single owner bringing every key themselves -- never gets
+  // a vault_members row per key (that table is one row per HUMAN
+  // signer, unique on (vault_id, user_id), which can't represent "one
+  // owner, several keys"), so the vault_members lookup below always
+  // silently returned empty for those vaults. vaults-compile.js now
+  // writes key_origins directly onto the vault row for both compile
+  // paths; fall back to the vault_members lookup only for older rows
+  // compiled before that column existed.
+  let keyOrigins = vault.key_origins || [];
+  if (!keyOrigins.length) {
+    const { data: signers } = await supabase
+      .from('vault_members')
+      .select('pubkey, fingerprint, derivation_path')
+      .eq('vault_id', vault_id)
+      .eq('status', 'active');
+    keyOrigins = (signers || [])
+      .filter((m) => m.pubkey && m.fingerprint && m.derivation_path)
+      .map((m) => ({
+        pubkey: m.pubkey,
+        fingerprint: m.fingerprint,
+        derivation_path: m.derivation_path.replace(/\/+$/, '') + '/0/0',
+      }));
+  }
 
   const network = vault.network || 'testnet';
   const base    = MEMPOOL[network] || MEMPOOL.testnet;

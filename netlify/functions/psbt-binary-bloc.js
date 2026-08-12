@@ -39,6 +39,11 @@ const TR_INPUT_VBYTES  = 57.5;
 const TR_OUTPUT_VBYTES = 43;
 const TX_OVERHEAD      = 10.5;
 
+// See psbt-binary.js for why this bound exists: an unbounded
+// caller-supplied fee_rate could drain most of a spend into fees.
+const MIN_FEE_RATE_SAT_VB = 1;
+const MAX_FEE_RATE_SAT_VB = 1000;
+
 async function mempoolFetch(url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`mempool.space ${res.status}: ${url}`);
@@ -137,6 +142,9 @@ export async function handler(event) {
   if (!address)     return json(400, { error: 'Missing: address' });
   if (!destination) return json(400, { error: 'Missing: destination' });
   if (!amount_sats || amount_sats < 546) return json(400, { error: 'amount_sats must be >= 546' });
+  if (fee_rate != null && (fee_rate < MIN_FEE_RATE_SAT_VB || fee_rate > MAX_FEE_RATE_SAT_VB)) {
+    return json(400, { error: `fee_rate must be between ${MIN_FEE_RATE_SAT_VB} and ${MAX_FEE_RATE_SAT_VB} sat/vB` });
+  }
   if (!BLOC_PATHS.has(path)) return json(400, { error: `Unknown path: ${path}` });
   if (path === 'kids_decay' && !quorum) {
     return json(400, { error: 'kids_decay requires a quorum (which decay rung to spend)' });

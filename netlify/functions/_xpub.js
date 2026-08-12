@@ -17,11 +17,23 @@ import { HDKey } from "@scure/bip32";
 const MAINNET = { private: 0x0488ade4, public: 0x0488b21e };
 const TESTNET = { private: 0x04358394, public: 0x043587cf };
 
+const PRIVATE_PREFIXES = new Set(["xprv", "tprv", "uprv", "vprv"]);
+
 function parseAnyXpub(xpub) {
   const head = xpub.slice(0, 4);
-  const isTestnet = head === "tpub" || head === "tprv" ||
-                    head === "upub" || head === "uprv" ||
-                    head === "vpub" || head === "vprv";
+  // "Keys never leave the browser unencrypted" (see CLAUDE.md) applies
+  // just as much to a private extended key arriving HERE as to a raw
+  // seed -- xprv/tprv/uprv/vprv let an attacker derive every key in
+  // the whole account, not just the one this endpoint asked for. This
+  // server-side helper must refuse to touch private key material at
+  // all rather than silently parsing it and computing a public child
+  // from it, which would put the private key in this process's memory
+  // (and any logs/traces around this call) for material that should
+  // never have reached the server in the first place.
+  if (PRIVATE_PREFIXES.has(head)) {
+    throw new Error("Refusing to accept a private extended key (xprv/tprv/uprv/vprv) -- only public xpubs may be sent to the server");
+  }
+  const isTestnet = head === "tpub" || head === "upub" || head === "vpub";
   const versions = isTestnet ? TESTNET : MAINNET;
   return HDKey.fromExtendedKey(xpub, versions);
 }

@@ -46,6 +46,27 @@ export async function handler(event) {
 
   if (!vault) return json(404, { error: 'Vault not found' });
 
+  // Quorum is path-dependent -- an inheritance-path proposal is fully
+  // signed at heir_quorum signatures, not founder_quorum. Comparing
+  // every merge unconditionally against founder_quorum (the previous
+  // behavior) either falsely reported a fully-signed inheritance
+  // proposal as still pending, or vice versa, depending on how the two
+  // quorums relate for a given vault. Same path -> quorum mapping
+  // governance.js already uses. Falls back to founder_quorum when no
+  // proposal_id is given, since there's no path to look up.
+  let requiredQuorum = vault.founder_quorum;
+  if (proposal_id) {
+    const { data: proposalForQuorum } = await supabase
+      .from('proposals')
+      .select('path')
+      .eq('id', proposal_id)
+      .eq('vault_id', vault_id)
+      .maybeSingle();
+    if (proposalForQuorum?.path === 'inheritance') {
+      requiredQuorum = vault.heir_quorum;
+    }
+  }
+
   const { data: membership } = await supabase
     .from('vault_members')
     .select('id')
@@ -79,7 +100,7 @@ export async function handler(event) {
     // any active member merging signatures may update the shared
     // proposal record, not only whoever originally created it.
     if (proposal_id) {
-      const isFullySigned = data.signature_count >= vault.founder_quorum;
+      const isFullySigned = data.signature_count >= requiredQuorum;
       await supabase
         .from('proposals')
         .update({
@@ -104,7 +125,7 @@ export async function handler(event) {
       psbt_b64:        data.psbt_b64,
       input_count:     data.input_count,
       signature_count: data.signature_count,
-      fully_signed:    data.signature_count >= vault.founder_quorum,
+      fully_signed:    data.signature_count >= requiredQuorum,
     });
 
   } catch (err) {

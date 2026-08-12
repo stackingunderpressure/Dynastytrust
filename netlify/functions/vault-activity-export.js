@@ -19,7 +19,7 @@ export async function handler(event) {
     return { statusCode: 405, body: "Method not allowed" };
   }
 
-  const u = await requireUser(event);
+  const u = await requireUser(event, { allowQueryToken: true }); // opened as a plain link (window.open / <a href>), needs the ?token= fallback
   if (u.error) return json(401, { error: u.error });
 
   const id = event.queryStringParameters?.vault_id ?? event.queryStringParameters?.id;

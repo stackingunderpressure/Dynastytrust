@@ -141,7 +141,14 @@ export async function handler(event) {
 const BLOCKS_PER_DAY = 144;
 
 function jsGovernanceStatus(policy, utxo_age_blocks) {
-  const recovery_unlocked    = utxo_age_blocks >= policy.recovery_after;
+  // recovery_after == 0 means this vault has no recovery leaf at all
+  // (the "Gift Locker" shape -- see protocol/src/governance.rs's
+  // evaluate_vault_status doc comment, the Rust engine this JS fallback
+  // mirrors). Without the has_recovery guard, utxo_age_blocks >= 0 is
+  // trivially true and every Gift Locker vault reports recovery as
+  // already unlocked from block 0.
+  const has_recovery         = policy.recovery_after > 0;
+  const recovery_unlocked    = has_recovery && utxo_age_blocks >= policy.recovery_after;
   const inheritance_unlocked = utxo_age_blocks >= policy.inheritance_after;
 
   const active_paths = ['founders_now'];
@@ -152,7 +159,7 @@ function jsGovernanceStatus(policy, utxo_age_blocks) {
     : recovery_unlocked ? 'recovery_unlocked'
     : 'active';
 
-  const blocks_until_recovery    = recovery_unlocked    ? null : policy.recovery_after - utxo_age_blocks;
+  const blocks_until_recovery    = (!has_recovery || recovery_unlocked) ? null : policy.recovery_after - utxo_age_blocks;
   const blocks_until_inheritance = inheritance_unlocked ? null : policy.inheritance_after - utxo_age_blocks;
 
   return {
@@ -164,7 +171,9 @@ function jsGovernanceStatus(policy, utxo_age_blocks) {
     days_until_recovery:    blocks_until_recovery    != null ? blocks_until_recovery / BLOCKS_PER_DAY    : null,
     days_until_inheritance: blocks_until_inheritance != null ? blocks_until_inheritance / BLOCKS_PER_DAY : null,
     status_label: phase === 'active'
-      ? `Active — founders can spend. Recovery unlocks in ~${Math.round(blocks_until_recovery / BLOCKS_PER_DAY)} days.`
+      ? (has_recovery
+          ? `Active — founders can spend. Recovery unlocks in ~${Math.round(blocks_until_recovery / BLOCKS_PER_DAY)} days.`
+          : `Active — founders can spend. No separate recovery path on this vault.`)
       : phase === 'recovery_unlocked'
       ? `Recovery path unlocked. Inheritance unlocks in ~${Math.round(blocks_until_inheritance / BLOCKS_PER_DAY)} days.`
       : 'All paths unlocked. Founders and heirs can spend.',
@@ -172,8 +181,13 @@ function jsGovernanceStatus(policy, utxo_age_blocks) {
 }
 
 function jsGovernanceAudit(policy, { path, amount_sats, destination, utxo_age_blocks, total_vault_sats, signers }) {
+  // Same has_recovery guard as jsGovernanceStatus above -- a Gift
+  // Locker vault (recovery_after == 0) has no recovery leaf, so a
+  // Recovery-path audit must never be reported timelock-satisfied
+  // just because utxo_age_blocks >= 0 is trivially true.
+  const has_recovery = policy.recovery_after > 0;
   const timelock_ok = path === 'founders_now' ? true
-    : path === 'recovery'    ? utxo_age_blocks >= policy.recovery_after
+    : path === 'recovery'    ? (has_recovery && utxo_age_blocks >= policy.recovery_after)
     : utxo_age_blocks >= policy.inheritance_after;
 
   const required = (path === 'inheritance') ? policy.heir_quorum : policy.founder_quorum;
@@ -185,11 +199,16 @@ function jsGovernanceAudit(policy, { path, amount_sats, destination, utxo_age_bl
   const notes      = [];
 
   if (!timelock_ok) {
-    const needed = path === 'recovery'
-      ? policy.recovery_after - utxo_age_blocks
-      : policy.inheritance_after - utxo_age_blocks;
-    violations.push({ rule: { id: 'GOV-001', description: 'Timelock not satisfied', severity: 'hard' },
-      detail: `Current chain height ${utxo_age_blocks} is below the unlock height. Needs ${needed} more blocks (~${Math.round(needed/BLOCKS_PER_DAY)} days).` });
+    if (path === 'recovery' && !has_recovery) {
+      violations.push({ rule: { id: 'GOV-001', description: 'Timelock not satisfied', severity: 'hard' },
+        detail: 'This vault has no separate recovery path -- founders spend via Founders Now at any time.' });
+    } else {
+      const needed = path === 'recovery'
+        ? policy.recovery_after - utxo_age_blocks
+        : policy.inheritance_after - utxo_age_blocks;
+      violations.push({ rule: { id: 'GOV-001', description: 'Timelock not satisfied', severity: 'hard' },
+        detail: `Current chain height ${utxo_age_blocks} is below the unlock height. Needs ${needed} more blocks (~${Math.round(needed/BLOCKS_PER_DAY)} days).` });
+    }
   }
   if (!quorum_ok) {
     violations.push({ rule: { id: 'GOV-002', description: 'Quorum not satisfied', severity: 'hard' },

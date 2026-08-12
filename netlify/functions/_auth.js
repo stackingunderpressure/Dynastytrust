@@ -22,19 +22,28 @@ const JWKS = createRemoteJWKSet(
 );
 
 /**
- * Verify the Bearer token in the event headers, falling back to a
- * `?token=` query-string param when there's no Authorization header --
- * needed for endpoints opened as a plain navigation/link (window.open,
- * <a href>), which can't set custom request headers. Used by vault-pdf.js
- * and vault-tax-summary.js, both built to hand back a `pdfUrl`/
- * `taxSummaryUrl` with the token embedded in the query string for exactly
- * this reason.
+ * Verify the Bearer token in the event headers. Pass
+ * `{ allowQueryToken: true }` to also fall back to a `?token=`
+ * query-string param when there's no Authorization header -- needed
+ * for endpoints opened as a plain navigation/link (window.open,
+ * <a href>), which can't set custom request headers. Only the four
+ * endpoints apps/web/src/lib/api.ts builds a `?token=`-bearing URL for
+ * -- vault-pdf.js, vault-tax-summary.js, vault-audit-pdf.js, and
+ * vault-activity-export.js -- opt in.
+ *
+ * This must stay opt-in, not the default: a query-string token ends up
+ * in server access logs, browser history, and Referer headers wherever
+ * it's followed from, and requireUser is imported by every one of this
+ * app's ~40 Netlify functions -- most of which are called with fetch()
+ * and never need this fallback at all.
  * Returns { userId } on success or { error } on failure.
  */
-export async function requireUser(event) {
+export async function requireUser(event, { allowQueryToken = false } = {}) {
   const auth =
     event.headers?.authorization || event.headers?.Authorization || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : (event.queryStringParameters?.token || null);
+  const token = auth.startsWith("Bearer ")
+    ? auth.slice(7)
+    : (allowQueryToken ? (event.queryStringParameters?.token || null) : null);
 
   if (!token) {
     return { error: "Missing Authorization: Bearer <token>" };
