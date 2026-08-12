@@ -24,15 +24,10 @@
 
 import { requireUser, json } from './_auth.js';
 import { getSupabaseAdmin } from './_supabase.js';
+import { MEMPOOL, mempoolFetch, getFeeRate } from './_chain.js';
 
 const COMPILER_URL    = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
-
-const MEMPOOL = {
-  testnet: 'https://mempool.space/testnet/api',
-  signet:  'https://mempool.space/signet/api',
-  bitcoin: 'https://mempool.space/api',
-};
 
 // Taproot input: 57.5 vbytes, output: 43 vbytes, overhead: 10.5.
 const TR_INPUT_VBYTES  = 57.5;
@@ -43,20 +38,6 @@ const TX_OVERHEAD      = 10.5;
 // caller-supplied fee_rate could drain most of a spend into fees.
 const MIN_FEE_RATE_SAT_VB = 1;
 const MAX_FEE_RATE_SAT_VB = 1000;
-
-async function mempoolFetch(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`mempool.space ${res.status}: ${url}`);
-  return res.json();
-}
-
-async function getFeeRate(network) {
-  try {
-    const base = MEMPOOL[network] || MEMPOOL.testnet;
-    const fees = await mempoolFetch(`${base}/v1/fees/recommended`);
-    return fees.halfHourFee || fees.economyFee || 5;
-  } catch { return 5; }
-}
 
 // Size a script-path (tapscript leaf) taproot input properly instead of
 // the flat TR_INPUT_VBYTES guess, which is only correct for a plain

@@ -7,18 +7,7 @@
  */
 
 import { json } from './_auth.js';
-
-const MEMPOOL = {
-  testnet: 'https://mempool.space/testnet/api',
-  signet:  'https://mempool.space/signet/api',
-  bitcoin: 'https://mempool.space/api',
-};
-
-async function fetchJSON(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${url}`);
-  return res.json();
-}
+import { MEMPOOL, mempoolFetch } from './_chain.js';
 
 export async function handler(event) {
   if (event.httpMethod !== 'GET') return json(405, { error: 'Method not allowed' });
@@ -41,8 +30,8 @@ export async function handler(event) {
   try {
     // Fetch address stats and UTXOs in parallel
     const [stats, utxos] = await Promise.all([
-      fetchJSON(`${base}/address/${address}`),
-      fetchJSON(`${base}/address/${address}/utxo`),
+      mempoolFetch(`${base}/address/${address}`),
+      mempoolFetch(`${base}/address/${address}/utxo`),
     ]);
 
     const confirmed_sats =
@@ -61,7 +50,7 @@ export async function handler(event) {
     let btc_price_usd = null;
     if (network === 'bitcoin') {
       try {
-        const price = await fetchJSON('https://mempool.space/api/v1/prices');
+        const price = await mempoolFetch('https://mempool.space/api/v1/prices');
         btc_price_usd = price?.USD || null;
       } catch { /* price is optional */ }
     }

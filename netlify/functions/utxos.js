@@ -9,18 +9,7 @@
 
 import { requireUser, json } from "./_auth.js";
 import { getSupabaseAdmin } from "./_supabase.js";
-
-const MEMPOOL = {
-  testnet: "https://mempool.space/testnet/api",
-  signet:  "https://mempool.space/signet/api",
-  bitcoin: "https://mempool.space/api",
-};
-
-async function mempoolFetch(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`mempool.space ${res.status}: ${url}`);
-  return res.json();
-}
+import { MEMPOOL, mempoolFetch } from "./_chain.js";
 
 async function assertMember(supabase, vaultId, userId) {
   const { data } = await supabase

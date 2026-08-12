@@ -13,15 +13,10 @@
 import { requireUser, json } from './_auth.js';
 import { getSupabaseAdmin } from './_supabase.js';
 import { pubkeyFromXpub } from './_xpub.js';
+import { MEMPOOL, mempoolFetch, getFeeRate } from './_chain.js';
 
 const COMPILER_URL    = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
-
-const MEMPOOL = {
-  testnet: 'https://mempool.space/testnet/api',
-  signet:  'https://mempool.space/signet/api',
-  bitcoin: 'https://mempool.space/api',
-};
 
 // Taproot key-path input: 57.5 vbytes, output: 43 vbytes, overhead: 10.5.
 // TR_INPUT_VBYTES is only correct for a plain single-key key-path spend.
@@ -45,20 +40,6 @@ const TX_OVERHEAD      = 10.5;
 // rejects a zero-or-negative rate outright.
 const MIN_FEE_RATE_SAT_VB = 1;
 const MAX_FEE_RATE_SAT_VB = 1000;
-
-async function mempoolFetch(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`mempool.space ${res.status}: ${url}`);
-  return res.json();
-}
-
-async function getFeeRate(network) {
-  try {
-    const base = MEMPOOL[network] || MEMPOOL.testnet;
-    const fees = await mempoolFetch(`${base}/v1/fees/recommended`);
-    return fees.halfHourFee || fees.economyFee || 5;
-  } catch { return 5; }
-}
 
 // Which leaf a spend path actually signs through, and how many of the
 // vault's keys sit in that leaf -- recovery reuses the founder keys
