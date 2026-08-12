@@ -825,10 +825,30 @@ function DiscussionSection({
     }
   }
 
-  // Latest vote per member -- later rows supersede earlier ones.
+  // 2026-08-11 audit (operator: "You can vote three or four times, it
+  // may log it down, but it doesn't show you who voted for what"):
+  // every vote was always correctly persisted as its own row (an
+  // intentional audit trail, per proposal-comments.js's own header --
+  // "the old row is kept for audit; UI dedupes to the latest per-member
+  // vote") and this Map has always correctly resolved to each member's
+  // CURRENT vote. The actual gap was downstream: latestVoteByUser was
+  // only ever used to build the bare tally counts below (approve 2,
+  // abstain 1...), never rendered as a roster naming WHO stands where
+  // -- an operator scrolling a chronological comment feed had to
+  // mentally track "which of Bob's four rows is current" themselves.
+  // VoteRoster (below) is the fix: one row per member, their current
+  // vote or "Not yet voted," by name.
   const latestVoteByUser = new Map<string, ProposalVote>();
+  // Which comment id actually SET each member's current vote -- lets
+  // CommentRow mark an earlier, since-superseded vote-only row as
+  // "changed since" instead of presenting four identical-looking badges
+  // with no way to tell which one still holds.
+  const latestVoteCommentIdByUser = new Map<string, string>();
   for (const c of comments) {
-    if (c.vote) latestVoteByUser.set(c.user_id, c.vote);
+    if (c.vote) {
+      latestVoteByUser.set(c.user_id, c.vote);
+      latestVoteCommentIdByUser.set(c.user_id, c.id);
+    }
   }
   const tally = { approve: 0, abstain: 0, decline: 0 };
   for (const v of latestVoteByUser.values()) tally[v]++;
@@ -874,6 +894,8 @@ function DiscussionSection({
         </div>
       </div>
 
+      <VoteRoster members={members} latestVoteByUser={latestVoteByUser} currentUserId={currentUserId} />
+
       {loading ? (
         <p style={{ color: colors.muted, fontSize: 13 }}>Loading...</p>
       ) : comments.length === 0 ? (
@@ -889,6 +911,7 @@ function DiscussionSection({
               authorLabel={authorLabel(c.user_id)}
               canDelete={c.user_id === currentUserId}
               onDelete={() => void remove(c.id)}
+              superseded={!!c.vote && latestVoteCommentIdByUser.get(c.user_id) !== c.id}
             />
           ))}
         </div>
@@ -911,6 +934,12 @@ function DiscussionSection({
               padding: 3,
             }}
           >
+            {/* 2026-08-11 fix (operator: "some weird places in the UI") --
+                an unselected pill used to render as bare grey text with no
+                border or background, which read as disabled/unclickable
+                rather than as one of three pickable options. Every pill now
+                keeps a visible border so the row reads as a real segmented
+                control regardless of which (if any) is currently picked. */}
             {(["approve", "abstain", "decline"] as const).map(v => (
               <button
                 key={v}
@@ -918,10 +947,11 @@ function DiscussionSection({
                 onClick={() => setVote(vote === v ? "" : v)}
                 style={{
                   padding: "6px 14px",
-                  border: "none",
+                  minHeight: 32,
+                  border: `1px solid ${vote === v ? voteColor(v) : colors.border}`,
                   borderRadius: radii.sm,
                   background: vote === v ? voteColor(v) + "33" : "transparent",
-                  color: vote === v ? voteColor(v) : colors.muted,
+                  color: vote === v ? voteColor(v) : colors.text,
                   fontSize: 12,
                   fontFamily: fonts.sans,
                   cursor: "pointer",
@@ -943,16 +973,85 @@ function DiscussionSection({
   );
 }
 
+// 2026-08-11 (operator: "it doesn't show you who voted for what or
+// where why") -- the roster the tally counts never had: one row per
+// vault member, their CURRENT vote (or "Not yet voted"), by name. The
+// comment feed below still carries the full audit trail (every vote
+// ever cast, including changed ones); this is the at-a-glance summary
+// of where things actually stand right now.
+function VoteRoster({
+  members,
+  latestVoteByUser,
+  currentUserId,
+}: {
+  members: VaultMember[];
+  latestVoteByUser: Map<string, ProposalVote>;
+  currentUserId: string | null;
+}) {
+  if (members.length === 0) return null;
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+        marginBottom: 14,
+        padding: "10px 12px",
+        background: colors.inset,
+        border: `1px solid ${colors.border}`,
+        borderRadius: radii.md,
+      }}
+    >
+      {members.map(m => {
+        const v = latestVoteByUser.get(m.user_id);
+        return (
+          <div
+            key={m.id}
+            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}
+          >
+            <span style={{ fontSize: 12, color: colors.text, minWidth: 0 }}>
+              {m.label || "Unnamed"}
+              {m.user_id === currentUserId && <span style={{ color: colors.muted }}> (you)</span>}
+            </span>
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                padding: "2px 7px",
+                borderRadius: 4,
+                background: v ? voteColor(v) + "22" : "transparent",
+                color: v ? voteColor(v) : colors.muted,
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+                flexShrink: 0,
+              }}
+            >
+              {v ?? "Not yet voted"}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function CommentRow({
   comment,
   authorLabel,
   canDelete,
   onDelete,
+  superseded,
 }: {
   comment: ProposalComment;
   authorLabel: string;
   canDelete: boolean;
   onDelete: () => void;
+  /** True when this row's vote is NOT the author's current one -- a
+   *  later comment (with or without a new vote) replaced it. The row
+   *  stays in the feed (the audit trail is intentional -- see
+   *  proposal-comments.js), just visibly marked so scrolling the
+   *  thread never reads as "four current votes from the same person." */
+  superseded: boolean;
 }) {
   return (
     <div
@@ -964,6 +1063,7 @@ function CommentRow({
         background: colors.inset,
         border: `1px solid ${colors.border}`,
         borderRadius: radii.md,
+        opacity: superseded ? 0.6 : 1,
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
@@ -984,6 +1084,9 @@ function CommentRow({
             >
               {comment.vote}
             </span>
+          )}
+          {superseded && (
+            <span style={{ fontSize: 10, color: colors.muted, fontStyle: "italic" }}>changed since</span>
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
