@@ -58,8 +58,60 @@ async function getFeeRate(network) {
   } catch { return 5; }
 }
 
-function estimateFee(numInputs, numOutputs, feeRate) {
-  return Math.ceil((TX_OVERHEAD + numInputs * TR_INPUT_VBYTES + numOutputs * TR_OUTPUT_VBYTES) * feeRate);
+// Size a script-path (tapscript leaf) taproot input properly instead of
+// the flat TR_INPUT_VBYTES guess, which is only correct for a plain
+// key-path spend and underestimated every Bloc leaf -- even the
+// simplest one (parents_now at, say, 2-of-3) is already far bigger
+// than a key-path spend once the leaf script and control block are
+// counted. Ported from psbt-binary.js's tapscript-sizing math.
+//
+// Bloc's leaves aren't all the same shape, though: parents_now,
+// parent_solo, and each kids_decay rung are a single flat
+// thresh(quorum, total); coparent_kids is
+// and(thresh(coparent_quorum, parents), thresh(kids_with_parent_quorum, kids))
+// -- an AND of two SEPARATE thresholds, needing sigs from BOTH groups
+// and a bigger leaf script than a single thresh(). The coparent_kids
+// branch below sums both groups' cost, which won't match the compiled
+// miniscript byte-for-byte but is a much closer bound than the flat
+// constant was -- and erring slightly high is the safe direction for
+// a fee estimate, not the dangerous one.
+function estimateBlocInputVbytes(policy, path, quorum, treeDepth) {
+  const controlBlock = 33 + 1 + 32 * treeDepth;
+  const parentTotal = (policy.parent_keys || []).length;
+  const kidTotal = (policy.kid_keys || []).length;
+
+  let witnessBytes;
+  if (path === 'coparent_kids') {
+    const parentQuorum = policy.coparent_quorum ?? 0;
+    const kidQuorum = policy.kids_with_parent_quorum ?? 0;
+    const leafScript = (33 * parentTotal + 2) + (33 * kidTotal + 2) + 8; // both sub-scripts + AND overhead
+    witnessBytes =
+      parentQuorum * 65 + Math.max(parentTotal - parentQuorum, 0) * 1 +
+      kidQuorum * 65 + Math.max(kidTotal - kidQuorum, 0) * 1 +
+      (leafScript + 3) + (controlBlock + 3) + 1;
+  } else {
+    const total = (path === 'parent_solo' || path === 'parents_now') ? parentTotal : kidTotal;
+    const leafScript = 33 * total + 2;
+    witnessBytes =
+      quorum * 65 + Math.max(total - quorum, 0) * 1 +
+      (leafScript + 3) + (controlBlock + 3) + 1;
+  }
+  const baseInput = 41;
+  return baseInput + witnessBytes / 4;
+}
+
+// Total leaves in this Bloc vault's tree: parents_now + coparent_kids +
+// parent_solo + one per kids_decay rung (start quorum down to floor
+// quorum, inclusive, stepping by one -- matches build_bloc_multileaf's
+// decay loop in protocol/src/policy_compiler.rs exactly).
+function leafCountForBlocTree(policy) {
+  const rungs = Math.max(1,
+    (policy.kids_decay_start_quorum ?? 1) - (policy.kids_decay_floor_quorum ?? 1) + 1);
+  return 3 + rungs;
+}
+
+function estimateFee(numInputs, numOutputs, feeRate, inputVbytes = TR_INPUT_VBYTES) {
+  return Math.ceil((TX_OVERHEAD + numInputs * inputVbytes + numOutputs * TR_OUTPUT_VBYTES) * feeRate);
 }
 
 const BLOC_PATHS = new Set(['parents_now', 'coparent_kids', 'parent_solo', 'kids_decay']);
@@ -177,8 +229,22 @@ export async function handler(event) {
   }
 
   // Fee + greedy largest-first coin selection (matches psbt-binary.js).
-  const rate   = fee_rate || await getFeeRate(network);
-  const estFee = estimateFee(1, 2, rate);
+  // The leaf quorum for fee-sizing purposes: for kids_decay the caller's
+  // own `quorum` IS the specific rung being spent through; every other
+  // path has a single fixed quorum on the policy itself.
+  const rate = fee_rate || await getFeeRate(network);
+  const leafQuorum = path === 'kids_decay' ? quorum
+    : path === 'parents_now' ? parents_together_quorum
+    : path === 'parent_solo' ? parent_solo_quorum
+    : 0; // coparent_kids reads both quorums directly inside estimateBlocInputVbytes
+  const treeDepth = Math.ceil(Math.log2(Math.max(leafCountForBlocTree({
+    kids_decay_start_quorum, kids_decay_floor_quorum,
+  }), 2)));
+  const inputVbytes = estimateBlocInputVbytes(
+    { parent_keys, kid_keys, coparent_quorum, kids_with_parent_quorum },
+    path, leafQuorum, treeDepth,
+  );
+  const estFee = estimateFee(1, 2, rate, inputVbytes);
   const sorted = [...confirmed].sort((a, b) => b.value - a.value);
   const selected = [];
   let totalIn = 0;
@@ -188,7 +254,7 @@ export async function handler(event) {
     if (totalIn >= amount_sats + estFee) break;
   }
 
-  const finalFee  = estimateFee(selected.length, 2, rate);
+  const finalFee  = estimateFee(selected.length, 2, rate, inputVbytes);
   const changeVal = totalIn - amount_sats - finalFee;
   const hasChange = changeVal >= 546;
 
