@@ -307,6 +307,17 @@ export async function handler(event) {
     }
   }));
 
+  // Bail loudly if any prevout scriptPubKey could not be fetched -- an
+  // empty one yields a malformed witness_utxo that only fails later at
+  // sign/finalize with an opaque error. Matches psbt-binary-bloc.js /
+  // psbt-binary-tranche.js's identical guard, missing here until now.
+  const missingSpk = inputsWithScript.find((i) => !i.script_pubkey);
+  if (missingSpk) {
+    return json(502, {
+      error: `Could not fetch the scriptPubKey for input ${missingSpk.txid}:${missingSpk.vout}. Try again in a moment.`,
+    });
+  }
+
   // Build binary PSBT via Rust compiler
   if (!COMPILER_URL) {
     // Fallback: return JSON PSBT structure for manual import

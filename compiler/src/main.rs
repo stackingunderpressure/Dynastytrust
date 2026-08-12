@@ -709,8 +709,16 @@ async fn psbt_binary(
     let has_tap_leaf = full_spend_info.is_some();
 
     for (i, utxo_in) in req.inputs.iter().enumerate() {
-        // witness_utxo — mandatory for all hardware wallets
-        let spk_bytes = hex::decode(&utxo_in.script_pubkey).unwrap_or_default();
+        // witness_utxo — mandatory for all hardware wallets. A malformed
+        // hex string here must fail loudly, not silently coerce to an
+        // empty scriptPubKey -- an empty script isn't p2tr, so the whole
+        // tap_internal_key/tap_scripts attachment below would be quietly
+        // skipped for this input, producing a PSBT with a bogus witness
+        // that only fails later at sign/finalize with a confusing error.
+        let spk_bytes = hex::decode(&utxo_in.script_pubkey).map_err(|e| api_err(
+            StatusCode::BAD_REQUEST,
+            format!("bad script_pubkey for input {}:{}: {e}", utxo_in.txid, utxo_in.vout),
+        ))?;
         let spk = ScriptBuf::from_bytes(spk_bytes);
         psbt.inputs[i].witness_utxo = Some(TxOut {
             value: Amount::from_sat(utxo_in.value_sats),
@@ -1242,6 +1250,39 @@ async fn governance_audit(
     Ok(Json(serde_json::json!({ "ok": true, "audit": audit, "evaluation": eval, "next_action": action })))
 }
 
+// ── /validate-address ───────────────────────────────────────────────────────
+// vaults.js persists a client-supplied {address, descriptor,
+// miniscript_policy} triple with no server-side re-derivation binding
+// them together -- under this project's own compromised-coordinator
+// threat model, nothing stopped a bad actor with control of the
+// coordinator from silently swapping in an address the founder keys
+// don't actually control, and a user funding it based on the UI
+// showing "this is your vault" would lose everything to whoever DOES
+// control that address. Full descriptor->address re-derivation (fully
+// closing the gap) is a larger undertaking than fits this pass; this
+// endpoint closes the simplest and most dangerous form of it -- a
+// malformed, wrong-network, or outright garbage address string being
+// persisted with literally zero validation.
+
+#[derive(Deserialize)]
+struct ValidateAddressRequest { address: String, network: String }
+
+#[derive(Serialize)]
+struct ValidateAddressResponse { ok: bool, valid: bool }
+
+async fn validate_address(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<ValidateAddressRequest>,
+) -> Result<Json<ValidateAddressResponse>, ApiError> {
+    check_auth(&headers, &state)?;
+    let network = parse_network(&req.network).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+    let valid = req.address.parse::<bitcoin::Address<_>>()
+        .map(|a| a.require_network(network).is_ok())
+        .unwrap_or(false);
+    Ok(Json(ValidateAddressResponse { ok: true, valid }))
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 #[tokio::main]
@@ -1262,6 +1303,7 @@ async fn main() {
         .route("/psbt-merge",        post(psbt_merge))
         .route("/governance/status", post(governance_status))
         .route("/governance/audit",  post(governance_audit))
+        .route("/validate-address",  post(validate_address))
         .with_state(state);
 
     let port: u16 = std::env::var("PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(8080);
@@ -1895,6 +1937,65 @@ mod psbt_finalize_hint_tests {
             "miniscript's real error text for a UTXO-less input changed shape -- \
              got: {joined}. Update psbt_finalize's hint branch to match."
         );
+    }
+}
+
+#[cfg(test)]
+mod validate_address_tests {
+    use super::*;
+    use dynastytrust_protocol::DynastyPolicy;
+
+    async fn check(address: &str, network: &str) -> bool {
+        let (state, headers) = test_auth_state_and_headers();
+        let req = ValidateAddressRequest { address: address.to_string(), network: network.to_string() };
+        let Json(resp) = validate_address(State(state), headers, Json(req)).await.unwrap();
+        resp.valid
+    }
+
+    fn real_address(network: Network) -> String {
+        let policy = DynastyPolicy {
+            founder_keys: vec![
+                PublicKey::from_str("02a3ed2c2b57903abe5b89108c66f4a144e8a316af2f013b739cf8975fc0365e97").unwrap(),
+                PublicKey::from_str("02d76c6752934c92bcafb0e575051b36e5ac4035db5329544521e203d6a7337569").unwrap(),
+            ],
+            founder_quorum: 2,
+            recovery_quorum: None,
+            heir_keys: vec![],
+            heir_quorum: 1,
+            recovery_after: 0,
+            inheritance_after: 0,
+            protector_keys: vec![],
+            protector_quorum: None,
+            protector_after: None,
+            consent_keys: vec![],
+            consent_quorum: None,
+            backup_keys: vec![],
+            backup_quorum: None,
+            second_heir_keys: vec![],
+            second_heir_quorum: None,
+            second_inheritance_after: None,
+        };
+        compile_dynasty_policy_tr_multileaf(policy, network).unwrap().address.to_string()
+    }
+
+    #[tokio::test]
+    async fn accepts_a_real_testnet_taproot_address() {
+        assert!(check(&real_address(Network::Testnet), "testnet").await);
+    }
+
+    #[tokio::test]
+    async fn rejects_garbage() {
+        assert!(!check("not-a-real-address", "testnet").await);
+        assert!(!check("", "testnet").await);
+    }
+
+    #[tokio::test]
+    async fn rejects_a_mainnet_address_claimed_as_testnet() {
+        // A syntactically real address, but for the WRONG network -- this
+        // is exactly the shape of bug this endpoint exists to catch:
+        // vaults.js persisting a client-claimed network alongside an
+        // address that doesn't actually belong to it.
+        assert!(!check(&real_address(Network::Bitcoin), "testnet").await);
     }
 }
 

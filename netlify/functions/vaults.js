@@ -1,6 +1,40 @@
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 
+const COMPILER_URL    = process.env.COMPILER_URL;
+const COMPILER_SECRET = process.env.COMPILER_SECRET;
+
+// Defense-in-depth for the compromised-coordinator threat model: the
+// isBloc and legacy branches below persist a client-supplied
+// {address, descriptor, miniscript_policy} triple with no derivation
+// binding them together. Full descriptor->address re-derivation is a
+// larger undertaking; this closes the simplest and most dangerous
+// form of the gap -- a malformed, wrong-network, or outright garbage
+// address being persisted with zero validation. If the compiler is
+// unreachable, this fails OPEN (returns true) rather than blocking
+// vault creation entirely on an unrelated outage -- the caller already
+// got this same address from a real /api/compile response moments
+// earlier in the normal flow, so an outage here is not the same class
+// of risk as never validating at all.
+async function looksLikeAValidAddress(address, network) {
+  if (!COMPILER_URL) return true;
+  try {
+    const res = await fetch(`${COMPILER_URL.replace(/\/$/, "")}/validate-address`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(COMPILER_SECRET ? { Authorization: `Bearer ${COMPILER_SECRET}` } : {}),
+      },
+      body: JSON.stringify({ address, network }),
+    });
+    if (!res.ok) return true;
+    const data = await res.json();
+    return data.ok ? data.valid : true;
+  } catch {
+    return true;
+  }
+}
+
 const VAULT_FIELDS =
   "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc, predecessor_id, duress, bloc_policy, leaf_scripts, backup_keys, backup_quorum, second_heir_keys, second_heir_quorum, second_inheritance_after";
 
@@ -123,6 +157,9 @@ export async function handler(event) {
       if (missing.length) {
         return json(400, { error: `bloc_policy missing: ${missing.join(", ")}` });
       }
+      if (!(await looksLikeAValidAddress(address, network))) {
+        return json(400, { error: `address does not look like a valid ${network} address` });
+      }
 
       insertRow = {
         user_id: u.userId,
@@ -182,6 +219,9 @@ export async function handler(event) {
       if (!address) return json(400, { error: "Missing: address" });
       if (!descriptor) return json(400, { error: "Missing: descriptor" });
       if (!miniscript_policy) return json(400, { error: "Missing: miniscript_policy" });
+      if (!(await looksLikeAValidAddress(address, network))) {
+        return json(400, { error: `address does not look like a valid ${network} address` });
+      }
 
       // The vault address was already compiled by /api/compile,
       // which converted any relative block offsets into absolute

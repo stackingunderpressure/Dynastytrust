@@ -27,6 +27,14 @@ export async function handler(event) {
   const network = event.queryStringParameters?.network || 'testnet';
 
   if (!address) return json(400, { error: 'Missing: address' });
+  // Bitcoin addresses (bech32/bech32m/base58) are alphanumeric only.
+  // Without this check, address was interpolated straight into the
+  // mempool.space URL path -- a value containing "/", "..", "?", or "#"
+  // could redirect this unauthenticated endpoint to a completely
+  // different mempool.space API path than /address/*/utxo.
+  if (!/^[a-zA-Z0-9]{14,90}$/.test(address)) {
+    return json(400, { error: 'Invalid address format' });
+  }
 
   const base = MEMPOOL[network] || MEMPOOL.testnet;
 
