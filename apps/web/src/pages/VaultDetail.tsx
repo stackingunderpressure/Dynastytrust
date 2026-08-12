@@ -494,6 +494,14 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
               </a>
             )}
           </div>
+          {vault.address && (
+            <div style={{ fontSize: 11, color: colors.muted, marginTop: 10, lineHeight: 1.5 }}>
+              This vault has one fixed address, reused for every deposit --
+              anyone who sees one payment to it can see every payment to it
+              and the eventual full spend. That's the tradeoff for hardware-
+              wallet compatibility; keep that in mind for how you fund it.
+            </div>
+          )}
         </div>
 
         {/* Missing-key nudge: persistent across tabs for signer roles. */}
@@ -2131,6 +2139,20 @@ function SendTab({ vault, balance, onDone, prefill }: {
           <span style={{ fontFamily: fonts.mono, fontSize: 11 }}>
             {prefill.selected_utxos.map(u => `${u.txid.slice(0, 8)}:${u.vout}`).join(", ")}
           </span>
+          {prefill.selected_utxos.length > 1 && (
+            <div style={{ marginTop: 4, color: colors.muted }}>
+              Spending these together publicly links them to the same
+              owner forever, even if they arrived separately.
+            </div>
+          )}
+        </div>
+      )}
+      {(!prefill?.selected_utxos || prefill.selected_utxos.length === 0) && (
+        <div style={{ fontSize: 11.5, color: colors.muted, lineHeight: 1.5 }}>
+          This picks your largest confirmed deposits first. If you are not
+          spending the full balance, that may combine several previously-
+          separate deposits into one public transaction. Pick specific
+          coins under UTXOs below if that matters for this spend.
         </div>
       )}
 
@@ -7397,18 +7419,29 @@ function UtxosSection({
             borderRadius: radii.md,
             fontSize: 12,
             marginBottom: 10,
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: 8,
           }}
         >
-          <span style={{ color: colors.gold }}>
-            {pickedCount} selected . {satsToBtc(pickedTotal)} BTC
-          </span>
-          <Button size="sm" style={{ fontSize: 11 }} onClick={spendPicked}>
-            Spend selected
-          </Button>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <span style={{ color: colors.gold }}>
+              {pickedCount} selected . {satsToBtc(pickedTotal)} BTC
+            </span>
+            <Button size="sm" style={{ fontSize: 11 }} onClick={spendPicked}>
+              Spend selected
+            </Button>
+          </div>
+          {pickedCount > 1 && (
+            <div style={{ marginTop: 6, color: colors.muted, fontSize: 11.5, lineHeight: 1.4 }}>
+              Spending these {pickedCount} together publicly links them to
+              the same owner forever, even though they arrived separately.
+            </div>
+          )}
         </div>
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
