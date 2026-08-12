@@ -149,11 +149,11 @@ export async function handler(event) {
     const reason = lastErr?.name === "AbortError"
       ? "Compiler timed out after 15s"
       : lastErr?.message || "Unknown error";
-    return json(502, {
-      error: `Compiler unreachable: ${reason}`,
-      compiler_url: COMPILER_URL,
-      secret_set: !!COMPILER_SECRET,
-    });
+    // See compile.js's identical fix: the internal compiler URL and
+    // whether its secret is configured are server infrastructure
+    // details, not something the client needs -- log, don't return.
+    console.error("Compiler unreachable:", { compiler_url: COMPILER_URL, secret_set: !!COMPILER_SECRET, reason });
+    return json(502, { error: `Compiler unreachable: ${reason}` });
   }
 
   return json(200, {

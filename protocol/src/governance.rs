@@ -246,11 +246,9 @@ pub fn evaluate_spend_proposal(
         SpendingPath::Inheritance => utxo_age_blocks >= policy.inheritance_after,
     };
 
-    let (required_signers, total_signers) = match path {
-        SpendingPath::FoundersNow | SpendingPath::Recovery =>
-            (policy.founder_quorum, policy.founder_key_count),
-        SpendingPath::Inheritance =>
-            (policy.heir_quorum, policy.heir_key_count),
+    let required_signers = match path {
+        SpendingPath::FoundersNow | SpendingPath::Recovery => policy.founder_quorum,
+        SpendingPath::Inheritance => policy.heir_quorum,
     };
 
     let signed_count = signer_statuses.iter().filter(|s| s.signed).count();
@@ -609,7 +607,7 @@ mod tests {
             &gift_locker_policy(), SpendingPath::Inheritance, 1_000, &signers(&[0], 1),
         );
         assert!(!too_early.allowed);
-        assert!(too_early.timelock_satisfied == false);
+        assert!(!too_early.timelock_satisfied);
 
         let unlocked = evaluate_spend_proposal(
             &gift_locker_policy(), SpendingPath::Inheritance, 60_000, &signers(&[0], 1),

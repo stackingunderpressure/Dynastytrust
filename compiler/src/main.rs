@@ -20,8 +20,7 @@ use dynastytrust_protocol::{
     BlocSpendRequest, DynastyBlocPolicy, DynastyPolicy, KeyOrigin, ProposedSpend, SignerStatus,
     SpendingPath, TranchePolicy, TrancheSpendRequest, VaultPolicy, VaultUTXO,
 };
-use miniscript::policy::concrete::Policy;
-use miniscript::{psbt::PsbtExt, Miniscript};
+use miniscript::psbt::PsbtExt;
 use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, str::FromStr, sync::Arc};
 
@@ -473,8 +472,7 @@ struct PsbtBinaryRequest {
     // both leave lock_time at 0. Values: "founders_now" | "recovery" |
     // "inheritance" | "protector" | "backup" | "second_inheritance".
     #[serde(default)] path: Option<String>,
-    // Fallback raw scripts (if policy params not provided)
-    leaf_script_hex:    Option<String>,
+    // Fallback raw witness script (if policy params not provided)
     witness_script_hex: Option<String>,
     // BIP32 origins for this vault's signers (2026-08-06 hardware-wallet
     // fix) -- see attach_tap_key_origins's doc comment in psbt_builder.rs
@@ -944,39 +942,6 @@ async fn psbt_binary_tranche(
     }))
 }
 
-fn build_founders_leaf_script(policy: &DynastyPolicy, addr_type: &str) -> Result<ScriptBuf> {
-    let founders: Vec<String> = policy.founder_keys.iter().map(|k| format!("pk({k})")).collect();
-    let trustee_thresh = format!("thresh({},{})", policy.founder_quorum, founders.join(","));
-    let founder_thresh = if policy.has_consent() {
-        let consenters: Vec<String> = policy.consent_keys.iter().map(|k| format!("pk({k})")).collect();
-        let consent_thresh = format!(
-            "thresh({},{})",
-            policy.consent_quorum.unwrap(),
-            consenters.join(","),
-        );
-        format!("and({},{})", trustee_thresh, consent_thresh)
-    } else {
-        trustee_thresh
-    };
-
-    if addr_type == "wsh" {
-        let heirs: Vec<String> = policy.heir_keys.iter().map(|k| format!("pk({k})")).collect();
-        let recovery = format!("and(after({}),{})", policy.recovery_after, founder_thresh);
-        let inheritance = format!("and(after({}),thresh({},{}))",
-            policy.inheritance_after, policy.heir_quorum, heirs.join(","));
-        let full = format!("or({},or({},{}))", founder_thresh, recovery, inheritance);
-        let ms: Miniscript<PublicKey, miniscript::Segwitv0> = full
-            .parse::<Policy<PublicKey>>().map_err(|e| anyhow!("{e:?}"))?
-            .compile().map_err(|e| anyhow!("{e:?}"))?;
-        Ok(ms.encode())
-    } else {
-        let ms: Miniscript<PublicKey, miniscript::Tap> = founder_thresh
-            .parse::<Policy<PublicKey>>().map_err(|e| anyhow!("{e:?}"))?
-            .compile().map_err(|e| anyhow!("{e:?}"))?;
-        Ok(ms.encode())
-    }
-}
-
 // ── /psbt-finalize ────────────────────────────────────────────────────────────
 //
 // Finalizes a fully-signed PSBT and extracts the raw transaction.
@@ -1417,7 +1382,6 @@ mod psbt_binary_tests {
             second_heir_quorum: policy.second_heir_quorum,
             second_inheritance_after: policy.second_inheritance_after,
             path: Some(path.into()),
-            leaf_script_hex: None,
             witness_script_hex: None,
             key_origins,
         };
@@ -1484,7 +1448,6 @@ mod psbt_binary_tests {
             second_heir_quorum: policy.second_heir_quorum,
             second_inheritance_after: policy.second_inheritance_after,
             path: Some("founders_now".into()),
-            leaf_script_hex: None,
             witness_script_hex: None,
             key_origins: vec![],
         };

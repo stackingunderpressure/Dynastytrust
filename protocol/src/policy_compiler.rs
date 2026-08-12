@@ -1,7 +1,7 @@
 use bitcoin::{Address, Network, PublicKey};
 use bitcoin::secp256k1::{Secp256k1, XOnlyPublicKey};
 use bitcoin::taproot::{TapTree, TaprootBuilder, TaprootSpendInfo};
-use miniscript::policy::{Concrete, Liftable};
+use miniscript::policy::Concrete;
 use miniscript::{Descriptor, Miniscript};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;

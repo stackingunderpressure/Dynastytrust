@@ -193,11 +193,12 @@ export async function handler(event) {
     const reason = lastErr?.name === 'AbortError'
       ? 'Compiler timed out after 15s'
       : lastErr?.message || 'Unknown error';
-    return json(502, {
-      error: `Compiler unreachable: ${reason}`,
-      compiler_url: COMPILER_URL,
-      secret_set: !!COMPILER_SECRET,
-    });
+    // The internal Fly.io compiler URL and whether its secret is
+    // configured are server infrastructure details, not something an
+    // authenticated app user needs to debug a transient network blip --
+    // log them server-side instead of handing them back in the response.
+    console.error('Compiler unreachable:', { compiler_url: COMPILER_URL, secret_set: !!COMPILER_SECRET, reason });
+    return json(502, { error: `Compiler unreachable: ${reason}` });
   }
 
   // 5. Optionally save to Supabase

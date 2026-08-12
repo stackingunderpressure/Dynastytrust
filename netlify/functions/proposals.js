@@ -13,6 +13,21 @@ import { fetchTipHeight } from './_chain.js';
 const COMPILER_URL    = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
 
+// A proposal's real lifecycle, gathered from every place status is
+// written across this app: created draft (no psbt yet) or pending
+// (psbt attached) -> psbt-merge.js bumps to signed once quorum is
+// met -> the UI moves it to broadcast (with a txid) or cancelled, or
+// (tranche claims filed as proposals) fulfilled.
+const VALID_STATUSES = ['draft', 'pending', 'signed', 'broadcast', 'cancelled', 'fulfilled'];
+// Once a proposal reaches one of these it's the permanent record of
+// what happened -- the audit PDF and activity export both read
+// straight from this table. Without this guard, PATCH allowed any
+// active vault member to rewrite status/psbt_hex/txid after the fact
+// with no state-transition check at all: silently reverting a
+// broadcast back to draft to hide it, or swapping in a fake txid,
+// or overwriting the PSBT bytes behind a spend that already went out.
+const TERMINAL_STATUSES = ['broadcast', 'cancelled', 'fulfilled'];
+
 async function runGovernanceAudit(vault, proposal) {
   const body = {
     founder_quorum:    vault.founder_quorum,
@@ -157,14 +172,31 @@ export async function handler(event) {
 
     if (!Object.keys(updates).length) return json(400, { error: 'No valid fields to update' });
 
+    if (updates.status !== undefined && !VALID_STATUSES.includes(updates.status)) {
+      return json(400, { error: `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}` });
+    }
+
     // Any active member of the proposal's vault can PATCH. Creator-only
     // was too restrictive once quorum is collected by co-signers.
     const { data: existing } = await supabase
       .from('proposals')
-      .select('vault_id')
+      .select('vault_id, status')
       .eq('id', id)
       .maybeSingle();
     if (!existing) return json(404, { error: 'Proposal not found' });
+
+    // Once a proposal is broadcast/cancelled/fulfilled it's the
+    // permanent record of what happened -- the audit PDF and activity
+    // export read straight from it. Only memo (a harmless annotation)
+    // stays editable past that point; every other field is locked.
+    if (TERMINAL_STATUSES.includes(existing.status)) {
+      const lockedFieldsTouched = Object.keys(updates).some((k) => k !== 'memo');
+      if (lockedFieldsTouched) {
+        return json(409, {
+          error: `This proposal is already ${existing.status} and its record is locked. Only memo may still be edited.`,
+        });
+      }
+    }
 
     const { data: membership } = await supabase
       .from('vault_members')
@@ -204,7 +236,12 @@ export async function handler(event) {
       }
       await supabase.from('vault_events').insert({
         vault_id: updated.vault_id, user_id: u.userId,
-        event_type: updates.status === 'broadcast' ? 'signed' : updates.status,
+        // event_type used to be hardcoded to 'signed' whenever status
+        // became 'broadcast' -- a proposal that was actually broadcast
+        // to the network got logged in the audit trail as merely
+        // "signed", understating what really happened. The status
+        // string itself is the real, distinct event now.
+        event_type: updates.status,
         metadata: { proposal_id: id, txid: updates.txid || null },
         block_height: blockHeight,
       });
