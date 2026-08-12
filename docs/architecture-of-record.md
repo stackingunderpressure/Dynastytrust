@@ -4,6 +4,28 @@ Status: adopted 2026-07-19 (operator-set north star). This doc governs
 direction. Where an older "rebuild the wallet" assumption conflicts with it,
 this doc wins.
 
+**2026-08-12 amendment (operator-set, supersedes section 2's custody split
+below):** Section 2's "custody and signing is DELEGATED to Nunchuk, Sparrow,
+Coldcard -- we do not compete here" is no longer the primary path. Enough
+in-house signing now exists -- browser signing (`lib/psbt-signer.ts`), Tapit
+cosigning, and SeedSigner integration with full tapleaf coverage across every
+vault type -- that every spending path DynastyTrust offers is meant to go
+through our own compiler and be signable end-to-end without leaving the app,
+SeedSigner included as the primary hardware path. Descriptor and PSBT export
+to third-party wallets (Sparrow, Nunchuk, Coldcard, etc.) still exists and
+still matters, but only as the sovereignty exit hatch section 3's "descriptor
++ PSBT" seam was always meant to guarantee -- what a user reaches for if
+DynastyTrust itself becomes unreachable, not a parallel or primary way to use
+a live vault. The live app UI no longer names specific third-party wallets;
+that detail now lives in the Learn curriculum (`lib/literacy.ts` rung 7) and
+the downloadable recovery bundle (`lib/descriptor-backup.ts`), both of which
+are written to stand alone if this app is gone. Section 3's descriptor/PSBT
+seam, section 5's custody-independent audit trail, and section 6's Sage
+doctrine are unaffected by this amendment -- only section 2's framing of
+where signing should happen by default, and section 4's "dial" language
+treating in-app and external signing as equally weighted defaults, are
+superseded.
+
 ---
 
 ## 1. Why this exists / the north star

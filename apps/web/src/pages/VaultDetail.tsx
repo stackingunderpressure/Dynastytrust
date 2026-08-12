@@ -981,7 +981,7 @@ function OverviewTab({
         </div>
         {showDescriptorQr && vault.descriptor && (
           <div style={{ marginTop: 14, display: "flex", justifyContent: "center" }}>
-            <DescriptorQr descriptor={vault.descriptor} label="Sparrow import QR" size={240} />
+            <DescriptorQr descriptor={vault.descriptor} label="Descriptor QR" size={240} />
           </div>
         )}
       </div>
@@ -1133,7 +1133,7 @@ function BlocOverviewTab({
         </div>
         {showDescriptorQr && vault.descriptor && (
           <div style={{ marginTop: 14, display: "flex", justifyContent: "center" }}>
-            <DescriptorQr descriptor={vault.descriptor} label="Sparrow import QR" size={240} />
+            <DescriptorQr descriptor={vault.descriptor} label="Descriptor QR" size={240} />
           </div>
         )}
       </div>
@@ -2016,7 +2016,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
             Sign with hardware wallet
           </div>
           <div style={{ fontSize: 12, color: colors.muted, marginBottom: 14 }}>
-            Export to Sparrow, Nunchuk, or Coldcard. Paste / scan the signed PSBT back here.
+            Export this transaction to your signing device, then paste or scan the signed result back here.
           </div>
           <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
             <Button
@@ -2041,7 +2041,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
               style={{ fontSize: 12 }}
               onClick={() => setShowQrDisplay(s => !s)}
             >
-              {showQrDisplay ? "Hide QR" : "Show QR (Jade / Coldcard Q)"}
+              {showQrDisplay ? "Hide QR" : "Show QR"}
             </Button>
             <Button
               variant="ghost"
@@ -6856,7 +6856,7 @@ function TrancheClaimModal({
                 Sign with hardware wallet
               </div>
               <div style={{ fontSize: 11, color: colors.muted, marginBottom: 10 }}>
-                Export to Sparrow, Nunchuk, or Coldcard. Paste / scan the signed PSBT back here.
+                Export this transaction to your signing device, then paste or scan the signed result back here.
               </div>
               <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
                 <Button variant="ghost" size="sm" style={{ fontSize: 11 }} onClick={() => setShowQrDisplay(s => !s)}>

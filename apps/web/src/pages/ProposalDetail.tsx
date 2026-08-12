@@ -454,8 +454,8 @@ export default function ProposalDetail() {
             Sign with hardware wallet
           </div>
           <div style={{ fontSize: 12, color: colors.muted, marginBottom: 12 }}>
-            Export to Sparrow / Nunchuk / Coldcard / SeedSigner, sign, then scan or paste the
-            signed PSBT back here.
+            Export this transaction to your signing device, sign, then scan or paste the
+            signed result back here.
           </div>
           <ExternalPsbt
             proposalId={proposal.id}
@@ -803,7 +803,7 @@ function ExternalPsbt({
           style={{ fontSize: 12 }}
           onClick={() => setShowQrDisplay(s => !s)}
         >
-          {showQrDisplay ? "Hide QR" : "Show QR (Jade / Coldcard Q / SeedSigner)"}
+          {showQrDisplay ? "Hide QR" : "Show QR"}
         </Button>
         <Button
           variant="ghost"

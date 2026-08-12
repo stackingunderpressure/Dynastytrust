@@ -1231,7 +1231,7 @@ function InlineKeyCreate({
           </div>
           <input ref={exportFileRef} type="file" accept=".json,.txt" style={{ display: 'none' }} onChange={handleExportFile} />
           <div style={{ fontSize: 11, color: colors.muted }}>
-            Scan a QR from Coldcard, Sparrow, or SeedSigner, or import its export file -- no typing needed. Or paste manually below.
+            Scan a QR from your signing device, or import its export file -- no typing needed. Or paste manually below.
           </div>
           {fileErr && <div style={{ fontSize: 11, color: colors.red }}>{fileErr}</div>}
           <Input placeholder="xpub / tpub from a hardware signer" value={xpub} onChange={e => { setXpub(e.target.value); setFileName(null); }} />
@@ -1288,7 +1288,7 @@ function BackupStep({
             <div style={{ marginTop: 10 }}>
               <CopyField label="Descriptor" value={vault.descriptor} multiline />
               <div style={{ marginTop: 10 }}>
-                <DescriptorQr descriptor={vault.descriptor} label="Sparrow import QR" size={200} />
+                <DescriptorQr descriptor={vault.descriptor} label="Descriptor QR" size={200} />
               </div>
             </div>
           </details>

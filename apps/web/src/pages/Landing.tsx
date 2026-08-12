@@ -76,8 +76,8 @@ function Hero() {
               server never had them and cannot move your coins.
             </Bullet>
             <Bullet>
-              Attorney-grade audit PDF + Sparrow-compatible descriptor
-              export. The vault works even if DynastyTrust vanishes.
+              Attorney-grade audit PDF + a standard, exportable descriptor.
+              The vault works even if DynastyTrust vanishes.
             </Bullet>
             <Bullet>
               Two modes: hosted for families that want support, or
@@ -230,7 +230,7 @@ function Pillars() {
     },
     {
       title: 'Built for exit',
-      body: 'Every vault auto-generates a plaintext backup and a Sparrow-importable QR. If this app disappears tomorrow, the coins still spend from any miniscript-aware wallet with just your descriptor and one seed phrase. You are never locked in.',
+      body: 'Every vault auto-generates a plaintext backup and a standard descriptor QR. If this app disappears tomorrow, the coins still spend from any miniscript-aware wallet with just your descriptor and one seed phrase. You are never locked in.',
     },
   ];
   return (

@@ -581,7 +581,7 @@ function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => v
               </div>
               <input ref={exportFileRef} type="file" accept=".json,.txt" style={{ display: "none" }} onChange={handleExportFile} />
               <div style={{ fontSize: 11, color: colors.muted, marginTop: 5, textAlign: "center" }}>
-                Scan a QR from Coldcard, Sparrow, or SeedSigner, or import its export file. Or paste manually below.
+                Scan a QR from your signing device, or import its export file. Or paste manually below.
               </div>
             </div>
             <div>
@@ -788,7 +788,7 @@ function DetailModal({
                 })}
               />
               <div style={{ fontSize: 11, color: colors.muted, textAlign: "center" }}>
-                Scan into Sparrow / Nunchuk / another DynastyTrust browser to import this xpub.
+                Scan into another wallet or another DynastyTrust browser to import this xpub.
               </div>
             </div>
           )}
