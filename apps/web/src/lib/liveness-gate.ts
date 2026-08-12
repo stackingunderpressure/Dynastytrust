@@ -47,16 +47,17 @@
  *       default). The config (circle + requiredGreenByPath + ttlSeconds) lives
  *       under bloc_policy.liveness; see db/migrations/024_liveness_signals.sql.
  *
- * THE FINAL SEAM (the LAST wire, deliberately NOT made in this cut)
- *   At sign time in apps/web VaultDetail, the one remaining wire is: GET the
- *   vault's signals from /api/liveness, get its VaultLivenessConfig via
- *   loadVaultLivenessConfig(vault), call assembleLivenessGateInput({ config,
- *   path, proofs, redFlags }) here, and pass the returned object as the
- *   `liveness` field into evaluateSigningGate alongside the existing ceremony /
- *   psbt-binding / governance inputs. Only then does the gate deny
- *   LIVENESS_RED / LIVENESS_NOT_GREEN for real. That wire is intentionally NOT
- *   made yet; the signing path is untouched this cut, leaving a clean,
- *   documented seam.
+ * THE FINAL SEAM -- NOW WIRED (2026-08-06)
+ *   At sign time, VaultDetail.tsx's confirmSign() does exactly this: GET the
+ *   vault's signals via api.liveness.get(vault.id), then, if the vault has a
+ *   liveness config at all, call assembleLivenessGateInput({ config,
+ *   path: proposal.path, proofs, redFlags }) and pass the result as the
+ *   `liveness` field into evaluateSigningGate alongside the ceremony /
+ *   psbt-binding / governance inputs. The gate now denies LIVENESS_RED /
+ *   LIVENESS_NOT_GREEN for real. A failed fetch of the vault's signals is
+ *   treated as fail-closed (blocks signing), not as "no liveness circle" --
+ *   see the try/catch around that call site for why the two must not be
+ *   conflated.
  */
 
 import { livenessStateFor } from 'tapit-attest';

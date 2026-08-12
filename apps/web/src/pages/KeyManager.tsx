@@ -450,6 +450,14 @@ function SecureUpgradeModal({ keyData, onDone, onClose }: { keyData: LocalKey; o
       <p style={{ fontSize: 13, color: colors.muted, marginBottom: 18, lineHeight: 1.5 }}>
         Encrypt <strong style={{ color: colors.text }}>{keyData.label}</strong> with a password. The plaintext mnemonic will be deleted from storage.
       </p>
+      <p style={{ fontSize: 13, color: colors.red, marginBottom: 18, lineHeight: 1.5 }}>
+        This does not undo any exposure that already happened -- the recovery
+        phrase has been sitting unencrypted on this device the whole time this
+        was a test key. If this device might have been compromised, or the
+        phrase was ever screenshotted, synced, or copied anywhere, that
+        exposure is not fixed by adding a password now. For anything holding
+        real value, generate a brand-new key instead of upgrading this one.
+      </p>
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <div>
           <Label>Password</Label>

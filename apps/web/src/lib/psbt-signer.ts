@@ -24,6 +24,7 @@ import {
   serializePsbt,
   tapLeafHash,
   tapscriptSighash,
+  type ParsedPsbt,
 } from "@dynastytrust/bip341-psbt-signer";
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -121,13 +122,46 @@ export function countSignatures(psbtHex: string): number {
 }
 
 /**
+ * Two PSBTs are "the same spend" if their unsigned transactions match
+ * exactly -- same inputs (txid+vout+sequence, same order) and same
+ * outputs (amount+scriptPubkey, same order). A signature is
+ * cryptographically bound to the sighash it was computed over, so a
+ * signature from a genuinely different transaction could never
+ * validate here regardless -- this check exists so a mismatch fails
+ * with a clear error at merge time instead of a cryptic finalize
+ * failure later, and so co-signers merging PSBTs from different
+ * coordinator responses get an explicit signal if they were ever
+ * handed two different transactions to sign.
+ */
+function sameUnsignedTx(a: ParsedPsbt, b: ParsedPsbt): boolean {
+  if (a.tx.inputs.length !== b.tx.inputs.length) return false;
+  if (a.tx.outputs.length !== b.tx.outputs.length) return false;
+  if (a.tx.version !== b.tx.version || a.tx.locktime !== b.tx.locktime) return false;
+  for (let i = 0; i < a.tx.inputs.length; i++) {
+    const ai = a.tx.inputs[i], bi = b.tx.inputs[i];
+    if (toHex(ai.txid) !== toHex(bi.txid) || ai.vout !== bi.vout || ai.sequence !== bi.sequence) return false;
+  }
+  for (let i = 0; i < a.tx.outputs.length; i++) {
+    const ao = a.tx.outputs[i], bo = b.tx.outputs[i];
+    if (ao.amount !== bo.amount || toHex(ao.scriptPubkey) !== toHex(bo.scriptPubkey)) return false;
+  }
+  return true;
+}
+
+/**
  * Merge multiple PSBTs by combining their tap_script_sigs.
+ * All PSBTs must be for the exact same underlying transaction.
  */
 export function mergePsbts(psbtHexes: string[]): string {
   if (psbtHexes.length === 0) throw new Error("No PSBTs to merge");
   const first = parsePsbt(psbtHexes[0]);
   for (let p = 1; p < psbtHexes.length; p++) {
     const other = parsePsbt(psbtHexes[p]);
+    if (!sameUnsignedTx(first, other)) {
+      throw new Error(
+        `PSBT ${p + 1} of ${psbtHexes.length} is for a different transaction than the others -- refusing to merge signatures across mismatched spends.`
+      );
+    }
     for (let i = 0; i < first.inputs.length; i++) {
       const otherSigs = other.inputs[i].tapScriptSigs ?? [];
       if (!first.inputs[i].tapScriptSigs) first.inputs[i].tapScriptSigs = [];
