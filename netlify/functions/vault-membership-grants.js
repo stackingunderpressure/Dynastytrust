@@ -26,6 +26,16 @@
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 
+async function assertOwner(supabase, vaultId, userId) {
+  const { data } = await supabase
+    .from("vaults")
+    .select("id")
+    .eq("id", vaultId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  return !!data;
+}
+
 export async function handler(event) {
   const u = await requireUser(event);
   if (u.error) return json(401, { error: u.error });
@@ -62,6 +72,16 @@ export async function handler(event) {
     if (!recipient_pubkey) return json(400, { error: "Missing: recipient_pubkey" });
     if (!reply_pubkey) return json(400, { error: "Missing: reply_pubkey" });
     if (!reply_privkey) return json(400, { error: "Missing: reply_privkey" });
+
+    // Only the vault owner sends membership grants -- same authority
+    // invites.js requires for invite creation. Without this check any
+    // authenticated caller could insert a grant row against a vault_id
+    // they don't own (still scoped under their own user_id, so it can't
+    // leak to or corrupt another user's view, but it's an unauthorized
+    // write against someone else's vault and worth closing).
+    if (!(await assertOwner(supabase, vault_id, u.userId))) {
+      return json(403, { error: "Only the vault owner can send membership grants" });
+    }
 
     const { data, error } = await supabase
       .from("vault_membership_grants")

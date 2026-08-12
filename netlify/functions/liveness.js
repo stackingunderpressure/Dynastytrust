@@ -21,16 +21,17 @@
  * material exists in this path (signals are public pubkeys + signatures); the
  * function never logs signal contents.
  *
- * DEFERRED FINAL SEAM (NOT built here -- one wire away):
- *   At sign time in apps/web VaultDetail, the last wire is: GET this endpoint's
- *   signals for the vault, call loadVaultLivenessConfig(vault) (from
- *   _liveness.js) to get the circle + requiredGreenByPath + ttlSeconds, call
- *   assembleLivenessGateInput({ config, path, proofs, redFlags }) (from
- *   apps/web/src/lib/liveness-gate.ts), and pass the result as the `liveness`
- *   field into evaluateSigningGate alongside the existing ceremony /
- *   psbt-binding / governance inputs. Only then does the gate deny LIVENESS_RED
- *   / LIVENESS_NOT_GREEN for real. That wire is intentionally NOT made in this
- *   cut; the signing path is untouched.
+ * FINAL SEAM -- WIRED (2026-08-06):
+ *   At sign time in apps/web VaultDetail's confirmSign(), this is exactly
+ *   what happens: GET this endpoint's signals for the vault, call
+ *   loadVaultLivenessConfig(vault) (from _liveness.js) to get the circle +
+ *   requiredGreenByPath + ttlSeconds, call assembleLivenessGateInput({
+ *   config, path, proofs, redFlags }) (from apps/web/src/lib/liveness-gate.ts),
+ *   and pass the result as the `liveness` field into evaluateSigningGate
+ *   alongside the ceremony / psbt-binding / governance inputs. The gate
+ *   denies LIVENESS_RED / LIVENESS_NOT_GREEN for real. A failed fetch of
+ *   this endpoint is treated as fail-closed (blocks signing) by the caller,
+ *   not as "no liveness circle" -- see liveness-gate.ts's header for why.
  */
 
 import { requireUser, json } from './_auth.js';

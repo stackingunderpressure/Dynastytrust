@@ -39,11 +39,16 @@ export async function handler(event) {
     .maybeSingle();
   if (error) return json(500, { error: error.message });
   if (!vault) return json(404, { error: "Vault not found" });
-  if (!vault.address) return json(200, { ok: true, utxos: [], tip: null });
 
+  // Membership must be checked before ANY branch returns, including the
+  // no-address-yet short circuit below -- otherwise a non-member could
+  // probe an arbitrary vault_id and learn whether it exists and whether
+  // it has been compiled yet without ever being a member.
   if (!(await assertMember(supabase, vaultId, u.userId))) {
     return json(403, { error: "Not a member of this vault" });
   }
+
+  if (!vault.address) return json(200, { ok: true, utxos: [], tip: null });
 
   const network = vault.network || "testnet";
   const base = MEMPOOL[network] || MEMPOOL.testnet;
