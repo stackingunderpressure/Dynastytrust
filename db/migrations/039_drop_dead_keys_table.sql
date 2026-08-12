@@ -1,0 +1,23 @@
+-- ============================================================
+-- 039_drop_dead_keys_table.sql
+-- Drops the `keys` table created in 001_init.sql. It predates the
+-- current architecture and was never wired up by any application
+-- code -- grep across netlify/functions and apps/web/src turns up
+-- zero references to the table or any of its columns beyond the
+-- CREATE TABLE itself. It also directly contradicts the project's
+-- own standing security rule (CLAUDE.md: "Keys never leave the
+-- browser unencrypted") by shape alone -- it had a server-side
+-- `encrypted_private_blob` column and a `can_backend_sign` flag,
+-- i.e. an early server-custody design that this app never actually
+-- built and has since moved decisively away from (all key material
+-- lives in the browser's keystore -- see lib/keystore.ts -- or, for
+-- Bloc/tranche vaults, in the owner's local key list; the server
+-- only ever sees public keys/xpubs).
+--
+-- Migrations are append-only in this repo -- 001_init.sql itself is
+-- left as the historical record, this just removes the table it
+-- created from the live schema so an unused server-custody-shaped
+-- table doesn't sit around inviting a future mistake.
+-- ============================================================
+
+drop table if exists keys;

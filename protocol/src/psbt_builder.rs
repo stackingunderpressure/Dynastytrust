@@ -25,16 +25,6 @@ pub struct VaultUTXO {
     pub script_pubkey: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct SpendRequest {
-    pub utxos: Vec<VaultUTXO>,
-    pub amount: u64,
-    pub fee: u64,
-    pub destination: String,
-    pub change_address: String,
-    pub network: String,
-}
-
 #[derive(Error, Debug)]
 pub enum PsbtError {
     #[error("insufficient funds: inputs={inputs} need={need}")]
@@ -51,88 +41,6 @@ pub enum PsbtError {
     Psbt(String),
     #[error("unknown spend path: {0}")]
     UnknownPath(String),
-}
-
-pub fn build_spend_psbt(spend: SpendRequest) -> Result<Psbt, PsbtError> {
-    let network = parse_network(&spend.network)?;
-
-    let destination = Address::from_str(&spend.destination)
-        .map_err(|e| PsbtError::InvalidAddress(format!("destination: {e}")))?
-        .require_network(network)
-        .map_err(|e| PsbtError::InvalidAddress(format!("destination network mismatch: {e}")))?;
-
-    let change_address = Address::from_str(&spend.change_address)
-        .map_err(|e| PsbtError::InvalidAddress(format!("change_address: {e}")))?
-        .require_network(network)
-        .map_err(|e| PsbtError::InvalidAddress(format!("change network mismatch: {e}")))?;
-
-    let selected = select_coins(spend.utxos, spend.amount, spend.fee)?;
-    let inputs_value: u64 = selected.iter().map(|u| u.value).sum();
-
-    let need = spend
-        .amount
-        .checked_add(spend.fee)
-        .ok_or(PsbtError::InsufficientFunds {
-            inputs: inputs_value,
-            need: u64::MAX,
-        })?;
-
-    let change_value = inputs_value
-        .checked_sub(need)
-        .ok_or(PsbtError::InsufficientFunds {
-            inputs: inputs_value,
-            need,
-        })?;
-
-    let has_change = change_value > 0;
-
-    let mut inputs = Vec::with_capacity(selected.len());
-    for u in &selected {
-        let txid = Txid::from_str(&u.txid).map_err(|_| PsbtError::InvalidTxid(u.txid.clone()))?;
-
-        inputs.push(TxIn {
-            previous_output: OutPoint { txid, vout: u.vout },
-            script_sig: ScriptBuf::new(),
-            // Match compiler/src/main.rs: BIP 125 replaceable
-            // sequence so RBF stays enabled and miniscript's
-            // finalizer accepts the witness.
-            sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
-            witness: bitcoin::Witness::default(),
-        });
-    }
-
-    let mut outputs = Vec::with_capacity(if has_change { 2 } else { 1 });
-
-    outputs.push(TxOut {
-        value: Amount::from_sat(spend.amount),
-        script_pubkey: destination.script_pubkey(),
-    });
-
-    if has_change {
-        outputs.push(TxOut {
-            value: Amount::from_sat(change_value),
-            script_pubkey: change_address.script_pubkey(),
-        });
-    }
-
-    let tx = Transaction {
-        version: bitcoin::transaction::Version::TWO,
-        lock_time: absolute::LockTime::ZERO,
-        input: inputs,
-        output: outputs,
-    };
-
-    let mut psbt = Psbt::from_unsigned_tx(tx)
-        .map_err(|e: bitcoin::psbt::Error| PsbtError::Psbt(e.to_string()))?;
-
-    for (i, utxo) in selected.iter().enumerate() {
-        psbt.inputs[i].witness_utxo = Some(TxOut {
-            value: Amount::from_sat(utxo.value),
-            script_pubkey: parse_script_pubkey(&utxo.script_pubkey)?,
-        });
-    }
-
-    Ok(psbt)
 }
 
 /// One signer's BIP32 origin, needed to populate a PSBT's tap_key_origins

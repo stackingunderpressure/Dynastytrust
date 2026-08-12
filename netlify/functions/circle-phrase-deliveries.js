@@ -77,6 +77,15 @@ export async function handler(event) {
           recipient_label,
           recipient_persona: recipient_persona ?? "",
           status,
+          // Despite the column name, this is stamped on EVERY write,
+          // not only when status === 'delivered' -- it's really "last
+          // send attempt" (delivered or queued-for-retry alike). Safe
+          // because every reader gates on `status` first before
+          // trusting this as a delivery time (CirclePhraseSetup.tsx:
+          // "Sent..." only for status==='delivered', "Queued --
+          // retrying..." otherwise) -- don't "fix" this into only
+          // setting it on delivered without also auditing every
+          // caller's display text.
           delivered_at: new Date().toISOString(),
           // A fresh send supersedes any prior confirmation -- the
           // recipient hasn't acked THIS phrase yet, even if they acked
