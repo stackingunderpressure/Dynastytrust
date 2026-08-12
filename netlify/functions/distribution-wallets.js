@@ -10,8 +10,14 @@
  *            network, tranches: [{
  *              index, unlock_block, amount_sats,
  *              address, descriptor
- *            }]
+ *            }],
+ *            key_origins?: [{ pubkey, fingerprint, derivation_path }]
  *          }
+ *          key_origins is optional -- one entry per key (beneficiary and/or
+ *          trustees) that should be hardware-wallet signable (2026-08-12
+ *          fix, see 037_tranche_key_origins.sql). Omitting it degrades to
+ *          browser/Tapit-only signing for this wallet, same fallback the
+ *          standard vault's 2026-08-06 fix already established.
  * PATCH  /api/distribution-wallets?id=<uuid>        update (owner or member)
  *          body: { tranches }   -- bump funded_txid / claimed_txid
  * DELETE /api/distribution-wallets?id=<uuid>        remove (owner only)
@@ -26,7 +32,7 @@ import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 
 const FIELDS =
-  "id, created_at, updated_at, vault_id, name, beneficiary_name, beneficiary_xpub, beneficiary_pubkey, trustee_keys, trustee_quorum, tranches, network";
+  "id, created_at, updated_at, vault_id, name, beneficiary_name, beneficiary_xpub, beneficiary_pubkey, trustee_keys, trustee_quorum, tranches, network, key_origins";
 
 async function assertOwner(supabase, vaultId, userId) {
   const { data } = await supabase
@@ -83,6 +89,7 @@ export async function handler(event) {
       beneficiary_name = null, beneficiary_xpub, beneficiary_pubkey,
       trustee_keys, trustee_quorum,
       network, tranches,
+      key_origins = [],
     } = body;
 
     if (!vault_id) return json(400, { error: "Missing: vault_id" });
@@ -117,6 +124,7 @@ export async function handler(event) {
       trustee_quorum,
       tranches,
       network,
+      key_origins,
     };
 
     const { data, error } = await supabase

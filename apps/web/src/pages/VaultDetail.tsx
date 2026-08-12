@@ -37,6 +37,7 @@ import { normalizePsbt } from "../lib/psbt-format";
 import { downloadVault } from "../lib/descriptor-backup";
 import { DescriptorQr } from "../components/DescriptorQr";
 import { pubkeyFromXpub, fingerprintFromXpub } from "../lib/xpub";
+import { buildPsbtKeyOrigins } from "../lib/descriptor-keys";
 import { sha256 } from "@noble/hashes/sha256";
 import { blocDecayLadder } from "../lib/blocks";
 import { BehaviorTimeline, type SpendLeg, selectStyle } from "../components/vault-builder";
@@ -7016,6 +7017,46 @@ function DistributionWalletCreator({
     setErr(null);
     try {
       const trusteeKeys = await deriveTrusteePubkeys();
+
+      // BIP32 origins for hardware-wallet compatibility (2026-08-12 fix --
+      // the same 2026-08-06 fix already applied to the standard vault and
+      // to Bloc, never extended to tranches, so a real hardware wallet had
+      // no way to recognize its own key on a tranche claim's leaf and
+      // correctly refused to sign). Trustees come from vault_members, the
+      // same source the standard vault's own fix reads from; the
+      // beneficiary comes from the locally selected key, if one was
+      // picked, since it's already in hand with its own fingerprint and
+      // derivation path. A pasted xpub with no local key behind it has no
+      // derivation path available and is skipped -- same graceful
+      // degradation buildPsbtKeyOrigins documents for any missing key.
+      let keyOrigins: { pubkey: string; fingerprint: string; derivation_path: string }[] = [];
+      try {
+        const { members } = await api.members.list(vault.id);
+        const trusteeSelected = members
+          .filter(
+            (m): m is typeof m & { pubkey: string; fingerprint: string; derivation_path: string } =>
+              !!m.pubkey && !!m.fingerprint && !!m.derivation_path && trusteeKeys.includes(m.pubkey),
+          )
+          .map(m => ({
+            pubkey: m.pubkey,
+            keyId: m.id,
+            label: m.label ?? "",
+            persona: "",
+            xpub: "",
+            fingerprint: m.fingerprint,
+            derivationPath: m.derivation_path,
+            network: vault.network,
+          }));
+        const beneficiarySelected = beneficiaryKeyId
+          ? localKeys.filter(k => k.keyId === beneficiaryKeyId)
+          : [];
+        keyOrigins = buildPsbtKeyOrigins([...trusteeSelected, ...beneficiarySelected]);
+      } catch {
+        /* non-fatal: this wallet just won't have hardware-wallet
+           recognition until it's recreated once vault_members is
+           reachable -- browser and Tapit signing are unaffected. */
+      }
+
       const tranches: DistributionTranche[] = [];
       for (let i = 0; i < trancheCount; i++) {
         const unlock = firstUnlockBlock + i * intervalBlocks;
@@ -7044,6 +7085,7 @@ function DistributionWalletCreator({
         trustee_quorum: vault.founder_quorum,
         network: vault.network,
         tranches,
+        key_origins: keyOrigins,
       });
       onSaved();
     } catch (e) {

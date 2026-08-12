@@ -86,7 +86,11 @@ export async function handler(event) {
     fee_rate,
     path = 'beneficiary',
     change_address,
-    key_origins = [],
+    // Caller-supplied key_origins is a legacy/manual fallback; the
+    // 2026-08-12 fix stores key_origins on the distribution_wallets row
+    // itself at creation time (mirrors bloc_policy.key_origins) and that
+    // takes priority below, same as psbt-binary-bloc.js's pattern.
+    key_origins: bodyKeyOrigins = [],
   } = body;
 
   if (!distribution_wallet_id) return json(400, { error: 'Missing: distribution_wallet_id' });
@@ -105,7 +109,7 @@ export async function handler(event) {
 
   const { data: wallet, error: walletErr } = await supabase
     .from('distribution_wallets')
-    .select('vault_id, trustee_keys, trustee_quorum, beneficiary_pubkey, tranches, network')
+    .select('vault_id, trustee_keys, trustee_quorum, beneficiary_pubkey, tranches, network, key_origins')
     .eq('id', distribution_wallet_id)
     .maybeSingle();
   if (walletErr) return json(500, { error: walletErr.message });
@@ -221,7 +225,7 @@ export async function handler(event) {
         trustee_quorum: wallet.trustee_quorum,
         unlock_block: tranche.unlock_block,
         path,
-        key_origins,
+        key_origins: (wallet.key_origins && wallet.key_origins.length > 0) ? wallet.key_origins : bodyKeyOrigins,
       }),
     });
 

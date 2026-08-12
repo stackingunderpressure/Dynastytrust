@@ -276,6 +276,12 @@ export interface DistributionWallet {
   trustee_quorum: number;
   tranches: DistributionTranche[];
   network: 'testnet' | 'signet' | 'bitcoin';
+  /** BIP32 origins for hardware-wallet compatibility (2026-08-12 fix,
+   *  037_tranche_key_origins.sql) -- one entry per key (beneficiary
+   *  and/or trustees) that should be recognizable to a real hardware
+   *  wallet. Empty degrades to browser/Tapit-only signing for this
+   *  wallet, same fallback the standard vault's 2026-08-06 fix uses. */
+  key_origins: { pubkey: string; fingerprint: string; derivation_path: string }[];
 }
 
 export interface ScheduledStipend {
@@ -941,6 +947,7 @@ export const api = {
       trustee_quorum: number;
       network: 'testnet' | 'signet' | 'bitcoin';
       tranches: DistributionTranche[];
+      key_origins?: { pubkey: string; fingerprint: string; derivation_path: string }[];
     }) =>
       req<{ ok: true; wallet: DistributionWallet }>(`/distribution-wallets`, {
         method: 'POST',
