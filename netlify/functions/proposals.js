@@ -88,7 +88,8 @@ export async function handler(event) {
     try { body = JSON.parse(event.body || '{}'); } catch { return json(400, { error: 'Invalid JSON' }); }
 
     const { vault_id, path = 'founders_now', destination, amount_sats, fee_sats = 0,
-            fee_rate, utxo_age_blocks = 0, total_vault_sats = 0, memo, psbt_hex, psbt_b64 } = body;
+            fee_rate, utxo_age_blocks = 0, total_vault_sats = 0, memo, psbt_hex, psbt_b64,
+            distribution_wallet_id = null, tranche_index = null } = body;
 
     if (!vault_id)    return json(400, { error: 'Missing: vault_id' });
     if (!destination) return json(400, { error: 'Missing: destination' });
@@ -126,6 +127,7 @@ export async function handler(event) {
         psbt_b64:  psbt_b64  || null,
         status:    psbt_hex ? 'pending' : 'draft',
         governance_audit: audit,
+        distribution_wallet_id, tranche_index,
       })
       .select()
       .single();

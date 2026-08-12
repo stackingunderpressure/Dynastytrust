@@ -2555,15 +2555,14 @@ function ProposalCard({ proposal: p, vault }: { proposal: Proposal; vault: Vault
             </a>
           )}
           <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {!terminal && (
-              <Button
-                size="sm"
-                style={{ fontSize: 12 }}
-                onClick={() => navigate(`/vaults/${vault.id}/proposals/${p.id}`)}
-              >
-                Sign / manage
-              </Button>
-            )}
+            <Button
+              variant={terminal ? "ghost" : "primary"}
+              size="sm"
+              style={{ fontSize: 12 }}
+              onClick={() => navigate(`/vaults/${vault.id}/proposals/${p.id}`)}
+            >
+              {terminal ? "View votes & history" : "Sign / manage"}
+            </Button>
             {p.psbt_hex && (
               <Button
                 variant="ghost"
@@ -6498,6 +6497,7 @@ function TrancheClaimModal({
 }) {
   const toast = useToast();
   const askPassword = usePrompt();
+  const navigate = useNavigate();
   const [step, setStep] = useState<"form" | "signing" | "done">("form");
   const [dest, setDest] = useState("");
   const [sweepAll, setSweepAll] = useState(true);
@@ -6511,6 +6511,14 @@ function TrancheClaimModal({
   const [txid, setTxid] = useState<string | null>(null);
   const [showQrDisplay, setShowQrDisplay] = useState(false);
   const [showQrScanner, setShowQrScanner] = useState(false);
+  // 2026-08-12 (operator: "every PSBT has some kind of request tied to it
+  // ... especially in the bigger vaults"): a Tranche claim used to
+  // broadcast with zero request/vote/history trail at all -- no
+  // proposals row, so this claim could never show up in the vault's
+  // History tab or ProposalDetail's votes/discussion/audit view the way
+  // every standard and Bloc spend already does. Filed as a real proposal
+  // (path='tranche_claim') the moment the PSBT is built.
+  const [proposalId, setProposalId] = useState<string | null>(null);
 
   const requiredSignatures = path === "beneficiary" ? 1 : wallet.trustee_quorum;
   const eligiblePubkeys = path === "beneficiary" ? [wallet.beneficiary_pubkey] : wallet.trustee_keys;
@@ -6540,6 +6548,25 @@ function TrancheClaimModal({
       }
       setPsbtHex(res.psbt_hex);
       setSummary(res.summary);
+
+      try {
+        const { proposal } = await api.proposals.create({
+          vault_id: wallet.vault_id,
+          destination: dest.trim(),
+          amount_sats: res.summary.amount_sats,
+          fee_sats: res.summary.fee_sats,
+          path: "tranche_claim",
+          memo: `${wallet.name} tranche #${tranche.index + 1} claim (${path})`,
+          psbt_hex: res.psbt_hex,
+          distribution_wallet_id: wallet.id,
+          tranche_index: tranche.index,
+        });
+        setProposalId(proposal.id);
+      } catch {
+        // Non-fatal: the claim can still be signed and broadcast without a
+        // proposal row (matches the pre-2026-08-12 behavior) -- it just
+        // won't show up in the vault's request history afterward.
+      }
 
       const localKeys = listKeys().filter(
         k => k.status === "active" && k.origin === "software" && k.network === wallet.network,
@@ -6649,6 +6676,20 @@ function TrancheClaimModal({
         /* non-fatal: the claim already broadcast; the row just won't
            show "claimed" until a manual refresh picks up the txid
            from chain state elsewhere. */
+      }
+
+      if (proposalId) {
+        try {
+          await api.proposals.update(proposalId, {
+            status: "broadcast",
+            psbt_hex: psbtHex,
+            txid: newTxid,
+          });
+        } catch {
+          /* non-fatal: the on-chain spend already succeeded; the request
+             history just won't reflect the final signed PSBT/txid until a
+             manual retry. */
+        }
       }
 
       setTxid(newTxid);
@@ -6867,6 +6908,18 @@ function TrancheClaimModal({
             <a href={explorerTxUrl(wallet.network, txid)} target="_blank" rel="noreferrer" style={{ color: colors.gold, fontSize: 13 }}>
               View on mempool.space
             </a>
+            {proposalId && (
+              <div style={{ marginTop: 10 }}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  style={{ fontSize: 12 }}
+                  onClick={() => navigate(`/vaults/${wallet.vault_id}/proposals/${proposalId}`)}
+                >
+                  View votes & history
+                </Button>
+              </div>
+            )}
             <div style={{ marginTop: 16 }}>
               <Button onClick={onClaimed}>Done</Button>
             </div>

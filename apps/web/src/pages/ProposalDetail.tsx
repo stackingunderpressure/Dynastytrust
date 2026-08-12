@@ -17,6 +17,7 @@ import {
   signPsbtWithMnemonic,
 } from "../lib/psbt-signer";
 import { getTapitCircleMembers } from "../lib/tapit-circle-members";
+import { pubkeyFromXpub } from "../lib/xpub";
 import { LoadingScreen } from "../components/LoadingScreen";
 import { useToast } from "../components/toast";
 import { useConfirm, usePrompt } from "../components/dialog";
@@ -32,6 +33,96 @@ type Session = Awaited<ReturnType<typeof api.signerSessions.list>>["sessions"][n
 
 function satsToBtc(sats: number): string {
   return (sats / 1e8).toFixed(8).replace(/\.?0+$/, "") || "0";
+}
+
+/** Which of the vault's key arrays are the real signers for a given
+ *  proposal's leaf, and how many of them are required -- mirrors
+ *  VaultDetail.tsx's buildAndSign signer-discovery switch (2026-08-11 fix:
+ *  operator tested a single-key backup leaf with no timelock and the
+ *  signing screen said "0 of 2 signatures needed" instead of "0 of 1").
+ *  This page had the identical bug: it always showed vault.founder_quorum
+ *  and vault.founder_keys regardless of which leaf the proposal actually
+ *  spends from, so recovery/inheritance/protector/backup/second_inheritance
+ *  proposals all showed the wrong required count and the wrong signable-key
+ *  set. Bloc vaults (bloc_policy != null) never had ANY branch here at
+ *  all -- vault.founder_quorum is unset for a Bloc-only vault, so every
+ *  Bloc proposal showed "0 of undefined", and worse, the caller below used
+ *  to filter signable keys through vault_members, a table Bloc vaults never
+ *  populate, so no one could ever sign a Bloc proposal from this page. */
+function resolvePathSigners(
+  vault: Vault,
+  path: Proposal["path"],
+): { keyArray: string[]; required: number } {
+  const bp = vault.bloc_policy;
+  if (bp) {
+    switch (path) {
+      case "parents_now":
+        return { keyArray: bp.parent_pubkeys, required: bp.parents_together_quorum };
+      case "coparent_kids":
+        return {
+          keyArray: [...bp.parent_pubkeys, ...bp.kid_pubkeys],
+          required: bp.coparent_quorum + bp.kids_with_parent_quorum,
+        };
+      case "parent_solo":
+        return { keyArray: bp.parent_pubkeys, required: bp.parent_solo_quorum };
+      case "kids_decay":
+        // No block-height context on this page (unlike the build-time flow
+        // in VaultDetail, which picks the live rung) -- the floor quorum is
+        // the safe worst-case default; still strictly better than the prior
+        // vault.founder_quorum, which does not exist on a Bloc vault at all.
+        return { keyArray: bp.kid_pubkeys, required: bp.kids_decay_floor_quorum };
+      default:
+        return { keyArray: bp.parent_pubkeys, required: bp.parents_together_quorum };
+    }
+  }
+  switch (path) {
+    case "recovery":
+      return { keyArray: vault.founder_keys, required: vault.recovery_quorum ?? vault.founder_quorum };
+    case "inheritance":
+      return { keyArray: vault.heir_keys, required: vault.heir_quorum };
+    case "protector":
+      return { keyArray: vault.protector_keys, required: vault.protector_quorum ?? 0 };
+    case "backup":
+      return { keyArray: vault.backup_keys, required: vault.backup_quorum ?? 0 };
+    case "second_inheritance":
+      return { keyArray: vault.second_heir_keys, required: vault.second_heir_quorum ?? 0 };
+    case "tranche_claim":
+      // Distribution-wallet claims aren't governed by the vault's own
+      // leaves -- TrancheClaimModal (VaultDetail.tsx) is the only signing
+      // surface for these, never this page. Empty/zero is a safe no-op.
+      return { keyArray: [], required: 0 };
+    case "founders_now":
+    default: {
+      const keyArray = [...vault.founder_keys];
+      let required = vault.founder_quorum;
+      if (vault.consent_keys.length > 0 && vault.consent_quorum != null) {
+        keyArray.push(...vault.consent_keys);
+        required += vault.consent_quorum;
+      }
+      return { keyArray, required };
+    }
+  }
+}
+
+/** Expands xpubs to pubkey hex (Bloc's raw pubkey lists pass through
+ *  untouched) so a vault's key array can be intersected with the local
+ *  keystore's pubkey field -- same normalization VaultDetail.tsx's addKey
+ *  and tapit-circle-members.ts already do. */
+function toPubkeySet(keyArray: string[]): Set<string> {
+  const set = new Set<string>();
+  for (const x of keyArray) {
+    if (typeof x !== "string") continue;
+    if (x.length === 66) {
+      set.add(x);
+      continue;
+    }
+    try {
+      set.add(pubkeyFromXpub(x));
+    } catch {
+      /* skip malformed rows */
+    }
+  }
+  return set;
 }
 
 // // -- Proposal signing page (multi-member co-signer command center)
@@ -140,31 +231,44 @@ export default function ProposalDetail() {
         })()
       : mergeChain[0] ?? "";
   const collected = mergedPsbt ? countSignatures(mergedPsbt) : 0;
-  const required = vault.founder_quorum;
+  const pathSigners = resolvePathSigners(vault, proposal.path);
+  const required = pathSigners.required;
   const quorumMet = collected >= required;
   const terminal = proposal.status === "broadcast" || proposal.status === "cancelled";
+  // Tranche claims are signed and broadcast entirely inside
+  // TrancheClaimModal (VaultDetail.tsx), which has the real per-claim
+  // required-signature count (beneficiary path = 1, trustee escape hatch =
+  // wallet.trustee_quorum) that this page has no way to know -- it only
+  // knows the proposal row, not which distribution wallet/path produced
+  // it. This page is read-only history for a tranche claim: showing the
+  // sign/broadcast controls here would let required=0 (this page's safe
+  // placeholder) look like an already-met quorum and offer to
+  // double-broadcast a claim that's either already signed elsewhere or
+  // still being signed in the modal.
+  const isTrancheClaim = proposal.path === "tranche_claim";
 
-  // Local keys that match a founder on this vault and haven't signed yet.
+  // Local keys that match a signer on THIS proposal's leaf and haven't
+  // signed yet. Matched against the proposal's own path-specific key array
+  // (not vault_members, which Bloc vaults never populate at all) so this
+  // works identically for standard and Bloc vaults.
+  const pathSignerPubkeys = toPubkeySet(pathSigners.keyArray);
   const localKeys = listKeys().filter(k => k.status === "active" && k.origin === "software");
   const alreadySignedFingerprints = new Set(
     sessions.filter(s => s.signed && s.fingerprint).map(s => s.fingerprint as string),
   );
-  const vaultMemberFingerprints = new Set(
-    members.filter(m => m.fingerprint).map(m => m.fingerprint as string),
-  );
   const signableKeys = localKeys.filter(
-    k => vaultMemberFingerprints.has(k.fingerprint) && !alreadySignedFingerprints.has(k.fingerprint),
+    k => pathSignerPubkeys.has(k.pubkey) && !alreadySignedFingerprints.has(k.fingerprint),
   );
 
-  // Tapit-origin founder keys, same detection VaultMembershipSetup and
-  // SendTab's NotifyCircleViaNostr already use -- matched against
-  // vault.founder_keys directly, since these signers don't necessarily
-  // have a vault_members row/fingerprint the way a hardware or software
-  // key does. "Already signed" isn't tracked per-Tapit-key here (their
-  // signer_sessions rows carry a label, not a fingerprint); this just
-  // reflects into the live progress bar via load() after a signature
+  // Tapit-origin signers on THIS proposal's leaf, same detection
+  // VaultMembershipSetup and SendTab's NotifyCircleViaNostr already use --
+  // matched against the path's own key array, since these signers don't
+  // necessarily have a vault_members row/fingerprint the way a hardware or
+  // software key does. "Already signed" isn't tracked per-Tapit-key here
+  // (their signer_sessions rows carry a label, not a fingerprint); this
+  // just reflects into the live progress bar via load() after a signature
   // lands, same as every other signing path on this page.
-  const tapitSigners = getTapitCircleMembers(vault.founder_keys).circleMembers.map(key => ({
+  const tapitSigners = getTapitCircleMembers(pathSigners.keyArray).circleMembers.map(key => ({
     key,
     status: "pending" as const,
   }));
@@ -280,18 +384,36 @@ export default function ProposalDetail() {
 
       <SummaryCard proposal={proposal} vault={vault} />
 
-      <ProgressCard
-        collected={collected}
-        required={required}
-        quorumMet={quorumMet}
-        status={proposal.status}
-      />
+      {isTrancheClaim ? (
+        <div
+          style={{
+            fontSize: 12,
+            color: colors.muted,
+            background: colors.inset,
+            border: `1px solid ${colors.border}`,
+            borderRadius: radii.md,
+            padding: "10px 12px",
+            marginBottom: 14,
+          }}
+        >
+          Tranche claims are signed and broadcast from the Distributions tab,
+          not from here -- this page is the request's vote, discussion, and
+          audit history.
+        </div>
+      ) : (
+        <ProgressCard
+          collected={collected}
+          required={required}
+          quorumMet={quorumMet}
+          status={proposal.status}
+        />
+      )}
 
       <MembersSection members={members} sessions={sessions} />
 
       <DiscussionSection proposalId={proposal.id} members={members} />
 
-      {!terminal && signableKeys.length > 0 && (
+      {!terminal && !isTrancheClaim && signableKeys.length > 0 && (
         <ActionCard>
           <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 8 }}>
             Sign with your key
@@ -315,7 +437,7 @@ export default function ProposalDetail() {
         </ActionCard>
       )}
 
-      {!terminal && (
+      {!terminal && !isTrancheClaim && (
         <NotifyCircleViaNostr
           subjectId={proposal.id}
           psbtHex={mergedPsbt || proposal.psbt_hex || ""}
@@ -326,7 +448,7 @@ export default function ProposalDetail() {
         />
       )}
 
-      {!terminal && (
+      {!terminal && !isTrancheClaim && (
         <ActionCard>
           <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
             Sign with hardware wallet
@@ -343,7 +465,7 @@ export default function ProposalDetail() {
         </ActionCard>
       )}
 
-      {!terminal && quorumMet && (
+      {!terminal && !isTrancheClaim && quorumMet && (
         <Button
           disabled={busy}
           style={{ background: colors.green, width: "100%", padding: "14px", fontSize: 15 }}
@@ -353,10 +475,10 @@ export default function ProposalDetail() {
         </Button>
       )}
 
-      {!terminal && !quorumMet && signableKeys.length === 0 && (() => {
+      {!terminal && !isTrancheClaim && !quorumMet && signableKeys.length === 0 && (() => {
         // Tell the user *why* they can't sign: already signed, or no key.
         const iSigned = localKeys.some(
-          k => vaultMemberFingerprints.has(k.fingerprint) && alreadySignedFingerprints.has(k.fingerprint),
+          k => pathSignerPubkeys.has(k.pubkey) && alreadySignedFingerprints.has(k.fingerprint),
         );
         const remaining = Math.max(0, required - collected);
         return (
@@ -384,7 +506,7 @@ export default function ProposalDetail() {
         </a>
       )}
 
-      {!terminal && (
+      {!terminal && !isTrancheClaim && (
         <Button
           variant="ghost"
           style={{ marginTop: space[3], fontSize: 12 }}

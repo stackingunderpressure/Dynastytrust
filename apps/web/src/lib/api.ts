@@ -341,7 +341,18 @@ export interface Proposal {
   id: string;
   created_at: string;
   vault_id: string;
-  path: 'founders_now' | 'recovery' | 'inheritance' | 'parents_now' | 'coparent_kids' | 'parent_solo' | 'kids_decay';
+  path:
+    | 'founders_now'
+    | 'recovery'
+    | 'inheritance'
+    | 'protector'
+    | 'backup'
+    | 'second_inheritance'
+    | 'parents_now'
+    | 'coparent_kids'
+    | 'parent_solo'
+    | 'kids_decay'
+    | 'tranche_claim';
   destination: string;
   amount_sats: number;
   fee_sats: number;
@@ -354,6 +365,10 @@ export interface Proposal {
   /** Present on every proposal returned by GET /proposals (list); absent
    *  on the single-proposal shape POST/PATCH return. */
   signer_sessions?: ProposalSignerSession[];
+  /** Set only on path='tranche_claim' proposals -- which distribution
+   *  wallet + tranche this claim is for (036_tranche_claim_proposals.sql). */
+  distribution_wallet_id?: string | null;
+  tranche_index?: number | null;
 }
 
 export interface BalanceResult {
@@ -862,6 +877,11 @@ export const api = {
       psbt_hex?: string;
       psbt_b64?: string;
       fee_sats?: number;
+      /** Links this proposal back to the distribution-wallet tranche it
+       *  claims (036_tranche_claim_proposals.sql). Omit for standard/Bloc
+       *  spends -- both columns stay null. */
+      distribution_wallet_id?: string;
+      tranche_index?: number;
     }) => req<{ ok: true; proposal: Proposal }>('/proposals', { method: 'POST', body: JSON.stringify(body) }),
 
     update: (id: string, body: {
