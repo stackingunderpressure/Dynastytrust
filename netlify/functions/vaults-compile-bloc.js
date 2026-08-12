@@ -30,6 +30,7 @@
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 import { fetchTipHeight, relativeToAbsolute } from "./_chain.js";
+import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
 
 const COMPILER_URL = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -99,31 +100,20 @@ export async function handler(event) {
 
   let compiled;
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-    const res = await fetch(`${COMPILER_URL.replace(/\/$/, "")}/compile-bloc`, {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        ...(COMPILER_SECRET ? { Authorization: `Bearer ${COMPILER_SECRET}` } : {}),
-      },
-      body: JSON.stringify({
-        name: vault.name,
-        network: vault.network,
-        parent_keys, kid_keys,
-        parents_together_quorum: bp.parents_together_quorum,
-        coparent_quorum: bp.coparent_quorum,
-        kids_with_parent_quorum: bp.kids_with_parent_quorum,
-        parent_solo_quorum: bp.parent_solo_quorum,
-        parent_solo_after: absParentSoloAfter,
-        kids_decay_start_after: absKidsDecayStart,
-        kids_decay_step_blocks: bp.kids_decay_step_blocks,
-        kids_decay_start_quorum: bp.kids_decay_start_quorum,
-        kids_decay_floor_quorum: bp.kids_decay_floor_quorum,
-      }),
-    });
-    clearTimeout(timeout);
+    const res = await fetchCompiler(COMPILER_URL, "/compile-bloc", {
+      name: vault.name,
+      network: vault.network,
+      parent_keys, kid_keys,
+      parents_together_quorum: bp.parents_together_quorum,
+      coparent_quorum: bp.coparent_quorum,
+      kids_with_parent_quorum: bp.kids_with_parent_quorum,
+      parent_solo_quorum: bp.parent_solo_quorum,
+      parent_solo_after: absParentSoloAfter,
+      kids_decay_start_after: absKidsDecayStart,
+      kids_decay_step_blocks: bp.kids_decay_step_blocks,
+      kids_decay_start_quorum: bp.kids_decay_start_quorum,
+      kids_decay_floor_quorum: bp.kids_decay_floor_quorum,
+    }, { compilerSecret: COMPILER_SECRET });
     const text = await res.text();
     let data;
     try {
@@ -139,8 +129,7 @@ export async function handler(event) {
     }
     compiled = data;
   } catch (err) {
-    const reason = err?.name === "AbortError" ? "Compiler timed out after 15s" : err?.message;
-    return json(502, { error: `Compiler unreachable: ${reason}` });
+    return json(502, { error: `Compiler unreachable: ${compilerFailureReason(err)}` });
   }
 
   const finalBlocPolicy = {

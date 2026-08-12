@@ -23,6 +23,7 @@
 
 import { requireUser, json } from "./_auth.js";
 import { fetchTipHeight, relativeToAbsolute } from "./_chain.js";
+import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
 
 const COMPILER_URL    = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -89,66 +90,43 @@ export async function handler(event) {
   const absKidsDecayStart    = relativeToAbsolute(kids_decay_start_after, tipHeight);
 
   let compiled;
-  let lastErr;
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  try {
+    const compilerRes = await fetchCompiler(COMPILER_URL, "/compile-bloc", {
+      name, network,
+      parent_keys,
+      parents_together_quorum,
+      coparent_quorum,
+      kid_keys,
+      kids_with_parent_quorum,
+      parent_solo_after: absParentSoloAfter,
+      parent_solo_quorum,
+      kids_decay_start_after: absKidsDecayStart,
+      kids_decay_step_blocks,
+      kids_decay_start_quorum,
+      kids_decay_floor_quorum,
+    }, { compilerSecret: COMPILER_SECRET });
+
+    const rawText = await compilerRes.text();
+    let data;
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
-      const compilerRes = await fetch(`${COMPILER_URL.replace(/\/$/, "")}/compile-bloc`, {
-        method: "POST",
-        signal: controller.signal,
-        headers: {
-          "Content-Type": "application/json",
-          ...(COMPILER_SECRET ? { Authorization: `Bearer ${COMPILER_SECRET}` } : {}),
-        },
-        body: JSON.stringify({
-          name, network,
-          parent_keys,
-          parents_together_quorum,
-          coparent_quorum,
-          kid_keys,
-          kids_with_parent_quorum,
-          parent_solo_after: absParentSoloAfter,
-          parent_solo_quorum,
-          kids_decay_start_after: absKidsDecayStart,
-          kids_decay_step_blocks,
-          kids_decay_start_quorum,
-          kids_decay_floor_quorum,
-        }),
+      data = JSON.parse(rawText);
+    } catch {
+      return json(502, {
+        error: `Compiler returned non-JSON (status ${compilerRes.status}): ${rawText.slice(0, 200)}`,
+        hint: "Check COMPILER_SECRET matches between Netlify and Fly.io",
       });
-      clearTimeout(timeout);
-
-      const rawText = await compilerRes.text();
-      let data;
-      try {
-        data = JSON.parse(rawText);
-      } catch {
-        return json(502, {
-          error: `Compiler returned non-JSON (status ${compilerRes.status}): ${rawText.slice(0, 200)}`,
-          hint: "Check COMPILER_SECRET matches between Netlify and Fly.io",
-        });
-      }
-
-      if (!compilerRes.ok || !data.ok) {
-        return json(400, {
-          error: data.error || "Compiler returned an error",
-          detail: `Compiler status: ${compilerRes.status}`,
-        });
-      }
-
-      compiled = data;
-      break;
-    } catch (err) {
-      lastErr = err;
-      console.error(`compile-bloc attempt ${attempt} failed:`, err.message);
-      if (attempt < 2) await new Promise(r => setTimeout(r, 3000));
     }
-  }
 
-  if (!compiled) {
-    const reason = lastErr?.name === "AbortError"
-      ? "Compiler timed out after 15s"
-      : lastErr?.message || "Unknown error";
+    if (!compilerRes.ok || !data.ok) {
+      return json(400, {
+        error: data.error || "Compiler returned an error",
+        detail: `Compiler status: ${compilerRes.status}`,
+      });
+    }
+
+    compiled = data;
+  } catch (err) {
+    const reason = compilerFailureReason(err);
     // See compile.js's identical fix: the internal compiler URL and
     // whether its secret is configured are server infrastructure
     // details, not something the client needs -- log, don't return.

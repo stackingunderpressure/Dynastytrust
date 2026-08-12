@@ -21,6 +21,7 @@
 import { requireUser, json } from "./_auth.js";
 import { getSupabaseAdmin } from "./_supabase.js";
 import { fetchTipHeight, relativeToAbsolute } from "./_chain.js";
+import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
 
 const COMPILER_URL    = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -129,70 +130,47 @@ export async function handler(event) {
   const absInheritanceAfter = relativeToAbsolute(finalInheritanceAfter, tipHeight);
   const absProtectorAfter   = relativeToAbsolute(protector_after,       tipHeight);
 
-  // 4. Forward to Fly.io compiler — retry once in case machine is waking up
+  // 4. Forward to Fly.io compiler — fetchCompiler retries once in case
+  // the machine is waking up from a cold start.
   let compiled;
-  let lastErr;
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  try {
+    const compilerRes = await fetchCompiler(COMPILER_URL, "/compile", {
+      name, network, address_type,
+      founder_keys, founder_quorum,
+      recovery_quorum,
+      heir_keys,
+      heir_quorum: finalHeirQuorum,
+      recovery_after: absRecoveryAfter,
+      inheritance_after: absInheritanceAfter,
+      ...(protector_keys.length > 0 && protector_quorum != null && absProtectorAfter > 0
+        ? { protector_keys, protector_quorum, protector_after: absProtectorAfter }
+        : {}),
+      ...(consent_keys.length > 0 && consent_quorum != null
+        ? { consent_keys, consent_quorum }
+        : {}),
+    }, { compilerSecret: COMPILER_SECRET });
+
+    const rawText = await compilerRes.text();
+    let data;
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000); // 15s timeout
-      const compilerRes = await fetch(`${COMPILER_URL.replace(/\/$/, "")}/compile`, {
-        method: "POST",
-        signal: controller.signal,
-        headers: {
-          "Content-Type": "application/json",
-          ...(COMPILER_SECRET ? { Authorization: `Bearer ${COMPILER_SECRET}` } : {}),
-        },
-        body: JSON.stringify({
-          name, network, address_type,
-          founder_keys, founder_quorum,
-          recovery_quorum,
-          heir_keys,
-          heir_quorum: finalHeirQuorum,
-          recovery_after: absRecoveryAfter,
-          inheritance_after: absInheritanceAfter,
-          ...(protector_keys.length > 0 && protector_quorum != null && absProtectorAfter > 0
-            ? { protector_keys, protector_quorum, protector_after: absProtectorAfter }
-            : {}),
-          ...(consent_keys.length > 0 && consent_quorum != null
-            ? { consent_keys, consent_quorum }
-            : {}),
-        }),
+      data = JSON.parse(rawText);
+    } catch {
+      return json(502, {
+        error: `Compiler returned non-JSON (status ${compilerRes.status}): ${rawText.slice(0, 200)}`,
+        hint: "Check COMPILER_SECRET matches between Netlify and Fly.io"
       });
-      clearTimeout(timeout);
-
-      const rawText = await compilerRes.text();
-      let data;
-      try {
-        data = JSON.parse(rawText);
-      } catch {
-        return json(502, {
-          error: `Compiler returned non-JSON (status ${compilerRes.status}): ${rawText.slice(0, 200)}`,
-          hint: "Check COMPILER_SECRET matches between Netlify and Fly.io"
-        });
-      }
-
-      if (!compilerRes.ok || !data.ok) {
-        return json(400, {
-          error: data.error || "Compiler returned an error",
-          detail: `Compiler status: ${compilerRes.status}`,
-        });
-      }
-
-      compiled = data;
-      break; // success — exit retry loop
-
-    } catch (err) {
-      lastErr = err;
-      console.error(`Compiler attempt ${attempt} failed:`, err.message);
-      if (attempt < 2) await new Promise(r => setTimeout(r, 3000));
     }
-  }
 
-  if (!compiled) {
-    const reason = lastErr?.name === 'AbortError'
-      ? 'Compiler timed out after 15s'
-      : lastErr?.message || 'Unknown error';
+    if (!compilerRes.ok || !data.ok) {
+      return json(400, {
+        error: data.error || "Compiler returned an error",
+        detail: `Compiler status: ${compilerRes.status}`,
+      });
+    }
+
+    compiled = data;
+  } catch (err) {
+    const reason = compilerFailureReason(err);
     // The internal Fly.io compiler URL and whether its secret is
     // configured are server infrastructure details, not something an
     // authenticated app user needs to debug a transient network blip --

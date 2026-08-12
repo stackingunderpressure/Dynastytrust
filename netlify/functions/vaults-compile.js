@@ -36,6 +36,7 @@ import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 import { pubkeyFromXpub } from "./_xpub.js";
 import { fetchTipHeight, relativeToAbsolute } from "./_chain.js";
+import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
 
 const COMPILER_URL = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -260,18 +261,7 @@ export async function handler(event) {
 
   let compiled;
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-    const res = await fetch(`${COMPILER_URL.replace(/\/$/, "")}/compile`, {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        ...(COMPILER_SECRET ? { Authorization: `Bearer ${COMPILER_SECRET}` } : {}),
-      },
-      body: JSON.stringify(compilePayload),
-    });
-    clearTimeout(timeout);
+    const res = await fetchCompiler(COMPILER_URL, "/compile", compilePayload, { compilerSecret: COMPILER_SECRET });
     const text = await res.text();
     let data;
     try {
@@ -287,8 +277,7 @@ export async function handler(event) {
     }
     compiled = data;
   } catch (err) {
-    const reason = err?.name === "AbortError" ? "Compiler timed out after 15s" : err?.message;
-    return json(502, { error: `Compiler unreachable: ${reason}` });
+    return json(502, { error: `Compiler unreachable: ${compilerFailureReason(err)}` });
   }
 
   const upgraded = upgradeDescriptor(compiled.descriptor, [...founders, ...heirs, ...secondHeirs]);
