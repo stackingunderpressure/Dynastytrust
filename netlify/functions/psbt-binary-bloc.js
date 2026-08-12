@@ -114,6 +114,12 @@ export async function handler(event) {
     const bp = vault.bloc_policy;
     address = vault.address;
     network = vault.network;
+    // 2026-08-12 fix: change must always return to the vault's OWN address
+    // when the policy itself is trusted/server-derived -- a caller-supplied
+    // change_address surviving this lookup let any request redirect a
+    // spend's change to an address of its choosing. Mirrors psbt-binary.js's
+    // hardcoded `change_address: vault.address` for the standard vault.
+    change_address = vault.address;
     parent_keys = bp.parent_pubkeys ?? [];
     kid_keys = bp.kid_pubkeys ?? [];
     parents_together_quorum = bp.parents_together_quorum;

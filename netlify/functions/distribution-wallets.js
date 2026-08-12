@@ -19,7 +19,10 @@
  *          browser/Tapit-only signing for this wallet, same fallback the
  *          standard vault's 2026-08-06 fix already established.
  * PATCH  /api/distribution-wallets?id=<uuid>        update (owner or member)
- *          body: { tranches }   -- bump funded_txid / claimed_txid
+ *          body: { tranches }   -- bump funded_txid / claimed_txid only;
+ *          any other per-tranche field is immutable post-creation. A
+ *          non-owner member's PATCH is restricted to tranches; name and
+ *          beneficiary_name are owner-only.
  * DELETE /api/distribution-wallets?id=<uuid>        remove (owner only)
  *
  * The ceremony UI first calls /api/compile-tranche N times to build
@@ -160,20 +163,46 @@ export async function handler(event) {
 
     const { data: existing } = await supabase
       .from("distribution_wallets")
-      .select("vault_id")
+      .select("vault_id, tranches")
       .eq("id", id)
       .maybeSingle();
     if (!existing) return json(404, { error: "Distribution wallet not found" });
     if (!(await assertMember(supabase, existing.vault_id, u.userId))) {
       return json(403, { error: "Not a member of this vault" });
     }
+    const isOwner = await assertOwner(supabase, existing.vault_id, u.userId);
 
-    // Only tranches is patchable post-creation -- the rest is
-    // baked into the compiled addresses and cannot change.
-    const allowed = ["tranches", "name", "beneficiary_name"];
+    // name / beneficiary_name are metadata, owner-only. tranches is
+    // patchable by any member but ONLY to bump funded_txid /
+    // claimed_txid -- unlock_block, amount_sats, address, descriptor
+    // are baked into the compiled addresses and must never change
+    // post-creation, for owner or member alike. Without this check a
+    // non-owner member could PATCH tranches wholesale and redirect a
+    // future claim to an address of their own choosing, rewrite the
+    // unlock height, or forge a claimed_txid to mask a real claim.
+    const allowed = isOwner ? ["tranches", "name", "beneficiary_name"] : ["tranches"];
     const updates = Object.fromEntries(
       Object.entries(body).filter(([k]) => allowed.includes(k)),
     );
+
+    if (updates.tranches !== undefined) {
+      const prior = existing.tranches || [];
+      const next = updates.tranches;
+      if (!Array.isArray(next) || next.length !== prior.length) {
+        return json(400, { error: "tranches must be the same length as the existing array" });
+      }
+      const STRUCTURAL = ["index", "unlock_block", "amount_sats", "address", "descriptor"];
+      for (let i = 0; i < prior.length; i++) {
+        for (const field of STRUCTURAL) {
+          if (JSON.stringify(next[i]?.[field]) !== JSON.stringify(prior[i]?.[field])) {
+            return json(400, {
+              error: `tranches[${i}].${field} is immutable post-creation; only funded_txid/claimed_txid may change`,
+            });
+          }
+        }
+      }
+    }
+
     if (!Object.keys(updates).length) {
       return json(400, { error: `No editable fields. Allowed: ${allowed.join(", ")}` });
     }

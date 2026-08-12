@@ -85,7 +85,6 @@ export async function handler(event) {
     amount_sats,
     fee_rate,
     path = 'beneficiary',
-    change_address,
     // Caller-supplied key_origins is a legacy/manual fallback; the
     // 2026-08-12 fix stores key_origins on the distribution_wallets row
     // itself at creation time (mirrors bloc_policy.key_origins) and that
@@ -218,7 +217,15 @@ export async function handler(event) {
         destination,
         amount_sats: targetAmount,
         fee_sats: finalFee,
-        change_address: change_address || tranche.address,
+        // 2026-08-12 fix: this endpoint's policy (beneficiary_key,
+        // trustee_keys, unlock_block) is ALWAYS server-derived from the
+        // distribution_wallets row -- there is no client-holds-the-policy
+        // path the way psbt-binary-bloc.js has. A caller-supplied
+        // change_address has no such backing and, since this endpoint
+        // defaults to sweeping the entire tranche, would let a request
+        // redirect nearly the whole tranche balance to an address of its
+        // choosing. Change must always return to the tranche's own address.
+        change_address: tranche.address,
         network,
         beneficiary_key: wallet.beneficiary_pubkey,
         trustee_keys: wallet.trustee_keys,

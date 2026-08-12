@@ -25,6 +25,16 @@ import { fetchTipHeight, relativeToAbsolute } from "./_chain.js";
 const COMPILER_URL    = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
 
+// Mirrors protocol/src/policy_compiler.rs's MIN_RECOVERY_BLOCKS. Must be
+// checked HERE, against the raw relative offset, before the tip+offset
+// conversion below turns it into an absolute height -- by the time a
+// value reaches the Rust compiler's own verify() it is already absolute
+// (tip + offset, generally in the hundreds of thousands on any live
+// network), so Rust's `recovery_after < MIN_RECOVERY_BLOCKS` check is
+// structurally a no-op on every live network and cannot be relied on to
+// catch a too-soon recovery timelock.
+const MIN_RECOVERY_BLOCKS = 26_000;
+
 export async function handler(event) {
   if (event.httpMethod !== "POST") {
     return json(405, { error: "Method not allowed" });
@@ -83,9 +93,15 @@ export async function handler(event) {
     // Locker" shape (founders-now OR a single beneficiary path that
     // unlocks after a specified time, with no separate founders-after-
     // a-delay recovery leaf in between) -- see DynastyPolicy::has_recovery()
-    // in protocol/src/policy_compiler.rs. The Rust compiler's own
-    // verify() still enforces MIN_RECOVERY_BLOCKS whenever recovery_after
-    // IS set to something nonzero.
+    // in protocol/src/policy_compiler.rs. When recovery_after IS set to
+    // something nonzero it must still clear MIN_RECOVERY_BLOCKS -- check
+    // it here, against the raw relative value, since Rust's own verify()
+    // only ever sees the absolute height post-conversion below.
+    if (finalRecoveryAfter && finalRecoveryAfter < MIN_RECOVERY_BLOCKS) {
+      return json(400, {
+        error: `recovery_after must be >= ${MIN_RECOVERY_BLOCKS} blocks (or 0 for no recovery leaf)`,
+      });
+    }
   }
 
   if (!COMPILER_URL) {

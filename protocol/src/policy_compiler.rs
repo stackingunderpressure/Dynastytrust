@@ -820,6 +820,11 @@ pub struct TrancheOutput {
     pub trustee_leaf: bitcoin::ScriptBuf,
     pub descriptor: String,
     pub miniscript_policy: String,
+    /// Same tree as `spend_info`, in the `TapTree` shape a PSBT output's
+    /// PSBT_OUT_TAP_TREE field needs -- see attach_tap_change_output_metadata
+    /// in psbt_builder.rs. Must come from the same builder spend_info did,
+    /// captured before .finalize() consumes it, so the two can never drift.
+    pub tap_tree: TapTree,
 }
 
 /// Sole source of truth for a tranche's tree construction. Used by
@@ -864,6 +869,9 @@ pub fn build_tranche(policy: &TranchePolicy) -> Result<TrancheOutput, PolicyErro
         .add_leaf(1, ms_trustees.encode())
         .map_err(|e| PolicyError::Descriptor(format!("leaf trustees: {e:?}")))?;
 
+    let tap_tree = TapTree::try_from(builder.clone())
+        .map_err(|e| PolicyError::Descriptor(format!("tap_tree: {e:?}")))?;
+
     let spend_info = builder
         .finalize(&secp, internal_key)
         .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
@@ -878,6 +886,7 @@ pub fn build_tranche(policy: &TranchePolicy) -> Result<TrancheOutput, PolicyErro
         trustee_leaf: ms_trustees.encode(),
         descriptor,
         miniscript_policy,
+        tap_tree,
     })
 }
 
@@ -1070,6 +1079,11 @@ pub struct BlocMultileafOutput {
     pub leaves: Vec<BlocLeaf>,
     pub descriptor: String,
     pub miniscript_policy: String,
+    /// Same tree as `spend_info`, in the `TapTree` shape a PSBT output's
+    /// PSBT_OUT_TAP_TREE field needs -- see attach_tap_change_output_metadata
+    /// in psbt_builder.rs. Must come from the same builder spend_info did,
+    /// captured before .finalize() consumes it, so the two can never drift.
+    pub tap_tree: TapTree,
 }
 
 pub fn build_bloc_multileaf(policy: &DynastyBlocPolicy) -> Result<BlocMultileafOutput, PolicyError> {
@@ -1168,6 +1182,9 @@ pub fn build_bloc_multileaf(policy: &DynastyBlocPolicy) -> Result<BlocMultileafO
             .add_leaf(depth, ms.encode())
             .map_err(|e| PolicyError::Descriptor(format!("add_leaf {i} (depth {depth}): {e:?}")))?;
     }
+    let tap_tree = TapTree::try_from(builder.clone())
+        .map_err(|e| PolicyError::Descriptor(format!("tap_tree: {e:?}")))?;
+
     let spend_info = builder
         .finalize(&secp, internal_key)
         .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
@@ -1199,6 +1216,7 @@ pub fn build_bloc_multileaf(policy: &DynastyBlocPolicy) -> Result<BlocMultileafO
         leaves,
         descriptor,
         miniscript_policy: nest_or(&branch_strs),
+        tap_tree,
     })
 }
 

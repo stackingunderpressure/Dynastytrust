@@ -443,6 +443,25 @@ pub fn build_bloc_spend_psbt(
     let mut psbt = Psbt::from_unsigned_tx(tx)
         .map_err(|e: bitcoin::psbt::Error| PsbtError::Psbt(e.to_string()))?;
 
+    // Change always returns to this same Bloc vault's own address. Until
+    // this fix the change output carried no taproot metadata at all -- a
+    // bare scriptPubkey a signer has nothing to verify against, the same
+    // gap the standard vault's change output closed in compiler/src/
+    // main.rs's psbt_binary handler. Every leaf (not just the one being
+    // spent) is passed through since a signer key can legitimately sit in
+    // more than one leaf (e.g. a parent key in both parents_now and
+    // coparent_kids).
+    if has_change {
+        let leaves: Vec<&ScriptBuf> = tree.leaves.iter().map(|l| &l.leaf_script).collect();
+        attach_tap_change_output_metadata(
+            &mut psbt.outputs[1],
+            tree.internal_key,
+            tree.tap_tree.clone(),
+            &leaves,
+            &req.key_origins,
+        );
+    }
+
     let script_ver = (leaf.leaf_script.clone(), LeafVersion::TapScript);
     let control_block = tree
         .spend_info
@@ -563,6 +582,24 @@ pub fn build_tranche_spend_psbt(
 
     let mut psbt = Psbt::from_unsigned_tx(tx)
         .map_err(|e: bitcoin::psbt::Error| PsbtError::Psbt(e.to_string()))?;
+
+    // Change always returns to this same tranche's own address. Until this
+    // fix the change output carried no taproot metadata at all -- see the
+    // identical fix and rationale in build_bloc_spend_psbt above. Both
+    // leaves (not just the one being spent) are passed through since the
+    // beneficiary and a trustee's keys are structurally in different
+    // leaves, but attach_tap_change_output_metadata itself only stamps
+    // origins for keys it actually finds in one of them.
+    if has_change {
+        let leaves: [&ScriptBuf; 2] = [&tree.beneficiary_leaf, &tree.trustee_leaf];
+        attach_tap_change_output_metadata(
+            &mut psbt.outputs[1],
+            tree.internal_key,
+            tree.tap_tree.clone(),
+            &leaves,
+            &req.key_origins,
+        );
+    }
 
     let script_ver = (leaf.clone(), LeafVersion::TapScript);
     let control_block = tree
@@ -799,6 +836,54 @@ mod bloc_psbt_tests {
         let psbt = build_bloc_spend_psbt(&policy, req).unwrap();
         assert!(psbt.inputs[0].tap_key_origins.is_empty());
     }
+
+    // 2026-08-12 fix: a Bloc change output used to carry no taproot metadata
+    // at all -- a bare scriptPubkey a signer has nothing to verify against.
+    // Combined with a client-controlled change_address (fixed separately in
+    // netlify/functions/psbt-binary-bloc.js), this was a real coordinator-
+    // alone fund-redirection path.
+    #[test]
+    fn change_output_gets_taproot_metadata_when_change_exists() {
+        let (policy, mut req) = request(crate::policy_compiler::BLOC_PATH_PARENTS_NOW, 0);
+        req.utxos[0].value = 51_546; // change = 546, kept (at the dust floor)
+        let psbt = build_bloc_spend_psbt(&policy, req).unwrap();
+        assert_eq!(psbt.unsigned_tx.output.len(), 2);
+        assert!(
+            psbt.outputs[1].tap_internal_key.is_some(),
+            "change output must carry tap_internal_key so a signer can verify it belongs to the vault"
+        );
+        assert!(
+            psbt.outputs[1].tap_tree.is_some(),
+            "change output must carry tap_tree so a signer can independently rebuild the tree"
+        );
+    }
+
+    #[test]
+    fn change_output_tap_key_origins_covers_a_signer_present_in_any_leaf() {
+        let (policy, mut req) = request(crate::policy_compiler::BLOC_PATH_PARENTS_NOW, 0);
+        req.utxos[0].value = 51_546;
+        req.key_origins = vec![KeyOrigin {
+            pubkey: PARENT_A.into(),
+            fingerprint: "deadbeef".into(),
+            derivation_path: "m/48'/1'/0'/2'/0/0".into(),
+        }];
+        let psbt = build_bloc_spend_psbt(&policy, req).unwrap();
+        assert_eq!(
+            psbt.outputs[1].tap_key_origins.len(), 1,
+            "the parent key sits in more than one leaf and must get an origin entry on the change output too",
+        );
+    }
+
+    #[test]
+    fn change_output_has_no_taproot_metadata_when_there_is_no_change() {
+        // req.utxos[0].value defaults to 100_000: change = 100_000 - 50_000 -
+        // 1_000 = 49_000, well above dust, but this asserts the guard is
+        // conditioned on has_change rather than running unconditionally.
+        let (policy, mut req) = request(crate::policy_compiler::BLOC_PATH_PARENTS_NOW, 0);
+        req.utxos[0].value = 51_000; // change = 0 exactly after fee -> no change output
+        let psbt = build_bloc_spend_psbt(&policy, req).unwrap();
+        assert_eq!(psbt.unsigned_tx.output.len(), 1, "no change output should exist");
+    }
 }
 
 #[cfg(test)]
@@ -929,6 +1014,41 @@ mod tranche_psbt_tests {
         req.utxos[0].value = 51_400;
         let psbt = build_tranche_spend_psbt(&policy, req).unwrap();
         assert_eq!(psbt.unsigned_tx.output.len(), 1);
+    }
+
+    // 2026-08-12 fix: a tranche change output used to carry no taproot
+    // metadata at all -- see the identical Bloc fix and rationale in
+    // bloc_psbt_tests above.
+    #[test]
+    fn change_output_gets_taproot_metadata_when_change_exists() {
+        let (policy, mut req) = request("trustee");
+        req.utxos[0].value = 51_546; // change = 546, kept (at the dust floor)
+        let psbt = build_tranche_spend_psbt(&policy, req).unwrap();
+        assert_eq!(psbt.unsigned_tx.output.len(), 2);
+        assert!(
+            psbt.outputs[1].tap_internal_key.is_some(),
+            "change output must carry tap_internal_key so a signer can verify it belongs to the vault"
+        );
+        assert!(
+            psbt.outputs[1].tap_tree.is_some(),
+            "change output must carry tap_tree so a signer can independently rebuild the tree"
+        );
+    }
+
+    #[test]
+    fn change_output_tap_key_origins_covers_the_beneficiary_key() {
+        let (policy, mut req) = request("trustee");
+        req.utxos[0].value = 51_546;
+        req.key_origins = vec![KeyOrigin {
+            pubkey: BENEFICIARY.into(),
+            fingerprint: "deadbeef".into(),
+            derivation_path: "m/86'/1'/0'/0/0".into(),
+        }];
+        let psbt = build_tranche_spend_psbt(&policy, req).unwrap();
+        assert_eq!(
+            psbt.outputs[1].tap_key_origins.len(), 1,
+            "the beneficiary key's leaf is still part of this tranche's tree and must get an origin entry on the change output",
+        );
     }
 }
 

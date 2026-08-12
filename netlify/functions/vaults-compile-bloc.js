@@ -157,9 +157,15 @@ export async function handler(event) {
   const { data: saved, error: saveErr } = await supabase
     .from("vaults")
     .update({
-      address: compiled.compiled.address,
-      descriptor: compiled.compiled.descriptor,
-      miniscript_policy: compiled.compiled.miniscript_policy,
+      // The compiler's response is flat ({ ok, address, descriptor,
+      // miniscript_policy, ... }), same shape compile.js reads via
+      // `compiled.address` -- there is no nested `compiled.compiled`
+      // key. This mismatch made every Bloc vault finalize throw
+      // (saved.address always undefined, breaking the address_type
+      // check downstream) until fixed.
+      address: compiled.address,
+      descriptor: compiled.descriptor,
+      miniscript_policy: compiled.miniscript_policy,
       bloc_policy: finalBlocPolicy,
       status: "compiled",
     })

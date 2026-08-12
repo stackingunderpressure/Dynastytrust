@@ -416,20 +416,31 @@ pub fn audit_spend(policy: &VaultPolicy, spend: &ProposedSpend) -> GovernanceAud
         });
     };
 
-    // Rule 1: Timelock must be satisfied for non-immediate paths
+    // Rule 1: Timelock must be satisfied for non-immediate paths.
+    // recovery_after == 0 means this vault has no recovery leaf at all
+    // (the "Gift Locker" shape -- see evaluate_spend_proposal's doc
+    // comment above); without this guard a Recovery spend on such a
+    // vault was reported timelock-satisfied because utxo_age_blocks >= 0
+    // is trivially true, contradicting evaluate_spend_proposal's own
+    // `has_recovery` gate for the identical path/policy pair.
+    let has_recovery = policy.recovery_after > 0;
     let timelock_ok = match spend.path {
         SpendingPath::FoundersNow => true,
-        SpendingPath::Recovery    => spend.utxo_age_blocks >= policy.recovery_after,
+        SpendingPath::Recovery    => has_recovery && spend.utxo_age_blocks >= policy.recovery_after,
         SpendingPath::Inheritance => spend.utxo_age_blocks >= policy.inheritance_after,
     };
     if !timelock_ok {
         add(&mut violations, "GOV-001", "Timelock not satisfied", RuleSeverity::Hard,
-            format!("Current chain height {} is below the required unlock height {}", spend.utxo_age_blocks,
-                match spend.path {
-                    SpendingPath::Recovery    => policy.recovery_after,
-                    SpendingPath::Inheritance => policy.inheritance_after,
-                    SpendingPath::FoundersNow => 0,
-                })
+            if spend.path == SpendingPath::Recovery && !has_recovery {
+                "This vault has no separate recovery path -- founders spend via Founders Now at any time.".to_string()
+            } else {
+                format!("Current chain height {} is below the required unlock height {}", spend.utxo_age_blocks,
+                    match spend.path {
+                        SpendingPath::Recovery    => policy.recovery_after,
+                        SpendingPath::Inheritance => policy.inheritance_after,
+                        SpendingPath::FoundersNow => 0,
+                    })
+            }
         );
     }
 
@@ -675,6 +686,30 @@ mod tests {
         let audit = audit_spend(&policy(), &spend);
         assert!(audit.approved); // no hard violations
         assert!(audit.warnings.iter().any(|w| w.rule.id == "GOV-005"));
+    }
+
+    #[test]
+    fn audit_rejects_recovery_spend_on_a_gift_locker_vault() {
+        // No recovery leaf exists on this policy (recovery_after == 0).
+        // Before this fix, GOV-001's timelock check compared
+        // utxo_age_blocks >= 0, which is trivially true, so audit_spend
+        // reported this spend timelock-satisfied even though
+        // evaluate_spend_proposal (called by GOV-002 just below it in
+        // the same function) correctly refuses it. That contradiction --
+        // audit.approved: true alongside evaluation.allowed: false for
+        // the identical policy/path/height -- is what this test guards.
+        let spend = ProposedSpend {
+            path: SpendingPath::Recovery,
+            amount_sats: 100_000,
+            destination: "tb1p...".to_string(),
+            utxo_age_blocks: 100_000, // far past any real timelock
+            signer_statuses: signers(&[0, 1], 2),
+            total_vault_sats: 1_000_000,
+        };
+        let audit = audit_spend(&gift_locker_policy(), &spend);
+        assert!(!audit.approved, "no recovery leaf exists to spend from");
+        assert!(audit.violations.iter().any(|v| v.rule.id == "GOV-001"),
+            "GOV-001 must flag the missing recovery leaf, not just GOV-002's quorum check");
     }
 
     #[test]

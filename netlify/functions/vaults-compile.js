@@ -40,6 +40,12 @@ import { fetchTipHeight, relativeToAbsolute } from "./_chain.js";
 const COMPILER_URL = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
 
+// Mirrors protocol/src/policy_compiler.rs's MIN_RECOVERY_BLOCKS -- see
+// compile.js for why this must be checked here, against the raw
+// relative offset, rather than relying on the Rust compiler's own
+// verify(), which only ever sees the value after tip+offset conversion.
+const MIN_RECOVERY_BLOCKS = 26_000;
+
 const VAULT_FIELDS =
   "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc, predecessor_id, leaf_scripts, backup_keys, backup_quorum, second_heir_keys, second_heir_quorum, second_inheritance_after";
 
@@ -154,6 +160,12 @@ export async function handler(event) {
   if (plannedH > 0 && heirs.length < plannedH) {
     return json(400, {
       error: `Need ${plannedH} provisioned heir(s); only ${heirs.length} ready.`,
+    });
+  }
+
+  if (vault.recovery_after && vault.recovery_after < MIN_RECOVERY_BLOCKS) {
+    return json(400, {
+      error: `recovery_after must be >= ${MIN_RECOVERY_BLOCKS} blocks (or 0 for no recovery leaf)`,
     });
   }
 
