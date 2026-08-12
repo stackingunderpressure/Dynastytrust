@@ -552,7 +552,27 @@ async fn psbt_binary(
     // `after(N)` on the chosen leaf. Callers MUST already have
     // baked current-tip + relative-offset into those values at
     // compile time; Rust treats the number as absolute height.
+    //
+    // An unrecognized path string is rejected outright rather than
+    // silently falling back to founders_now -- build_bloc_spend_psbt
+    // and build_tranche_spend_psbt (psbt_builder.rs) both already
+    // fail closed on an unknown path via PsbtError::UnknownPath; this
+    // handler used to be the one exception, quietly treating a typo
+    // or garbage path as founders_now. Not an auth bypass (founders_now
+    // still needs real founder signatures against the leaf script
+    // either way), but "reject what you don't recognize" is the
+    // pattern the rest of this codebase deliberately follows and this
+    // should not have been the odd one out.
     let intended_path = req.path.as_deref().unwrap_or("founders_now");
+    const VALID_PATHS: &[&str] = &[
+        "founders_now", "recovery", "inheritance", "protector", "backup", "second_inheritance",
+    ];
+    if !VALID_PATHS.contains(&intended_path) {
+        return Err(api_err(
+            StatusCode::BAD_REQUEST,
+            format!("Unknown path: {intended_path}"),
+        ));
+    }
     let locktime_height: Option<u32> = match intended_path {
         "recovery" => req.recovery_after,
         "inheritance" => req.inheritance_after,
@@ -1461,6 +1481,58 @@ mod psbt_binary_tests {
         let psbt = build_psbt("founders_now", vec![]).await;
         let (leaf, _) = psbt.inputs[0].tap_scripts.values().next().expect("a leaf must be attached");
         assert!(leaf.as_bytes().windows(32).any(|w| w == xonly_bytes(FOUNDER_A)));
+    }
+
+    #[tokio::test]
+    async fn unrecognized_path_is_rejected_not_defaulted_to_founders_now() {
+        // psbt_builder.rs's build_bloc_spend_psbt / build_tranche_spend_psbt
+        // both reject an unknown path with PsbtError::UnknownPath. This
+        // handler used to be the one exception, silently treating a typo
+        // or garbage path string as founders_now instead of erroring.
+        let policy = sample_policy();
+        let compiled = compile_dynasty_policy_tr_multileaf(policy.clone(), Network::Testnet).unwrap();
+        let addr = compiled.address.to_string();
+        let spk_hex = hex::encode(compiled.address.script_pubkey().as_bytes());
+
+        let req = PsbtBinaryRequest {
+            inputs: vec![UtxoInput {
+                txid: "0000000000000000000000000000000000000000000000000000000000000001".into(),
+                vout: 0,
+                value_sats: 100_000,
+                script_pubkey: spk_hex,
+            }],
+            destination: addr.clone(),
+            amount_sats: 50_000,
+            fee_sats: 1_000,
+            change_address: addr,
+            network: "testnet".into(),
+            founder_keys: Some(policy.founder_keys.iter().map(|k| k.to_string()).collect()),
+            founder_quorum: Some(policy.founder_quorum),
+            heir_keys: Some(policy.heir_keys.iter().map(|k| k.to_string()).collect()),
+            heir_quorum: Some(policy.heir_quorum),
+            recovery_after: Some(policy.recovery_after),
+            inheritance_after: Some(policy.inheritance_after),
+            address_type: Some("tr_multileaf".into()),
+            consent_keys: vec![],
+            consent_quorum: None,
+            recovery_quorum: None,
+            protector_keys: vec![],
+            protector_quorum: None,
+            protector_after: None,
+            backup_keys: vec![],
+            backup_quorum: None,
+            second_heir_keys: vec![],
+            second_heir_quorum: None,
+            second_inheritance_after: None,
+            path: Some("definitely_not_a_path".into()),
+            witness_script_hex: None,
+            key_origins: vec![],
+        };
+        let (state, headers) = test_auth_state_and_headers();
+        match psbt_binary(State(state), headers, Json(req)).await {
+            Ok(_) => panic!("an unrecognized path must be rejected, not silently treated as founders_now"),
+            Err(err) => assert_eq!(err.0, StatusCode::BAD_REQUEST),
+        }
     }
 
     #[tokio::test]
