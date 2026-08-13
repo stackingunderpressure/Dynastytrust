@@ -32,6 +32,34 @@ export async function tipHeight(network: Network): Promise<number> {
 }
 
 /**
+ * Confirmation status of a broadcast transaction, straight from
+ * mempool.space (same client-side, no-backend-proxy pattern as
+ * tipHeight above). Used to show a live confirmation count on
+ * proposal history rows once a spend has been broadcast.
+ */
+export async function txStatus(
+  network: Network,
+  txid: string,
+): Promise<{ confirmed: boolean; blockHeight: number | null }> {
+  const res = await fetch(`${EXPLORER[network].api}/tx/${txid}/status`);
+  if (!res.ok) throw new Error(`Tx status fetch failed: ${res.status}`);
+  const body = (await res.json()) as { confirmed: boolean; block_height?: number };
+  return { confirmed: body.confirmed, blockHeight: body.confirmed ? (body.block_height ?? null) : null };
+}
+
+/**
+ * Confirmation count for a broadcast txid, derived from txStatus + the
+ * cached chain tip. 0 means broadcast but still unconfirmed (in the
+ * mempool); null means not yet known (still loading, or the lookup
+ * failed -- best-effort, callers should just omit the count in that case).
+ */
+export async function txConfirmations(network: Network, txid: string): Promise<number | null> {
+  const [status, tip] = await Promise.all([txStatus(network, txid), tipHeight(network)]);
+  if (!status.confirmed || status.blockHeight == null) return 0;
+  return Math.max(1, tip - status.blockHeight + 1);
+}
+
+/**
  * Convert a BIP65/BIP68-style "after(N)" block count into a
  * human-readable countdown relative to the current tip.
  * `afterBlocks` here is the absolute block height the policy uses

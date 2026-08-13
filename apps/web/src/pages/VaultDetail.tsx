@@ -62,7 +62,7 @@ import { SentSecretsPanel } from "../components/SentSecretsPanel";
 import { VaultMembershipSetup } from "../components/VaultMembershipSetup";
 import { NotifyCircleViaNostr } from "../components/NotifyCircleViaNostr";
 import { MessagingKeyBackupPanel } from "../components/MessagingKeyBackupPanel";
-import { tipHeight, blocksToApproxLabel, approxWallclockDate } from "../lib/chain";
+import { tipHeight, txConfirmations, blocksToApproxLabel, approxWallclockDate } from "../lib/chain";
 import { buildStandardTrustDoc, standardConfigFromCompiledVault } from "../lib/trust-doc";
 
 
@@ -2447,6 +2447,37 @@ function ProposalCard({ proposal: p, vault }: { proposal: Proposal; vault: Vault
   const [expanded, setExpanded] = useState(false);
   const sc = statusColor(p.status);
   const terminal = p.status === "broadcast" || p.status === "cancelled";
+
+  // Confirmation count for a broadcast spend -- fetched straight from
+  // mempool.space (txConfirmations), same as the countdown timers
+  // elsewhere on this page. null while loading/unknown, 0 means
+  // broadcast but still unconfirmed. Polled every 30s only while this
+  // proposal is still short of the 6-confirmation "settled" mark most
+  // wallets treat as final -- no point re-fetching forever once it's
+  // deep enough that another confirmation doesn't change anything the
+  // owner needs to see.
+  const [confirmations, setConfirmations] = useState<number | null>(null);
+  useEffect(() => {
+    if (p.status !== "broadcast" || !p.txid) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    async function poll() {
+      try {
+        const n = await txConfirmations(vault.network, p.txid!);
+        if (cancelled) return;
+        setConfirmations(n);
+        if (n !== null && n < 6) timer = setTimeout(() => void poll(), 30_000);
+      } catch {
+        // best-effort -- the row just won't show a count
+      }
+    }
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [vault.network, p.status, p.txid]);
+
   return (
     <div
       style={{
@@ -2481,6 +2512,18 @@ function ProposalCard({ proposal: p, vault }: { proposal: Proposal; vault: Vault
             </div>
             <div style={{ fontSize: 11, color: colors.muted }}>
               {new Date(p.created_at).toLocaleDateString()}
+              {p.status === "broadcast" && (
+                <>
+                  {" · "}
+                  {confirmations == null
+                    ? "checking confirmations..."
+                    : confirmations === 0
+                      ? "unconfirmed"
+                      : confirmations < 6
+                        ? `${confirmations} confirmation${confirmations === 1 ? "" : "s"}`
+                        : `${confirmations} confirmations ✓`}
+                </>
+              )}
             </div>
           </div>
         </div>
