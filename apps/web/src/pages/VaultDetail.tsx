@@ -4254,7 +4254,14 @@ function DraftCompileButton({ vault }: { vault: Vault }) {
   const heirsReady = ready.filter(m => m.role === "heir").length;
   const plannedF = vault.planned_founder_count ?? 0;
   const plannedH = vault.planned_heir_count ?? 0;
-  const slotsFilled = foundersReady >= plannedF && heirsReady >= plannedH;
+  // Bloc drafts have no vault_members rows at all -- they're single-owner,
+  // keys come in directly through the wizard -- and no planned_founder/
+  // heir_count either, so this readiness math doesn't apply to them at
+  // all (plannedF would read 0 and slotsFilled would go true with zero
+  // keys attached, offering a "Compile vault" button that calls the wrong
+  // endpoint). Route Bloc drafts straight to the wizard instead.
+  const isBloc = vault.bloc_policy != null;
+  const slotsFilled = !isBloc && plannedF > 0 && foundersReady >= plannedF && heirsReady >= plannedH;
 
   async function compile() {
     setBusy(true);
@@ -4270,18 +4277,37 @@ function DraftCompileButton({ vault }: { vault: Vault }) {
     }
   }
 
+  // "Continue setup" is the fix for the 2026-08-13 draft-save bug --
+  // before this, a solo owner who picked keys in the wizard's Keys step
+  // and hit "Save and finish later" landed here with no way back: this
+  // button previously only understood the separate vault_members invite
+  // flow, so an owner who brought their own keys directly (direct_keys
+  // compile mode) had nothing to click. It always renders for a draft,
+  // filled slots or not, and routes back into VaultWizard at the Keys
+  // step for this same vault (VaultWizard.tsx's resumeVaultId effect).
   return (
-    <Button
-      disabled={!slotsFilled || busy}
-      style={{ flex: 1, padding: "12px", background: slotsFilled ? colors.green : undefined }}
-      onClick={() => void compile()}
-    >
-      {busy
-        ? "Compiling..."
-        : slotsFilled
-          ? "Compile vault"
-          : `Waiting on ${plannedF - foundersReady} founder${plannedF - foundersReady === 1 ? "" : "s"}${plannedH > 0 ? `, ${plannedH - heirsReady} heir${plannedH - heirsReady === 1 ? "" : "s"}` : ""}`}
-    </Button>
+    <div style={{ display: "flex", gap: 8, flex: 1 }}>
+      {!isBloc && (
+        <Button
+          disabled={!slotsFilled || busy}
+          style={{ flex: 1, padding: "12px", background: slotsFilled ? colors.green : undefined }}
+          onClick={() => void compile()}
+        >
+          {busy
+            ? "Compiling..."
+            : slotsFilled
+              ? "Compile vault"
+              : `Waiting on ${plannedF - foundersReady} founder${plannedF - foundersReady === 1 ? "" : "s"}${plannedH > 0 ? `, ${plannedH - heirsReady} heir${plannedH - heirsReady === 1 ? "" : "s"}` : ""}`}
+        </Button>
+      )}
+      <Button
+        variant="ghost"
+        style={isBloc ? { flex: 1, padding: "12px" } : { padding: "12px" }}
+        onClick={() => navigate("/policy", { state: { resumeVaultId: vault.id } })}
+      >
+        Continue setup
+      </Button>
+    </div>
   );
 }
 

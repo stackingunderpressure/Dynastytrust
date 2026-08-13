@@ -16,6 +16,7 @@ import { VAULT_TEMPLATES, type VaultTemplate, type StandardConfig, type BlocConf
 import { buildStandardTrustDoc, buildBlocTrustDoc } from '../lib/trust-doc';
 import { colors, radii } from '../theme';
 import { Button, Input, Card, Field } from '../components/ui';
+import { useToast } from '../components/toast';
 import { DescriptorQr } from '../components/DescriptorQr';
 import { XpubQrScanner } from '../components/XpubQrScanner';
 import {
@@ -163,6 +164,7 @@ function StepRail({ current }: { current: Step }) {
 export default function VaultWizard() {
   const navigate = useNavigate();
   const location = useLocation();
+  const toast = useToast();
 
   const [allKeys, setAllKeys] = useState<LocalKey[]>([]);
   useEffect(() => { setAllKeys(listKeys().filter(k => k.status === 'active')); }, []);
@@ -252,6 +254,98 @@ export default function VaultWizard() {
     else if (role === 'parent') setParentKeys(p => [...p, sk]);
     else if (role === 'kid') setKidKeys(p => [...p, sk]);
   }
+
+  // Resume an existing draft. Reached from VaultDetail's "Continue setup"
+  // button (2026-08-13 fix -- operator: "When saving a draft something is
+  // wrong with it. Not saving progress. Just spits you into a vault
+  // unfinished and can't go back either"). Before this, "Save and finish
+  // later" on the Keys step navigated straight to VaultDetail and the
+  // wizard's local key-slot selections (founderKeys/heirKeys/etc, never
+  // sent to the server -- direct_keys mode posts them all at once, only
+  // at final compile) were simply discarded on unmount; VaultDetail's own
+  // draft view only understands the separate vault_members invite flow,
+  // so there was no way back into this wizard at all.
+  //
+  // The keys themselves are never lost -- generateTestKey/generateSoftwareKey/
+  // importXpub all write straight into the local keystore, independent of
+  // this component's state -- what resume needs to reconstruct is only the
+  // draft's saved SHAPE, so the Keys step re-renders with the right role
+  // slots to re-pick from. Configure already ran once for this vault; running
+  // it again here would create a SECOND draft row via createDraft/createBlocDraft,
+  // so resume jumps directly to 'keys' and skips Configure entirely.
+  //
+  // Not every StandardConfig/BlocConfig field the wizard needs has a
+  // matching column -- "planned" counts for protector/consent/backup/second-heir
+  // (and Bloc's plannedParents/plannedKids) exist only to tell the Keys step
+  // how many slots to render and were never persisted server-side. Falling
+  // back to the group's own quorum as the planned count is an honest floor --
+  // enough keys to reach quorum -- and the owner can still add more slots by
+  // hand in the Keys step if the original plan called for extra signers.
+  useEffect(() => {
+    const resumeId = (location.state as { resumeVaultId?: string } | null)?.resumeVaultId;
+    if (!resumeId) return;
+    window.history.replaceState({}, '');
+    (async () => {
+      try {
+        // showArchived=true here means "don't filter archived," not
+        // "archived only" (see netlify/functions/vaults.js) -- one call
+        // covers a draft whether or not it happens to be archived.
+        const { vaults } = await api.vaults.list(true);
+        const v = vaults.find(x => x.id === resumeId);
+        if (!v) return;
+        setDraftVault(v);
+        setName(v.name);
+        setNetwork(v.network);
+        if (v.bloc_policy) {
+          const bp = v.bloc_policy;
+          setShape('bloc');
+          setBlocConfig({
+            plannedParents: Math.max(bp.parents_together_quorum || DEFAULT_BLOC_CONFIG.plannedParents, DEFAULT_BLOC_CONFIG.plannedParents),
+            parentsTogetherQ: bp.parents_together_quorum || DEFAULT_BLOC_CONFIG.parentsTogetherQ,
+            coparentQ: bp.coparent_quorum || DEFAULT_BLOC_CONFIG.coparentQ,
+            kidsWithParentQ: bp.kids_with_parent_quorum || DEFAULT_BLOC_CONFIG.kidsWithParentQ,
+            parentSoloQ: bp.parent_solo_quorum || DEFAULT_BLOC_CONFIG.parentSoloQ,
+            parentSoloAfter: bp.parent_solo_after || DEFAULT_BLOC_CONFIG.parentSoloAfter,
+            plannedKids: Math.max(bp.kids_decay_start_quorum || DEFAULT_BLOC_CONFIG.plannedKids, DEFAULT_BLOC_CONFIG.plannedKids),
+            kidsDecayStartQ: bp.kids_decay_start_quorum || DEFAULT_BLOC_CONFIG.kidsDecayStartQ,
+            kidsDecayFloorQ: bp.kids_decay_floor_quorum || DEFAULT_BLOC_CONFIG.kidsDecayFloorQ,
+            kidsDecayStartAfter: bp.kids_decay_start_after || DEFAULT_BLOC_CONFIG.kidsDecayStartAfter,
+            kidsDecayStepBlocks: bp.kids_decay_step_blocks || DEFAULT_BLOC_CONFIG.kidsDecayStepBlocks,
+          });
+        } else {
+          setShape('standard');
+          setStdConfig({
+            mode: v.inheritance_after > 0 ? 'inheritance' : 'plain',
+            plannedFounders: v.planned_founder_count ?? v.founder_quorum,
+            founderQ: v.founder_quorum,
+            plannedHeirs: v.planned_heir_count ?? v.heir_quorum,
+            heirQ: v.heir_quorum,
+            recoveryEnabled: v.recovery_after > 0,
+            recoveryAfter: v.recovery_after > 0 ? v.recovery_after : DEFAULT_STANDARD_CONFIG.recoveryAfter,
+            inheritanceAfter: v.inheritance_after > 0 ? v.inheritance_after : DEFAULT_STANDARD_CONFIG.inheritanceAfter,
+            protectorEnabled: v.protector_quorum != null,
+            protectorAfter: v.protector_after ?? DEFAULT_STANDARD_CONFIG.protectorAfter,
+            protectorQ: v.protector_quorum ?? DEFAULT_STANDARD_CONFIG.protectorQ,
+            plannedProtectors: v.protector_quorum ?? DEFAULT_STANDARD_CONFIG.plannedProtectors,
+            consentEnabled: v.consent_quorum != null,
+            consentQ: v.consent_quorum ?? DEFAULT_STANDARD_CONFIG.consentQ,
+            plannedConsenters: v.consent_quorum ?? DEFAULT_STANDARD_CONFIG.plannedConsenters,
+            backupEnabled: v.backup_quorum != null,
+            backupQ: v.backup_quorum ?? DEFAULT_STANDARD_CONFIG.backupQ,
+            plannedBackups: v.backup_quorum ?? DEFAULT_STANDARD_CONFIG.plannedBackups,
+            secondInheritanceEnabled: v.second_heir_quorum != null,
+            secondInheritanceAfter: v.second_inheritance_after ?? DEFAULT_STANDARD_CONFIG.secondInheritanceAfter,
+            secondHeirQ: v.second_heir_quorum ?? DEFAULT_STANDARD_CONFIG.secondHeirQ,
+            plannedSecondHeirs: v.second_heir_quorum ?? DEFAULT_STANDARD_CONFIG.plannedSecondHeirs,
+          });
+        }
+        setStep('keys');
+      } catch {
+        // best-effort -- worst case the owner lands on a blank wizard and
+        // starts the vault over, same as before this fix existed
+      }
+    })();
+  }, [location.state]);
 
   async function onGenerateKey(role: string, mode: 'test' | 'secure', password?: string) {
     const label = `${role[0].toUpperCase()}${role.slice(1)} ${Date.now().toString().slice(-4)}`;
@@ -481,7 +575,10 @@ export default function VaultWizard() {
           onImportTapitKey={onImportTapitKey}
           slotsReady={slotsReady}
           onContinue={() => { setStep('compile'); void runCompile(); }}
-          onSaveForLater={() => navigate(`/vaults/${draftVault.id}`, { state: { vault: draftVault } })}
+          onSaveForLater={() => {
+            toast.success('Draft saved. Your keys stay in your keystore -- use "Continue setup" on this vault to pick up where you left off.');
+            navigate(`/vaults/${draftVault.id}`, { state: { vault: draftVault } });
+          }}
         />
       )}
 
