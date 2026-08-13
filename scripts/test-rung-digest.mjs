@@ -18,8 +18,21 @@
  * Standalone runner (repo pattern, like test-literacy.mjs). NOT wired into
  * `npm test`. Run directly:  node scripts/test-rung-digest.mjs
  *
- * literacy.ts is ASCII-only and, by house rule, its string literals contain no
- * apostrophes, so a simple single-quote capture is safe here.
+ * literacy.ts is ASCII-only. Its string literals used to contain no
+ * apostrophes by house rule, which let a naive [^']* capture treat every
+ * single quote as a closing delimiter -- 2026-08-11's rung 7 update
+ * ("Add real recovery-without-us content") added real apostrophes
+ * (escaped as \' inside the single-quoted literal, e.g. "vault\'s
+ * rules"), and the naive capture silently truncated at the first one,
+ * comparing a torn-off fragment against assistant.js and reporting drift
+ * that was never real -- this went unnoticed because the script isn't
+ * wired into `npm test`. The capture below matches a full JS
+ * single-quoted string literal (an escaped char OR any non-quote,
+ * non-backslash char, repeated, up to the real closing quote) and then
+ * unescapes \' and \\ back to their literal characters before comparing,
+ * so it matches what the string's actual runtime VALUE is -- which is
+ * what should appear verbatim inside assistant.js's plain backtick
+ * template literal (no escaping needed there).
  */
 
 import assert from 'node:assert/strict';
@@ -42,15 +55,18 @@ for (let n = 0; n <= 9; n++) {
   );
 }
 
-// (b) every deeper-layer string present verbatim. literacy.ts string literals
-// use single quotes and contain no apostrophes, so [^']* captures each whole.
-// The interface fields are written `whyItWorks?: string;` / `theCrypto?: string;`
+// (b) every deeper-layer string present verbatim, matched as the string's
+// real runtime value (escapes resolved), not its raw source text -- see
+// the header comment for why a naive [^']* capture is unsafe here. The
+// interface fields are written `whyItWorks?: string;` / `theCrypto?: string;`
 // (a `?` before the colon), so they never match `field:` and are skipped.
 function collect(field) {
-  const re = new RegExp(`${field}:\\s*'([^']*)'`, 'g');
+  const re = new RegExp(`${field}:\\s*'((?:[^'\\\\]|\\\\.)*)'`, 'g');
   const out = [];
   let m;
-  while ((m = re.exec(lit)) !== null) out.push(m[1]);
+  while ((m = re.exec(lit)) !== null) {
+    out.push(m[1].replace(/\\'/g, "'").replace(/\\\\/g, '\\'));
+  }
   return out;
 }
 

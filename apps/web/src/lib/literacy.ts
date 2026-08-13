@@ -124,10 +124,10 @@ export const RUNGS: Record<number, RungLesson> = {
     whyItWorks:
       'Each door is a separate rule with its own waiting period and its own list of who can open it. They live side by side, so the situation decides which door is the right one to use.',
     theCrypto:
-      'Three Taproot leaves in a tr_multileaf descriptor: founders-now thresh(Q, founder_keys); recovery and(after(R), thresh(Q, founder_keys)); inheritance and(after(I), thresh(Q_h, heir_keys)); optional protector leaf. The bot narrates the per-template "what happens if..." playbooks in PolicyBuilder VAULT_TEMPLATES.',
+      'Three Taproot leaves in a tr_multileaf descriptor: founders-now thresh(Q, founder_keys); recovery and(after(R), thresh(Q, founder_keys)); inheritance and(after(I), thresh(Q_h, heir_keys)); optional protector leaf. The bot narrates the per-template "what happens if..." playbooks in the VAULT_TEMPLATES array in lib/vault-templates.ts.',
     socraticQuestion:
       'Walk through your own life: who should be able to reach this money today, who should be able to recover it if you go quiet, and who should inherit it -- and how long should each wait be?',
-    sourcePointers: ['VAULT_TEMPLATES playbooks in PolicyBuilder.tsx'],
+    sourcePointers: ['VAULT_TEMPLATES playbooks in lib/vault-templates.ts'],
   },
   7: {
     rung: 7,

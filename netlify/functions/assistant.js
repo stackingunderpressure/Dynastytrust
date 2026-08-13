@@ -12,7 +12,7 @@
  * DISPOSES. This function never compiles, signs, or creates a vault --
  * when the model has learned enough it appends a single structured
  * proposal that the frontend renders as a tap-to-confirm card, which
- * then hands off to the EXISTING PolicyBuilder compile + save path.
+ * then hands off to the EXISTING VaultWizard compile + save path.
  *
  * SECURITY RAIL -- READ THIS:
  *   No key material (private key, mnemonic, password, or encrypted
@@ -35,11 +35,14 @@ const HISTORY_LIMIT = 20;
 const VAULT_SAFE_FIELDS =
   "name, network, address, descriptor, miniscript_policy, founder_quorum, heir_quorum, recovery_after, inheritance_after";
 
-// // -- Plain-text digest of the PolicyBuilder VAULT_TEMPLATES.
-// Kept in sync by hand with apps/web/src/pages/PolicyBuilder.tsx
-// VAULT_TEMPLATES. We do NOT import frontend code into a Netlify
-// function -- this is a concise teaching digest of the same shapes
-// and their "what happens if..." scenarios, written for the model.
+// // -- Plain-text digest of the vault templates.
+// Kept in sync by hand with apps/web/src/lib/vault-templates.ts's
+// VAULT_TEMPLATES (moved there 2026-08 when PolicyBuilder.tsx/
+// BlocBuilder.tsx retired in favor of the unified VaultWizard.tsx --
+// that file, not the old PolicyBuilder.tsx, is the source of truth
+// now). We do NOT import frontend code into a Netlify function --
+// this is a concise teaching digest of the same shapes and their
+// "what happens if..." scenarios, written for the model.
 const TEMPLATE_DIGEST = `
 VAULT TEMPLATES you can guide a person toward (use the exact template id in a proposal):
 
@@ -77,9 +80,52 @@ VAULT TEMPLATES you can guide a person toward (use the exact template id in a pr
    is the safety margin. Moving the coins refreshes the timer (a deadman that never
    fires while you're alive).
 
-There are also [TEST] variants of several templates with timelocks measured in
+8. gift-locker -- "Gift Locker": THE RIGHT SHAPE for gifting to a young child or
+   grandchild (e.g. "what's best for a 3-year-old grandchild"). 2-of-2 (you + a
+   co-signer, e.g. your spouse or a lawyer) can spend anytime before the gift
+   date to redirect, resize, or rebuild the gift. The recipient holds one key of
+   their own that, ALONE, unlocks the moment the gift date arrives -- no need to
+   involve you or the co-signer once it opens. No middle recovery leaf by
+   design: just "now" (both of you) or "the date" (them alone). Pick the date to
+   land on a real occasion -- 18th birthday, 21st, graduation, wedding. If you
+   or the co-signer lose a key before the date, the gift is safe but frozen
+   until the date arrives (no recovery path in this shape -- recommend Family
+   Inheritance instead if that early-recovery safety net matters more than the
+   simplicity here).
+
+9. tapit-circle -- "Tapit Circle": for someone who wants a small circle of
+   trusted people (3-5) to jointly hold veto power over spends, each signing
+   from their own Tapit Wallet (DynastyTrust's own first-party signer -- see
+   the TAPIT WALLET section below). Unanimous by design: every named circle
+   member must sign, verified by a live phone call each time (the phone-
+   callback safety phrase) so a stolen device or spoofed request can't get a
+   signature out of anyone. This is a watchtower on YOUR money, never a
+   spending committee -- above it sits a second path that's ALWAYS available,
+   no waiting on anyone: your own separate, harder-to-reach keys (the "anytime,
+   harder" backup leaf -- no timelock, the friction is deliberately physical
+   instead of a clock). No heirs/estate leg in this template; pair it with
+   Family Inheritance or a successor arrangement if inheritance planning is
+   also needed.
+
+There are also [TEST] variants of most templates with timelocks measured in
 blocks (hours on signet) for sandbox rehearsal -- only mention these if the person
 explicitly wants to practice end-to-end before using real value.
+
+TAPIT WALLET -- if someone asks whether they can use "Tapit" / "Tapit Wallet"
+as a key, the answer is an immediate, confident YES, not "let me check if it
+supports xpub/PSBT" (that check is for OTHER hardware/software wallets --
+Nunchuk, Sparrow, Coldcard, Ledger, Trezor, Keystone -- which DynastyTrust has
+no special relationship with beyond the standard xpub-export + PSBT-signing
+handshake). Tapit Wallet is DynastyTrust's own sister product and a first-
+party signer with real integration: a spend request can be delivered straight
+into a circle member's Tapit inbox over Nostr (no manual PSBT hand-off, no
+QR needed unless they prefer it), Tapit independently verifies it holds a real,
+self-signed membership record for the exact vault and leaf before it will ever
+sign anything (never a blind signing oracle), and the phone-callback safety-
+phrase ritual (the tapit-circle template above) rides on that same channel.
+Mention Tapit Wallet by name as the natural fit whenever a person describes
+wanting family/circle members to sign from their own phones with minimal
+friction, and especially whenever tapit-circle itself is the right template.
 
 TIMELOCK RULE OF THUMB (Bitcoin block heights): ~26,280 blocks = 6 months,
 ~52,560 = 1 year, ~105,120 = 2 years, ~157,680 = 3 years, ~262,800 = 5 years.
@@ -191,10 +237,10 @@ Rung 5 why-it-works: The lock is tied to how far the Bitcoin network has counted
 Rung 5 the-crypto: Absolute CLTV: after(N) compiles to OP_CHECKLOCKTIMEVERIFY at a fixed block height. DynastyTrust uses absolute (not relative older()/CSV) because BIP 68 caps relative timelocks near 65,535 blocks (~15 months), too short for multi-year inheritance. The Netlify layer adds tip + offset so the leaf bakes in a real future height; see THESIS.md section 3 and CLAUDE.md.
 
 Rung 6 why-it-works: Each door is a separate rule with its own waiting period and its own list of who can open it. They live side by side, so the situation decides which door is the right one to use.
-Rung 6 the-crypto: Three Taproot leaves in a tr_multileaf descriptor: founders-now thresh(Q, founder_keys); recovery and(after(R), thresh(Q, founder_keys)); inheritance and(after(I), thresh(Q_h, heir_keys)); optional protector leaf. The bot narrates the per-template "what happens if..." playbooks in PolicyBuilder VAULT_TEMPLATES.
+Rung 6 the-crypto: Three Taproot leaves in a tr_multileaf descriptor: founders-now thresh(Q, founder_keys); recovery and(after(R), thresh(Q, founder_keys)); inheritance and(after(I), thresh(Q_h, heir_keys)); optional protector leaf. The bot narrates the per-template "what happens if..." playbooks in the VAULT_TEMPLATES array in lib/vault-templates.ts.
 
-Rung 7 why-it-works: Bitcoin enforces the actual spending rules; the app only coordinates the surrounding information. Knowing which part is enforced by math and which part is just convenience is what lets you decide how little you need to trust anyone, including us.
-Rung 7 the-crypto: Bitcoin enforces the script; DynastyTrust coordinates only the metadata. Compromising the server never moves a coin. The honest endpoint is Super Sovereign Mode (database on your own laptop). See docs/trustee-commons.md and docs/super-sovereign-mode.md.
+Rung 7 why-it-works: Bitcoin enforces the actual spending rules; the app only coordinates the surrounding information. Knowing which part is enforced by math and which part is just convenience is what lets you decide how little you need to trust anyone, including us. Two open, published formats carry you out the door: one plain-language description of exactly what your vault's rules are, and one file that carries a pending transaction waiting on a signature. Any competent Bitcoin wallet software can read both, because DynastyTrust did not invent a private format of its own -- it uses the same ones the rest of the Bitcoin world already agreed on, so no other company's cooperation is required either.
+Rung 7 the-crypto: Bitcoin enforces the script; DynastyTrust coordinates only the metadata. Compromising the server never moves a coin. The honest endpoint is Super Sovereign Mode (database on your own laptop). See docs/trustee-commons.md and docs/super-sovereign-mode.md. The two BIP-standard artifacts that carry you out, concretely: the output descriptor (tr(...) miniscript form) and, for any pending spend, a PSBT (BIP 174 / BIP 371). Any miniscript-aware wallet can import the descriptor as watch-only and rebuild every leaf and address exactly -- Sparrow via File > Import Wallet > Scan QR Code, Nunchuk via its BSMS export, Coldcard and other air-gapped signers via the same descriptor text -- and any of them can sign a PSBT DynastyTrust (or any other coordinator) produces and hand it back the same way. See lib/descriptor-backup.ts for the exact downloadable recovery bundle, which spells out these per-wallet steps in full and is built to stand alone if this app is unreachable.
 
 Rung 8 why-it-works: A signature is bound to the exact text it was made over. Alter the text and the signature no longer matches, so anyone checking it sees instantly that something changed -- proof that does not depend on trusting whoever is showing it to you.
 Rung 8 the-crypto: tapit-attest: a Schnorr/secp256k1 signature over a domain-separated tagged-hash digest of an envelope (e.g. SHA256("DT-ATT-v1" || type || 0x00 || target_hash) in lib/attest.ts). An attestation is NOT a Bitcoin spend signature -- different preimage by design, so it can never be replayed as a sighash. Kinds: trust_doc, proof_of_life, death_declaration; anchorable via OpenTimestamps.
