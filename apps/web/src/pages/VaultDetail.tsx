@@ -1452,7 +1452,23 @@ function SendTab({ vault, balance, onDone, prefill }: {
             break;
         }
       }
-      const signingKeys = allLocalKeys.filter(k => vaultSignerPubkeys.has(k.pubkey));
+      // Dedupe by pubkey (keep the first matching LocalKey record) --
+      // same fix already applied in tapit-circle-members.ts for the
+      // Members/circle-phrase UI (operator, 2026-08-11: "Why two tapit
+      // sends for one key?"), needed again here because this Send flow
+      // builds its own independent signer list rather than sharing that
+      // helper. If the local keystore holds two LocalKey rows pointing
+      // at the same real pubkey (e.g. the same Tapit key imported twice
+      // under two keyIds), an unfiltered intersection renders two
+      // identical "Founder (Tapit)" rows in NotifyCircleViaNostr and
+      // sends the same psbt-cosign request twice to the same wallet.
+      const seenSignerPubkeys = new Set<string>();
+      const signingKeys = allLocalKeys.filter(k => {
+        if (!vaultSignerPubkeys.has(k.pubkey)) return false;
+        if (seenSignerPubkeys.has(k.pubkey)) return false;
+        seenSignerPubkeys.add(k.pubkey);
+        return true;
+      });
 
       setSigning({
         psbt_hex: psbtRes.psbt_hex,
