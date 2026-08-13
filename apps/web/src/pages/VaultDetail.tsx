@@ -34,7 +34,7 @@ import { PsbtQrDisplay } from "../components/PsbtQrDisplay";
 import { PsbtQrScanner } from "../components/PsbtQrScanner";
 import { useRealtimeRefresh } from "../lib/realtime";
 import { normalizePsbt } from "../lib/psbt-format";
-import { downloadVault } from "../lib/descriptor-backup";
+import { downloadVault, downloadDistributionWalletBackup } from "../lib/descriptor-backup";
 import { DescriptorQr } from "../components/DescriptorQr";
 import { pubkeyFromXpub, fingerprintFromXpub } from "../lib/xpub";
 import { buildPsbtKeyOrigins } from "../lib/descriptor-keys";
@@ -6442,9 +6442,19 @@ function DistributionWalletRow({
             {claimed > 0 && <> . {claimed} claimed</>}
           </div>
         </div>
-        <Button variant="ghost" size="sm" style={{ fontSize: 11 }} onClick={() => setExpanded(e => !e)}>
-          {expanded ? "Hide" : "Show"}
-        </Button>
+        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+          <Button
+            variant="ghost"
+            size="sm"
+            style={{ fontSize: 11 }}
+            onClick={() => downloadDistributionWalletBackup(wallet, vault.name)}
+          >
+            Download backup
+          </Button>
+          <Button variant="ghost" size="sm" style={{ fontSize: 11 }} onClick={() => setExpanded(e => !e)}>
+            {expanded ? "Hide" : "Show"}
+          </Button>
+        </div>
       </div>
       {expanded && (
         <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>

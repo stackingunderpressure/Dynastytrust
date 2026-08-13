@@ -7,9 +7,22 @@
  * Nunchuk, Bitcoin Core). Combined with one party's mnemonic + the
  * policy parameters, it's enough to spend. So every member should
  * have this file on paper / in cold storage / on a USB.
+ *
+ * 2026-08-13 addition (operator: "make sure everything's labeled
+ * really good... this is the main vault, this is the trenches" --
+ * followed by "let's build the tranche backup export"): Tranche
+ * distribution wallets had NO backup export at all -- a family who
+ * only ever downloaded the main vault's backup and never realized a
+ * Tranche wallet is a separate thing with its own addresses would
+ * have had no paper trail for real funds sitting in those tranches.
+ * distributionWalletBackupText / downloadDistributionWalletBackup
+ * below close that gap, following the same pattern as the vault
+ * backup above -- labeled, self-contained, instructions included --
+ * but explicitly stamped as a CHILD of the parent vault, since a
+ * family holding several of these files needs to tell them apart.
  */
 
-import type { Vault } from './api';
+import type { Vault, DistributionWallet } from './api';
 
 export interface VaultBackupLike {
   name: string;
@@ -137,4 +150,104 @@ export function downloadVaultBackup(v: VaultBackupLike): void {
 // Type-safe wrapper for the full Vault type.
 export function downloadVault(v: Vault): void {
   downloadVaultBackup(v);
+}
+
+/**
+ * Human-readable .txt backup for one Tranche distribution wallet.
+ * Every tranche has its OWN address and descriptor (a separate
+ * Taproot output per unlock date -- see build_tranche in
+ * protocol/src/policy_compiler.rs), so unlike the single-descriptor
+ * vault backup above, this has to enumerate every tranche in full.
+ */
+export function distributionWalletBackupText(
+  w: DistributionWallet,
+  parentVaultName: string,
+): string {
+  const lines = [
+    `# DynastyTrust TRANCHE DISTRIBUTION WALLET backup`,
+    `# This is a CHILD wallet of the vault "${parentVaultName}" -- it is`,
+    `# NOT the main vault. It holds its own separate funds across`,
+    `# ${w.tranches.length} independent Bitcoin outputs, one per scheduled unlock date.`,
+    `#`,
+    `# Distribution wallet name: ${w.name}`,
+    ...(w.beneficiary_name ? [`# Beneficiary: ${w.beneficiary_name}`] : []),
+    `# Network: ${w.network}`,
+    `# Generated: ${new Date().toISOString()}`,
+    ``,
+    `# Beneficiary key (spends each tranche ALONE, but only after that`,
+    `# tranche's own unlock block -- see the per-tranche list below)`,
+    `Beneficiary xpub:    ${w.beneficiary_xpub}`,
+    `Beneficiary pubkey:  ${w.beneficiary_pubkey}`,
+    ``,
+    `# Trustee escape hatch (spends ANY tranche at ANY time, before or`,
+    `# after its unlock block -- for correcting mistakes or handling an`,
+    `# emergency, not routine use)`,
+    `Trustee quorum: ${w.trustee_quorum} of ${w.trustee_keys.length}`,
+    ...w.trustee_keys,
+    ``,
+    ...(w.key_origins.length > 0
+      ? [
+          `# Key origins (fingerprint + derivation path, for hardware`,
+          `# wallets to recognize their own key on a leaf)`,
+          ...w.key_origins.map(o => `${o.pubkey}  fp=${o.fingerprint}  path=${o.derivation_path}`),
+          ``,
+        ]
+      : []),
+    `# ---------------------------------------------------------------`,
+    `# TRANCHES (${w.tranches.length} total, ${(
+      w.tranches.reduce((n, t) => n + t.amount_sats, 0) / 1e8
+    ).toFixed(8)} BTC combined)`,
+    `# ---------------------------------------------------------------`,
+    ``,
+    ...w.tranches.flatMap(t => [
+      `## Tranche #${t.index + 1}${t.label ? ` -- ${t.label}` : ''}`,
+      `Unlocks at block: ${t.unlock_block.toLocaleString()}`,
+      `Amount:            ${(t.amount_sats / 1e8).toFixed(8)} BTC (${t.amount_sats} sats)`,
+      `Address:           ${t.address}`,
+      `Descriptor:        ${t.descriptor}`,
+      `Funded:            ${t.funded_txid ?? '(not yet funded)'}`,
+      `Claimed:           ${t.claimed_txid ?? '(not yet claimed)'}`,
+      ``,
+    ]),
+    `# ---------------------------------------------------------------`,
+    `# RECOVERY INSTRUCTIONS (if DynastyTrust ever goes offline)`,
+    `# ---------------------------------------------------------------`,
+    `# Each tranche above is its OWN independent Bitcoin output with`,
+    `# its own descriptor -- import each one separately into Sparrow`,
+    `# (or another miniscript-aware wallet) the same way you would the`,
+    `# main vault's descriptor: File > Import Wallet > paste the`,
+    `# descriptor for that specific tranche.`,
+    `#`,
+    `# Two ways to spend a given tranche:`,
+    `#   1. BENEFICIARY (routine): the beneficiary's own key alone can`,
+    `#      spend that tranche, once the chain tip reaches its`,
+    `#      "Unlocks at block" height above -- not before.`,
+    `#   2. TRUSTEES (escape hatch): ${w.trustee_quorum} of the ${w.trustee_keys.length} trustee keys`,
+    `#      can spend that tranche at ANY time, unlock date or not --`,
+    `#      meant for correcting a mistake or handling an emergency,`,
+    `#      not for routine distributions.`,
+    `#`,
+    `# This file does not include anyone's seed phrase. You need the`,
+    `# beneficiary's OR enough trustees' seed phrases (metal backup),`,
+    `# stored separately, combined with the descriptor for the specific`,
+    `# tranche above, to actually recover and spend those funds.`,
+    `# ---------------------------------------------------------------`,
+    ``,
+  ];
+  return lines.join('\n');
+}
+
+export function downloadDistributionWalletBackup(
+  w: DistributionWallet,
+  parentVaultName: string,
+): void {
+  const safeVaultName = parentVaultName.replace(/[^a-z0-9\-_]+/gi, '_').toLowerCase() || 'vault';
+  const safeWalletName = w.name.replace(/[^a-z0-9\-_]+/gi, '_').toLowerCase() || 'tranche-wallet';
+  const blob = new Blob([distributionWalletBackupText(w, parentVaultName)], { type: 'text/plain' });
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(blob),
+    download: `dynastytrust-${safeVaultName}-${safeWalletName}-${w.network}-backup.txt`,
+  });
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
