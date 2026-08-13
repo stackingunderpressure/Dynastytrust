@@ -625,7 +625,9 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
           <HistoryTab vault={vault} proposals={proposals} onRefresh={load} />
         )}
         {tab === "members" && <MembersTab vault={vault} />}
-        {tab === "activity" && <ActivityTab vault={vault} />}
+        {tab === "activity" && (
+          <ActivityTab vault={vault} onOpenTab={id => setTab(id as typeof tab)} />
+        )}
         {tab === "requests" && <RequestsTab vault={vault} onSendPrefill={prefillSend} />}
         {tab === "messages" && <MessagesTab vault={vault} />}
         {tab === "trust" && <TrustTab vault={vault} />}
@@ -3555,16 +3557,22 @@ function MessagesTab({ vault }: { vault: Vault }) {
   );
 }
 
-function ActivityTab({ vault }: { vault: Vault }) {
+function ActivityTab({ vault, onOpenTab }: { vault: Vault; onOpenTab: (id: string) => void }) {
   const [events, setEvents] = useState<VaultEvent[]>([]);
+  const [members, setMembers] = useState<VaultMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const load = useCallback(async () => {
     setErr(null);
     try {
-      const res = await api.vaultEvents.list(vault.id, 100);
-      setEvents(res.events);
+      const [ev, mem] = await Promise.all([
+        api.vaultEvents.list(vault.id, 100),
+        api.members.list(vault.id),
+      ]);
+      setEvents(ev.events);
+      setMembers(mem.members);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to load activity");
     } finally {
@@ -3586,24 +3594,75 @@ function ActivityTab({ vault }: { vault: Vault }) {
   if (events.length === 0)
     return <p style={{ color: colors.muted, fontSize: 14 }}>No activity yet.</p>;
 
+  const memberLabel = (userId: string): string => {
+    const m = members.find(m => m.user_id === userId);
+    if (!m) return "A former member";
+    return m.label || (m.role ? m.role.charAt(0).toUpperCase() + m.role.slice(1) : "A member");
+  };
+
+  const goToDestination = (dest: EventDestination) => {
+    if (!dest) return;
+    if (dest.kind === "proposal") navigate(`/vaults/${vault.id}/proposals/${dest.proposalId}`);
+    else onOpenTab(dest.tab);
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+      <div style={{ fontSize: 12, color: colors.muted, marginBottom: 10, lineHeight: 1.5 }}>
+        Every action taken on this vault, who took it, and a link to the full
+        record -- the proposal it belongs to, or the Trust / Requests /
+        Members tab that holds the source-of-truth detail.
+      </div>
       {events.map(e => (
-        <EventRow key={e.id} event={e} />
+        <EventRow key={e.id} event={e} actor={memberLabel(e.user_id)} onOpen={goToDestination} />
       ))}
     </div>
   );
 }
 
-function EventRow({ event }: { event: VaultEvent }) {
-  const { icon, title, color } = describeEvent(event);
+type EventDestination =
+  | { kind: "proposal"; proposalId: string }
+  | { kind: "tab"; tab: string }
+  | null;
+
+function eventDestination(e: VaultEvent): EventDestination {
+  const meta = e.metadata || {};
+  if (typeof meta.proposal_id === "string") {
+    return { kind: "proposal", proposalId: meta.proposal_id };
+  }
+  if (typeof meta.attestation_id === "string" || e.event_type.startsWith("attestation_")) {
+    return { kind: "tab", tab: "trust" };
+  }
+  if (typeof meta.request_id === "string" || e.event_type.startsWith("request_")) {
+    return { kind: "tab", tab: "requests" };
+  }
+  if (["invite_created", "member_joined", "member_removed"].includes(e.event_type)) {
+    return { kind: "tab", tab: "members" };
+  }
+  return null;
+}
+
+function EventRow({
+  event,
+  actor,
+  onOpen,
+}: {
+  event: VaultEvent;
+  actor: string;
+  onOpen: (dest: EventDestination) => void;
+}) {
+  const { icon, title, color } = describeEvent(event, actor);
+  const dest = eventDestination(event);
+  const clickable = dest !== null;
   return (
     <div
+      onClick={clickable ? () => onOpen(dest) : undefined}
       style={{
         display: "flex",
         gap: 12,
         padding: "12px 4px",
         borderBottom: `1px solid ${colors.border}`,
+        cursor: clickable ? "pointer" : "default",
       }}
     >
       <div
@@ -3629,61 +3688,76 @@ function EventRow({ event }: { event: VaultEvent }) {
           {new Date(event.created_at).toLocaleString()}
         </div>
       </div>
+      {clickable && (
+        <div style={{ color: colors.muted, fontSize: 14, alignSelf: "center", flexShrink: 0 }}>
+          &gt;
+        </div>
+      )}
     </div>
   );
 }
 
-function describeEvent(e: VaultEvent): { icon: string; title: string; color: string } {
+function describeEvent(e: VaultEvent, actor: string): { icon: string; title: string; color: string } {
   const meta = e.metadata || {};
   switch (e.event_type) {
     case "created":
       return { icon: "+", title: "Vault created", color: colors.gold };
     case "invite_created":
-      return { icon: "i", title: `Invite sent (${String(meta.role ?? "member")})`, color: colors.blue };
+      return { icon: "i", title: `${actor} sent an invite (${String(meta.role ?? "member")})`, color: colors.blue };
     case "member_joined":
-      return { icon: "@", title: `Member joined as ${String(meta.role ?? "member")}`, color: colors.green };
+      return { icon: "@", title: `${actor} joined as ${String(meta.role ?? "member")}`, color: colors.green };
     case "member_removed":
-      return { icon: "-", title: `Member removed`, color: colors.red };
+      return { icon: "-", title: `${actor} was removed`, color: colors.red };
     case "psbt_generated":
       return {
         icon: "T",
-        title: `Proposal created${meta.amount_sats ? ` (${(Number(meta.amount_sats) / 1e8).toFixed(8).replace(/\.?0+$/, "")} BTC)` : ""}`,
+        title: `${actor} created a proposal${meta.amount_sats ? ` (${(Number(meta.amount_sats) / 1e8).toFixed(8).replace(/\.?0+$/, "")} BTC)` : ""}`,
         color: colors.orange,
       };
     case "signed":
-      return { icon: "S", title: `Signature added`, color: colors.gold };
+      return { icon: "S", title: `${actor} signed the PSBT`, color: colors.gold };
     case "broadcast":
       return {
         icon: "B",
-        title: `Broadcast${meta.txid ? ` (${String(meta.txid).slice(0, 12)}...)` : ""}`,
+        title: `${actor} broadcast the transaction${meta.txid ? ` (${String(meta.txid).slice(0, 12)}...)` : ""}`,
         color: colors.green,
       };
     case "cancelled":
-      return { icon: "x", title: `Proposal cancelled`, color: colors.muted };
+      return { icon: "x", title: `${actor} cancelled the proposal`, color: colors.muted };
     case "commented":
-      return { icon: "c", title: `Discussion comment`, color: colors.sub };
+      return { icon: "c", title: `${actor} commented`, color: colors.sub };
     case "voted_approve":
-      return { icon: "+", title: `Vote: approve`, color: colors.green };
+      return { icon: "+", title: `${actor} voted to approve`, color: colors.green };
     case "voted_abstain":
-      return { icon: "o", title: `Vote: abstain`, color: colors.muted };
+      return { icon: "o", title: `${actor} abstained`, color: colors.muted };
     case "voted_decline":
-      return { icon: "-", title: `Vote: decline`, color: colors.red };
+      return { icon: "-", title: `${actor} voted to decline`, color: colors.red };
     case "request_created":
       return {
         icon: "R",
-        title: `Distribution request${meta.rule_name ? ` (${String(meta.rule_name)})` : ""}${meta.amount_sats ? ` -- ${(Number(meta.amount_sats) / 1e8).toFixed(8).replace(/\.?0+$/, "")} BTC` : ""}`,
+        title: `${actor} filed a distribution request${meta.rule_name ? ` (${String(meta.rule_name)})` : ""}${meta.amount_sats ? ` -- ${(Number(meta.amount_sats) / 1e8).toFixed(8).replace(/\.?0+$/, "")} BTC` : ""}`,
         color: colors.orange,
       };
     case "request_approved":
-      return { icon: "+", title: "Request approved", color: colors.green };
+      return { icon: "+", title: `${actor} approved the request`, color: colors.green };
     case "request_declined":
-      return { icon: "x", title: "Request declined", color: colors.red };
+      return { icon: "x", title: `${actor} declined the request`, color: colors.red };
     case "request_fulfilled":
       return { icon: "!", title: "Request fulfilled", color: colors.green };
     case "request_cancelled":
-      return { icon: "o", title: "Request cancelled", color: colors.muted };
+      return { icon: "o", title: `${actor} cancelled the request`, color: colors.muted };
+    case "attestation_trust_doc":
+      return { icon: "T", title: `${actor} signed the trust doc`, color: colors.gold };
+    case "attestation_proof_of_life":
+      return { icon: "L", title: `${actor} checked in (proof of life)`, color: colors.green };
+    case "attestation_death_declaration":
+      return { icon: "!", title: `${actor} signed a death declaration`, color: colors.red };
+    case "attestation_descriptor":
+      return { icon: "D", title: `${actor} attested to the vault descriptor`, color: colors.blue };
+    case "attestation_revoked":
+      return { icon: "x", title: `${actor} revoked an attestation`, color: colors.muted };
     default:
-      return { icon: "*", title: e.event_type, color: colors.sub };
+      return { icon: "*", title: `${actor}: ${e.event_type}`, color: colors.sub };
   }
 }
 
