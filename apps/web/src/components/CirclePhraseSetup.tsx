@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getTapitCircleMembers } from '../lib/tapit-circle-members';
 import { sendCirclePhrasePairOverNostr } from '../lib/circle-phrase-delivery';
-import { DEFAULT_RELAYS } from '../lib/tapit-nostr-cosign';
+import { getNostrRelays } from '../lib/nostrRelayPrefs';
 import { NostrTransport } from '@dynastytrust/nostr-transport';
 import { subscribeCirclePhraseAcks } from '../lib/circle-phrase-ack-channel';
 import { wrapSentSecret } from '../lib/sent-secrets';
@@ -11,6 +11,7 @@ import { colors, radii, space } from '../theme';
 import { Button, Input, Label } from './ui';
 import { useToast } from './toast';
 import { usePrompt } from './dialog';
+import { NostrRelaySettings } from './NostrRelaySettings';
 
 /**
  * CirclePhraseSetup -- the owner's side of the phone-callback phrase pair
@@ -112,7 +113,7 @@ export function CirclePhraseSetup({
   const pendingKeysSignature = pendingReplyKeys.slice().sort().join(',');
   useEffect(() => {
     if (pendingReplyKeys.length === 0) return;
-    const transport = new NostrTransport({ relays: DEFAULT_RELAYS });
+    const transport = new NostrTransport({ relays: getNostrRelays() });
     const sub = subscribeCirclePhraseAcks(transport, pendingReplyKeys, ack => {
       const d = deliveriesRef.current.find(x => x.reply_pubkey === ack.replyPubkey);
       if (!d || d.confirmed_at) return;
@@ -205,6 +206,7 @@ export function CirclePhraseSetup({
         normalPhrase: normalPhrase.trim(),
         duressPhrase: duressPhrase.trim(),
         recipientXOnlyPubkey: xOnlyPubkey,
+        relays: getNostrRelays(),
       });
       const outcome = result.delivered ? 'delivered' : 'queued';
       const saved = await api.circlePhraseDeliveries.upsert({
@@ -484,6 +486,7 @@ export function CirclePhraseSetup({
           </div>
         </>
       )}
+      <NostrRelaySettings />
     </div>
   );
 }

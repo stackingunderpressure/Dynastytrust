@@ -6,13 +6,14 @@ import {
   sendVaultMembershipRequestOverNostr,
   type VaultMembershipRole,
 } from '../lib/circle-membership-delivery';
-import { DEFAULT_RELAYS } from '../lib/tapit-nostr-cosign';
+import { getNostrRelays } from '../lib/nostrRelayPrefs';
 import { NostrTransport } from '@dynastytrust/nostr-transport';
 import { subscribeVaultMembershipAcks } from '../lib/vault-membership-ack-channel';
 import { api, type VaultMembershipGrant } from '../lib/api';
 import { colors, radii, space } from '../theme';
 import { Button } from './ui';
 import { useToast } from './toast';
+import { NostrRelaySettings } from './NostrRelaySettings';
 
 /**
  * VaultMembershipSetup -- Cut C3's owner-facing action. A Tapit circle
@@ -129,7 +130,7 @@ export function VaultMembershipSetup({
   const pendingKeysSignature = pendingReplyKeys.slice().sort().join(',');
   useEffect(() => {
     if (pendingReplyKeys.length === 0) return;
-    const transport = new NostrTransport({ relays: DEFAULT_RELAYS });
+    const transport = new NostrTransport({ relays: getNostrRelays() });
     const sub = subscribeVaultMembershipAcks(transport, pendingReplyKeys, ack => {
       const grant = grantsRef.current.find(g => g.reply_pubkey === ack.replyPubkey);
       if (!grant || grant.status !== 'sent') return;
@@ -248,6 +249,7 @@ export function VaultMembershipSetup({
         role,
         leafScripts: roleLeaves,
         recipientXOnlyPubkey: xOnlyPubkey,
+        relays: getNostrRelays(),
       });
       const saved = await api.vaultMembershipGrants.create({
         vault_id: vaultId,
@@ -336,6 +338,7 @@ export function VaultMembershipSetup({
           );
         })}
       </div>
+      <NostrRelaySettings />
     </div>
   );
 }
