@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, type SentSecret } from '../lib/api';
 import { unwrapSentSecret } from '../lib/sent-secrets';
+import {
+  isFaceGateSupported, hasFaceGateCredential, registerFaceGate, verifyFaceGate,
+  getCachedSecretPassword, setCachedSecretPassword, clearCachedSecretPassword,
+} from '../lib/face-gate';
 import { colors, radii, space } from '../theme';
 import { Button } from './ui';
 import { useToast } from './toast';
@@ -46,21 +50,42 @@ export function SentSecretsPanel({ vaultId }: { vaultId: string }) {
 
   if (!loading && secrets.length === 0) return null;
 
+  // Face ID reveal: if this secret's password is already cached on this
+  // device (set the first time it was ever typed in successfully) and a
+  // Face ID/Touch ID credential is registered, a successful biometric
+  // check hands back the cached password with no typing at all. Anything
+  // that isn't a clean Face ID pass -- no cache yet, no credential
+  // registered, declined, unsupported browser -- falls through to the
+  // password prompt exactly as before, so there's always a way in.
   async function reveal(s: SentSecret) {
-    const password = await askPassword({
-      title: 'Reveal secret',
-      message: `Enter the password you set when you saved "${s.label}".`,
-      password: true,
-      confirmLabel: 'Reveal',
-    });
-    if (!password) return;
     setBusyId(s.id);
     try {
+      let password: string | null = null;
+      const cached = getCachedSecretPassword(s.id);
+      if (cached && hasFaceGateCredential()) {
+        password = (await verifyFaceGate()) ? cached : null;
+      }
+      if (!password) {
+        password = await askPassword({
+          title: 'Reveal secret',
+          message: `Enter the password you set when you saved "${s.label}".`,
+          password: true,
+          confirmLabel: 'Reveal',
+        });
+        if (!password) return;
+      }
       const fields = await unwrapSentSecret(
         { version: 1, ciphertextB64: s.ciphertext_b64, saltB64: s.salt_b64, nonceB64: s.nonce_b64 },
         password,
       );
       setRevealed(prev => new Map(prev).set(s.id, fields));
+      // Correct password, decrypted clean -- cache it and, the first time
+      // this happens on a device that can do Face ID, register the gate
+      // so every reveal after this one skips the typed password.
+      setCachedSecretPassword(s.id, password);
+      if (!hasFaceGateCredential() && (await isFaceGateSupported())) {
+        void registerFaceGate();
+      }
     } catch {
       toast.error('Wrong password, or this record is corrupt.');
     } finally {
@@ -86,6 +111,7 @@ export function SentSecretsPanel({ vaultId }: { vaultId: string }) {
     try {
       await api.sentSecrets.remove(s.id);
       hide(s.id);
+      clearCachedSecretPassword(s.id);
       setSecrets(prev => prev.filter(x => x.id !== s.id));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to delete');
@@ -107,8 +133,9 @@ export function SentSecretsPanel({ vaultId }: { vaultId: string }) {
       </div>
       <p style={{ fontSize: 12, color: colors.muted, marginBottom: 14 }}>
         Things you've saved a recoverable copy of, like the circle safety phrase. Encrypted with
-        the password you set when you saved each one -- reveal needs that exact password, there is
-        no reset.
+        the password you set when you saved each one -- there is no reset, so the first Reveal on
+        a new device still needs that exact password. After that, Face ID / Touch ID unlocks it on
+        this device without retyping anything.
       </p>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
