@@ -22,6 +22,7 @@ import { supabase } from "../lib/supabase";
 import { listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
 import { signPsbtWithMnemonic, countSignatures, mergePsbts } from "../lib/psbt-signer";
 import { startTapitCosign, TAPIT_COSIGN_RESULT_KEY, type TapitCosignResult } from "../lib/tapit-cosign";
+import { fetchTapitDisplayNames } from "../lib/tapit-profile-lookup";
 import { assembleLivenessGateInput } from "../lib/liveness-gate";
 import { evaluateSigningGate, ceremonyFromProposal } from "@dynastytrust/policy-engine";
 import { APP_NAME, broadcastTxUrl, explorerTxUrl } from "../config";
@@ -5091,6 +5092,7 @@ function VaultLeafStatusPill({ status, absHeight, tip }: { status: VaultLeafStat
 function VaultStructureTree({ vault }: { vault: Vault }) {
   const [tip, setTip] = useState<number | null>(null);
   const [members, setMembers] = useState<VaultMember[]>([]);
+  const [tapitNames, setTapitNames] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     let cancelled = false;
@@ -5119,7 +5121,33 @@ function VaultStructureTree({ vault }: { vault: Vault }) {
     return () => { cancelled = true; };
   }, [vault.id]);
 
+  // Every pubkey that could appear on any leaf of this vault, once --
+  // ask the Nostr relays who each one really is on Tapit. A hardware-
+  // wallet-only key just never resolves (nobody published a kind-0
+  // profile for it) and silently falls back to the local label below.
+  // Depends on the joined string rather than the arrays themselves --
+  // vault.founder_keys etc. get a fresh array identity on every fetch
+  // even when the actual keys haven't changed, which would otherwise
+  // re-open a relay subscription on every unrelated re-render.
+  const allPubkeysKey = [
+    ...vault.founder_keys,
+    ...vault.backup_keys,
+    ...vault.protector_keys,
+    ...vault.heir_keys,
+    ...vault.second_heir_keys,
+  ].join(",");
+  useEffect(() => {
+    let cancelled = false;
+    if (allPubkeysKey.length === 0) return;
+    fetchTapitDisplayNames(allPubkeysKey.split(","))
+      .then(names => { if (!cancelled) setTapitNames(names); })
+      .catch(() => { /* best-effort -- keys fall back to the local label */ });
+    return () => { cancelled = true; };
+  }, [allPubkeysKey]);
+
   const keyLabel = (pubkey: string): string => {
+    const tapitName = tapitNames.get(pubkey);
+    if (tapitName) return tapitName;
     const m = members.find(mm => mm.pubkey === pubkey);
     return m?.label || `Key ${pubkey.slice(0, 6)}`;
   };
