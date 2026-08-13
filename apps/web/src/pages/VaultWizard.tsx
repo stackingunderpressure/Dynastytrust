@@ -1046,10 +1046,16 @@ function KeysStep({
     key: string, label: string, target: number,
     selected: SelectedKey[], setSelected: (fn: (p: SelectedKey[]) => SelectedKey[]) => void,
     accent: string,
+    description?: string,
   ) {
     return (
       <Card key={key}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 10 }}>{label}</div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>{label}</div>
+        {description && (
+          <p style={{ fontSize: 12, color: colors.muted, marginTop: 0, marginBottom: 10 }}>
+            {description}
+          </p>
+        )}
         <SlotHint targetCount={target} filledCount={selected.length} role={key} />
         <KeyPicker
           selected={selected}
@@ -1083,22 +1089,59 @@ function KeysStep({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {shape === 'standard' ? (
         <>
-          {role('founder', 'Signing keys', stdConfig.plannedFounders, founderKeys, setFounderKeys, colors.gold)}
+          {role(
+            'founder', 'Signing keys', stdConfig.plannedFounders, founderKeys, setFounderKeys, colors.gold,
+            `Can spend right away, no waiting -- needs ${stdConfig.founderQ} of ${stdConfig.plannedFounders} to sign.`
+              + (stdConfig.consentEnabled
+                ? ` Every spend also needs ${stdConfig.consentQ} of ${stdConfig.plannedConsenters} beneficiary-consent signatures (below).`
+                : ''),
+          )}
           {stdConfig.mode === 'inheritance' && stdConfig.plannedHeirs > 0 &&
-            role('heir', 'Heir keys', stdConfig.plannedHeirs, heirKeys, setHeirKeys, colors.blue)}
+            role(
+              'heir', 'Heir keys', stdConfig.plannedHeirs, heirKeys, setHeirKeys, colors.blue,
+              `Locked until ${blocksToHuman(stdConfig.inheritanceAfter)} from when the vault is funded. `
+                + `After that, ${stdConfig.heirQ} of ${stdConfig.plannedHeirs} heirs can spend on their own -- `
+                + `founders no longer have a say.`,
+            )}
           {stdConfig.protectorEnabled &&
-            role('protector', 'Protector keys', stdConfig.plannedProtectors, protectorKeys, setProtectorKeys, colors.orange)}
+            role(
+              'protector', 'Protector keys', stdConfig.plannedProtectors, protectorKeys, setProtectorKeys, colors.orange,
+              `Can rescue funds starting ${blocksToHuman(stdConfig.protectorAfter)} from funding, independent of `
+                + `the founders -- a safety net if trustees go quiet before inheritance kicks in.`,
+            )}
           {stdConfig.consentEnabled &&
-            role('consent', 'Beneficiary-consent keys', stdConfig.plannedConsenters, consentKeys, setConsentKeys, colors.green)}
+            role(
+              'consent', 'Beneficiary-consent keys', stdConfig.plannedConsenters, consentKeys, setConsentKeys, colors.green,
+              `No timelock -- required on every founders' spend from day one. ${stdConfig.consentQ} of `
+                + `${stdConfig.plannedConsenters} must consent alongside the founder quorum above.`,
+            )}
           {stdConfig.backupEnabled &&
-            role('backup', 'Backup keys', stdConfig.plannedBackups, backupKeys, setBackupKeys, colors.orange)}
+            role(
+              'backup', 'Backup keys', stdConfig.plannedBackups, backupKeys, setBackupKeys, colors.orange,
+              `No waiting, but a separate, harder-to-reach key set from the founders' -- ${stdConfig.backupQ} of `
+                + `${stdConfig.plannedBackups} can spend anytime on their own. Replaces the timelocked recovery path.`,
+            )}
           {stdConfig.secondInheritanceEnabled &&
-            role('second_heir', 'Second inheritance keys', stdConfig.plannedSecondHeirs, secondHeirKeys, setSecondHeirKeys, colors.green)}
+            role(
+              'second_heir', 'Second inheritance keys', stdConfig.plannedSecondHeirs, secondHeirKeys, setSecondHeirKeys, colors.green,
+              `A second, independent heir group. Locked until ${blocksToHuman(stdConfig.secondInheritanceAfter)} `
+                + `from funding -- ${stdConfig.secondHeirQ} of ${stdConfig.plannedSecondHeirs} can spend after that, `
+                + `separate from the first heir group above.`,
+            )}
         </>
       ) : (
         <>
-          {role('parent', 'Parent keys', blocConfig.plannedParents, parentKeys, setParentKeys, colors.gold)}
-          {role('kid', 'Kid keys', blocConfig.plannedKids, kidKeys, setKidKeys, colors.blue)}
+          {role(
+            'parent', 'Parent keys', blocConfig.plannedParents, parentKeys, setParentKeys, colors.gold,
+            `Parents can spend together right away, no waiting -- ${blocConfig.parentsTogetherQ} of `
+              + `${blocConfig.plannedParents} parents sign, or ${blocConfig.coparentQ} parent plus every kid together.`,
+          )}
+          {role(
+            'kid', 'Kid keys', blocConfig.plannedKids, kidKeys, setKidKeys, colors.blue,
+            `Kids alone unlock starting ${blocksToHuman(blocConfig.kidsDecayStartAfter)} from funding -- all `
+              + `${blocConfig.plannedKids} needed at first, one fewer required every `
+              + `${blocksToHuman(blocConfig.kidsDecayStepBlocks)} after that, down to ${blocConfig.kidsDecayFloorQ}.`,
+          )}
         </>
       )}
 
