@@ -300,6 +300,55 @@ function MemberAttestList({
   );
 }
 
+// A set of superseded attestations can span multiple distinct past
+// versions (the trust doc or descriptor may have changed more than
+// once). Lumping every stale signature into one flat list would hide
+// which people signed the SAME past version vs different ones --
+// group by target_hash, newest group first, so each group is one
+// verifiable, independently-hashed document with its own signer list.
+function PastVersionsList({
+  attestations,
+  members,
+}: {
+  attestations: VaultAttestation[];
+  members: VaultMember[];
+}) {
+  const byHash = new Map<string, VaultAttestation[]>();
+  for (const a of attestations) {
+    const arr = byHash.get(a.target_hash) ?? [];
+    arr.push(a);
+    byHash.set(a.target_hash, arr);
+  }
+  const groups = Array.from(byHash.entries()).sort(
+    ([, a], [, b]) =>
+      Math.max(...b.map(x => Date.parse(x.signed_at))) -
+      Math.max(...a.map(x => Date.parse(x.signed_at))),
+  );
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {groups.map(([hash, sigs]) => (
+        <div
+          key={hash}
+          style={{ background: colors.input, borderRadius: 8, padding: '8px 10px' }}
+        >
+          <div
+            style={{
+              fontFamily: fonts.mono,
+              fontSize: 11,
+              color: colors.muted,
+              marginBottom: 6,
+              wordBreak: 'break-all',
+            }}
+          >
+            {shortHash(hash)}
+          </div>
+          <MemberAttestList attestations={sigs} members={members} emptyLabel="" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------
 // DescriptorPanel -- members attest to the vault's compiled
 // descriptor + address. Protects against a server-side address
@@ -420,6 +469,19 @@ function DescriptorPanel({
             members={members}
             emptyLabel="No members have attested to this descriptor yet."
           />
+          {staleCount > 0 && (
+            <details style={{ marginTop: 12 }}>
+              <summary style={{ fontSize: 12, color: colors.muted, cursor: 'pointer' }}>
+                Past versions ({staleCount})
+              </summary>
+              <div style={{ marginTop: 8 }}>
+                <PastVersionsList
+                  attestations={allDescriptorSigs.filter(a => a.target_hash !== currentHash)}
+                  members={members}
+                />
+              </div>
+            </details>
+          )}
           {me && !iHaveSigned && (
             <div style={{ marginTop: 12 }}>
               <Button size="sm" onClick={attest} disabled={busy}>
@@ -456,9 +518,9 @@ function TrustDocPanel({
   const [busy, setBusy] = useState(false);
 
   const currentHash = useMemo(() => trustDocHash(vault.trust_doc ?? {}), [vault.trust_doc]);
-  const sigsForCurrent = attestations.filter(
-    a => a.attestation_type === 'trust_doc' && a.target_hash === currentHash,
-  );
+  const allTrustDocSigs = attestations.filter(a => a.attestation_type === 'trust_doc');
+  const sigsForCurrent = allTrustDocSigs.filter(a => a.target_hash === currentHash);
+  const staleSigs = allTrustDocSigs.filter(a => a.target_hash !== currentHash);
   const totalMembers = members.filter(m => m.status !== 'removed').length;
   const iHaveSigned = !!me && sigsForCurrent.some(a => a.user_id === me.user_id);
 
@@ -524,6 +586,16 @@ function TrustDocPanel({
         members={members}
         emptyLabel="No members have attested to this version yet."
       />
+      {staleSigs.length > 0 && (
+        <details style={{ marginTop: 12 }}>
+          <summary style={{ fontSize: 12, color: colors.muted, cursor: 'pointer' }}>
+            Past versions ({staleSigs.length})
+          </summary>
+          <div style={{ marginTop: 8 }}>
+            <PastVersionsList attestations={staleSigs} members={members} />
+          </div>
+        </details>
+      )}
       {me && !iHaveSigned && !empty && (
         <div style={{ marginTop: 12 }}>
           <Button size="sm" onClick={attest} disabled={busy}>

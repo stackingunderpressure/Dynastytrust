@@ -22,6 +22,7 @@ import { supabase } from "../lib/supabase";
 import { listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
 import { signPsbtWithMnemonic, countSignatures, mergePsbts } from "../lib/psbt-signer";
 import { startTapitCosign, TAPIT_COSIGN_RESULT_KEY, type TapitCosignResult } from "../lib/tapit-cosign";
+import { fetchTapitDisplayNames } from "../lib/tapit-profile-lookup";
 import { assembleLivenessGateInput } from "../lib/liveness-gate";
 import { evaluateSigningGate, ceremonyFromProposal } from "@dynastytrust/policy-engine";
 import { APP_NAME, broadcastTxUrl, explorerTxUrl } from "../config";
@@ -62,7 +63,7 @@ import { SentSecretsPanel } from "../components/SentSecretsPanel";
 import { VaultMembershipSetup } from "../components/VaultMembershipSetup";
 import { NotifyCircleViaNostr } from "../components/NotifyCircleViaNostr";
 import { MessagingKeyBackupPanel } from "../components/MessagingKeyBackupPanel";
-import { tipHeight, txConfirmations, blocksToApproxLabel, approxWallclockDate } from "../lib/chain";
+import { tipHeight, txConfirmations, blocksToApproxLabel } from "../lib/chain";
 import { buildStandardTrustDoc, standardConfigFromCompiledVault } from "../lib/trust-doc";
 
 
@@ -625,7 +626,9 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
           <HistoryTab vault={vault} proposals={proposals} onRefresh={load} />
         )}
         {tab === "members" && <MembersTab vault={vault} />}
-        {tab === "activity" && <ActivityTab vault={vault} />}
+        {tab === "activity" && (
+          <ActivityTab vault={vault} onOpenTab={id => setTab(id as typeof tab)} />
+        )}
         {tab === "requests" && <RequestsTab vault={vault} onSendPrefill={prefillSend} />}
         {tab === "messages" && <MessagesTab vault={vault} />}
         {tab === "trust" && <TrustTab vault={vault} />}
@@ -683,7 +686,7 @@ function OverviewTab({
 
   // Dynasty Bloc vaults don't use the founders/heirs/recovery/inheritance
   // shape at all -- everything below this point (paths, VaultPhaseCard,
-  // TimelockCountdown, SuccessionBanner, ActionGuide, StipendsSection)
+  // VaultStructureTree, SuccessionBanner, ActionGuide, StipendsSection)
   // assumes that shape and would render nonsense (0-of-0 quorums, a
   // "recovery unlocks at block 0" countdown) against a Bloc vault's empty
   // founder_keys/heir_keys. Isolating Bloc into its own small overview
@@ -792,7 +795,7 @@ function OverviewTab({
         onSendPrefill={onSendPrefill}
       />
       {!plain && <VaultPhaseCard vault={vault} />}
-      {!plain && <TimelockCountdown vault={vault} />}
+      {!plain && <VaultStructureTree vault={vault} />}
       <TrustDocSection vault={vault} />
       <StipendsSection vault={vault} onSendPrefill={onSendPrefill} />
       <DistributionWalletsSection vault={vault} onSendPrefill={onSendPrefill} />
@@ -3555,16 +3558,22 @@ function MessagesTab({ vault }: { vault: Vault }) {
   );
 }
 
-function ActivityTab({ vault }: { vault: Vault }) {
+function ActivityTab({ vault, onOpenTab }: { vault: Vault; onOpenTab: (id: string) => void }) {
   const [events, setEvents] = useState<VaultEvent[]>([]);
+  const [members, setMembers] = useState<VaultMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const load = useCallback(async () => {
     setErr(null);
     try {
-      const res = await api.vaultEvents.list(vault.id, 100);
-      setEvents(res.events);
+      const [ev, mem] = await Promise.all([
+        api.vaultEvents.list(vault.id, 100),
+        api.members.list(vault.id),
+      ]);
+      setEvents(ev.events);
+      setMembers(mem.members);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to load activity");
     } finally {
@@ -3586,24 +3595,75 @@ function ActivityTab({ vault }: { vault: Vault }) {
   if (events.length === 0)
     return <p style={{ color: colors.muted, fontSize: 14 }}>No activity yet.</p>;
 
+  const memberLabel = (userId: string): string => {
+    const m = members.find(m => m.user_id === userId);
+    if (!m) return "A former member";
+    return m.label || (m.role ? m.role.charAt(0).toUpperCase() + m.role.slice(1) : "A member");
+  };
+
+  const goToDestination = (dest: EventDestination) => {
+    if (!dest) return;
+    if (dest.kind === "proposal") navigate(`/vaults/${vault.id}/proposals/${dest.proposalId}`);
+    else onOpenTab(dest.tab);
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+      <div style={{ fontSize: 12, color: colors.muted, marginBottom: 10, lineHeight: 1.5 }}>
+        Every action taken on this vault, who took it, and a link to the full
+        record -- the proposal it belongs to, or the Trust / Requests /
+        Members tab that holds the source-of-truth detail.
+      </div>
       {events.map(e => (
-        <EventRow key={e.id} event={e} />
+        <EventRow key={e.id} event={e} actor={memberLabel(e.user_id)} onOpen={goToDestination} />
       ))}
     </div>
   );
 }
 
-function EventRow({ event }: { event: VaultEvent }) {
-  const { icon, title, color } = describeEvent(event);
+type EventDestination =
+  | { kind: "proposal"; proposalId: string }
+  | { kind: "tab"; tab: string }
+  | null;
+
+function eventDestination(e: VaultEvent): EventDestination {
+  const meta = e.metadata || {};
+  if (typeof meta.proposal_id === "string") {
+    return { kind: "proposal", proposalId: meta.proposal_id };
+  }
+  if (typeof meta.attestation_id === "string" || e.event_type.startsWith("attestation_")) {
+    return { kind: "tab", tab: "trust" };
+  }
+  if (typeof meta.request_id === "string" || e.event_type.startsWith("request_")) {
+    return { kind: "tab", tab: "requests" };
+  }
+  if (["invite_created", "member_joined", "member_removed"].includes(e.event_type)) {
+    return { kind: "tab", tab: "members" };
+  }
+  return null;
+}
+
+function EventRow({
+  event,
+  actor,
+  onOpen,
+}: {
+  event: VaultEvent;
+  actor: string;
+  onOpen: (dest: EventDestination) => void;
+}) {
+  const { icon, title, color } = describeEvent(event, actor);
+  const dest = eventDestination(event);
+  const clickable = dest !== null;
   return (
     <div
+      onClick={clickable ? () => onOpen(dest) : undefined}
       style={{
         display: "flex",
         gap: 12,
         padding: "12px 4px",
         borderBottom: `1px solid ${colors.border}`,
+        cursor: clickable ? "pointer" : "default",
       }}
     >
       <div
@@ -3629,61 +3689,76 @@ function EventRow({ event }: { event: VaultEvent }) {
           {new Date(event.created_at).toLocaleString()}
         </div>
       </div>
+      {clickable && (
+        <div style={{ color: colors.muted, fontSize: 14, alignSelf: "center", flexShrink: 0 }}>
+          &gt;
+        </div>
+      )}
     </div>
   );
 }
 
-function describeEvent(e: VaultEvent): { icon: string; title: string; color: string } {
+function describeEvent(e: VaultEvent, actor: string): { icon: string; title: string; color: string } {
   const meta = e.metadata || {};
   switch (e.event_type) {
     case "created":
       return { icon: "+", title: "Vault created", color: colors.gold };
     case "invite_created":
-      return { icon: "i", title: `Invite sent (${String(meta.role ?? "member")})`, color: colors.blue };
+      return { icon: "i", title: `${actor} sent an invite (${String(meta.role ?? "member")})`, color: colors.blue };
     case "member_joined":
-      return { icon: "@", title: `Member joined as ${String(meta.role ?? "member")}`, color: colors.green };
+      return { icon: "@", title: `${actor} joined as ${String(meta.role ?? "member")}`, color: colors.green };
     case "member_removed":
-      return { icon: "-", title: `Member removed`, color: colors.red };
+      return { icon: "-", title: `${actor} was removed`, color: colors.red };
     case "psbt_generated":
       return {
         icon: "T",
-        title: `Proposal created${meta.amount_sats ? ` (${(Number(meta.amount_sats) / 1e8).toFixed(8).replace(/\.?0+$/, "")} BTC)` : ""}`,
+        title: `${actor} created a proposal${meta.amount_sats ? ` (${(Number(meta.amount_sats) / 1e8).toFixed(8).replace(/\.?0+$/, "")} BTC)` : ""}`,
         color: colors.orange,
       };
     case "signed":
-      return { icon: "S", title: `Signature added`, color: colors.gold };
+      return { icon: "S", title: `${actor} signed the PSBT`, color: colors.gold };
     case "broadcast":
       return {
         icon: "B",
-        title: `Broadcast${meta.txid ? ` (${String(meta.txid).slice(0, 12)}...)` : ""}`,
+        title: `${actor} broadcast the transaction${meta.txid ? ` (${String(meta.txid).slice(0, 12)}...)` : ""}`,
         color: colors.green,
       };
     case "cancelled":
-      return { icon: "x", title: `Proposal cancelled`, color: colors.muted };
+      return { icon: "x", title: `${actor} cancelled the proposal`, color: colors.muted };
     case "commented":
-      return { icon: "c", title: `Discussion comment`, color: colors.sub };
+      return { icon: "c", title: `${actor} commented`, color: colors.sub };
     case "voted_approve":
-      return { icon: "+", title: `Vote: approve`, color: colors.green };
+      return { icon: "+", title: `${actor} voted to approve`, color: colors.green };
     case "voted_abstain":
-      return { icon: "o", title: `Vote: abstain`, color: colors.muted };
+      return { icon: "o", title: `${actor} abstained`, color: colors.muted };
     case "voted_decline":
-      return { icon: "-", title: `Vote: decline`, color: colors.red };
+      return { icon: "-", title: `${actor} voted to decline`, color: colors.red };
     case "request_created":
       return {
         icon: "R",
-        title: `Distribution request${meta.rule_name ? ` (${String(meta.rule_name)})` : ""}${meta.amount_sats ? ` -- ${(Number(meta.amount_sats) / 1e8).toFixed(8).replace(/\.?0+$/, "")} BTC` : ""}`,
+        title: `${actor} filed a distribution request${meta.rule_name ? ` (${String(meta.rule_name)})` : ""}${meta.amount_sats ? ` -- ${(Number(meta.amount_sats) / 1e8).toFixed(8).replace(/\.?0+$/, "")} BTC` : ""}`,
         color: colors.orange,
       };
     case "request_approved":
-      return { icon: "+", title: "Request approved", color: colors.green };
+      return { icon: "+", title: `${actor} approved the request`, color: colors.green };
     case "request_declined":
-      return { icon: "x", title: "Request declined", color: colors.red };
+      return { icon: "x", title: `${actor} declined the request`, color: colors.red };
     case "request_fulfilled":
       return { icon: "!", title: "Request fulfilled", color: colors.green };
     case "request_cancelled":
-      return { icon: "o", title: "Request cancelled", color: colors.muted };
+      return { icon: "o", title: `${actor} cancelled the request`, color: colors.muted };
+    case "attestation_trust_doc":
+      return { icon: "T", title: `${actor} signed the trust doc`, color: colors.gold };
+    case "attestation_proof_of_life":
+      return { icon: "L", title: `${actor} checked in (proof of life)`, color: colors.green };
+    case "attestation_death_declaration":
+      return { icon: "!", title: `${actor} signed a death declaration`, color: colors.red };
+    case "attestation_descriptor":
+      return { icon: "D", title: `${actor} attested to the vault descriptor`, color: colors.blue };
+    case "attestation_revoked":
+      return { icon: "x", title: `${actor} revoked an attestation`, color: colors.muted };
     default:
-      return { icon: "*", title: e.event_type, color: colors.sub };
+      return { icon: "*", title: `${actor}: ${e.event_type}`, color: colors.sub };
   }
 }
 
@@ -4700,10 +4775,11 @@ function rolePhaseHint(
 
 // // -- VaultPhaseCard
 // Plain-English summary of what's spendable RIGHT NOW on the
-// vault. Complements TimelockCountdown (which shows per-path
-// countdowns) with a single "trust phase" banner that a
-// non-technical beneficiary can read. Refreshes every minute so
-// an imminent unlock flips the banner without a manual reload.
+// vault. Complements VaultStructureTree (which shows every path,
+// its keys, and its own lock state) with a single "trust phase"
+// banner that a non-technical beneficiary can read. Refreshes
+// every minute so an imminent unlock flips the banner without a
+// manual reload.
 
 type VaultPhase = {
   label: string;
@@ -4867,8 +4943,156 @@ function VaultPhaseCard({ vault }: { vault: Vault }) {
   );
 }
 
-function TimelockCountdown({ vault }: { vault: Vault }) {
+// // -- VaultStructureTree
+// A literal picture of the compiled Taproot script: a root, and one
+// branch per leaf actually present in this vault's descriptor -- not
+// just the currently-active one. Operator (2026-08-13, looking at the
+// old "Inheritance triggered" banner + a separate "Timelocks" card
+// showing only Recovery/Inheritance): "The inheritance triggering
+// should be very clear which branch it is which keys it is... needs
+// [the] same type of visual structure" as the succession language in
+// the trust doc. That prose describes exactly these leaves in words;
+// this draws the leaves themselves -- label, quorum, the actual keys
+// (resolved to the signer's name where a vault_members row matches
+// that pubkey), and each leaf's own lock state -- so a reader can see
+// the shape instead of inferring it from a paragraph. Supersedes the
+// old TimelockCountdown, which only ever showed two of up to five
+// possible leaves (never Backup, Protector, or Second inheritance).
+//
+// Each leaf's status is reported independently rather than picking one
+// "current phase" -- Bitcoin's OR-of-branches doesn't collapse to a
+// single active path (Recovery and Inheritance can both be unlocked at
+// once), so showing them as a single narrative would overclaim.
+type VaultLeafStatus = "active" | "unlocked" | "locked";
+
+interface VaultLeaf {
+  id: string;
+  label: string;
+  color: string;
+  quorum: number;
+  keyPubkeys: string[];
+  absHeight: number | null;
+  status: VaultLeafStatus;
+  note?: string;
+}
+
+function vaultLeafStatus(absHeight: number | null, tip: number | null): VaultLeafStatus {
+  if (!absHeight || absHeight <= 0) return "active";
+  if (tip != null && tip >= absHeight) return "unlocked";
+  return "locked";
+}
+
+function buildVaultLeaves(vault: Vault, tip: number | null): VaultLeaf[] {
+  const leaves: VaultLeaf[] = [
+    {
+      id: "founders_now",
+      label: "Trustees -- Path 1",
+      color: colors.gold,
+      quorum: vault.founder_quorum,
+      keyPubkeys: vault.founder_keys,
+      absHeight: null,
+      status: "active",
+      note:
+        vault.consent_quorum != null && vault.consent_keys.length > 0
+          ? `+ ${vault.consent_quorum} of ${vault.consent_keys.length} beneficiary consent required`
+          : undefined,
+    },
+  ];
+
+  // "Gift Locker"-shaped vaults have recovery_after === 0 -- no
+  // recovery leaf at all in the compiled descriptor.
+  if (vault.recovery_after > 0) {
+    leaves.push({
+      id: "recovery",
+      label: "Recovery -- Path 2",
+      color: colors.blue,
+      quorum: vault.recovery_quorum ?? vault.founder_quorum,
+      keyPubkeys: vault.founder_keys,
+      absHeight: vault.recovery_after,
+      status: vaultLeafStatus(vault.recovery_after, tip),
+    });
+  }
+
+  // Mutually exclusive with recovery (027_backup_path.sql) -- a
+  // separate, untimelocked, harder-to-reach keyset.
+  if (vault.backup_keys.length > 0) {
+    leaves.push({
+      id: "backup",
+      label: "Backup -- anytime, harder",
+      color: colors.blue,
+      quorum: vault.backup_quorum ?? vault.backup_keys.length,
+      keyPubkeys: vault.backup_keys,
+      absHeight: null,
+      status: "active",
+    });
+  }
+
+  if (vault.protector_keys.length > 0 && vault.protector_quorum != null && vault.protector_after != null) {
+    leaves.push({
+      id: "protector",
+      label: "Protector -- Path 4",
+      color: colors.blue,
+      quorum: vault.protector_quorum,
+      keyPubkeys: vault.protector_keys,
+      absHeight: vault.protector_after,
+      status: vaultLeafStatus(vault.protector_after, tip),
+    });
+  }
+
+  if (vault.heir_keys.length > 0) {
+    leaves.push({
+      id: "inheritance",
+      label: "Heirs -- Path 3",
+      color: colors.green,
+      quorum: vault.heir_quorum,
+      keyPubkeys: vault.heir_keys,
+      absHeight: vault.inheritance_after,
+      status: vaultLeafStatus(vault.inheritance_after, tip),
+    });
+  }
+
+  if (vault.second_heir_keys.length > 0) {
+    leaves.push({
+      id: "second_inheritance",
+      label: "Second heirs",
+      color: colors.green,
+      quorum: vault.second_heir_quorum ?? vault.second_heir_keys.length,
+      keyPubkeys: vault.second_heir_keys,
+      absHeight: vault.second_inheritance_after,
+      status: vaultLeafStatus(vault.second_inheritance_after, tip),
+    });
+  }
+
+  return leaves;
+}
+
+function VaultLeafStatusPill({ status, absHeight, tip }: { status: VaultLeafStatus; absHeight: number | null; tip: number | null }) {
+  if (status === "active") {
+    return (
+      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", color: colors.gold, textTransform: "uppercase", whiteSpace: "nowrap" }}>
+        Active now
+      </span>
+    );
+  }
+  if (status === "unlocked") {
+    return (
+      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", color: colors.green, textTransform: "uppercase", whiteSpace: "nowrap" }}>
+        Unlocked
+      </span>
+    );
+  }
+  const blocksLeft = tip != null && absHeight != null ? Math.max(0, absHeight - tip) : null;
+  return (
+    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", color: colors.muted, textTransform: "uppercase", whiteSpace: "nowrap" }}>
+      {blocksLeft != null ? `Locked -- ${blocksToApproxLabel(blocksLeft)}` : "Locked"}
+    </span>
+  );
+}
+
+function VaultStructureTree({ vault }: { vault: Vault }) {
   const [tip, setTip] = useState<number | null>(null);
+  const [members, setMembers] = useState<VaultMember[]>([]);
+  const [tapitNames, setTapitNames] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     let cancelled = false;
@@ -4888,20 +5112,47 @@ function TimelockCountdown({ vault }: { vault: Vault }) {
     };
   }, [vault.network]);
 
-  // vault.recovery_after / inheritance_after are ABSOLUTE CLTV
-  // block heights (baked into the Taproot leaf's `after(N)`).
-  // Subtract the current tip to get the relative blocks-until-
-  // unlock for display.
-  // "Gift Locker"-shaped vaults have recovery_after === 0 (no recovery
-  // leaf at all) -- omit that row rather than showing a fake
-  // "Unlocked" / "unlocks at block 0" countdown for a path that
-  // doesn't exist in the descriptor.
-  const rows = [
-    ...(vault.recovery_after > 0
-      ? [{ label: "Recovery", absHeight: vault.recovery_after, color: colors.blue }]
-      : []),
-    { label: "Inheritance", absHeight: vault.inheritance_after, color: colors.green },
-  ];
+  useEffect(() => {
+    let cancelled = false;
+    api.members
+      .list(vault.id)
+      .then(({ members: m }) => { if (!cancelled) setMembers(m); })
+      .catch(() => { /* best-effort -- keys fall back to a short pubkey */ });
+    return () => { cancelled = true; };
+  }, [vault.id]);
+
+  // Every pubkey that could appear on any leaf of this vault, once --
+  // ask the Nostr relays who each one really is on Tapit. A hardware-
+  // wallet-only key just never resolves (nobody published a kind-0
+  // profile for it) and silently falls back to the local label below.
+  // Depends on the joined string rather than the arrays themselves --
+  // vault.founder_keys etc. get a fresh array identity on every fetch
+  // even when the actual keys haven't changed, which would otherwise
+  // re-open a relay subscription on every unrelated re-render.
+  const allPubkeysKey = [
+    ...vault.founder_keys,
+    ...vault.backup_keys,
+    ...vault.protector_keys,
+    ...vault.heir_keys,
+    ...vault.second_heir_keys,
+  ].join(",");
+  useEffect(() => {
+    let cancelled = false;
+    if (allPubkeysKey.length === 0) return;
+    fetchTapitDisplayNames(allPubkeysKey.split(","))
+      .then(names => { if (!cancelled) setTapitNames(names); })
+      .catch(() => { /* best-effort -- keys fall back to the local label */ });
+    return () => { cancelled = true; };
+  }, [allPubkeysKey]);
+
+  const keyLabel = (pubkey: string): string => {
+    const tapitName = tapitNames.get(pubkey);
+    if (tapitName) return tapitName;
+    const m = members.find(mm => mm.pubkey === pubkey);
+    return m?.label || `Key ${pubkey.slice(0, 6)}`;
+  };
+
+  const leaves = buildVaultLeaves(vault, tip);
 
   return (
     <div
@@ -4918,48 +5169,79 @@ function TimelockCountdown({ vault }: { vault: Vault }) {
           fontWeight: 700,
           letterSpacing: "0.1em",
           color: colors.muted,
-          marginBottom: 10,
+          marginBottom: 12,
           textTransform: "uppercase",
         }}
       >
-        Timelocks
+        Spending paths
       </div>
-      {rows.map(r => {
-        const blocksLeft = tip != null ? Math.max(0, r.absHeight - tip) : r.absHeight;
-        const unlocksAt = approxWallclockDate(blocksLeft);
-        const unlocksLabel = blocksLeft === 0 && tip != null
-          ? "Unlocked"
-          : blocksToApproxLabel(blocksLeft);
-        return (
-          <div
-            key={r.label}
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              padding: "6px 0",
-              borderTop: `1px solid ${colors.border}`,
-            }}
-          >
-            <div>
-              <div style={{ fontSize: 13, color: colors.text }}>{r.label}</div>
-              <div style={{ fontSize: 11, color: colors.muted }}>
-                {tip != null
-                  ? `tip ${tip.toLocaleString()} / unlocks at block ${r.absHeight.toLocaleString()}`
-                  : `unlocks at block ${r.absHeight.toLocaleString()}`}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+        <div style={{ width: 8, height: 8, borderRadius: "50%", background: colors.text, flexShrink: 0 }} />
+        <div style={{ fontSize: 12, color: colors.sub, fontFamily: fonts.mono, wordBreak: "break-all" }}>
+          {vault.address ? `${vault.address.slice(0, 10)}...${vault.address.slice(-6)}` : "This vault"}
+        </div>
+      </div>
+      <div
+        style={{
+          borderLeft: `2px solid ${colors.border}`,
+          marginLeft: 4,
+          paddingLeft: 20,
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
+        }}
+      >
+        {leaves.map(leaf => (
+          <div key={leaf.id} style={{ position: "relative" }}>
+            <div
+              style={{
+                position: "absolute",
+                left: -20,
+                top: 15,
+                width: 16,
+                height: 2,
+                background: colors.border,
+              }}
+            />
+            <div
+              style={{
+                background: colors.input,
+                border: `1px solid ${colors.border}`,
+                borderLeft: `3px solid ${leaf.color}`,
+                borderRadius: 8,
+                padding: "10px 12px",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>{leaf.label}</div>
+                <VaultLeafStatusPill status={leaf.status} absHeight={leaf.absHeight} tip={tip} />
               </div>
-            </div>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 13, color: r.color, fontWeight: 600 }}>
-                {unlocksLabel}
+              <div style={{ fontSize: 12, color: colors.sub, marginTop: 4 }}>
+                {leaf.quorum} of {leaf.keyPubkeys.length} required
+                {leaf.absHeight ? ` -- unlocks at block ${leaf.absHeight.toLocaleString()}` : ""}
               </div>
-              <div style={{ fontSize: 11, color: colors.muted }}>
-                {blocksLeft > 0 ? unlocksAt.toLocaleDateString() : ""}
+              <div style={{ fontSize: 11, color: colors.muted, marginTop: 6, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {leaf.keyPubkeys.map((pk, idx) => (
+                  <span
+                    key={idx}
+                    style={{
+                      background: colors.surface,
+                      border: `1px solid ${colors.border}`,
+                      borderRadius: 4,
+                      padding: "2px 6px",
+                    }}
+                  >
+                    {keyLabel(pk)}
+                  </span>
+                ))}
               </div>
+              {leaf.note && (
+                <div style={{ fontSize: 11, color: colors.orange, marginTop: 6 }}>{leaf.note}</div>
+              )}
             </div>
           </div>
-        );
-      })}
+        ))}
+      </div>
     </div>
   );
 }
