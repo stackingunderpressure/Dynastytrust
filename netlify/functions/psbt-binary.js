@@ -116,10 +116,10 @@ export async function handler(event) {
   try { body = JSON.parse(event.body || '{}'); }
   catch { return json(400, { error: 'Invalid JSON' }); }
 
-  const { vault_id, destination, amount_sats, fee_rate, path = 'founders_now', selected_utxos } = body;
+  const { vault_id, destination, amount_sats, fee_rate, path = 'founders_now', selected_utxos, sweep } = body;
   if (!vault_id)    return json(400, { error: 'Missing: vault_id' });
   if (!destination) return json(400, { error: 'Missing: destination' });
-  if (!amount_sats || amount_sats < 546) return json(400, { error: 'amount_sats must be >= 546' });
+  if (!sweep && (!amount_sats || amount_sats < 546)) return json(400, { error: 'amount_sats must be >= 546' });
   if (fee_rate != null && (fee_rate < MIN_FEE_RATE_SAT_VB || fee_rate > MAX_FEE_RATE_SAT_VB)) {
     return json(400, { error: `fee_rate must be between ${MIN_FEE_RATE_SAT_VB} and ${MAX_FEE_RATE_SAT_VB} sat/vB` });
   }
@@ -236,40 +236,84 @@ export async function handler(event) {
   const inputVbytes = (leafQuorum > 0 && leafTotal > 0)
     ? estimateTapscriptInputVbytes(leafQuorum, leafTotal, treeDepth)
     : TR_INPUT_VBYTES; // fallback: leaf config missing/unexpected shape
-  const estFee = estimateFee(1, 2, rate, inputVbytes);
 
   // Coin selection: explicit list if caller supplied selected_utxos
-  // (coin-control from the UI), otherwise greedy largest-first.
+  // (coin-control from the UI), otherwise greedy largest-first -- except
+  // for a real sweep, which always spends every confirmed UTXO (or the
+  // coin-controlled subset, if given) as a single output with no change.
+  //
+  // sweep (2026-08-15, operator: "did max spend should be no change but
+  // there was some back to wallet miscalculation") -- the frontend's old
+  // "Max" button computed amount_sats itself by subtracting a flat
+  // 2000-sat guess from the confirmed balance, then sent that as a
+  // normal fixed-amount spend. Whenever the REAL fee (which depends on
+  // exactly how many inputs get selected and the live fee rate) differed
+  // from that guess -- routinely, since 2000 sats is not derived from
+  // anything -- the leftover became an unwanted, unrequested change
+  // output back to the vault. Sweep computes the exact fee for the exact
+  // input count first, THEN derives amount_sats = totalIn - fee, so
+  // there is nothing left over to become change by construction.
   let selected;
   let totalIn = 0;
-  if (Array.isArray(selected_utxos) && selected_utxos.length > 0) {
-    const key = (u) => `${u.txid}:${u.vout}`;
-    const wanted = new Set(selected_utxos.map(key));
-    selected = confirmed.filter(u => wanted.has(key(u)));
-    if (selected.length !== selected_utxos.length) {
-      return json(400, { error: "One or more selected UTXOs are unconfirmed or not found" });
+  let finalFee;
+  let amountSatsFinal;
+  let hasChange;
+  let changeVal = 0;
+
+  if (sweep) {
+    if (Array.isArray(selected_utxos) && selected_utxos.length > 0) {
+      const key = (u) => `${u.txid}:${u.vout}`;
+      const wanted = new Set(selected_utxos.map(key));
+      selected = confirmed.filter(u => wanted.has(key(u)));
+      if (selected.length !== selected_utxos.length) {
+        return json(400, { error: "One or more selected UTXOs are unconfirmed or not found" });
+      }
+    } else {
+      selected = confirmed;
     }
     totalIn = selected.reduce((n, u) => n + u.value, 0);
-  } else {
-    const sorted = [...confirmed].sort((a, b) => b.value - a.value);
-    selected = [];
-    for (const u of sorted) {
-      selected.push(u);
-      totalIn += u.value;
-      if (totalIn >= amount_sats + estFee) break;
+    finalFee = estimateFee(selected.length, 1, rate, inputVbytes); // 1 output: destination only, no change
+    amountSatsFinal = totalIn - finalFee;
+    if (amountSatsFinal < 546) {
+      return json(400, {
+        ok: false,
+        error: `Not enough confirmed balance to cover the network fee. Have ${totalIn} sats, need at least ${finalFee + 546}.`,
+        confirmed_sats: totalIn,
+      });
     }
-  }
+    hasChange = false;
+  } else {
+    const estFee = estimateFee(1, 2, rate, inputVbytes);
+    if (Array.isArray(selected_utxos) && selected_utxos.length > 0) {
+      const key = (u) => `${u.txid}:${u.vout}`;
+      const wanted = new Set(selected_utxos.map(key));
+      selected = confirmed.filter(u => wanted.has(key(u)));
+      if (selected.length !== selected_utxos.length) {
+        return json(400, { error: "One or more selected UTXOs are unconfirmed or not found" });
+      }
+      totalIn = selected.reduce((n, u) => n + u.value, 0);
+    } else {
+      const sorted = [...confirmed].sort((a, b) => b.value - a.value);
+      selected = [];
+      for (const u of sorted) {
+        selected.push(u);
+        totalIn += u.value;
+        if (totalIn >= amount_sats + estFee) break;
+      }
+    }
 
-  const finalFee   = estimateFee(selected.length, 2, rate, inputVbytes);
-  const changeVal  = totalIn - amount_sats - finalFee;
-  const hasChange  = changeVal >= 546;
+    finalFee        = estimateFee(selected.length, 2, rate, inputVbytes);
+    changeVal        = totalIn - amount_sats - finalFee;
+    hasChange        = changeVal >= 546;
+    amountSatsFinal  = amount_sats;
 
-  if (totalIn < amount_sats + finalFee) {
-    return json(400, {
-      ok: false,
-      error: `Insufficient funds. Need ${amount_sats + finalFee} sats confirmed, have ${totalIn}.`,
-      confirmed_sats: totalIn,
-    });
+    if (totalIn < amount_sats + finalFee) {
+      return json(400, {
+        ok: false,
+        error: `Insufficient funds. Need ${amount_sats + finalFee} sats confirmed, have ${totalIn}.`,
+        confirmed_sats: totalIn,
+      });
+    }
   }
 
   // Fetch scriptPubKeys for each selected UTXO (needed for PSBT witness_utxo)
@@ -306,8 +350,8 @@ export async function handler(event) {
       ok: true,
       fallback: true,
       message: 'COMPILER_URL not set — returning JSON PSBT. Deploy compiler for binary PSBT.',
-      psbt_json: { inputs: inputsWithScript, destination, amount_sats, fee_sats: finalFee, change_sats: hasChange ? changeVal : 0 },
-      summary: { vault_name: vault.name, vault_address: vault.address, destination, amount_sats, fee_sats: finalFee, fee_rate: rate, input_count: selected.length, total_in_sats: totalIn, network },
+      psbt_json: { inputs: inputsWithScript, destination, amount_sats: amountSatsFinal, fee_sats: finalFee, change_sats: hasChange ? changeVal : 0 },
+      summary: { vault_name: vault.name, vault_address: vault.address, destination, amount_sats: amountSatsFinal, fee_sats: finalFee, fee_rate: rate, input_count: selected.length, total_in_sats: totalIn, network },
     });
   }
 
@@ -321,7 +365,7 @@ export async function handler(event) {
       body: JSON.stringify({
         inputs:            inputsWithScript,
         destination,
-        amount_sats,
+        amount_sats:       amountSatsFinal,
         fee_sats:          finalFee,
         change_address:    vault.address,
         network,
@@ -374,7 +418,7 @@ export async function handler(event) {
       vault_id: vault.id,
       user_id:  u.userId,
       event_type: 'psbt_generated',
-      metadata: { destination, amount_sats, fee_sats: finalFee, fee_rate: rate, input_count: selected.length, binary: true, path },
+      metadata: { destination, amount_sats: amountSatsFinal, fee_sats: finalFee, fee_rate: rate, input_count: selected.length, binary: true, path, sweep: !!sweep },
     });
 
     return json(200, {
@@ -385,7 +429,7 @@ export async function handler(event) {
         vault_name:    vault.name,
         vault_address: vault.address,
         destination,
-        amount_sats,
+        amount_sats:   amountSatsFinal,
         fee_sats:      finalFee,
         change_sats:   hasChange ? changeVal : 0,
         fee_rate:      rate,

@@ -1221,6 +1221,16 @@ function SendTab({ vault, balance, onDone, prefill }: {
   const [slowHint, setSlowHint] = useState(false);
   const [showQrDisplay, setShowQrDisplay] = useState(false);
   const [showQrScanner, setShowQrScanner] = useState(false);
+  // 2026-08-15 (operator: "did max spend should be no change but there
+  // was some back to wallet miscalculation") -- the old "Max" button
+  // wrote a GUESSED amount (balance minus a flat 2000-sat fee estimate)
+  // into the plain amount field, which then went through the normal
+  // fixed-amount build path; whenever the real fee differed from that
+  // guess, the leftover became an unrequested change output. sweep
+  // instead sends no amount at all -- psbt-binary.js computes the exact
+  // fee for the real input count first, then derives amount = totalIn -
+  // fee server-side, so there is nothing left to become change.
+  const [sweep, setSweep] = useState(false);
 
   // Dynasty Bloc: which of the four spend paths this proposal uses, and
   // (for the decaying kids-alone path) which rung. Ignored entirely for
@@ -1250,10 +1260,14 @@ function SendTab({ vault, balance, onDone, prefill }: {
   const rules = vault.trust_doc?.rules ?? [];
   const selectedRule = rules.find(r => r.id === ruleId);
 
+  const useSweep = sweep && !bp;
+
   async function buildAndSign(e: React.FormEvent) {
     e.preventDefault();
-    if (amountSats < 546) { setErr("Minimum 546 sats (dust limit)"); return; }
-    if (amountSats > confirmedSats) { setErr("Insufficient confirmed balance"); return; }
+    if (!useSweep) {
+      if (amountSats < 546) { setErr("Minimum 546 sats (dust limit)"); return; }
+      if (amountSats > confirmedSats) { setErr("Insufficient confirmed balance"); return; }
+    }
     // Enforce the structured trust rule if one is picked or if the
     // trust has rules defined at all (in which case every spend
     // should be categorised).
@@ -1261,7 +1275,10 @@ function SendTab({ vault, balance, onDone, prefill }: {
       setErr("Pick a distribution rule. Every spend on this trust must be categorised.");
       return;
     }
-    if (selectedRule?.max_sats && amountSats > selectedRule.max_sats) {
+    // Sweep doesn't know the real amount until the backend computes it
+    // (totalIn minus the exact fee) -- checked again below, right after
+    // psbtRes comes back, using the real number instead of a guess.
+    if (!useSweep && selectedRule?.max_sats && amountSats > selectedRule.max_sats) {
       setErr(
         `Amount exceeds the cap on rule "${selectedRule.name}" (max ${satsToBtc(selectedRule.max_sats)} BTC per spend).`,
       );
@@ -1334,7 +1351,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
         psbtRes = await api.psbt.generate({
           vault_id: vault.id,
           destination: dest.trim(),
-          amount_sats: amountSats,
+          ...(useSweep ? { sweep: true } : { amount_sats: amountSats }),
           fee_rate: feeRate ? parseFloat(feeRate) : undefined,
           path: standardPath,
           selected_utxos: prefill?.selected_utxos,
@@ -1347,11 +1364,26 @@ function SendTab({ vault, balance, onDone, prefill }: {
         return;
       }
 
-      // 2. Save proposal
+      // Sweep only learns the real amount here, once the backend has
+      // computed totalIn minus the exact fee -- re-check the rule cap
+      // against that real number before ever saving a proposal for it.
+      if (useSweep && selectedRule?.max_sats && psbtRes.summary.amount_sats > selectedRule.max_sats) {
+        setErr(
+          `Sweeping the full balance (${satsToBtc(psbtRes.summary.amount_sats)} BTC) exceeds the cap on rule "${selectedRule.name}" (max ${satsToBtc(selectedRule.max_sats)} BTC per spend). Enter a specific amount under the cap instead.`,
+        );
+        setBusy(false);
+        return;
+      }
+
+      // 2. Save proposal. Uses the backend's own summary.amount_sats
+      // (the real, post-fee amount) rather than the client's amountSats
+      // -- for a sweep those differ by definition (amountSats is 0/blank
+      // client-side); for a normal spend the backend already enforces
+      // they're identical, so this is never a behavior change there.
       const propRes = await api.proposals.create({
         vault_id: vault.id,
         destination: dest.trim(),
-        amount_sats: amountSats,
+        amount_sats: psbtRes.summary.amount_sats,
         path,
         memo: selectedRule
           ? `Rule: ${selectedRule.name}${memo.trim() ? ` -- ${memo.trim()}` : ""}`
@@ -2270,15 +2302,29 @@ function SendTab({ vault, balance, onDone, prefill }: {
       <div style={{ display: "flex", gap: 12 }}>
         <div style={{ flex: 2 }}>
           <Label>Amount (BTC)</Label>
-          <Input
-            type="number"
-            step="0.00000001"
-            min="0.00000546"
-            value={amountBtc}
-            onChange={e => setAmountBtc(e.target.value)}
-            required
-            placeholder="0.001"
-          />
+          {sweep && !bp ? (
+            <div
+              style={{
+                border: `1px solid ${colors.border}`,
+                borderRadius: 8,
+                padding: "10px 12px",
+                fontSize: 14,
+                color: colors.text,
+              }}
+            >
+              Entire confirmed balance -- exact amount is computed when you build (fee comes off the top, no change back to the vault)
+            </div>
+          ) : (
+            <Input
+              type="number"
+              step="0.00000001"
+              min="0.00000546"
+              value={amountBtc}
+              onChange={e => setAmountBtc(e.target.value)}
+              required
+              placeholder="0.001"
+            />
+          )}
           {confirmedSats > 0 && (
             <div style={{ fontSize: 11, color: colors.muted, marginTop: 5 }}>
               {satsToBtc(confirmedSats)} BTC available
@@ -2293,11 +2339,21 @@ function SendTab({ vault, balance, onDone, prefill }: {
                   marginLeft: 8,
                 }}
                 onClick={() => {
-                  const max = confirmedSats - 2000;
-                  if (max > 0) setAmountBtc((max / 1e8).toFixed(8));
+                  // Dynasty Bloc vaults keep the old flat-guess behavior
+                  // for now -- psbtBloc has no server-side sweep mode yet
+                  // (2026-08-15 fix only covers the standard/founders_now
+                  // build path via api.psbt.generate). Not making Bloc
+                  // worse, just not claiming it's fixed here too.
+                  if (bp) {
+                    const max = confirmedSats - 2000;
+                    if (max > 0) setAmountBtc((max / 1e8).toFixed(8));
+                    return;
+                  }
+                  setSweep(s => !s);
+                  setAmountBtc("");
                 }}
               >
-                Max
+                {sweep && !bp ? "Enter amount instead" : "Max"}
               </button>
             </div>
           )}

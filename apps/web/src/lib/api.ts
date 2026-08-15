@@ -809,7 +809,15 @@ export const api = {
     generate: (body: {
       vault_id: string;
       destination: string;
-      amount_sats: number;
+      /** Required unless sweep is true -- the backend derives the real
+       *  swept amount itself (totalIn minus the exact fee for that
+       *  input count), so the caller never has to guess it. */
+      amount_sats?: number;
+      /** Send everything confirmed (or just the coin-controlled subset,
+       *  if selected_utxos is also given) as one output with no change.
+       *  See netlify/functions/psbt-binary.js for why this exists as a
+       *  server-computed mode rather than a client-side amount guess. */
+      sweep?: boolean;
       fee_rate?: number;
       path?: string;
       selected_utxos?: { txid: string; vout: number }[];
