@@ -113,6 +113,7 @@ export async function handler(event) {
     network = 'testnet',
     destination,
     amount_sats,
+    sweep,
     fee_rate,
     path = 'parents_now',
     quorum = 0,
@@ -174,7 +175,7 @@ export async function handler(event) {
 
   if (!address)     return json(400, { error: 'Missing: address' });
   if (!destination) return json(400, { error: 'Missing: destination' });
-  if (!amount_sats || amount_sats < 546) return json(400, { error: 'amount_sats must be >= 546' });
+  if (!sweep && (!amount_sats || amount_sats < 546)) return json(400, { error: 'amount_sats must be >= 546' });
   if (fee_rate != null && (fee_rate < MIN_FEE_RATE_SAT_VB || fee_rate > MAX_FEE_RATE_SAT_VB)) {
     return json(400, { error: `fee_rate must be between ${MIN_FEE_RATE_SAT_VB} and ${MAX_FEE_RATE_SAT_VB} sat/vB` });
   }
@@ -225,26 +226,54 @@ export async function handler(event) {
     { parent_keys, kid_keys, coparent_quorum, kids_with_parent_quorum },
     path, leafQuorum, treeDepth,
   );
-  const estFee = estimateFee(1, 2, rate, inputVbytes);
-  const sorted = [...confirmed].sort((a, b) => b.value - a.value);
-  const selected = [];
+
+  // sweep (2026-08-15, same fix as psbt-binary.js's standard-vault path):
+  // send everything confirmed as one output with no change, computing
+  // the exact fee for the real input count first, then deriving
+  // amount_sats = totalIn - fee -- never a guessed amount with a
+  // leftover that becomes an unwanted change output.
+  let selected;
   let totalIn = 0;
-  for (const utxo of sorted) {
-    selected.push(utxo);
-    totalIn += utxo.value;
-    if (totalIn >= amount_sats + estFee) break;
-  }
+  let finalFee;
+  let amountSatsFinal;
+  let hasChange;
+  let changeVal = 0;
 
-  const finalFee  = estimateFee(selected.length, 2, rate, inputVbytes);
-  const changeVal = totalIn - amount_sats - finalFee;
-  const hasChange = changeVal >= 546;
+  if (sweep) {
+    selected = confirmed;
+    totalIn = selected.reduce((n, u) => n + u.value, 0);
+    finalFee = estimateFee(selected.length, 1, rate, inputVbytes); // 1 output: destination only, no change
+    amountSatsFinal = totalIn - finalFee;
+    if (amountSatsFinal < 546) {
+      return json(400, {
+        ok: false,
+        error: `Not enough confirmed balance to cover the network fee. Have ${totalIn} sats, need at least ${finalFee + 546}.`,
+        confirmed_sats: totalIn,
+      });
+    }
+    hasChange = false;
+  } else {
+    const estFee = estimateFee(1, 2, rate, inputVbytes);
+    const sorted = [...confirmed].sort((a, b) => b.value - a.value);
+    selected = [];
+    for (const utxo of sorted) {
+      selected.push(utxo);
+      totalIn += utxo.value;
+      if (totalIn >= amount_sats + estFee) break;
+    }
 
-  if (totalIn < amount_sats + finalFee) {
-    return json(400, {
-      ok: false,
-      error: `Insufficient funds. Need ${amount_sats + finalFee} sats confirmed, have ${totalIn}.`,
-      confirmed_sats: totalIn,
-    });
+    finalFee        = estimateFee(selected.length, 2, rate, inputVbytes);
+    changeVal        = totalIn - amount_sats - finalFee;
+    hasChange        = changeVal >= 546;
+    amountSatsFinal  = amount_sats;
+
+    if (totalIn < amount_sats + finalFee) {
+      return json(400, {
+        ok: false,
+        error: `Insufficient funds. Need ${amount_sats + finalFee} sats confirmed, have ${totalIn}.`,
+        confirmed_sats: totalIn,
+      });
+    }
   }
 
   // scriptPubKey per selected UTXO (required for the PSBT witness_utxo).
@@ -278,7 +307,7 @@ export async function handler(event) {
       body: JSON.stringify({
         inputs,
         destination,
-        amount_sats,
+        amount_sats: amountSatsFinal,
         fee_sats: finalFee,
         change_address: change_address || address,
         network,
@@ -317,7 +346,7 @@ export async function handler(event) {
       psbt_hex: data.psbt_hex,
       psbt_b64: data.psbt_b64,
       summary: {
-        amount_sats,
+        amount_sats: amountSatsFinal,
         fee_sats: finalFee,
         change_sats: hasChange ? changeVal : 0,
         input_count: data.input_count,

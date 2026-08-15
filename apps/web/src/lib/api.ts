@@ -765,7 +765,11 @@ export const api = {
     address?: string;
     network?: 'testnet' | 'signet' | 'bitcoin';
     destination: string;
-    amount_sats: number;
+    /** Required unless sweep is true -- see netlify/functions/psbt-binary-bloc.js. */
+    amount_sats?: number;
+    /** Send everything confirmed as one output with no change; the
+     *  backend derives the real swept amount itself. */
+    sweep?: boolean;
     fee_rate?: number;
     path: 'parents_now' | 'coparent_kids' | 'parent_solo' | 'kids_decay';
     // REQUIRED when path === 'kids_decay': which decay rung's quorum.

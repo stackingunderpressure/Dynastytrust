@@ -1227,9 +1227,11 @@ function SendTab({ vault, balance, onDone, prefill }: {
   // into the plain amount field, which then went through the normal
   // fixed-amount build path; whenever the real fee differed from that
   // guess, the leftover became an unrequested change output. sweep
-  // instead sends no amount at all -- psbt-binary.js computes the exact
-  // fee for the real input count first, then derives amount = totalIn -
-  // fee server-side, so there is nothing left to become change.
+  // instead sends no amount at all -- psbt-binary.js (standard vaults)
+  // / psbt-binary-bloc.js (Dynasty Bloc, same-day follow-up: "fix the
+  // other ones") compute the exact fee for the real input count first,
+  // then derive amount = totalIn - fee server-side, so there is nothing
+  // left to become change.
   const [sweep, setSweep] = useState(false);
 
   // Dynasty Bloc: which of the four spend paths this proposal uses, and
@@ -1260,7 +1262,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
   const rules = vault.trust_doc?.rules ?? [];
   const selectedRule = rules.find(r => r.id === ruleId);
 
-  const useSweep = sweep && !bp;
+  const useSweep = sweep;
 
   async function buildAndSign(e: React.FormEvent) {
     e.preventDefault();
@@ -1326,7 +1328,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
         const blocRes = await api.psbtBloc({
           vault_id: vault.id,
           destination: dest.trim(),
-          amount_sats: amountSats,
+          ...(useSweep ? { sweep: true } : { amount_sats: amountSats }),
           fee_rate: feeRate ? parseFloat(feeRate) : undefined,
           path: blocPath,
           quorum: blocRungQuorum,
@@ -2302,7 +2304,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
       <div style={{ display: "flex", gap: 12 }}>
         <div style={{ flex: 2 }}>
           <Label>Amount (BTC)</Label>
-          {sweep && !bp ? (
+          {sweep ? (
             <div
               style={{
                 border: `1px solid ${colors.border}`,
@@ -2339,21 +2341,11 @@ function SendTab({ vault, balance, onDone, prefill }: {
                   marginLeft: 8,
                 }}
                 onClick={() => {
-                  // Dynasty Bloc vaults keep the old flat-guess behavior
-                  // for now -- psbtBloc has no server-side sweep mode yet
-                  // (2026-08-15 fix only covers the standard/founders_now
-                  // build path via api.psbt.generate). Not making Bloc
-                  // worse, just not claiming it's fixed here too.
-                  if (bp) {
-                    const max = confirmedSats - 2000;
-                    if (max > 0) setAmountBtc((max / 1e8).toFixed(8));
-                    return;
-                  }
                   setSweep(s => !s);
                   setAmountBtc("");
                 }}
               >
-                {sweep && !bp ? "Enter amount instead" : "Max"}
+                {sweep ? "Enter amount instead" : "Max"}
               </button>
             </div>
           )}
