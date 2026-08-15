@@ -31,6 +31,7 @@ import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 import { fetchTipHeight, relativeToAbsolute } from "./_chain.js";
 import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
+import { assertNotPrivateExtendedKey } from "./_xpub.js";
 
 const COMPILER_URL = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -58,6 +59,15 @@ export async function handler(event) {
   } = body;
   if (!parent_keys.length) return json(400, { error: "Missing: parent_keys" });
   if (!kid_keys.length)    return json(400, { error: "Missing: kid_keys" });
+
+  // 2026-08-15 security audit: see compile.js's identical comment.
+  for (const k of [...parent_keys, ...kid_keys, ...parent_xpubs, ...kid_xpubs]) {
+    try {
+      assertNotPrivateExtendedKey(k);
+    } catch (e) {
+      return json(400, { error: e.message });
+    }
+  }
 
   if (!COMPILER_URL) {
     return json(503, { error: "Compiler service not configured.", hint: "Set COMPILER_URL in Netlify env vars." });

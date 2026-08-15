@@ -43,6 +43,27 @@ function templateTitle(id: string): string {
   return TEMPLATE_TITLES[id] ?? id;
 }
 
+// Mirrors netlify/functions/assistant.js's looksLikeSecretMaterial --
+// same reasoning, kept in sync by hand (same pattern _xpub.js/xpub.ts
+// already use). This is a UX nicety, not the security boundary: it
+// catches an obvious paste before it ever leaves the browser, saving a
+// round trip, but the server-side check is what actually matters --
+// this client-side one is never trusted to be the only gate.
+const PRIVATE_KEY_PREFIXES = ['xprv', 'tprv', 'uprv', 'vprv'];
+
+function looksLikeSecretMaterial(text: string): boolean {
+  const tokens = text.trim().split(/\s+/);
+  if (tokens.some(t => PRIVATE_KEY_PREFIXES.includes(t.slice(0, 4).toLowerCase()))) return true;
+  if (tokens.some(t => /^(0x)?[0-9a-f]{64}$/i.test(t))) return true;
+  const wordlike = tokens.map(t => /^[a-z]{3,8}$/i.test(t));
+  let run = 0;
+  for (const isWord of wordlike) {
+    run = isWord ? run + 1 : 0;
+    if (run >= 11) return true;
+  }
+  return false;
+}
+
 const INTRO =
   "Hi, I'm Sage. I'll help you understand Bitcoin vaults and build one that fits your life -- one step at a time, in plain language. I have no control over your money: I only suggest, you decide with a tap. I never see or ask for your seed words, private keys, or passwords -- those live only in your browser. To start, tell me in your own words: who is this Bitcoin for, and who should be able to reach it if something happens to you?";
 
@@ -67,6 +88,14 @@ export default function ChatWizard() {
   async function send() {
     const text = draft.trim();
     if (!text || sending) return;
+    // Checked before the text is even added to on-screen history or sent
+    // anywhere -- see looksLikeSecretMaterial's header comment.
+    if (looksLikeSecretMaterial(text)) {
+      toast.error(
+        "That looks like it might contain a seed phrase or private key -- never type or paste one here. Nothing was sent. Use the Keys step in the vault wizard instead, which keeps it in your browser only.",
+      );
+      return;
+    }
     setDraft('');
     setMessages(prev => [...prev, { sender: 'user', content: text }]);
     setSending(true);

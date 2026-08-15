@@ -26,6 +26,57 @@ import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 import { askClaude } from "./_anthropic.js";
 
+// 2026-08-15 security audit: the SECURITY RAIL comment below only ever
+// covered what the SERVER assembles into the model context
+// (VAULT_SAFE_FIELDS) -- it said nothing about what the USER might
+// paste into their own message. That message was persisted to Supabase
+// and forwarded to the Anthropic API completely unfiltered; the system
+// prompt telling the MODEL "if they paste a key, tell them to stop and
+// never repeat it back" only governs the model's reply, not whether
+// the secret already left the browser. This is a plausible accident,
+// not just an attack -- someone unfamiliar with the tool could paste a
+// seed phrase into a chat box thinking it's private, the way people
+// paste passwords into support chats. Checked BEFORE any persistence
+// or forwarding, so a caught message never reaches Supabase or the
+// Anthropic API at all.
+const PRIVATE_KEY_PREFIXES = ["xprv", "tprv", "uprv", "vprv"];
+
+function looksLikeSecretMaterial(text) {
+  const tokens = text.trim().split(/\s+/);
+
+  // A private extended key: unambiguous prefix, no false-positive risk.
+  if (tokens.some((t) => PRIVATE_KEY_PREFIXES.includes(t.slice(0, 4).toLowerCase()))) {
+    return true;
+  }
+
+  // A raw 32-byte private key or seed, hex-encoded (64 hex chars, with
+  // or without a leading 0x). Also matches an x-only/compressed pubkey
+  // by shape alone -- there's no way to distinguish a public key from a
+  // private one just by looking at hex digits, so this errs toward
+  // refusing a false positive (a pubkey someone was asking about) over
+  // ever letting a real private key through. The chat bot is for
+  // education/guidance, not technical debugging, so a bare 64-hex
+  // string showing up here is unusual enough to warrant asking the
+  // person to rephrase rather than silently transmitting it either way.
+  if (tokens.some((t) => /^(0x)?[0-9a-f]{64}$/i.test(t))) {
+    return true;
+  }
+
+  // A BIP-39 seed phrase: 12/15/18/21/24 words is the valid-length set,
+  // but any run of 11+ consecutive short alphabetic words is refused --
+  // a false positive here just asks someone to rephrase an unusual
+  // sentence; a false negative lets a seed phrase through. Deliberately
+  // permissive on the trigger side given the stakes.
+  const wordlike = tokens.map((t) => /^[a-z]{3,8}$/i.test(t));
+  let run = 0;
+  for (const isWord of wordlike) {
+    run = isWord ? run + 1 : 0;
+    if (run >= 11) return true;
+  }
+
+  return false;
+}
+
 // How many prior messages to feed back to the model for continuity.
 const HISTORY_LIMIT = 20;
 
@@ -351,6 +402,14 @@ export async function handler(event) {
   const message = body.message;
   if (typeof message !== "string" || message.trim().length === 0) {
     return json(400, { error: "Missing: message (non-empty string)" });
+  }
+  // Checked before ANYTHING else -- no DB write, no Supabase persist, no
+  // call to the Anthropic API -- see looksLikeSecretMaterial's header
+  // comment for why this exists.
+  if (looksLikeSecretMaterial(message)) {
+    return json(400, {
+      error: "That looks like it might contain a seed phrase or private key -- never type or paste one here. Nothing you sent was saved or transmitted. If you're trying to add a key to a vault, use the Keys step in the vault wizard instead, which keeps it in your browser only.",
+    });
   }
   const mode = body.mode === "express" ? "express" : "guided";
   const threadId = typeof body.thread_id === "string" ? body.thread_id : null;

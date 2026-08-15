@@ -16,6 +16,7 @@
 
 import { requireUser, json } from "./_auth.js";
 import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
+import { assertNotPrivateExtendedKey } from "./_xpub.js";
 
 const COMPILER_URL = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -45,6 +46,15 @@ export async function handler(event) {
   if (!trustee_keys.length) return json(400, { error: "Missing: trustee_keys" });
   if (!trustee_quorum) return json(400, { error: "Missing: trustee_quorum" });
   if (!unlock_block) return json(400, { error: "Missing: unlock_block" });
+
+  // 2026-08-15 security audit: see compile.js's identical comment.
+  for (const k of [beneficiary_key, ...trustee_keys]) {
+    try {
+      assertNotPrivateExtendedKey(k);
+    } catch (e) {
+      return json(400, { error: e.message });
+    }
+  }
 
   if (!COMPILER_URL) {
     return json(503, {

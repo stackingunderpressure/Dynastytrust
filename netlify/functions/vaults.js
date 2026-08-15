@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
+import { assertNotPrivateExtendedKey } from "./_xpub.js";
 
 const COMPILER_URL    = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -350,6 +351,11 @@ export async function handler(event) {
       const { pubkey, label } = body.key_label || {};
       if (!isValidKeyIdentifier(pubkey)) {
         return json(400, { error: "key_label.pubkey must be a non-empty pubkey or xpub string, 130 characters or fewer" });
+      }
+      try {
+        assertNotPrivateExtendedKey(pubkey);
+      } catch (e) {
+        return json(400, { error: e.message });
       }
       if (label != null && (typeof label !== "string" || label.length > 60)) {
         return json(400, { error: "key_label.label must be a string of 60 characters or fewer, or null to clear it" });

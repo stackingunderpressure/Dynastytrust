@@ -22,6 +22,7 @@ import { requireUser, json } from "./_auth.js";
 import { getSupabaseAdmin } from "./_supabase.js";
 import { fetchTipHeight, relativeToAbsolute } from "./_chain.js";
 import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
+import { assertNotPrivateExtendedKey } from "./_xpub.js";
 
 const COMPILER_URL    = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -83,6 +84,20 @@ export async function handler(event) {
   let finalInheritanceAfter = inheritance_after;
   if (!founder_keys.length) return json(400, { error: "Missing: founder_keys" });
   if (!founder_quorum)      return json(400, { error: "Missing: founder_quorum" });
+
+  // 2026-08-15 security audit: only psbt-binary.js and vaults-compile.js
+  // ever ran this check (via pubkeyFromXpub's internal call) -- every
+  // other endpoint that accepts a key-shaped string, including this one,
+  // stored whatever it was given with no check. A private extended key
+  // (xprv/tprv/uprv/vprv) must never reach the server at all, whether or
+  // not anything is derived from it.
+  for (const k of [...founder_keys, ...heir_keys, ...protector_keys, ...consent_keys]) {
+    try {
+      assertNotPrivateExtendedKey(k);
+    } catch (e) {
+      return json(400, { error: e.message });
+    }
+  }
   if (heir_keys.length === 0) {
     finalHeirQuorum = 1;
     finalRecoveryAfter = 0;

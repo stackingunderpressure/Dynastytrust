@@ -33,6 +33,7 @@
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
+import { assertNotPrivateExtendedKey } from "./_xpub.js";
 
 const FIELDS =
   "id, created_at, updated_at, vault_id, name, beneficiary_name, beneficiary_xpub, beneficiary_pubkey, trustee_keys, trustee_quorum, tranches, network, key_origins";
@@ -103,6 +104,16 @@ export async function handler(event) {
       return json(400, { error: "Missing: trustee_keys" });
     }
     if (!trustee_quorum) return json(400, { error: "Missing: trustee_quorum" });
+
+    // 2026-08-15 security audit: see compile.js's identical comment.
+    for (const k of [beneficiary_xpub, beneficiary_pubkey, ...trustee_keys]) {
+      try {
+        assertNotPrivateExtendedKey(k);
+      } catch (e) {
+        return json(400, { error: e.message });
+      }
+    }
+
     if (!["testnet", "signet", "bitcoin"].includes(network)) {
       return json(400, { error: "Invalid network" });
     }
