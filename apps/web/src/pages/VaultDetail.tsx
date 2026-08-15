@@ -21,7 +21,6 @@ import {
 import { supabase } from "../lib/supabase";
 import { listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
 import { signPsbtWithMnemonic, countSignatures, mergePsbts } from "../lib/psbt-signer";
-import { startTapitCosign, TAPIT_COSIGN_RESULT_KEY, type TapitCosignResult } from "../lib/tapit-cosign";
 import { fetchTapitDisplayNames } from "../lib/tapit-profile-lookup";
 import { assembleLivenessGateInput } from "../lib/liveness-gate";
 import { evaluateSigningGate, ceremonyFromProposal } from "@dynastytrust/policy-engine";
@@ -2019,9 +2018,12 @@ function SendTab({ vault, balance, onDone, prefill }: {
             a fresh browser tab to re-establish its own Tapit session,
             which read as "trying to log me in" (operator, 2026-08-08).
             NotifyCircleViaNostr below does the same job silently over
-            Nostr with no navigation and no second tab. startTapitCosign
-            stays in use for Tranche distribution-wallet claims elsewhere
-            in this file, which have no Nostr-notify equivalent yet. */}
+            Nostr with no navigation and no second tab. 2026-08-15: the
+            Tranche distribution-wallet claim flow (TrancheClaimModal,
+            below in this file) hit the identical bug and got the same
+            fix -- startTapitCosign/lib/tapit-cosign.ts's window.open
+            cross-tab bridge has no remaining caller anywhere in this
+            repo as of that fix. */}
         <NotifyCircleViaNostr
           subjectId={signing.proposal_id ?? ""}
           psbtHex={signing.psbt_hex}
@@ -6968,8 +6970,18 @@ function TrancheClaimModal({
         // won't show up in the vault's request history afterward.
       }
 
+      // Tapit-origin keys hold no local key material and can never sign
+      // in-browser, but they DO need to appear here so NotifyCircleViaNostr
+      // below can find them and deliver the request to the right person's
+      // Tapit inbox -- excluding them left that component with nothing to
+      // ever show, and the standalone "Sign via Tapit" window.open button
+      // that used to fill the gap forced a fresh browser tab to
+      // re-establish its own Tapit session, which read as "trying to log
+      // me in" (operator, 2026-08-08 on the main Send flow; 2026-08-15,
+      // same bug, reported here). Matches the identical fix already
+      // shipped for the main proposal signing flow above.
       const localKeys = listKeys().filter(
-        k => k.status === "active" && k.origin === "software" && k.network === wallet.network,
+        k => k.status === "active" && (k.origin === "software" || k.origin === "tapit") && k.network === wallet.network,
       );
       const matching = localKeys.filter(k => eligiblePubkeys.includes(k.pubkey));
       setSigners(matching.map(key => ({ key, status: "pending" })));
@@ -7018,35 +7030,6 @@ function TrancheClaimModal({
     setPsbtHex(merged);
     setSignaturesCollected(countSignatures(merged));
   }
-
-  // Cut B stage B2's cross-tab bridge, ported to the tranche claim
-  // ceremony: startTapitCosign opens Tapit in a new tab; the callback
-  // tab writes the signed PSBT to localStorage and this tab's
-  // `storage` event listener picks it up -- same primitive SendTab's
-  // own signing flow uses, unchanged, just re-wired to this modal's
-  // local psbtHex state instead of SigningState. Only listens while
-  // actually on the signing step so a stale result from a PREVIOUS
-  // claim (or the main vault's own send flow, sharing the same
-  // origin and the same localStorage key) can't merge into a PSBT it
-  // was never meant for.
-  useEffect(() => {
-    if (step !== "signing") return;
-    function onStorage(e: StorageEvent) {
-      if (e.key !== TAPIT_COSIGN_RESULT_KEY || !e.newValue) return;
-      let result: TapitCosignResult;
-      try {
-        result = JSON.parse(e.newValue);
-      } catch {
-        return;
-      }
-      if (typeof result.psbt_hex !== "string" || !result.psbt_hex) return;
-      externalImport(result.psbt_hex);
-      window.localStorage.removeItem(TAPIT_COSIGN_RESULT_KEY);
-    }
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, psbtHex]);
 
   async function broadcast() {
     setBusy(true);
@@ -7173,68 +7156,46 @@ function TrancheClaimModal({
               {signaturesCollected} of {requiredSignatures} signature{requiredSignatures !== 1 ? "s" : ""} collected
             </div>
 
-            {signers.length > 0 && (
+            {signers.some(s => s.key.origin !== "tapit") && (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {signers.map((signer, i) => (
-                  <div
-                    key={signer.key.keyId}
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      padding: "10px 12px",
-                      border: `1px solid ${colors.border}`,
-                      borderRadius: 8,
-                      cursor: signer.status === "pending" || signer.status === "error" ? "pointer" : "default",
-                      opacity: signer.status === "signing" ? 0.7 : 1,
-                    }}
-                    onClick={() => (signer.status === "pending" || signer.status === "error") && void signWithKey(i)}
-                  >
-                    <div>
-                      <div style={{ fontSize: 14, color: colors.text }}>{signer.key.label}</div>
-                      {signer.error && <div style={{ fontSize: 11, color: colors.red }}>{signer.error}</div>}
+                {signers.map((signer, i) => {
+                  if (signer.key.origin === "tapit") return null;
+                  return (
+                    <div
+                      key={signer.key.keyId}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "10px 12px",
+                        border: `1px solid ${colors.border}`,
+                        borderRadius: 8,
+                        cursor: signer.status === "pending" || signer.status === "error" ? "pointer" : "default",
+                        opacity: signer.status === "signing" ? 0.7 : 1,
+                      }}
+                      onClick={() => (signer.status === "pending" || signer.status === "error") && void signWithKey(i)}
+                    >
+                      <div>
+                        <div style={{ fontSize: 14, color: colors.text }}>{signer.key.label}</div>
+                        {signer.error && <div style={{ fontSize: 11, color: colors.red }}>{signer.error}</div>}
+                      </div>
+                      <div style={{ fontSize: 12, color: colors.muted }}>
+                        {signer.status === "signed" ? "signed" : signer.status === "signing" ? "signing..." : "tap to sign"}
+                      </div>
                     </div>
-                    <div style={{ fontSize: 12, color: colors.muted }}>
-                      {signer.status === "signed" ? "signed" : signer.status === "signing" ? "signing..." : "tap to sign"}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
-            {/* Sign via Tapit -- a dial alongside software-key and
-                hardware-wallet signing, not a replacement for either,
-                same as the main Send flow. */}
-            <div
-              style={{
-                background: colors.surface,
-                border: `1px solid ${colors.border}`,
-                borderRadius: 12,
-                padding: 16,
-              }}
-            >
-              <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
-                Sign via Tapit
-              </div>
-              <div style={{ fontSize: 11, color: colors.muted, marginBottom: 10 }}>
-                Opens your Tapit wallet in a new tab. Sign there, then come back --
-                it merges in here automatically.
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                style={{ fontSize: 11 }}
-                onClick={() =>
-                  startTapitCosign(psbtHex, {
-                    vault_descriptor: tranche.descriptor,
-                    vault_name: `${wallet.name} tranche ${tranche.index + 1}`,
-                  })
-                }
-              >
-                Sign via Tapit
-              </Button>
-            </div>
-
+            {/* "Sign via Tapit" (window.open a new tab to Tapit's /sign
+                route) is retired from this flow for the same reason it was
+                already retired from the main Send flow above: it forced a
+                fresh browser tab to re-establish its own Tapit session,
+                which read as "trying to log me in." NotifyCircleViaNostr
+                below does the same job silently over Nostr with no
+                navigation and no second tab -- now that tapit-origin keys
+                are included in `signers` above, it has something to show. */}
             <NotifyCircleViaNostr
               subjectId={`${wallet.id}-tranche-${tranche.index}`}
               psbtHex={psbtHex}
