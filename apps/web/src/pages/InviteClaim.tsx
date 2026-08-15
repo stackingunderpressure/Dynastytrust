@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { supabase, type Session } from '../lib/supabase';
 import { api, type TrustDoc, type VaultRole } from '../lib/api';
 import { listKeys, type LocalKey } from '../lib/keystore';
+import { keyNetworkMatches } from '../lib/network';
 import { APP_NAME } from '../config';
 import { colors, fonts, radii, space } from '../theme';
 import { Button, Input, Label } from '../components/ui';
@@ -195,7 +196,7 @@ function ClaimForm({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const keys = listKeys().filter(k => k.status === 'active' && k.network === vault.network);
+  const keys = listKeys().filter(k => k.status === 'active' && keyNetworkMatches(k.network, vault.network));
   const needsKey = !NO_KEY_ROLES.has(invite.invited_role);
 
   // Wizard flow. Viewer / beneficiary skip the key step entirely.

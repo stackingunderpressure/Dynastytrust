@@ -10,6 +10,7 @@ import {
 } from '../lib/descriptor-keys';
 import { api, type Vault, type VaultProposal, type BlocPolicy, type TrustDoc } from '../lib/api';
 import { downloadVault } from '../lib/descriptor-backup';
+import { keyNetworkMatches } from '../lib/network';
 import { blocksToHuman, TIMELOCK_PRESETS } from '../lib/blocks';
 import { approxWallclockDate, blocksUntilDate } from '../lib/chain';
 import { VAULT_TEMPLATES, type VaultTemplate, type StandardConfig, type BlocConfig } from '../lib/vault-templates';
@@ -91,11 +92,6 @@ function templateToStandardConfig(t: VaultTemplate): StandardConfig {
     secondHeirQ: c.secondHeirQ ?? 1,
     plannedSecondHeirs: c.plannedSecondHeirs ?? 1,
   };
-}
-
-function keyNetworkMatches(keyNet: string, vaultNet: NetworkChoice): boolean {
-  if (keyNet === vaultNet) return true;
-  return keyNet === 'mainnet' && vaultNet === 'bitcoin';
 }
 
 function toSelected(k: LocalKey): SelectedKey {

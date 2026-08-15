@@ -20,6 +20,7 @@ import {
 } from "../lib/api";
 import { supabase } from "../lib/supabase";
 import { listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
+import { keyNetworkMatches } from "../lib/network";
 import { signPsbtWithMnemonic, countSignatures, mergePsbts } from "../lib/psbt-signer";
 import { fetchTapitDisplayNames } from "../lib/tapit-profile-lookup";
 import { assembleLivenessGateInput } from "../lib/liveness-gate";
@@ -2980,7 +2981,7 @@ function MyKeyModal({
   const [label, setLabel] = useState(me.label ?? "");
   const [busy, setBusy] = useState(false);
   const eligibleKeys = listKeys().filter(
-    k => k.status === "active" && k.network === vault.network,
+    k => k.status === "active" && keyNetworkMatches(k.network, vault.network),
   );
 
   async function submit(e: React.FormEvent) {
@@ -6981,7 +6982,7 @@ function TrancheClaimModal({
       // same bug, reported here). Matches the identical fix already
       // shipped for the main proposal signing flow above.
       const localKeys = listKeys().filter(
-        k => k.status === "active" && (k.origin === "software" || k.origin === "tapit") && k.network === wallet.network,
+        k => k.status === "active" && (k.origin === "software" || k.origin === "tapit") && keyNetworkMatches(k.network, wallet.network),
       );
       const matching = localKeys.filter(k => eligiblePubkeys.includes(k.pubkey));
       setSigners(matching.map(key => ({ key, status: "pending" })));
@@ -7313,7 +7314,7 @@ function DistributionWalletCreator({
   const [err, setErr] = useState<string | null>(null);
 
   const localKeys = listKeys().filter(k =>
-    k.status === "active" && k.network === vault.network,
+    k.status === "active" && keyNetworkMatches(k.network, vault.network),
   );
 
   useEffect(() => {
