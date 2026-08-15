@@ -224,6 +224,7 @@ export default function VaultWizard() {
   const [draftVault, setDraftVault] = useState<Vault | null>(null);
   const [configuring, setConfiguring] = useState(false);
   const [configureErr, setConfigureErr] = useState<string | null>(null);
+  const [networkBusy, setNetworkBusy] = useState(false);
 
   const [compiling, setCompiling] = useState(false);
   const [compileErr, setCompileErr] = useState<string | null>(null);
@@ -428,6 +429,30 @@ export default function VaultWizard() {
     }
   }
 
+  // Operator, 2026-08-15: "you should pick the network upfront... can't
+  // do it when managing keys." The common real case is resuming a draft
+  // later specifically to link keys (line ~342 above skips Configure
+  // entirely on resume), landing in the Keys step with whatever network
+  // the draft happened to be created with and no way to change it short
+  // of abandoning the vault. Only ever called while KeysStep's own
+  // `claimed` set is empty (see its "Change network" control below) --
+  // once any key has been added this session, switching networks out
+  // from under it would leave a wrong-network key silently selected.
+  async function changeNetwork(n: NetworkChoice) {
+    if (!draftVault || n === network) return;
+    setNetworkBusy(true);
+    try {
+      const res = await api.vaults.updateNetwork(draftVault.id, n);
+      setDraftVault(res.vault);
+      setNetwork(n);
+      toast.success(`Network set to ${n}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not change network');
+    } finally {
+      setNetworkBusy(false);
+    }
+  }
+
   // ---- Keys -> compile once every slot is filled ------------------------
 
   const slotsReady = useMemo(() => {
@@ -569,6 +594,8 @@ export default function VaultWizard() {
           parentKeys={parentKeys} setParentKeys={setParentKeys}
           kidKeys={kidKeys} setKidKeys={setKidKeys}
           network={network}
+          onChangeNetwork={changeNetwork}
+          networkBusy={networkBusy}
           genRole={genRole} setGenRole={setGenRole}
           onGenerateKey={onGenerateKey}
           onImportXpub={onImportXpub}
@@ -1114,7 +1141,7 @@ function KeysStep({
   protectorKeys, setProtectorKeys, consentKeys, setConsentKeys,
   backupKeys, setBackupKeys, secondHeirKeys, setSecondHeirKeys,
   parentKeys, setParentKeys, kidKeys, setKidKeys,
-  network, genRole, setGenRole, onGenerateKey, onImportXpub, onImportTapitKey,
+  network, onChangeNetwork, networkBusy, genRole, setGenRole, onGenerateKey, onImportXpub, onImportTapitKey,
   slotsReady, onContinue, onSaveForLater,
 }: {
   shape: Shape; stdConfig: StandardConfig; blocConfig: BlocConfig;
@@ -1128,6 +1155,8 @@ function KeysStep({
   parentKeys: SelectedKey[]; setParentKeys: (fn: (p: SelectedKey[]) => SelectedKey[]) => void;
   kidKeys: SelectedKey[]; setKidKeys: (fn: (p: SelectedKey[]) => SelectedKey[]) => void;
   network: NetworkChoice;
+  onChangeNetwork: (n: NetworkChoice) => void;
+  networkBusy: boolean;
   genRole: string | null; setGenRole: (r: string | null) => void;
   onGenerateKey: (role: string, mode: 'test' | 'secure', password?: string) => void;
   onImportXpub: (role: string, xpub: string, derivationPath: string, masterFingerprint?: string) => void;
@@ -1184,6 +1213,36 @@ function KeysStep({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <Card>
+        <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>Network</div>
+        {claimed.size === 0 ? (
+          <>
+            <p style={{ fontSize: 12, color: colors.muted, marginTop: 0, marginBottom: 10 }}>
+              Every key you add below -- generated, imported, or linked from Tapit -- will be tagged
+              for this network. Change it now if it's wrong; once a key is added it locks.
+            </p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {(['signet', 'bitcoin'] as const).map(n => (
+                <Button
+                  key={n}
+                  size="sm"
+                  variant={network === n ? 'primary' : 'ghost'}
+                  disabled={networkBusy}
+                  onClick={() => onChangeNetwork(n)}
+                >
+                  {n}
+                </Button>
+              ))}
+            </div>
+          </>
+        ) : (
+          <p style={{ fontSize: 12, color: colors.muted, margin: 0 }}>
+            This vault is on <strong style={{ color: colors.text }}>{network}</strong>. Locked because
+            keys are already added -- remove every key below first if you need to change it.
+          </p>
+        )}
+      </Card>
+
       {shape === 'standard' ? (
         <>
           {role(

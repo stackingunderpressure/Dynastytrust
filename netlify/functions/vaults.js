@@ -317,13 +317,38 @@ export async function handler(event) {
       return json(400, { error: "Invalid JSON body" });
     }
 
-    const allowed = ["name", "archived", "trust_doc", "duress"];
+    const allowed = ["name", "archived", "trust_doc", "duress", "network"];
     const updates = Object.fromEntries(
       Object.entries(body).filter(([k]) => allowed.includes(k))
     );
 
     if (Object.keys(updates).length === 0) {
-      return json(400, { error: "No updatable fields provided (allowed: name, archived, duress)" });
+      return json(400, { error: "No updatable fields provided (allowed: name, archived, duress, network)" });
+    }
+
+    // Network is only safe to change while the vault is still a draft --
+    // once compiled, the address/descriptor are already derived FOR that
+    // network, and swapping the label afterward without recompiling would
+    // silently point the app at the wrong chain for an address that's
+    // real, funded money on the OTHER one. Operator, 2026-08-15: "you
+    // should pick the network upfront... can't do it when managing keys."
+    // The wizard's Keys step lets an owner fix a wrong network before any
+    // keys are added; this guard is what makes that safe to expose.
+    if (updates.network) {
+      if (!["testnet", "signet", "bitcoin"].includes(updates.network)) {
+        return json(400, { error: "network must be testnet, signet, or bitcoin" });
+      }
+      const { data: existing, error: fetchErr } = await supabase
+        .from("vaults")
+        .select("status, user_id")
+        .eq("id", id)
+        .maybeSingle();
+      if (fetchErr) return json(500, { error: fetchErr.message });
+      if (!existing) return json(404, { error: "Vault not found" });
+      if (existing.user_id !== u.userId) return json(403, { error: "Not your vault" });
+      if (existing.status !== "draft") {
+        return json(400, { error: "Network can only be changed while the vault is still a draft, before it's compiled." });
+      }
     }
 
     const { data, error } = await supabase

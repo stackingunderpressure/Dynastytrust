@@ -624,6 +624,17 @@ export const api = {
         body: JSON.stringify({ name }),
       }),
 
+    // Draft-only server-side (netlify/functions/vaults.js rejects this once
+    // status is "compiled" -- the address/descriptor are already derived
+    // FOR the old network by then, and swapping the label afterward would
+    // silently point at the wrong chain). Lets VaultWizard's Keys step fix
+    // a vault that landed on the wrong network before any keys are added.
+    updateNetwork: (id: string, network: 'testnet' | 'signet' | 'bitcoin') =>
+      req<{ ok: true; vault: Vault }>(`/vaults?id=${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ network }),
+      }),
+
     updateTrustDoc: (id: string, trust_doc: TrustDoc) =>
       req<{ ok: true; vault: Vault }>(`/vaults?id=${id}`, {
         method: 'PATCH',
