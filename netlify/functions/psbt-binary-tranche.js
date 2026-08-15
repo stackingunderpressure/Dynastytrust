@@ -147,36 +147,63 @@ export async function handler(event) {
   }
 
   const rate = fee_rate || await getFeeRate(network);
-  const totalAvailable = confirmed.reduce((n, x) => n + x.value, 0);
+
   // Default to sweeping the tranche: a claim takes everything sitting
   // there, not an arbitrary partial amount. The caller may still
   // override amount_sats (e.g. a trustee redirecting only part of it).
-  const estFee = estimateFee(confirmed.length, 1, rate);
-  const targetAmount = typeof amount_sats === 'number' && amount_sats > 0
-    ? amount_sats
-    : Math.max(0, totalAvailable - estFee);
-  if (targetAmount < 546) {
-    return json(400, { error: 'Not enough confirmed balance to cover a claim above the dust limit.' });
-  }
-
-  const sorted = [...confirmed].sort((a, b) => b.value - a.value);
-  const selected = [];
+  //
+  // 2026-08-15 fix (operator: "what about all the trenches and any
+  // other specialty places where you can hide it" -- following up on
+  // the standard/Bloc vault Max-spend fix) -- the sweep default here
+  // computed its OWN target using a 1-output (no-change) fee estimate,
+  // but the coin-selection loop and the actual fee charged below always
+  // sized for 2 outputs regardless, as if a change output were coming.
+  // For a genuine full sweep that mismatch doesn't leave stray change
+  // (this endpoint's own insufficient-funds guard catches it first,
+  // since totalIn can never exceed totalAvailable) -- it instead FALSE-
+  // FAILED a real sweep claim by roughly one output's worth of fee,
+  // right at the edge where the balance was exactly enough to sweep
+  // cleanly. Same root cause as psbt-binary.js/-bloc.js: an amount and
+  // a fee estimate computed on two different assumptions about how many
+  // outputs the transaction has. Sweep and partial-amount claims are
+  // now fully separate branches, each internally consistent.
+  const isSweep = !(typeof amount_sats === 'number' && amount_sats > 0);
+  let selected;
   let totalIn = 0;
-  for (const utxo of sorted) {
-    selected.push(utxo);
-    totalIn += utxo.value;
-    if (totalIn >= targetAmount + estimateFee(selected.length, 2, rate)) break;
-  }
-  const finalFee = estimateFee(selected.length, 2, rate);
-  const changeVal = totalIn - targetAmount - finalFee;
-  const hasChange = changeVal >= 546;
+  let finalFee;
+  let targetAmount;
+  let hasChange;
+  let changeVal = 0;
 
-  if (totalIn < targetAmount + finalFee) {
-    return json(400, {
-      ok: false,
-      error: `Insufficient funds. Need ${targetAmount + finalFee} sats confirmed, have ${totalIn}.`,
-      confirmed_sats: totalIn,
-    });
+  if (isSweep) {
+    selected = confirmed;
+    totalIn = selected.reduce((n, u) => n + u.value, 0);
+    finalFee = estimateFee(selected.length, 1, rate); // 1 output: destination only, no change
+    targetAmount = totalIn - finalFee;
+    if (targetAmount < 546) {
+      return json(400, { error: 'Not enough confirmed balance to cover a claim above the dust limit.' });
+    }
+    hasChange = false;
+  } else {
+    targetAmount = amount_sats;
+    const sorted = [...confirmed].sort((a, b) => b.value - a.value);
+    selected = [];
+    for (const utxo of sorted) {
+      selected.push(utxo);
+      totalIn += utxo.value;
+      if (totalIn >= targetAmount + estimateFee(selected.length, 2, rate)) break;
+    }
+    finalFee = estimateFee(selected.length, 2, rate);
+    changeVal = totalIn - targetAmount - finalFee;
+    hasChange = changeVal >= 546;
+
+    if (totalIn < targetAmount + finalFee) {
+      return json(400, {
+        ok: false,
+        error: `Insufficient funds. Need ${targetAmount + finalFee} sats confirmed, have ${totalIn}.`,
+        confirmed_sats: totalIn,
+      });
+    }
   }
 
   const inputs = await Promise.all(selected.map(async (utxo) => {
