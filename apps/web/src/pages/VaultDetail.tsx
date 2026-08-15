@@ -2729,6 +2729,42 @@ function MembersTab({ vault }: { vault: Vault }) {
   const [recentLink, setRecentLink] = useState<string | null>(null);
   const [sessionUserId, setSessionUserId] = useState<string | null>(null);
   const [showMyKey, setShowMyKey] = useState(false);
+  const [memberTapitNames, setMemberTapitNames] = useState<Map<string, string>>(new Map());
+
+  // Resolve each member's real Tapit identity the same way the Spending
+  // paths card already does (2026-08-15, operator: "the name showing up...
+  // not showing up as the actual identity. The name the person put in that
+  // would be cool"). vault_members.label is whatever the vault owner typed
+  // in when adding them -- often stale or a placeholder -- while the
+  // person's own Tapit wallet publishes a self-authored kind-0 name. Both
+  // still render (see MemberRow): the resolved identity leads, the local
+  // label follows as a parenthetical so a mismatch is visible rather than
+  // silently overwritten.
+  const memberPubkeysKey = members.map(m => m.pubkey).filter((p): p is string => !!p).join(",");
+  useEffect(() => {
+    let cancelled = false;
+    if (memberPubkeysKey.length === 0) { setMemberTapitNames(new Map()); return; }
+    fetchTapitDisplayNames(memberPubkeysKey.split(","))
+      .then(names => { if (!cancelled) setMemberTapitNames(names); })
+      .catch(() => { /* best-effort -- members fall back to their local label */ });
+    return () => { cancelled = true; };
+  }, [memberPubkeysKey]);
+
+  // "Make sure there's no branch work left over somewhere" -- a member
+  // whose pubkey doesn't appear in any of the vault's current compiled
+  // leaves is either mid-invite (no key uploaded yet, pubkey is null and
+  // this correctly doesn't flag them) or a leftover: the vault was
+  // recompiled with a different key set after they joined, or their key
+  // was swapped out, and this app-access row never got cleaned up to
+  // match. Owner-only path stays exempt -- an owner always has founder
+  // standing even before their key is on file.
+  const compiledPubkeys = new Set([
+    ...vault.founder_keys, ...vault.heir_keys, ...vault.protector_keys,
+    ...vault.backup_keys, ...vault.consent_keys, ...vault.second_heir_keys,
+  ]);
+  const staleMembers = members.filter(
+    m => m.role !== "owner" && m.status === "active" && m.pubkey && !compiledPubkeys.has(m.pubkey),
+  );
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -2890,9 +2926,38 @@ function MembersTab({ vault }: { vault: Vault }) {
           </Button>
         </div>
         {members.map(m => (
-          <MemberRow key={m.id} member={m} onRemove={() => void removeMember(m)} />
+          <MemberRow
+            key={m.id}
+            member={m}
+            tapitName={m.pubkey ? memberTapitNames.get(m.pubkey) : undefined}
+            stale={staleMembers.some(sm => sm.id === m.id)}
+            onRemove={() => void removeMember(m)}
+          />
         ))}
       </div>
+
+      {staleMembers.length > 0 && (
+        <div
+          style={{
+            background: `${colors.gold}0d`,
+            border: `1px solid ${colors.gold}44`,
+            borderRadius: 12,
+            padding: "12px 16px",
+            fontSize: 12,
+            color: colors.sub,
+          }}
+        >
+          <div style={{ fontWeight: 600, color: colors.gold, marginBottom: 4 }}>
+            {staleMembers.length} member{staleMembers.length === 1 ? "" : "s"} out of sync with the compiled vault
+          </div>
+          <div>
+            {staleMembers.map(m => m.label ?? "Unlabeled").join(", ")} still {staleMembers.length === 1 ? "has" : "have"} app
+            access here, but their key isn't in this vault's current compiled leaves -- either the vault was recompiled with a
+            different key set since they joined, or their key changed. Remove their access below if they no longer belong, or
+            have them re-add their current key if they do.
+          </div>
+        </div>
+      )}
 
       {/* Pending invites */}
       {pendingInvites.length > 0 && (
@@ -3153,7 +3218,22 @@ function MyKeyModal({
   );
 }
 
-function MemberRow({ member: m, onRemove }: { member: VaultMember; onRemove: () => void }) {
+function MemberRow({
+  member: m,
+  tapitName,
+  stale,
+  onRemove,
+}: {
+  member: VaultMember;
+  /** The person's own chosen identity from their Tapit wallet's kind-0
+   *  profile, if their key resolved to one. Leads the row when present;
+   *  m.label (the owner-typed local label) follows as a parenthetical. */
+  tapitName?: string;
+  /** True when this member's key isn't in the vault's current compiled
+   *  leaves -- see the "no branch work left over" audit in MembersTab. */
+  stale?: boolean;
+  onRemove: () => void;
+}) {
   return (
     <div
       style={{
@@ -3166,7 +3246,10 @@ function MemberRow({ member: m, onRemove }: { member: VaultMember; onRemove: () 
     >
       <div>
         <div style={{ fontSize: 14, fontWeight: 500, color: colors.text }}>
-          {m.label ?? "Unnamed"}
+          {tapitName ?? m.label ?? "Unnamed"}
+          {tapitName && m.label && tapitName !== m.label && (
+            <span style={{ fontWeight: 400, color: colors.muted }}> ({m.label})</span>
+          )}
           {m.role === "owner" && (
             <span
               style={{
@@ -3181,6 +3264,22 @@ function MemberRow({ member: m, onRemove }: { member: VaultMember; onRemove: () 
               }}
             >
               PRIMARY TRUSTEE
+            </span>
+          )}
+          {stale && (
+            <span
+              style={{
+                marginLeft: 8,
+                fontSize: 10,
+                fontWeight: 700,
+                padding: "2px 6px",
+                borderRadius: 4,
+                background: `${colors.gold}22`,
+                color: colors.gold,
+                letterSpacing: "0.06em",
+              }}
+            >
+              KEY OUT OF SYNC
             </span>
           )}
         </div>

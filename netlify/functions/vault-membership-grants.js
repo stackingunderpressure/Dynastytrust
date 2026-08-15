@@ -17,7 +17,12 @@
  *         member/role resets status back to 'sent' with a fresh reply
  *         keypair rather than erroring on the unique constraint.
  * PATCH /api/vault-membership-grants?id=<uuid>          record an ack
- *         body: { status: 'accepted' | 'declined' }
+ *         body: { status: 'accepted' | 'declined' | 'left' }
+ *         'left' (040_vault_membership_grant_left_status.sql) only applies
+ *         from 'accepted' -- a member's wallet walking back an earlier
+ *         accept, not a fresh decline. Soft disconnect only: it flags the
+ *         member's app-facing status, it does not touch the compiled
+ *         on-chain policy.
  *
  * reply_privkey is a Nostr messaging keypair only -- never a Bitcoin key,
  * see the migration header for why it's safe to persist unencrypted here.
@@ -116,18 +121,30 @@ export async function handler(event) {
     try { body = JSON.parse(event.body || "{}"); }
     catch { return json(400, { error: "Invalid JSON body" }); }
 
-    if (body.status !== "accepted" && body.status !== "declined") {
-      return json(400, { error: "status must be 'accepted' or 'declined'" });
+    if (body.status !== "accepted" && body.status !== "declined" && body.status !== "left") {
+      return json(400, { error: "status must be 'accepted', 'declined', or 'left'" });
     }
 
-    const { data, error } = await supabase
+    let query = supabase
       .from("vault_membership_grants")
       .update({ status: body.status, responded_at: new Date().toISOString(), updated_at: new Date().toISOString() })
       .eq("id", id)
-      .eq("user_id", u.userId)
+      .eq("user_id", u.userId);
+    // A member can only leave a membership they actually hold -- 'left'
+    // is a walk-back of 'accepted', not a synonym for 'declined'.
+    if (body.status === "left") query = query.eq("status", "accepted");
+
+    const { data, error } = await query
       .select("id, role, key_id, recipient_label, recipient_persona, recipient_pubkey, request_event_id, reply_pubkey, reply_privkey, status, responded_at, created_at, updated_at")
-      .single();
+      .maybeSingle();
     if (error) return json(500, { error: error.message });
+    if (!data) {
+      return json(409, {
+        error: body.status === "left"
+          ? "This grant isn't currently accepted, so there's nothing to leave."
+          : "Grant not found",
+      });
+    }
     return json(200, { ok: true, grant: data });
   }
 

@@ -184,7 +184,14 @@ export interface VaultMembershipGrant {
   request_event_id: string | null;
   reply_pubkey: string;
   reply_privkey: string;
-  status: 'sent' | 'accepted' | 'declined';
+  // 'left' (2026-08-15, operator: "when you disengage from it and you
+  // want to delete yourself from it, it would notify Dynasty Trust that
+  // you have a trustee that's disconnected") is a member's own wallet
+  // walking back an earlier 'accepted' -- distinct from 'declined' (never
+  // accepted in the first place). The on-chain key isn't revoked by this;
+  // see VaultMembershipSetup.tsx's STATUS_LABEL for the disclosure shown
+  // alongside it.
+  status: 'sent' | 'accepted' | 'declined' | 'left';
   responded_at: string | null;
   created_at: string;
   updated_at: string;
@@ -1389,7 +1396,7 @@ export const api = {
         body: JSON.stringify(body),
       }),
 
-    updateStatus: (id: string, status: 'accepted' | 'declined') =>
+    updateStatus: (id: string, status: 'accepted' | 'declined' | 'left') =>
       req<{ ok: true; grant: VaultMembershipGrant }>(`/vault-membership-grants?id=${id}`, {
         method: 'PATCH',
         body: JSON.stringify({ status }),

@@ -37,17 +37,17 @@ export const VAULT_MEMBERSHIP_ACK_KIND = 9580;
 export interface VaultMembershipAck {
   /** Which grant this ack answers -- the reply pubkey it was addressed to. */
   replyPubkey: string;
-  decision: 'accepted' | 'declined';
+  decision: 'accepted' | 'declined' | 'left';
   eventId: string;
   receivedAt: number;
 }
 
 export type VaultMembershipAckHandler = (ack: VaultMembershipAck) => void;
 
-function isAckPayload(v: unknown): v is { v: 1; decision: 'accepted' | 'declined' } {
+function isAckPayload(v: unknown): v is { v: 1; decision: 'accepted' | 'declined' | 'left' } {
   if (!v || typeof v !== 'object') return false;
   const r = v as Record<string, unknown>;
-  return r.v === 1 && (r.decision === 'accepted' || r.decision === 'declined');
+  return r.v === 1 && (r.decision === 'accepted' || r.decision === 'declined' || r.decision === 'left');
 }
 
 function toHex(bytes: Uint8Array): string {

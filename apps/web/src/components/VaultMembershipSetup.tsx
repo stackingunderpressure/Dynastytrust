@@ -64,12 +64,22 @@ const STATUS_LABEL: Record<VaultMembershipGrant['status'], string> = {
   sent: 'Sent -- awaiting response',
   accepted: 'Accepted',
   declined: 'Declined',
+  left: 'Left the vault',
+};
+
+// Longer disclosure shown under the button, not in it -- 'left' needs the
+// extra sentence (2026-08-15: their key stays a valid on-chain signer
+// until this vault is actually recompiled without them) but that's too
+// long for the Resend button's own label.
+const STATUS_DETAIL: Partial<Record<VaultMembershipGrant['status'], string>> = {
+  left: ' -- key still valid on-chain until this vault is recompiled',
 };
 
 const STATUS_COLOR: Record<VaultMembershipGrant['status'], string> = {
   sent: colors.gold,
   accepted: colors.green,
   declined: colors.red,
+  left: colors.gold,
 };
 
 interface RoleMember {
@@ -133,7 +143,11 @@ export function VaultMembershipSetup({
     const transport = new NostrTransport({ relays: getNostrRelays() });
     const sub = subscribeVaultMembershipAcks(transport, pendingReplyKeys, ack => {
       const grant = grantsRef.current.find(g => g.reply_pubkey === ack.replyPubkey);
-      if (!grant || grant.status !== 'sent') return;
+      // 'left' answers an 'accepted' grant, not a 'sent' one -- the
+      // pending-reply-key subscription above only covers still-'sent'
+      // grants, so a 'left' ack for THIS grant won't arrive on this
+      // subscription; it's handled by the separate listener below.
+      if (!grant || grant.status !== 'sent' || ack.decision === 'left') return;
       void api.vaultMembershipGrants.updateStatus(grant.id, ack.decision).then(res => {
         setGrants(prev => prev.map(g => (g.id === res.grant.id ? res.grant : g)));
         toast[ack.decision === 'accepted' ? 'success' : 'error'](
@@ -148,39 +162,35 @@ export function VaultMembershipSetup({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingKeysSignature]);
 
-  const { circleMembers, barePubkeys } = getTapitCircleMembers(founderKeys);
+  // Second listener, scoped to already-'accepted' grants: the only ack a
+  // member's wallet can still publish after accepting is 'left' (2026-08-15,
+  // the leave-vault soft disconnect) -- there's nothing else left to answer.
+  // Kept separate from the 'sent'-scoped listener above rather than merged,
+  // since the two watch disjoint reply-key sets that change independently.
+  const acceptedReplyKeys = grants.filter(g => g.status === 'accepted').map(g => g.reply_privkey);
+  const acceptedKeysSignature = acceptedReplyKeys.slice().sort().join(',');
+  useEffect(() => {
+    if (acceptedReplyKeys.length === 0) return;
+    const transport = new NostrTransport({ relays: getNostrRelays() });
+    const sub = subscribeVaultMembershipAcks(transport, acceptedReplyKeys, ack => {
+      if (ack.decision !== 'left') return;
+      const grant = grantsRef.current.find(g => g.reply_pubkey === ack.replyPubkey);
+      if (!grant || grant.status !== 'accepted') return;
+      void api.vaultMembershipGrants.updateStatus(grant.id, 'left').then(res => {
+        setGrants(prev => prev.map(g => (g.id === res.grant.id ? res.grant : g)));
+        toast.info(
+          `${grant.recipient_label} left the ${ROLE_LABELS[grant.role as VaultMembershipRole] ?? grant.role} membership for ${vaultName} -- their key is still valid on-chain until this vault is recompiled.`,
+        );
+      });
+    });
+    return () => {
+      sub.close();
+      transport.close();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [acceptedKeysSignature]);
 
-  if (circleMembers.length === 0) {
-    // This card used to just disappear here -- which is indistinguishable
-    // from "nothing to see" whether the vault genuinely has no Tapit
-    // circle member OR it does and this browser's Key Manager just
-    // doesn't hold a matching local key for it (a different device, a
-    // cleared keystore, a key that was later archived). Say which one is
-    // actually true instead of going silent either way.
-    if (barePubkeys.length === 0) return null;
-    return (
-      <div
-        style={{
-          background: colors.surface,
-          border: `1px solid ${colors.border}`,
-          borderRadius: radii.md,
-          padding: space[5],
-          marginBottom: space[4],
-        }}
-      >
-        <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
-          Circle membership
-        </div>
-        <p style={{ fontSize: 12, color: colors.sub, margin: 0 }}>
-          This vault has {barePubkeys.length} founder key{barePubkeys.length === 1 ? '' : 's'} that
-          look like they came from Tapit (no extended public key attached), but none of them match a
-          Tapit-origin key in this browser's Key Manager right now. If you added that key on a different
-          device or browser, add it here too before you can send membership to that person --{' '}
-          <Link to="/keys" style={{ color: colors.gold }}>open Key Manager</Link>.
-        </p>
-      </div>
-    );
-  }
+  const { circleMembers, barePubkeys } = getTapitCircleMembers(founderKeys);
 
   const roleArrays: [VaultMembershipRole, string[]][] = [
     ['founder', founderKeys],
@@ -207,8 +217,52 @@ export function VaultMembershipSetup({
     }
   }
 
-  if (members.length === 0) {
-    if (anyBarePubkeys === 0) return null;
+  // "Make sure there's no branch work left over somewhere" -- a grant
+  // this app once sent and the member's wallet accepted (or later left),
+  // for a (role, key_id) pair that no longer shows up in the vault's
+  // CURRENT role arrays. That happens when the vault was recompiled with
+  // a different key set, or the member's key changed, after the grant
+  // was answered -- the grant row just sits there, invisible, since the
+  // per-key rows below only render for keys presently in a role. Only
+  // detectable for keys this browser's Key Manager still holds locally
+  // (same tolerance the "no matching key" messages above already carry --
+  // this app never learns a key it has no local record of).
+  const orphanedGrants = grants.filter(
+    g => (g.status === 'accepted' || g.status === 'left')
+      && !members.some(m => m.role === g.role && m.key.keyId === g.key_id),
+  );
+  const orphanedGrantsPanel = orphanedGrants.length > 0 && (
+    <div
+      style={{
+        background: `${colors.gold}0d`,
+        border: `1px solid ${colors.gold}44`,
+        borderRadius: radii.md,
+        padding: '12px 14px',
+        marginTop: 10,
+        fontSize: 12,
+        color: colors.sub,
+      }}
+    >
+      <div style={{ fontWeight: 600, color: colors.gold, marginBottom: 4 }}>
+        {orphanedGrants.length} membership grant{orphanedGrants.length === 1 ? '' : 's'} out of sync
+      </div>
+      <div>
+        {orphanedGrants.map(g => g.recipient_label).join(', ')} {orphanedGrants.length === 1 ? 'was' : 'were'} granted
+        the {orphanedGrants.map(g => ROLE_LABELS[g.role as VaultMembershipRole] ?? g.role).join(', ')} role, but that
+        key no longer appears there -- the vault was likely recompiled with a different key set since. Recheck whether
+        {orphanedGrants.length === 1 ? ' this person' : ' these people'} should still hold that role.
+      </div>
+    </div>
+  );
+
+  if (circleMembers.length === 0) {
+    // This card used to just disappear here -- which is indistinguishable
+    // from "nothing to see" whether the vault genuinely has no Tapit
+    // circle member OR it does and this browser's Key Manager just
+    // doesn't hold a matching local key for it (a different device, a
+    // cleared keystore, a key that was later archived). Say which one is
+    // actually true instead of going silent either way.
+    if (barePubkeys.length === 0 && !orphanedGrantsPanel) return null;
     return (
       <div
         style={{
@@ -222,12 +276,44 @@ export function VaultMembershipSetup({
         <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
           Circle membership
         </div>
-        <p style={{ fontSize: 12, color: colors.sub, margin: 0 }}>
-          This vault has {anyBarePubkeys} key{anyBarePubkeys === 1 ? '' : 's'} that
-          look like they came from Tapit, but none of them match a Tapit-origin key in this
-          browser's Key Manager right now --{' '}
-          <Link to="/keys" style={{ color: colors.gold }}>open Key Manager</Link>.
-        </p>
+        {barePubkeys.length > 0 && (
+          <p style={{ fontSize: 12, color: colors.sub, margin: 0 }}>
+            This vault has {barePubkeys.length} founder key{barePubkeys.length === 1 ? '' : 's'} that
+            look like they came from Tapit (no extended public key attached), but none of them match a
+            Tapit-origin key in this browser's Key Manager right now. If you added that key on a different
+            device or browser, add it here too before you can send membership to that person --{' '}
+            <Link to="/keys" style={{ color: colors.gold }}>open Key Manager</Link>.
+          </p>
+        )}
+        {orphanedGrantsPanel}
+      </div>
+    );
+  }
+
+  if (members.length === 0) {
+    if (anyBarePubkeys === 0 && !orphanedGrantsPanel) return null;
+    return (
+      <div
+        style={{
+          background: colors.surface,
+          border: `1px solid ${colors.border}`,
+          borderRadius: radii.md,
+          padding: space[5],
+          marginBottom: space[4],
+        }}
+      >
+        <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+          Circle membership
+        </div>
+        {anyBarePubkeys > 0 && (
+          <p style={{ fontSize: 12, color: colors.sub, margin: 0 }}>
+            This vault has {anyBarePubkeys} key{anyBarePubkeys === 1 ? '' : 's'} that
+            look like they came from Tapit, but none of them match a Tapit-origin key in this
+            browser's Key Manager right now --{' '}
+            <Link to="/keys" style={{ color: colors.gold }}>open Key Manager</Link>.
+          </p>
+        )}
+        {orphanedGrantsPanel}
       </div>
     );
   }
@@ -331,6 +417,7 @@ export function VaultMembershipSetup({
               {g && (
                 <div style={{ fontSize: 11, color: STATUS_COLOR[g.status], paddingLeft: 2 }}>
                   {STATUS_LABEL[g.status]}
+                  {STATUS_DETAIL[g.status] ?? ''}
                   {g.responded_at ? ` -- ${new Date(g.responded_at).toLocaleString()}` : ''}
                 </div>
               )}
@@ -338,6 +425,7 @@ export function VaultMembershipSetup({
           );
         })}
       </div>
+      {orphanedGrantsPanel}
       <NostrRelaySettings />
     </div>
   );
