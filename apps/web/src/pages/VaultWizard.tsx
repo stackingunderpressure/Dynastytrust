@@ -1044,6 +1044,14 @@ function BlocConfigureFields({ config, setConfig }: { config: BlocConfig; setCon
               plannedKids,
               kidsWithParentQ: Math.min(c.kidsWithParentQ, plannedKids),
               kidsDecayFloorQ: Math.min(c.kidsDecayFloorQ, plannedKids),
+              // The decay ladder always starts by requiring every planned
+              // kid (see the Keys-step copy: "N needed at first, one fewer
+              // ... down to the floor") -- kidsDecayStartQ has no picker of
+              // its own and must never be allowed to drift above the actual
+              // kid count, or the ladder generates impossible rungs like
+              // "3 of 1" (2026-08-15, caught by the operator reading the
+              // live preview).
+              kidsDecayStartQ: plannedKids,
             }))}
           />
         </Field>
