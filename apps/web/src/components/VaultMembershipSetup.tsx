@@ -98,6 +98,8 @@ export function VaultMembershipSetup({
   consentKeys,
   secondHeirKeys,
   leafScripts,
+  keyLabels,
+  isOwner,
 }: {
   vaultId: string;
   vaultDescriptor: string | null;
@@ -109,12 +111,56 @@ export function VaultMembershipSetup({
   consentKeys: string[];
   secondHeirKeys: string[];
   leafScripts: Record<string, string> | null;
+  /** Custom per-key display labels (041_vault_key_labels.sql) -- see
+   *  VaultStructureTree's identical mechanism in VaultDetail.tsx. Shown
+   *  here in place of the raw technical role name (2026-08-15, operator:
+   *  "the vault with the circle of people on tap it, they're not really
+   *  founders... make sure that each spot of every vault and every key
+   *  has a spot to assign that label to it"). */
+  keyLabels: { pubkey: string; label: string }[];
+  /** Only the vault owner can set/change labels here -- same authority
+   *  vaults.js's PATCH already requires server-side. */
+  isOwner: boolean;
 }) {
   const toast = useToast();
   const [busyKeyId, setBusyKeyId] = useState<string | null>(null);
   const [grants, setGrants] = useState<VaultMembershipGrant[]>([]);
   const grantsRef = useRef<VaultMembershipGrant[]>([]);
   grantsRef.current = grants;
+
+  const [localKeyLabels, setLocalKeyLabels] = useState(keyLabels);
+  const [editingPubkey, setEditingPubkey] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [savingLabel, setSavingLabel] = useState(false);
+
+  // Same positional default as VaultStructureTree's identical function:
+  // the first founder key is presumed the vault creator's own ("the one
+  // founder key is the owner"), every other founder key defaults to
+  // "Trustee" -- overridable any time via an explicit label.
+  const positionalDefault = (pubkey: string): string | null => {
+    const idx = founderKeys.indexOf(pubkey);
+    if (idx < 0) return null;
+    return idx === 0 ? "Owner" : "Trustee";
+  };
+
+  const customLabelFor = (pubkey: string): string | null => {
+    const entry = localKeyLabels.find(kl => kl.pubkey === pubkey);
+    return entry?.label || null;
+  };
+
+  async function saveKeyLabel(pubkey: string) {
+    const trimmed = editValue.trim();
+    setSavingLabel(true);
+    try {
+      const res = await api.vaults.setKeyLabel(vaultId, pubkey, trimmed || null);
+      setLocalKeyLabels(res.vault.key_labels);
+      setEditingPubkey(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to save label');
+    } finally {
+      setSavingLabel(false);
+    }
+  }
 
   // Load the persisted roster on mount / whenever the vault changes.
   useEffect(() => {
@@ -389,14 +435,69 @@ export function VaultMembershipSetup({
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {members.map(({ key: k, role }) => {
           const g = grants.find(x => x.role === role && x.key_id === k.keyId) ?? null;
+          const pk = k.pubkey.toLowerCase();
+          const roleDisplayLabel = customLabelFor(pk) ?? positionalDefault(pk) ?? ROLE_LABELS[role];
+          const editingThis = editingPubkey === pk;
           return (
             <div key={k.keyId} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                 <div style={{ fontSize: 13, color: colors.text, minWidth: 0 }}>
                   {k.label}{' '}
-                  <span style={{ color: colors.muted }}>
-                    ({k.persona}, {ROLE_LABELS[role]})
-                  </span>
+                  {editingThis ? (
+                    <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                      <span style={{ color: colors.muted }}>({k.persona},</span>
+                      <input
+                        autoFocus
+                        value={editValue}
+                        onChange={e => setEditValue(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') void saveKeyLabel(pk);
+                          if (e.key === 'Escape') setEditingPubkey(null);
+                        }}
+                        placeholder="e.g. Owner, Trustee, Dad"
+                        maxLength={60}
+                        style={{
+                          fontSize: 12,
+                          padding: '1px 5px',
+                          borderRadius: 4,
+                          border: `1px solid ${colors.gold}`,
+                          background: colors.input,
+                          color: colors.text,
+                          width: 110,
+                        }}
+                      />
+                      <button
+                        type="button"
+                        disabled={savingLabel}
+                        onClick={() => void saveKeyLabel(pk)}
+                        style={{ fontSize: 12, color: colors.gold, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                      >
+                        {savingLabel ? '...' : 'Save'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingPubkey(null)}
+                        style={{ fontSize: 12, color: colors.muted, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                      >
+                        Cancel)
+                      </button>
+                    </span>
+                  ) : (
+                    <span
+                      style={{ color: colors.muted, cursor: isOwner ? 'pointer' : 'default' }}
+                      onClick={
+                        isOwner
+                          ? () => {
+                              setEditingPubkey(pk);
+                              setEditValue(customLabelFor(pk) ?? '');
+                            }
+                          : undefined
+                      }
+                      title={isOwner ? 'Click to relabel this key' : undefined}
+                    >
+                      ({k.persona}, {roleDisplayLabel})
+                    </span>
+                  )}
                 </div>
                 <Button
                   variant="ghost"

@@ -129,6 +129,17 @@ export interface Vault {
    *  actually told about at vault-creation time. Null for non-multileaf
    *  address types and Bloc vaults. */
   leaf_scripts: Record<string, string> | null;
+  /** Per-key custom display labels (041_vault_key_labels.sql), keyed by
+   *  bare pubkey -- independent of vault_members (covers every key
+   *  regardless of whether it has a DynastyTrust account behind it) and
+   *  independent of key_origins (covers a Tapit-origin key, which has no
+   *  BIP32 fingerprint/derivation_path to key_origins off of). Empty
+   *  array = no custom labels set; a key with no entry here falls back
+   *  to a positional Owner/Trustee default (see VaultStructureTree's
+   *  keyLabel) or vault_members.label. 2026-08-15, operator: "make sure
+   *  that each spot of every vault and every key has a spot to assign
+   *  that label to it where it needs to be." */
+  key_labels: { pubkey: string; label: string }[];
 }
 
 /** The whole Bloc policy the compiler needs to rebuild the exact tree
@@ -640,6 +651,18 @@ export const api = {
       req<{ ok: true; vault: Vault }>(`/vaults?id=${id}`, {
         method: 'PATCH',
         body: JSON.stringify({ network }),
+      }),
+
+    // Owner-only. Assigns/changes/clears the display label for one key
+    // slot -- e.g. "Owner" vs "Trustee" for a circle-of-people vault's
+    // founder keys, independent of the technical founder/heir/etc. role.
+    // label: null (or an empty string) clears it, reverting that key to
+    // its positional default. See key_labels' doc comment on the Vault
+    // type for why this exists separately from key_origins.
+    setKeyLabel: (id: string, pubkey: string, label: string | null) =>
+      req<{ ok: true; vault: Vault }>(`/vaults?id=${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ key_label: { pubkey, label } }),
       }),
 
     updateTrustDoc: (id: string, trust_doc: TrustDoc) =>

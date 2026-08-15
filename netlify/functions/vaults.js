@@ -36,7 +36,31 @@ async function looksLikeAValidAddress(address, network) {
 }
 
 const VAULT_FIELDS =
-  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc, predecessor_id, duress, bloc_policy, leaf_scripts, backup_keys, backup_quorum, second_heir_keys, second_heir_quorum, second_inheritance_after";
+  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc, predecessor_id, duress, bloc_policy, leaf_scripts, backup_keys, backup_quorum, second_heir_keys, second_heir_quorum, second_inheritance_after, key_labels";
+
+// key_labels is keyed off whatever string actually appears in
+// vaults.founder_keys/heir_keys/etc -- keyStoreValue() in
+// vaults-compile.js stores the real xpub when a key has one (hardware/
+// software keys), or the bare compressed pubkey hex when it doesn't
+// (Tapit-origin keys, keystore.ts's importTapitPubkey). Deliberately
+// NOT restricted to a hex-pubkey shape -- an xpub is ~111 base58
+// characters, not hex, and rejecting it here would make every
+// hardware/software-keyed founder's slot unlabelable while only
+// Tapit-shaped keys worked. This just needs to be the same non-empty
+// string the frontend already has on hand from that array.
+function isValidKeyIdentifier(s) {
+  return typeof s === "string" && s.trim().length > 0 && s.trim().length <= 130;
+}
+
+// Case-fold ONLY a hex pubkey (case-insensitive by convention, and
+// every other reader in this codebase compares hex lowercased). An
+// xpub/ypub/zpub is base58 and CASE-SENSITIVE -- lowercasing one would
+// corrupt it as a lookup key, silently breaking the match against
+// vaults.founder_keys/heir_keys the next time this vault loads.
+function normalizeKeyIdentifier(s) {
+  const trimmed = s.trim();
+  return /^[0-9a-f]+$/i.test(trimmed) ? trimmed.toLowerCase() : trimmed;
+}
 
 export async function handler(event) {
   const u = await requireUser(event);
@@ -317,13 +341,55 @@ export async function handler(event) {
       return json(400, { error: "Invalid JSON body" });
     }
 
+    // key_label is a structured merge (upsert-by-pubkey into key_labels),
+    // not a plain column overwrite, so it's handled separately from the
+    // simple `allowed` passthrough below -- see its own block further
+    // down. (2026-08-15, operator: "make sure that each spot of every
+    // vault and every key has a spot to assign that label to it".)
+    if (body.key_label !== undefined) {
+      const { pubkey, label } = body.key_label || {};
+      if (!isValidKeyIdentifier(pubkey)) {
+        return json(400, { error: "key_label.pubkey must be a non-empty pubkey or xpub string, 130 characters or fewer" });
+      }
+      if (label != null && (typeof label !== "string" || label.length > 60)) {
+        return json(400, { error: "key_label.label must be a string of 60 characters or fewer, or null to clear it" });
+      }
+      const cleanPubkey = normalizeKeyIdentifier(pubkey);
+      const cleanLabel = typeof label === "string" ? label.trim() : "";
+
+      const { data: existing, error: fetchErr } = await supabase
+        .from("vaults")
+        .select("key_labels, user_id")
+        .eq("id", id)
+        .maybeSingle();
+      if (fetchErr) return json(500, { error: fetchErr.message });
+      if (!existing) return json(404, { error: "Vault not found" });
+      if (existing.user_id !== u.userId) return json(403, { error: "Only the owner can label keys" });
+
+      const current = Array.isArray(existing.key_labels) ? existing.key_labels : [];
+      const withoutThisKey = current.filter((entry) => normalizeKeyIdentifier(entry?.pubkey ?? "") !== cleanPubkey);
+      const nextLabels = cleanLabel
+        ? [...withoutThisKey, { pubkey: cleanPubkey, label: cleanLabel }]
+        : withoutThisKey; // empty/null label clears it, reverting to the default
+
+      const { data, error } = await supabase
+        .from("vaults")
+        .update({ key_labels: nextLabels })
+        .eq("id", id)
+        .eq("user_id", u.userId)
+        .select(VAULT_FIELDS)
+        .single();
+      if (error) return json(500, { error: error.message });
+      return json(200, { ok: true, vault: data });
+    }
+
     const allowed = ["name", "archived", "trust_doc", "duress", "network"];
     const updates = Object.fromEntries(
       Object.entries(body).filter(([k]) => allowed.includes(k))
     );
 
     if (Object.keys(updates).length === 0) {
-      return json(400, { error: "No updatable fields provided (allowed: name, archived, duress, network)" });
+      return json(400, { error: "No updatable fields provided (allowed: name, archived, duress, network, key_label)" });
     }
 
     // Network is only safe to change while the vault is still a draft --
