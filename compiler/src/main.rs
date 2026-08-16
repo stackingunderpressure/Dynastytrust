@@ -14,11 +14,11 @@ use bitcoin::taproot::LeafVersion;
 use bitcoin::secp256k1::{Secp256k1, XOnlyPublicKey};
 use dynastytrust_protocol::{
     attach_tap_change_output_metadata, attach_tap_key_origins, audit_spend, build_bloc_spend_psbt,
-    build_multileaf, build_tranche_spend_psbt, compile_dynasty_bloc_tr_multileaf,
+    build_leaf_multileaf, build_multileaf, build_tranche_spend_psbt, compile_dynasty_bloc_tr_multileaf,
     compile_dynasty_policy, compile_dynasty_policy_tr, compile_dynasty_policy_tr_multileaf,
     compile_tranche_tr_multileaf, evaluate_spend_proposal, evaluate_vault_status, next_action,
     BlocSpendRequest, DynastyBlocPolicy, DynastyPolicy, KeyOrigin, ProposedSpend, SignerStatus,
-    SpendingPath, TranchePolicy, TrancheSpendRequest, VaultPolicy, VaultUTXO,
+    SpendingPath, TranchePolicy, TrancheSpendRequest, Unlock, VaultPolicy, VaultUTXO,
 };
 use miniscript::psbt::PsbtExt;
 use serde::{Deserialize, Serialize};
@@ -155,6 +155,76 @@ fn parse_pubkeys(keys: &[String]) -> Result<Vec<PublicKey>> {
     keys.iter()
         .map(|k| PublicKey::from_str(k).map_err(|e| anyhow!("bad pubkey {k}: {e}")))
         .collect()
+}
+
+// ── Generic leaf-list vault (toggle-a-leaf builder) ─────────────────────────
+// Wire shapes for dynastytrust_protocol::{Leaf, Unlock, DecayConfig,
+// LeafPolicy} -- string-keyed pubkeys the same way every other request in
+// this file is (see parse_pubkeys above), never bitcoin::PublicKey's own
+// Deserialize impl directly.
+
+#[derive(Deserialize)]
+struct LeafUnlockWire {
+    #[serde(rename = "type")]
+    kind: String,
+    #[serde(default)]
+    blocks: Option<u32>,
+}
+
+#[derive(Deserialize)]
+struct LeafDecayWire {
+    step_blocks: u32,
+    floor_quorum: usize,
+}
+
+#[derive(Deserialize)]
+struct LeafSpecWire {
+    id: String,
+    label: String,
+    keys: Vec<String>,
+    quorum: usize,
+    unlock: LeafUnlockWire,
+    #[serde(default)]
+    decay: Option<LeafDecayWire>,
+}
+
+fn parse_leaf_policy(
+    wire_leaves: &[LeafSpecWire],
+    consent_keys: &[String],
+    consent_quorum: Option<usize>,
+) -> Result<dynastytrust_protocol::LeafPolicy> {
+    let leaves = wire_leaves
+        .iter()
+        .map(|w| {
+            let keys = parse_pubkeys(&w.keys)?;
+            let unlock = match w.unlock.kind.as_str() {
+                "immediate" => dynastytrust_protocol::Unlock::Immediate,
+                "after" => dynastytrust_protocol::Unlock::After {
+                    blocks: w.unlock.blocks.ok_or_else(|| anyhow!("leaf '{}': after unlock missing blocks", w.id))?,
+                },
+                "older" => dynastytrust_protocol::Unlock::OlderThan {
+                    blocks: w.unlock.blocks.ok_or_else(|| anyhow!("leaf '{}': older unlock missing blocks", w.id))?,
+                },
+                other => return Err(anyhow!("leaf '{}': unknown unlock type '{other}'", w.id)),
+            };
+            Ok(dynastytrust_protocol::Leaf {
+                id: w.id.clone(),
+                label: w.label.clone(),
+                keys,
+                quorum: w.quorum,
+                unlock,
+                decay: w.decay.as_ref().map(|d| dynastytrust_protocol::DecayConfig {
+                    step_blocks: d.step_blocks,
+                    floor_quorum: d.floor_quorum,
+                }),
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(dynastytrust_protocol::LeafPolicy {
+        leaves,
+        consent_keys: parse_pubkeys(consent_keys)?,
+        consent_quorum,
+    })
 }
 
 const NUMS_HEX: &str = "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0";
@@ -479,6 +549,15 @@ struct PsbtBinaryRequest {
     // for the full rationale. Optional and additive.
     #[serde(default)]
     key_origins: Vec<KeyOrigin>,
+    // Generic leaf-list vault (toggle-a-leaf builder), additive alongside
+    // every named field above. When present, this is authoritative over
+    // the named fields, and `path` is looked up as a leaf id in this list
+    // instead of the fixed founders_now/recovery/inheritance/protector/
+    // backup/second_inheritance switch. Reuses `consent_keys`/
+    // `consent_quorum` above -- consent gates the primary leaf the same
+    // way in both shapes, no separate field needed.
+    #[serde(default)]
+    leaves: Option<Vec<LeafSpecWire>>,
 }
 
 #[derive(Serialize)]
@@ -546,62 +625,42 @@ async fn psbt_binary(
         });
     }
 
-    // CLTV path selection: founders_now leaves lock_time at 0;
-    // recovery / inheritance / protector set it to the stored
-    // absolute block height so miniscript finalize can satisfy
-    // `after(N)` on the chosen leaf. Callers MUST already have
-    // baked current-tip + relative-offset into those values at
-    // compile time; Rust treats the number as absolute height.
+    // Path selection has two shapes now. Generic (req.leaves present):
+    // `path` is an arbitrary leaf id the caller's own LeafPolicy declares;
+    // the leaf's own Unlock (Immediate/After/OlderThan) says whether
+    // tx.lock_time or the spending inputs' nSequence needs setting --
+    // CLTV and CSV are two different transaction fields, never
+    // interchangeable. Named (legacy): founders_now leaves lock_time at
+    // 0; recovery/inheritance/protector set it to the stored absolute
+    // block height. Both shapes require current-tip + relative-offset
+    // already baked into any absolute height by the time it reaches here.
     //
-    // An unrecognized path string is rejected outright rather than
-    // silently falling back to founders_now -- build_bloc_spend_psbt
-    // and build_tranche_spend_psbt (psbt_builder.rs) both already
-    // fail closed on an unknown path via PsbtError::UnknownPath; this
-    // handler used to be the one exception, quietly treating a typo
-    // or garbage path as founders_now. Not an auth bypass (founders_now
-    // still needs real founder signatures against the leaf script
-    // either way), but "reject what you don't recognize" is the
-    // pattern the rest of this codebase deliberately follows and this
-    // should not have been the odd one out.
+    // An unrecognized path is rejected outright rather than silently
+    // falling back to founders_now -- build_bloc_spend_psbt and
+    // build_tranche_spend_psbt (psbt_builder.rs) both already fail closed
+    // on an unknown path via PsbtError::UnknownPath; "reject what you
+    // don't recognize" is the pattern this codebase deliberately follows.
     let intended_path = req.path.as_deref().unwrap_or("founders_now");
-    const VALID_PATHS: &[&str] = &[
-        "founders_now", "recovery", "inheritance", "protector", "backup", "second_inheritance",
-    ];
-    if !VALID_PATHS.contains(&intended_path) {
-        return Err(api_err(
-            StatusCode::BAD_REQUEST,
-            format!("Unknown path: {intended_path}"),
-        ));
-    }
-    let locktime_height: Option<u32> = match intended_path {
-        "recovery" => req.recovery_after,
-        "inheritance" => req.inheritance_after,
-        "protector" => req.protector_after,
-        "second_inheritance" => req.second_inheritance_after,
-        _ => None,
-    };
-    let lock_time = match locktime_height {
-        Some(h) if h > 0 => LockTime::from_height(h)
-            .map_err(|e| api_err(StatusCode::BAD_REQUEST, format!("bad lock_time {h}: {e}")))?,
-        _ => LockTime::ZERO,
-    };
 
-    let tx = Transaction {
-        version: Version::TWO, lock_time,
-        input: tx_inputs, output: tx_outputs,
-    };
-
-    let output_count = tx.output.len();
-    let mut psbt = Psbt::from_unsigned_tx(tx)
-        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, format!("PSBT: {e}")))?;
-
-    // Build the FULL multileaf taproot tree so the control block
-    // attached to tap_scripts proves against the real vault's merkle
-    // root -- rebuilding only the founders-now leaf produced a
-    // mismatched root and the finalizer rejected the spend with
-    // "Control block verification failed at index 0".
+    // Build the FULL multileaf taproot tree so the control block attached
+    // to tap_scripts proves against the real vault's merkle root --
+    // rebuilding only the founders-now leaf produced a mismatched root
+    // and the finalizer rejected the spend with "Control block
+    // verification failed at index 0". `full_output` is authoritative
+    // from whichever shape the request actually declared; leaf-list wins
+    // when both happen to be present, since `req.leaves` is the caller
+    // deliberately opting into the new mechanism.
     let addr_type = req.address_type.as_deref().unwrap_or("tr");
-    let full_output: Option<dynastytrust_protocol::MultileafOutput> = if let (
+    let is_leaf_list = req.leaves.is_some();
+
+    let full_output: Option<dynastytrust_protocol::MultileafOutput> = if let Some(wire_leaves) = req.leaves.as_ref() {
+        let policy = parse_leaf_policy(wire_leaves, &req.consent_keys, req.consent_quorum)
+            .map_err(|e| api_err(StatusCode::BAD_REQUEST, format!("bad leaf policy: {e}")))?;
+        Some(
+            build_leaf_multileaf(&policy)
+                .map_err(|e| api_err(StatusCode::BAD_REQUEST, format!("leaf policy rejected: {e}")))?,
+        )
+    } else if let (
         Some(fk), Some(fq), Some(hk), Some(hq), Some(ra), Some(ia)
     ) = (
         req.founder_keys.as_ref(), req.founder_quorum,
@@ -645,6 +704,87 @@ async fn psbt_binary(
         None
     };
 
+    // Select the leaf `intended_path` names, and derive tx.lock_time /
+    // the spending inputs' nSequence from ITS unlock -- generalizes the
+    // 2026-08-06 fix (previously always used founder_leaf regardless of
+    // path, mismatching tap_scripts against lock_time for every
+    // non-founders spend). A path naming a leaf the policy doesn't have
+    // correctly yields None, same as a full policy-parse failure above.
+    let (selected_leaf, lock_time, needs_relative_sequence): (Option<ScriptBuf>, LockTime, Option<u32>) =
+        if is_leaf_list {
+            let out = full_output.as_ref();
+            let leaf = out.and_then(|o| o.leaf_scripts.iter().find(|(id, _)| id == intended_path).map(|(_, s)| s.clone()));
+            if leaf.is_none() {
+                return Err(api_err(StatusCode::BAD_REQUEST, format!("Unknown path: {intended_path}")));
+            }
+            let unlock = out.and_then(|o| o.leaf_unlocks.iter().find(|(id, _)| id == intended_path).map(|(_, u)| *u));
+            match unlock {
+                Some(Unlock::Immediate) | None => (leaf, LockTime::ZERO, None),
+                Some(Unlock::After { blocks }) if blocks > 0 => {
+                    let lt = LockTime::from_height(blocks)
+                        .map_err(|e| api_err(StatusCode::BAD_REQUEST, format!("bad lock_time {blocks}: {e}")))?;
+                    (leaf, lt, None)
+                }
+                Some(Unlock::After { .. }) => (leaf, LockTime::ZERO, None),
+                Some(Unlock::OlderThan { blocks }) => (leaf, LockTime::ZERO, Some(blocks)),
+            }
+        } else {
+            const VALID_PATHS: &[&str] = &[
+                "founders_now", "recovery", "inheritance", "protector", "backup", "second_inheritance",
+            ];
+            if !VALID_PATHS.contains(&intended_path) {
+                return Err(api_err(StatusCode::BAD_REQUEST, format!("Unknown path: {intended_path}")));
+            }
+            let locktime_height: Option<u32> = match intended_path {
+                "recovery" => req.recovery_after,
+                "inheritance" => req.inheritance_after,
+                "protector" => req.protector_after,
+                "second_inheritance" => req.second_inheritance_after,
+                _ => None,
+            };
+            let lt = match locktime_height {
+                Some(h) if h > 0 => LockTime::from_height(h)
+                    .map_err(|e| api_err(StatusCode::BAD_REQUEST, format!("bad lock_time {h}: {e}")))?,
+                _ => LockTime::ZERO,
+            };
+            // "backup" shares recovery_leaf's tree slot -- see
+            // MultileafOutput's doc comment (policy_compiler.rs). It is
+            // never CLTV-gated (falls to the default no-timelock case
+            // above) and never relative either.
+            let leaf = full_output.as_ref().and_then(|out| match intended_path {
+                "recovery" | "backup" => out.recovery_leaf.clone(),
+                "inheritance" => out.inheritance_leaf.clone(),
+                "protector" => out.protector_leaf.clone(),
+                "second_inheritance" => out.second_inheritance_leaf.clone(),
+                _ => Some(out.founder_leaf.clone()),
+            });
+            (leaf, lt, None)
+        };
+
+    let tx = Transaction {
+        version: Version::TWO, lock_time,
+        input: tx_inputs, output: tx_outputs,
+    };
+
+    let output_count = tx.output.len();
+    let mut psbt = Psbt::from_unsigned_tx(tx)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, format!("PSBT: {e}")))?;
+
+    // BIP68 relative locktime (older()) is enforced through the SPENDING
+    // input's nSequence, never through tx.lock_time -- that's CLTV's
+    // field, not CSV's. Applied to every input the same whole-transaction
+    // granularity lock_time already uses above, since this compiler's
+    // model spends every input of a given PSBT via the same intended
+    // path. `blocks` is guaranteed <= MAX_RELATIVE_BLOCKS (well under
+    // BIP68's u16 ceiling) by build_leaf_multileaf's own verify_leaf_policy
+    // call above, so the cast below can't truncate.
+    if let Some(blocks) = needs_relative_sequence {
+        let seq = bitcoin::Sequence::from_height(blocks as u16);
+        for input in psbt.unsigned_tx.input.iter_mut() {
+            input.sequence = seq;
+        }
+    }
+
     // Change always returns to this same vault's own tr_multileaf address
     // (psbt-binary.js sets change_address: vault.address), but until now the
     // change output carried no taproot metadata at all -- a bare
@@ -678,12 +818,18 @@ async fn psbt_binary(
             }
             let nums_bytes = hex::decode(NUMS_HEX).unwrap();
             let internal_key = XOnlyPublicKey::from_slice(&nums_bytes).unwrap();
-            let leaves: Vec<&ScriptBuf> = std::iter::once(&out.founder_leaf)
-                .chain(out.recovery_leaf.as_ref())
-                .chain(out.inheritance_leaf.as_ref())
-                .chain(out.protector_leaf.as_ref())
-                .chain(out.second_inheritance_leaf.as_ref())
-                .collect();
+            // Generic leaf-list vaults expose every leaf via leaf_scripts;
+            // named vaults expose them as separate Option<ScriptBuf> fields.
+            let leaves: Vec<&ScriptBuf> = if is_leaf_list {
+                out.leaf_scripts.iter().map(|(_, s)| s).collect()
+            } else {
+                std::iter::once(&out.founder_leaf)
+                    .chain(out.recovery_leaf.as_ref())
+                    .chain(out.inheritance_leaf.as_ref())
+                    .chain(out.protector_leaf.as_ref())
+                    .chain(out.second_inheritance_leaf.as_ref())
+                    .collect()
+            };
             attach_tap_change_output_metadata(
                 &mut psbt.outputs[1],
                 internal_key,
@@ -694,27 +840,6 @@ async fn psbt_binary(
         }
     }
 
-    // Select the SAME leaf `intended_path` already picked for tx.lock_time
-    // above (2026-08-06 fix). Previously this always used founder_leaf
-    // regardless of path, which mismatched tap_scripts against lock_time
-    // for every non-founders spend and made a legitimate heir/protector
-    // signer look like "not a signer for this input" -- see
-    // MultileafOutput's doc comment in policy_compiler.rs for the full
-    // account. A path that names a leaf the policy doesn't have (e.g.
-    // "protector" with no protector configured) correctly yields None,
-    // same as a full policy-parse failure above.
-    let selected_leaf: Option<ScriptBuf> = full_output.as_ref().and_then(|out| match intended_path {
-        // "backup" shares recovery_leaf's tree slot -- see
-        // MultileafOutput's doc comment (policy_compiler.rs). Its
-        // lock_time already stayed at ZERO above (not listed in that
-        // match, falls to the default no-timelock case) since a backup
-        // leaf is never CLTV-gated.
-        "recovery" | "backup" => out.recovery_leaf.clone(),
-        "inheritance" => out.inheritance_leaf.clone(),
-        "protector" => out.protector_leaf.clone(),
-        "second_inheritance" => out.second_inheritance_leaf.clone(),
-        _ => Some(out.founder_leaf.clone()),
-    });
     let full_spend_info = full_output
         .as_ref()
         .zip(selected_leaf.as_ref())
@@ -1404,6 +1529,7 @@ mod psbt_binary_tests {
             path: Some(path.into()),
             witness_script_hex: None,
             key_origins,
+            leaves: None,
         };
         let (state, headers) = test_auth_state_and_headers();
         let Json(resp) = psbt_binary(State(state), headers, Json(req)).await.unwrap();
@@ -1470,6 +1596,7 @@ mod psbt_binary_tests {
             path: Some("founders_now".into()),
             witness_script_hex: None,
             key_origins: vec![],
+            leaves: None,
         };
         let (state, headers) = test_auth_state_and_headers();
         let result = psbt_binary(State(state), headers, Json(req)).await;
@@ -1527,6 +1654,7 @@ mod psbt_binary_tests {
             path: Some("definitely_not_a_path".into()),
             witness_script_hex: None,
             key_origins: vec![],
+            leaves: None,
         };
         let (state, headers) = test_auth_state_and_headers();
         match psbt_binary(State(state), headers, Json(req)).await {

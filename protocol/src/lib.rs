@@ -10,12 +10,13 @@ pub use governance::{
 };
 
 pub use policy_compiler::{
-    AddressType, BlocLeaf, BlocMultileafOutput, CompiledVault, DynastyBlocPolicy, DynastyPolicy,
-    MultileafOutput, PolicyError, TranchePolicy, TrancheOutput, BLOC_PATH_COPARENT_KIDS,
-    BLOC_PATH_KIDS_DECAY, BLOC_PATH_PARENTS_NOW, BLOC_PATH_PARENT_SOLO, MIN_RECOVERY_BLOCKS,
-    build_bloc_multileaf, build_multileaf, build_multileaf_spend_info, build_tranche,
+    AddressType, BlocLeaf, BlocMultileafOutput, CompiledVault, DecayConfig, DynastyBlocPolicy,
+    DynastyPolicy, KeyReuseNote, Leaf, LeafPolicy, MultileafOutput, PolicyError, TranchePolicy,
+    TrancheOutput, Unlock, BLOC_PATH_COPARENT_KIDS, BLOC_PATH_KIDS_DECAY, BLOC_PATH_PARENTS_NOW,
+    BLOC_PATH_PARENT_SOLO, MAX_RELATIVE_BLOCKS, MIN_RECOVERY_BLOCKS, build_bloc_multileaf,
+    build_leaf_multileaf, build_multileaf, build_multileaf_spend_info, build_tranche,
     compile_dynasty_bloc_tr_multileaf, compile_dynasty_policy, compile_dynasty_policy_tr,
-    compile_dynasty_policy_tr_multileaf, compile_tranche_tr_multileaf,
+    compile_dynasty_policy_tr_multileaf, compile_tranche_tr_multileaf, find_key_reuse,
 };
 
 pub use psbt_builder::{

@@ -384,6 +384,14 @@ pub struct MultileafOutput {
     /// shaped vaults, where it's the ONLY way to look up a leaf's script,
     /// since those vaults have no fixed named roles.
     pub leaf_scripts: Vec<(String, bitcoin::ScriptBuf)>,
+    /// (leaf id, unlock) for every leaf in leaf_scripts -- the PSBT
+    /// builder needs this to know whether the selected leaf wants
+    /// tx.lock_time set (After) or the spending input's nSequence set
+    /// (OlderThan), since CLTV and CSV are enforced through two
+    /// different transaction fields. Empty for every vault built via the
+    /// named-branch `build_multileaf` path (that caller already knows
+    /// which absolute-height field to use for each named path).
+    pub leaf_unlocks: Vec<(String, Unlock)>,
 }
 
 /// Sole source of truth for multileaf tree construction. Used by
@@ -458,6 +466,7 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
             descriptor,
             miniscript_policy: founder_thresh,
             leaf_scripts: Vec::new(),
+            leaf_unlocks: Vec::new(),
         });
     }
 
@@ -499,6 +508,7 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
             descriptor,
             miniscript_policy,
             leaf_scripts: Vec::new(),
+            leaf_unlocks: Vec::new(),
         });
     }
 
@@ -580,6 +590,7 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
                 descriptor,
                 miniscript_policy,
                 leaf_scripts: Vec::new(),
+                leaf_unlocks: Vec::new(),
             });
         }
 
@@ -609,6 +620,7 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
             descriptor,
             miniscript_policy,
             leaf_scripts: Vec::new(),
+            leaf_unlocks: Vec::new(),
         });
     }
 
@@ -686,6 +698,7 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
                 descriptor,
                 miniscript_policy,
                 leaf_scripts: Vec::new(),
+                leaf_unlocks: Vec::new(),
             });
         }
 
@@ -722,6 +735,7 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
             descriptor,
             miniscript_policy,
             leaf_scripts: Vec::new(),
+            leaf_unlocks: Vec::new(),
         })
     } else if let Some((second_inheritance_branch, ms_second_inheritance)) = &second_inheritance {
         // 4-leaf tree, no protector: founder(d1) / recovery(d2) /
@@ -761,6 +775,7 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
             descriptor,
             miniscript_policy,
             leaf_scripts: Vec::new(),
+            leaf_unlocks: Vec::new(),
         })
     } else {
         let builder = TaprootBuilder::new()
@@ -794,6 +809,7 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
             descriptor,
             miniscript_policy,
             leaf_scripts: Vec::new(),
+            leaf_unlocks: Vec::new(),
         })
     }
 }
@@ -1566,6 +1582,8 @@ pub fn build_leaf_multileaf(policy: &LeafPolicy) -> Result<MultileafOutput, Poli
     let founder_leaf = compiled[0].2.encode();
 
     let policy_strs: Vec<String> = compiled.iter().map(|(_, s, _)| s.clone()).collect();
+    let leaf_unlocks: Vec<(String, Unlock)> =
+        flat.iter().map(|leaf| (leaf.id.clone(), leaf.unlock)).collect();
 
     Ok(MultileafOutput {
         spend_info,
@@ -1578,6 +1596,7 @@ pub fn build_leaf_multileaf(policy: &LeafPolicy) -> Result<MultileafOutput, Poli
         descriptor,
         miniscript_policy: nest_or(&policy_strs),
         leaf_scripts,
+        leaf_unlocks,
     })
 }
 
@@ -2858,6 +2877,50 @@ mod leaf_policy_tests {
             let script_ver = (script.clone(), LeafVersion::TapScript);
             assert!(out.spend_info.control_block(&script_ver).is_some());
         }
+    }
+
+    #[test]
+    fn leaf_unlocks_reports_the_right_type_per_leaf_including_decay_rungs() {
+        let policy = LeafPolicy {
+            leaves: vec![
+                Leaf {
+                    id: "primary".into(),
+                    label: "Founders".into(),
+                    keys: founders(),
+                    quorum: 2,
+                    unlock: Unlock::Immediate,
+                    decay: None,
+                },
+                Leaf {
+                    id: "recovery".into(),
+                    label: "Recovery".into(),
+                    keys: founders(),
+                    quorum: 1,
+                    unlock: Unlock::After { blocks: 100_000 },
+                    decay: None,
+                },
+                Leaf {
+                    id: "heirs".into(),
+                    label: "Heirs".into(),
+                    keys: heirs(),
+                    quorum: 2,
+                    unlock: Unlock::After { blocks: 200_000 },
+                    decay: Some(DecayConfig { step_blocks: 26_280, floor_quorum: 1 }),
+                },
+            ],
+            consent_keys: vec![],
+            consent_quorum: None,
+        };
+        let out = build_leaf_multileaf(&policy).unwrap();
+        let find = |id: &str| out.leaf_unlocks.iter().find(|(i, _)| i == id).map(|(_, u)| *u);
+
+        assert_eq!(find("primary"), Some(Unlock::Immediate));
+        assert_eq!(find("recovery"), Some(Unlock::After { blocks: 100_000 }));
+        // Decay rungs are id-suffixed by expand_decay ("heirs_0", "heirs_1")
+        // and each carries its OWN resolved height, not the leaf's original one.
+        assert_eq!(find("heirs_0"), Some(Unlock::After { blocks: 200_000 }));
+        assert_eq!(find("heirs_1"), Some(Unlock::After { blocks: 226_280 }));
+        assert_eq!(out.leaf_unlocks.len(), out.leaf_scripts.len());
     }
 
     #[test]
