@@ -503,6 +503,24 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **The 2026-08-06 fix below was incomplete -- server-side copy still had the
+  bug (2026-08-16).** `apps/web/src/lib/descriptor-keys.ts`'s `upgradeDescriptor`
+  was the only copy fixed on 2026-08-06. `netlify/functions/vaults-compile.js`
+  has its OWN separate, duplicate `upgradeDescriptor` function -- and that one
+  runs first, server-side, consuming the raw pubkey substrings before the
+  browser ever sees the descriptor. So the browser's `/0/0` fix was a silent
+  no-op for every standard-shape vault compiled through `/api/vaults-compile`
+  the entire time. Caught by tracing a real, live Gift Locker vault's
+  descriptor, which still showed `/0/*`. Both copies now emit `/0/0`. Good
+  news for anyone whose vault already has the stale text: the address was
+  NEVER wrong -- `/0/*` and `/0/0` derive the identical key at index 0, so
+  this is purely a descriptor-notation bug, not a fund-safety one. Run
+  `db/migrations/043_repair_ranged_descriptor_notation.sql` once to patch the
+  stored `descriptor` text in place; no recompile, no address change, no
+  funds touched. `Bloc`/`Tranche` (`vaults-compile-bloc.js`,
+  `distribution-wallets.js`) never called `upgradeDescriptor` at all -- a
+  separate, already-known, still-open limitation, not touched by this fix.
+
 - **Fixed, non-ranged key-origin descriptor (2026-08-06).** `upgradeDescriptor`
   now emits `[fp/path]xpub/0/0`, not a `/0/*` wildcard range. This vault is a
   single fixed address by design (see "Address type" above) -- a ranged
