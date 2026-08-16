@@ -37,7 +37,7 @@ async function looksLikeAValidAddress(address, network) {
 }
 
 const VAULT_FIELDS =
-  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc, predecessor_id, duress, bloc_policy, leaf_scripts, backup_keys, backup_quorum, second_heir_keys, second_heir_quorum, second_inheritance_after, key_labels";
+  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc, predecessor_id, duress, bloc_policy, leaf_scripts, backup_keys, backup_quorum, second_heir_keys, second_heir_quorum, second_inheritance_after, key_labels, leaves";
 
 // key_labels is keyed off whatever string actually appears in
 // vaults.founder_keys/heir_keys/etc -- keyStoreValue() in
@@ -141,9 +141,30 @@ export async function handler(event) {
     const isDraft = body.mode === "draft";
     const isBloc = body.mode === "bloc";
     const isBlocDraft = body.mode === "bloc-draft";
+    const isLeavesDraft = body.mode === "leaves-draft";
     let insertRow;
 
-    if (isBlocDraft) {
+    if (isLeavesDraft) {
+      // Shape-only generic leaf-list vault (the "toggle-a-leaf" builder,
+      // migration 042): mirrors bloc-draft above -- address/descriptor
+      // null, status "draft", the leaf list stored as whatever's already
+      // configured (partial or empty is fine; filling every leaf's keys
+      // and compiling for real happens later, via compile-leaves.js,
+      // which validates the full list at that point, not here).
+      insertRow = {
+        user_id: u.userId,
+        name: body.name || "Vault",
+        network,
+        address_type,
+        address: null,
+        descriptor: null,
+        miniscript_policy: null,
+        leaves: Array.isArray(body.leaves) ? body.leaves : [],
+        consent_keys: body.consent_keys ?? [],
+        consent_quorum: body.consent_quorum ?? null,
+        status: "draft",
+      };
+    } else if (isBlocDraft) {
       // Shape-only Bloc vault: the operator picked "pass it to my kids"
       // and tuned quorums/timelocks, but hasn't filled every parent/kid
       // key slot yet. Mirrors the standard draft path (address/descriptor
@@ -299,7 +320,7 @@ export async function handler(event) {
     await supabase.from("vault_events").insert({
       vault_id: data.id,
       user_id: u.userId,
-      event_type: isDraft || isBlocDraft ? "draft_created" : "created",
+      event_type: isDraft || isBlocDraft || isLeavesDraft ? "draft_created" : "created",
       metadata: isDraft
         ? {
             address_type,
@@ -389,13 +410,22 @@ export async function handler(event) {
       return json(200, { ok: true, vault: data });
     }
 
-    const allowed = ["name", "archived", "trust_doc", "duress", "network"];
+    // leaves/consent_keys/consent_quorum: lets the leaf-card builder
+    // (task #141) save the operator's in-progress configuration to a
+    // "leaves-draft" row between visits, the same way a standard draft's
+    // founder_quorum/recovery_after/etc. are set once at creation and
+    // left alone thereafter -- these three are the leaf-list shape's
+    // equivalent, just editable post-creation since the whole point of
+    // the leaf-card builder is configuring further after picking a
+    // starting shape. Only ever meaningful pre-compile; compile-leaves.js
+    // reads them once and the vault moves to status "compiled" after.
+    const allowed = ["name", "archived", "trust_doc", "duress", "network", "leaves", "consent_keys", "consent_quorum"];
     const updates = Object.fromEntries(
       Object.entries(body).filter(([k]) => allowed.includes(k))
     );
 
     if (Object.keys(updates).length === 0) {
-      return json(400, { error: "No updatable fields provided (allowed: name, archived, duress, network, key_label)" });
+      return json(400, { error: "No updatable fields provided (allowed: name, archived, duress, network, leaves, consent_keys, consent_quorum, key_label)" });
     }
 
     // Network is only safe to change while the vault is still a draft --
@@ -420,6 +450,27 @@ export async function handler(event) {
       if (existing.user_id !== u.userId) return json(403, { error: "Not your vault" });
       if (existing.status !== "draft") {
         return json(400, { error: "Network can only be changed while the vault is still a draft, before it's compiled." });
+      }
+    }
+
+    // Same reasoning as the network guard above: leaves/consent_keys/
+    // consent_quorum describe the policy compile-leaves.js turns into a
+    // real descriptor + address. Editing them after that has already
+    // happened would leave the stored policy describing a different
+    // vault than the one the funded address actually is -- the compiled
+    // tree can never change without a new address, per the standing
+    // "recompile from a fresh draft" rule.
+    if (updates.leaves !== undefined || updates.consent_keys !== undefined || updates.consent_quorum !== undefined) {
+      const { data: existing, error: fetchErr } = await supabase
+        .from("vaults")
+        .select("status, user_id")
+        .eq("id", id)
+        .maybeSingle();
+      if (fetchErr) return json(500, { error: fetchErr.message });
+      if (!existing) return json(404, { error: "Vault not found" });
+      if (existing.user_id !== u.userId) return json(403, { error: "Not your vault" });
+      if (existing.status !== "draft") {
+        return json(400, { error: "Leaves can only be changed while the vault is still a draft, before it's compiled." });
       }
     }
 

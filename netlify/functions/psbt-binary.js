@@ -82,6 +82,38 @@ function leafCountForTree(vault) {
   return n;
 }
 
+// Generic leaf-list vault equivalents of leafSignerCounts/leafCountForTree
+// above -- same fee-estimation role, but reading vault.leaves (migration
+// 042) instead of the named founder/heir/etc columns. A decay-bearing
+// leaf expands into (quorum - floor_quorum + 1) rungs at compile time
+// (protocol::expand_decay), so its tree-depth contribution is counted the
+// same way here; `path` naming a specific rung id ("heirs_1") falls back
+// to the base leaf id (before the "_N" suffix) since the draft's own
+// leaf list only ever stores one entry per leaf, not per rung.
+function leafListSignerCounts(vault, path) {
+  const leaves = vault.leaves || [];
+  let leaf = leaves.find((l) => l.id === path);
+  if (!leaf) {
+    const base = path.replace(/_\d+$/, '');
+    leaf = leaves.find((l) => l.id === base);
+  }
+  if (!leaf) return { quorum: 0, total: 0 };
+  return { quorum: leaf.quorum, total: (leaf.keys || []).length };
+}
+
+function leafListCountForTree(vault) {
+  const leaves = vault.leaves || [];
+  let n = 0;
+  for (const leaf of leaves) {
+    if (leaf.decay && typeof leaf.decay.floor_quorum === 'number') {
+      n += Math.max(1, leaf.quorum - leaf.decay.floor_quorum + 1);
+    } else {
+      n += 1;
+    }
+  }
+  return Math.max(n, 1);
+}
+
 // Size a script-path (tapscript leaf) taproot input properly instead of
 // assuming a plain key-path spend. multi_a(quorum, total) puts one witness
 // stack item per key slot (a 64-byte Schnorr signature + 1-byte push length
@@ -129,7 +161,7 @@ export async function handler(event) {
   const supabase = getSupabaseAdmin();
   const { data: vault, error } = await supabase
     .from('vaults')
-    .select('id, name, address, network, descriptor, address_type, recovery_after, inheritance_after, recovery_quorum, founder_quorum, heir_quorum, founder_keys, heir_keys, consent_keys, consent_quorum, protector_keys, protector_quorum, protector_after, backup_keys, backup_quorum, second_heir_keys, second_heir_quorum, second_inheritance_after, key_origins')
+    .select('id, name, address, network, descriptor, address_type, recovery_after, inheritance_after, recovery_quorum, founder_quorum, heir_quorum, founder_keys, heir_keys, consent_keys, consent_quorum, protector_keys, protector_quorum, protector_after, backup_keys, backup_quorum, second_heir_keys, second_heir_quorum, second_inheritance_after, key_origins, leaves')
     .eq('id', vault_id)
     .maybeSingle();
 
@@ -155,14 +187,34 @@ export async function handler(event) {
     if (k.length === 66) return k; // already pubkey hex
     return pubkeyFromXpub(k); // throws "Version mismatch" etc.
   };
+  // Generic leaf-list vault (migration 042): vault.leaves, when present,
+  // is authoritative over the named founder/heir/etc columns, the same
+  // way compiler/src/main.rs's psbt_binary treats req.leaves as
+  // authoritative over its own named-field request fields.
+  const isLeafList = Array.isArray(vault.leaves) && vault.leaves.length > 0;
+
   let founderPubkeys, heirPubkeys, consentPubkeys, protectorPubkeys, backupPubkeys, secondHeirPubkeys;
+  let leafListWire;
   try {
-    founderPubkeys = (vault.founder_keys || []).map(toPubkeyHex);
-    heirPubkeys = (vault.heir_keys || []).map(toPubkeyHex);
-    consentPubkeys = (vault.consent_keys || []).map(toPubkeyHex);
-    protectorPubkeys = (vault.protector_keys || []).map(toPubkeyHex);
-    backupPubkeys = (vault.backup_keys || []).map(toPubkeyHex);
-    secondHeirPubkeys = (vault.second_heir_keys || []).map(toPubkeyHex);
+    if (isLeafList) {
+      leafListWire = vault.leaves.map((leaf) => ({
+        id: leaf.id,
+        label: leaf.label || leaf.id,
+        keys: (leaf.keys || []).map(toPubkeyHex),
+        quorum: leaf.quorum,
+        unlock: leaf.unlock,
+        decay: leaf.decay ?? null,
+      }));
+      founderPubkeys = heirPubkeys = protectorPubkeys = backupPubkeys = secondHeirPubkeys = [];
+      consentPubkeys = (vault.consent_keys || []).map(toPubkeyHex);
+    } else {
+      founderPubkeys = (vault.founder_keys || []).map(toPubkeyHex);
+      heirPubkeys = (vault.heir_keys || []).map(toPubkeyHex);
+      consentPubkeys = (vault.consent_keys || []).map(toPubkeyHex);
+      protectorPubkeys = (vault.protector_keys || []).map(toPubkeyHex);
+      backupPubkeys = (vault.backup_keys || []).map(toPubkeyHex);
+      secondHeirPubkeys = (vault.second_heir_keys || []).map(toPubkeyHex);
+    }
   } catch (e) {
     return json(500, { error: 'Could not derive /0/0 pubkey from vault xpubs: ' + e.message });
   }
@@ -231,8 +283,10 @@ export async function handler(event) {
   // founders leaf costs meaningfully more vbytes than a 1-of-1 leaf would,
   // and either is bigger than a plain key-path spend.
   const rate = fee_rate || await getFeeRate(network);
-  const { quorum: leafQuorum, total: leafTotal } = leafSignerCounts(vault, path);
-  const treeDepth = Math.ceil(Math.log2(Math.max(leafCountForTree(vault), 2)));
+  const { quorum: leafQuorum, total: leafTotal } = isLeafList
+    ? leafListSignerCounts(vault, path)
+    : leafSignerCounts(vault, path);
+  const treeDepth = Math.ceil(Math.log2(Math.max(isLeafList ? leafListCountForTree(vault) : leafCountForTree(vault), 2)));
   const inputVbytes = (leafQuorum > 0 && leafTotal > 0)
     ? estimateTapscriptInputVbytes(leafQuorum, leafTotal, treeDepth)
     : TR_INPUT_VBYTES; // fallback: leaf config missing/unexpected shape
@@ -372,39 +426,52 @@ export async function handler(event) {
         // Pass vault policy params so compiler can attach tap_leaf_script
         // This is required for Coldcard/Passport/Keystone to sign correctly
         address_type:      vault.address_type || 'tr',
-        founder_keys:      founderPubkeys,
-        founder_quorum:    vault.founder_quorum,
-        recovery_quorum:   vault.recovery_quorum ?? null,
-        heir_keys:         heirPubkeys,
-        heir_quorum:       vault.heir_quorum,
-        recovery_after:    vault.recovery_after,
-        inheritance_after: vault.inheritance_after,
         // Fly compiler needs the intended leaf so it can set
-        // tx.lock_time for CLTV-gated paths. Everything except
-        // founders_now requires an absolute nLockTime that matches
-        // the leaf's after(N).
+        // tx.lock_time (After) or every input's nSequence (OlderThan).
+        // Everything except an Immediate leaf requires one of the two to
+        // match the leaf's own unlock -- see CLAUDE.md's timelock section.
         path,
         key_origins: keyOrigins,
-        ...(consentPubkeys.length > 0 && vault.consent_quorum != null
-          ? { consent_keys: consentPubkeys, consent_quorum: vault.consent_quorum }
-          : {}),
-        ...(protectorPubkeys.length > 0 && vault.protector_quorum != null && vault.protector_after != null
+        ...(isLeafList
           ? {
-              protector_keys: protectorPubkeys,
-              protector_quorum: vault.protector_quorum,
-              protector_after: vault.protector_after,
+              // Generic leaf-list vault: forward the leaf list as-is,
+              // authoritative over every named field below (which stays
+              // absent here). Mirrors compiler/src/main.rs's own
+              // req.leaves-present branch in psbt_binary.
+              leaves: leafListWire,
+              ...(consentPubkeys.length > 0 && vault.consent_quorum != null
+                ? { consent_keys: consentPubkeys, consent_quorum: vault.consent_quorum }
+                : {}),
             }
-          : {}),
-        ...(backupPubkeys.length > 0 && vault.backup_quorum != null
-          ? { backup_keys: backupPubkeys, backup_quorum: vault.backup_quorum }
-          : {}),
-        ...(secondHeirPubkeys.length > 0 && vault.second_heir_quorum != null && vault.second_inheritance_after != null
-          ? {
-              second_heir_keys: secondHeirPubkeys,
-              second_heir_quorum: vault.second_heir_quorum,
-              second_inheritance_after: vault.second_inheritance_after,
-            }
-          : {}),
+          : {
+              founder_keys:      founderPubkeys,
+              founder_quorum:    vault.founder_quorum,
+              recovery_quorum:   vault.recovery_quorum ?? null,
+              heir_keys:         heirPubkeys,
+              heir_quorum:       vault.heir_quorum,
+              recovery_after:    vault.recovery_after,
+              inheritance_after: vault.inheritance_after,
+              ...(consentPubkeys.length > 0 && vault.consent_quorum != null
+                ? { consent_keys: consentPubkeys, consent_quorum: vault.consent_quorum }
+                : {}),
+              ...(protectorPubkeys.length > 0 && vault.protector_quorum != null && vault.protector_after != null
+                ? {
+                    protector_keys: protectorPubkeys,
+                    protector_quorum: vault.protector_quorum,
+                    protector_after: vault.protector_after,
+                  }
+                : {}),
+              ...(backupPubkeys.length > 0 && vault.backup_quorum != null
+                ? { backup_keys: backupPubkeys, backup_quorum: vault.backup_quorum }
+                : {}),
+              ...(secondHeirPubkeys.length > 0 && vault.second_heir_quorum != null && vault.second_inheritance_after != null
+                ? {
+                    second_heir_keys: secondHeirPubkeys,
+                    second_heir_quorum: vault.second_heir_quorum,
+                    second_inheritance_after: vault.second_inheritance_after,
+                  }
+                : {}),
+            }),
       }),
     });
 

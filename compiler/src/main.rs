@@ -251,7 +251,7 @@ fn base64_encode(data: &[u8]) -> String {
 async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "ok": true, "service": "dynastytrust-compiler",
-        "endpoints": ["/health","/compile","/compile-bloc","/compile-tranche","/psbt-binary","/psbt-binary-bloc","/psbt-binary-tranche","/psbt-finalize","/psbt-merge","/governance/status","/governance/audit"]
+        "endpoints": ["/health","/compile","/compile-bloc","/compile-tranche","/compile-leaves","/psbt-binary","/psbt-binary-bloc","/psbt-binary-tranche","/psbt-finalize","/psbt-merge","/governance/status","/governance/audit"]
     }))
 }
 
@@ -494,6 +494,63 @@ async fn compile_bloc(
         // Bloc vaults are a different vault family, not part of the Tapit
         // Circle vault-membership flow -- no per-role leaf export needed here.
         leaf_scripts: None,
+    }))
+}
+
+// ── /compile-leaves ──────────────────────────────────────────────────────────
+// Compile a generic leaf-list vault (the "toggle-a-leaf" builder) --
+// mirrors /compile-bloc: single-owner-held, the caller (the wizard,
+// once every leaf's keys are filled) sends the finished leaf list
+// directly rather than the server reading vault_members. Timelock
+// fields are ABSOLUTE for After leaves and a DURATION for OlderThan
+// leaves (the caller, netlify/functions/compile-leaves.js, converts
+// only the After leaves' relative offsets via tip + offset before
+// forwarding here -- an OlderThan leaf's block count is never an
+// offset from anything, it's measured from whichever UTXO is spent).
+
+#[derive(Deserialize)]
+struct CompileLeavesRequest {
+    name: Option<String>,
+    network: String,
+    leaves: Vec<LeafSpecWire>,
+    #[serde(default)]
+    consent_keys: Vec<String>,
+    #[serde(default)]
+    consent_quorum: Option<usize>,
+}
+
+async fn compile_leaves(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<CompileLeavesRequest>,
+) -> Result<Json<CompileResponse>, ApiError> {
+    check_auth(&headers, &state)?;
+    let network = parse_network(&req.network).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
+    let policy = parse_leaf_policy(&req.leaves, &req.consent_keys, req.consent_quorum)
+        .map_err(|e| api_err(StatusCode::BAD_REQUEST, format!("bad leaf policy: {e}")))?;
+    let out = build_leaf_multileaf(&policy)
+        .map_err(|e| api_err(StatusCode::BAD_REQUEST, format!("leaf policy rejected: {e}")))?;
+
+    let addr = bitcoin::Address::p2tr_tweaked(out.spend_info.output_key(), network);
+    use miniscript::{Descriptor, DescriptorPublicKey};
+    let _: Descriptor<DescriptorPublicKey> = Descriptor::from_str(&out.descriptor)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, format!("descriptor round-trip: {e:?}")))?;
+
+    let leaf_scripts: std::collections::HashMap<String, String> = out
+        .leaf_scripts
+        .iter()
+        .map(|(id, s)| (id.clone(), hex::encode(s.as_bytes())))
+        .collect();
+
+    Ok(Json(CompileResponse {
+        ok: true,
+        name: req.name.unwrap_or_else(|| "Vault".to_string()),
+        network: req.network,
+        address_type: "tr_multileaf".to_string(),
+        miniscript_policy: out.miniscript_policy,
+        descriptor: out.descriptor,
+        address: addr.to_string(),
+        leaf_scripts: Some(leaf_scripts),
     }))
 }
 
@@ -1406,6 +1463,7 @@ async fn main() {
         .route("/compile",           post(compile))
         .route("/compile-bloc",      post(compile_bloc))
         .route("/compile-tranche",   post(compile_tranche))
+        .route("/compile-leaves",    post(compile_leaves))
         .route("/psbt-binary",       post(psbt_binary))
         .route("/psbt-binary-bloc",  post(psbt_binary_bloc))
         .route("/psbt-binary-tranche", post(psbt_binary_tranche))
@@ -2169,6 +2227,72 @@ mod psbt_binary_tests {
     async fn leaf_list_unknown_path_is_rejected_not_defaulted_to_primary() {
         let err = build_leaf_psbt("nonexistent").await.unwrap_err();
         assert_eq!(err.0, StatusCode::BAD_REQUEST);
+    }
+}
+
+#[cfg(test)]
+mod compile_leaves_tests {
+    use super::*;
+
+    fn wire_leaves() -> Vec<LeafSpecWire> {
+        vec![
+            LeafSpecWire {
+                id: "primary".into(),
+                label: "Founders".into(),
+                keys: vec![
+                    "02a3ed2c2b57903abe5b89108c66f4a144e8a316af2f013b739cf8975fc0365e97".into(),
+                    "02d76c6752934c92bcafb0e575051b36e5ac4035db5329544521e203d6a7337569".into(),
+                ],
+                quorum: 2,
+                unlock: LeafUnlockWire { kind: "immediate".into(), blocks: None },
+                decay: None,
+            },
+            LeafSpecWire {
+                id: "inheritance".into(),
+                label: "Inheritance".into(),
+                keys: vec!["03defdea4cdb677750a420fee807eacf21eb9898ae79b9768766e4faa04a2d4a34".into()],
+                quorum: 1,
+                unlock: LeafUnlockWire { kind: "after".into(), blocks: Some(200_000) },
+                decay: None,
+            },
+        ]
+    }
+
+    #[tokio::test]
+    async fn compiles_a_valid_leaf_list_and_returns_leaf_scripts_by_id() {
+        let (state, headers) = test_auth_state_and_headers();
+        let req = CompileLeavesRequest {
+            name: Some("Test Vault".into()),
+            network: "testnet".into(),
+            leaves: wire_leaves(),
+            consent_keys: vec![],
+            consent_quorum: None,
+        };
+        let Json(resp) = compile_leaves(State(state), headers, Json(req)).await.unwrap();
+        assert!(resp.ok);
+        assert_eq!(resp.address_type, "tr_multileaf");
+        assert!(!resp.address.is_empty());
+        let scripts = resp.leaf_scripts.expect("leaf_scripts must be populated");
+        assert!(scripts.contains_key("primary"));
+        assert!(scripts.contains_key("inheritance"));
+    }
+
+    #[tokio::test]
+    async fn a_leaf_list_with_no_immediate_leaf_is_rejected() {
+        let (state, headers) = test_auth_state_and_headers();
+        let mut leaves = wire_leaves();
+        leaves[0].unlock = LeafUnlockWire { kind: "after".into(), blocks: Some(100_000) };
+        let req = CompileLeavesRequest {
+            name: None,
+            network: "testnet".into(),
+            leaves,
+            consent_keys: vec![],
+            consent_quorum: None,
+        };
+        match compile_leaves(State(state), headers, Json(req)).await {
+            Ok(_) => panic!("a leaf policy with no Immediate leaf must be rejected"),
+            Err(err) => assert_eq!(err.0, StatusCode::BAD_REQUEST),
+        }
     }
 }
 
