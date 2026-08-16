@@ -495,6 +495,304 @@ pub fn audit_spend(policy: &VaultPolicy, spend: &ProposedSpend) -> GovernanceAud
     GovernanceAudit { violations, warnings, notes, approved }
 }
 
+// ── Generic leaf-list governance (toggle-a-leaf builder) ───────────────────────
+//
+// Alongside, never replacing, SpendingPath / VaultPolicy / evaluate_vault_status
+// above -- those keep serving every already-compiled named-leaf vault,
+// completely untouched. This section closes a real, already-documented gap:
+// SpendingPath only ever modeled 3 of the 6 leaf types the compiler has
+// actually supported since 2026-08 -- protector, backup, and second-
+// inheritance spends were invisible to governance entirely, unaudited (the
+// compiler/src/main.rs /governance/audit handler explicitly rejects those
+// path strings today). A leaf-list vault names its OWN paths (arbitrary
+// ids, not a fixed enum), so a plain String id plus a LeafSummary (mirroring
+// policy_compiler::Leaf/Unlock's shape without a dependency on that crate's
+// Taproot-building internals) replaces the enum for this generic case.
+
+/// Mirrors policy_compiler::Unlock without a crate dependency.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum LeafUnlock {
+    Immediate,
+    After { blocks: u32 },
+    #[serde(rename = "older")]
+    OlderThan { blocks: u32 },
+}
+
+/// One leaf's shape, as governance needs to know it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LeafSummary {
+    pub id: String,
+    pub label: String,
+    pub quorum: usize,
+    pub key_count: usize,
+    pub unlock: LeafUnlock,
+}
+
+/// Governance parameters for a leaf-list vault.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LeafVaultPolicy {
+    pub leaves: Vec<LeafSummary>,
+}
+
+/// One leaf's live status at a given evaluation point.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LeafStatus {
+    pub id: String,
+    pub label: String,
+    pub active: bool,
+    pub blocks_until_active: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LeafVaultStatus {
+    pub current_block: u32,
+    pub leaves: Vec<LeafStatus>,
+}
+
+fn leaf_status(leaf: &LeafSummary, current_block: u32, utxo_confirmed_at: Option<u32>) -> LeafStatus {
+    match leaf.unlock {
+        LeafUnlock::Immediate => LeafStatus {
+            id: leaf.id.clone(),
+            label: leaf.label.clone(),
+            active: true,
+            blocks_until_active: None,
+        },
+        LeafUnlock::After { blocks } => {
+            let active = current_block >= blocks;
+            LeafStatus {
+                id: leaf.id.clone(),
+                label: leaf.label.clone(),
+                active,
+                blocks_until_active: if active { None } else { Some(blocks - current_block) },
+            }
+        }
+        // older(N) unlocks at utxo_confirmed_at + N, NOT at N alone --
+        // that's the whole point of a relative lock. Without knowing when
+        // the UTXO confirmed, this leaf's status can't be evaluated
+        // honestly, so it's treated as not active rather than guessed at
+        // (CLAUDE.md: "when in doubt, the safe reading wins").
+        LeafUnlock::OlderThan { blocks } => match utxo_confirmed_at {
+            Some(confirmed_at) => {
+                let unlock_height = confirmed_at.saturating_add(blocks);
+                let active = current_block >= unlock_height;
+                LeafStatus {
+                    id: leaf.id.clone(),
+                    label: leaf.label.clone(),
+                    active,
+                    blocks_until_active: if active { None } else { Some(unlock_height - current_block) },
+                }
+            }
+            None => LeafStatus {
+                id: leaf.id.clone(),
+                label: leaf.label.clone(),
+                active: false,
+                blocks_until_active: None,
+            },
+        },
+    }
+}
+
+/// `utxo_confirmed_at`: the block height the vault's current UTXO
+/// confirmed at. Needed only to evaluate an OlderThan (relative) leaf; a
+/// vault with none can pass None.
+pub fn evaluate_leaf_vault_status(
+    policy: &LeafVaultPolicy,
+    current_block: u32,
+    utxo_confirmed_at: Option<u32>,
+) -> LeafVaultStatus {
+    let leaves = policy
+        .leaves
+        .iter()
+        .map(|leaf| leaf_status(leaf, current_block, utxo_confirmed_at))
+        .collect();
+    LeafVaultStatus { current_block, leaves }
+}
+
+/// Leaf-list equivalent of SpendEvaluation -- same shape, `leaf_id: String`
+/// instead of `path: SpendingPath`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LeafSpendEvaluation {
+    pub allowed: bool,
+    pub leaf_id: String,
+    pub required_signers: usize,
+    pub provided_signers: usize,
+    pub missing_signers: usize,
+    pub timelock_satisfied: bool,
+    pub quorum_satisfied: bool,
+    pub reason: String,
+    pub pending_signer_indices: Vec<usize>,
+}
+
+/// Evaluate whether a proposed spend on the leaf named `leaf_id` is valid.
+/// Reuses SignerStatus as-is -- it was already generic, no SpendingPath
+/// dependency.
+pub fn evaluate_leaf_spend_proposal(
+    policy: &LeafVaultPolicy,
+    leaf_id: &str,
+    current_block: u32,
+    utxo_confirmed_at: Option<u32>,
+    signer_statuses: &[SignerStatus],
+) -> LeafSpendEvaluation {
+    let Some(leaf) = policy.leaves.iter().find(|l| l.id == leaf_id) else {
+        return LeafSpendEvaluation {
+            allowed: false,
+            leaf_id: leaf_id.to_string(),
+            required_signers: 0,
+            provided_signers: 0,
+            missing_signers: 0,
+            timelock_satisfied: false,
+            quorum_satisfied: false,
+            reason: format!("This vault has no path named '{leaf_id}'."),
+            pending_signer_indices: Vec::new(),
+        };
+    };
+    let status = leaf_status(leaf, current_block, utxo_confirmed_at);
+    let timelock_satisfied = status.active;
+
+    let signed_count = signer_statuses.iter().filter(|s| s.signed).count();
+    let quorum_satisfied = signed_count >= leaf.quorum;
+    let missing_signers = leaf.quorum.saturating_sub(signed_count);
+    let allowed = timelock_satisfied && quorum_satisfied;
+
+    let pending_signer_indices: Vec<usize> = signer_statuses
+        .iter()
+        .filter(|s| !s.signed)
+        .map(|s| s.index)
+        .collect();
+
+    let reason = if allowed {
+        format!(
+            "{} spend is valid. {signed_count} of {} required signatures collected.",
+            leaf.label, leaf.quorum
+        )
+    } else if !timelock_satisfied {
+        match status.blocks_until_active {
+            Some(needed) => format!(
+                "Timelock not yet satisfied for {}. Chain must reach the unlock height -- {needed} more blocks (~{:.0} days).",
+                leaf.label, needed as f64 / BLOCKS_PER_DAY
+            ),
+            None => format!(
+                "{} needs a confirmed UTXO height to evaluate its relative timelock, which wasn't provided.",
+                leaf.label
+            ),
+        }
+    } else {
+        format!(
+            "Quorum not met for {}. Need {missing_signers} more signature(s). Have {signed_count} of {}.",
+            leaf.label, leaf.quorum
+        )
+    };
+
+    LeafSpendEvaluation {
+        allowed,
+        leaf_id: leaf_id.to_string(),
+        required_signers: leaf.quorum,
+        provided_signers: signed_count,
+        missing_signers,
+        timelock_satisfied,
+        quorum_satisfied,
+        reason,
+        pending_signer_indices,
+    }
+}
+
+/// Proposed spend on a leaf-list vault -- passed to audit_leaf_spend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LeafProposedSpend {
+    pub leaf_id: String,
+    pub amount_sats: u64,
+    pub destination: String,
+    pub current_block: u32,
+    pub utxo_confirmed_at: Option<u32>,
+    pub signer_statuses: Vec<SignerStatus>,
+    pub total_vault_sats: u64,
+}
+
+/// Leaf-list equivalent of audit_spend. Reuses GovernanceRule /
+/// GovernanceViolation / GovernanceAudit / RuleSeverity as-is -- they were
+/// already generic, no SpendingPath dependency. Same GOV-001 through
+/// GOV-008 rule ids as the named-enum path, same severities; GOV-006/007
+/// (which used to be "inheritance path used" / "recovery path used",
+/// specific to the 3-leaf enum's fixed roles) collapse into one GOV-006
+/// note naming whichever non-primary leaf was actually used, since a
+/// leaf-list vault has no fixed "recovery" vs "inheritance" distinction to
+/// hang two separate notes on.
+pub fn audit_leaf_spend(policy: &LeafVaultPolicy, spend: &LeafProposedSpend) -> GovernanceAudit {
+    let mut violations = Vec::new();
+    let mut warnings = Vec::new();
+    let mut notes = Vec::new();
+
+    let add = |bucket: &mut Vec<GovernanceViolation>, id: &str, desc: &str, sev: RuleSeverity, detail: String| {
+        bucket.push(GovernanceViolation {
+            rule: GovernanceRule { id: id.to_string(), description: desc.to_string(), severity: sev },
+            detail,
+        });
+    };
+
+    let eval = evaluate_leaf_spend_proposal(
+        policy,
+        &spend.leaf_id,
+        spend.current_block,
+        spend.utxo_confirmed_at,
+        &spend.signer_statuses,
+    );
+
+    // Rule 1: Timelock must be satisfied.
+    if !eval.timelock_satisfied {
+        add(&mut violations, "GOV-001", "Timelock not satisfied", RuleSeverity::Hard, eval.reason.clone());
+    }
+
+    // Rule 2: Quorum must be met.
+    if !eval.quorum_satisfied {
+        add(&mut violations, "GOV-002", "Quorum not satisfied", RuleSeverity::Hard,
+            format!("Need {} signatures, have {}", eval.required_signers, eval.provided_signers));
+    }
+
+    // Rule 3: Dust limit.
+    if spend.amount_sats < 546 {
+        add(&mut violations, "GOV-003", "Output below dust limit", RuleSeverity::Hard,
+            format!("{} sats is below the 546 sat dust limit", spend.amount_sats));
+    }
+
+    // Rule 4: Amount exceeds vault balance.
+    if spend.amount_sats > spend.total_vault_sats {
+        add(&mut violations, "GOV-004", "Insufficient vault balance", RuleSeverity::Hard,
+            format!("Spend {} sats exceeds vault balance {} sats", spend.amount_sats, spend.total_vault_sats));
+    }
+
+    // Rule 5: Large spend warning (>50% of vault).
+    if spend.total_vault_sats > 0 && spend.amount_sats > spend.total_vault_sats / 2 {
+        add(&mut warnings, "GOV-005", "Large spend (>50% of vault)", RuleSeverity::Soft,
+            format!("Spending {:.1}% of vault balance", (spend.amount_sats as f64 / spend.total_vault_sats as f64) * 100.0));
+    }
+
+    // Rule 6: Non-primary path used -- informational note.
+    let is_primary = policy
+        .leaves
+        .iter()
+        .find(|l| matches!(l.unlock, LeafUnlock::Immediate))
+        .map(|l| l.id == spend.leaf_id)
+        .unwrap_or(false);
+    if !is_primary {
+        add(&mut notes, "GOV-006", "Non-primary path used", RuleSeverity::Info,
+            format!(
+                "This spend uses the '{}' path rather than the vault's primary immediate path. Confirm this reflects the intended action.",
+                spend.leaf_id
+            ));
+    }
+
+    // Rule 8 (GOV-007 retired -- see doc comment above): single signer on
+    // a multi-sig leaf.
+    if eval.provided_signers == 1 && eval.required_signers > 1 {
+        add(&mut notes, "GOV-008", "Only one signer so far", RuleSeverity::Info,
+            format!("{} more signature(s) still needed before this transaction can be broadcast.", eval.missing_signers));
+    }
+
+    let approved = violations.is_empty();
+    GovernanceAudit { violations, warnings, notes, approved }
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -725,5 +1023,182 @@ mod tests {
         let action = next_action(&eval);
         assert!(!action.ready_to_broadcast);
         assert!(action.signer_index.is_some());
+    }
+}
+
+// Coverage for the generic leaf-list governance layer -- proves the
+// closed gap directly: a leaf named "protector" (unauditable through the
+// SpendingPath enum above, which has no Protector variant) gets full
+// timelock/quorum/dust/balance evaluation here.
+#[cfg(test)]
+mod leaf_governance_tests {
+    use super::*;
+
+    fn three_leaf_policy() -> LeafVaultPolicy {
+        LeafVaultPolicy {
+            leaves: vec![
+                LeafSummary {
+                    id: "founders_now".into(),
+                    label: "Founders".into(),
+                    quorum: 2,
+                    key_count: 3,
+                    unlock: LeafUnlock::Immediate,
+                },
+                LeafSummary {
+                    id: "protector".into(),
+                    label: "Protector".into(),
+                    quorum: 1,
+                    key_count: 1,
+                    unlock: LeafUnlock::After { blocks: 40_000 },
+                },
+                LeafSummary {
+                    id: "refresh".into(),
+                    label: "If untouched".into(),
+                    quorum: 1,
+                    key_count: 3,
+                    unlock: LeafUnlock::OlderThan { blocks: 52_560 },
+                },
+            ],
+        }
+    }
+
+    fn signers(signed: &[usize], total: usize) -> Vec<SignerStatus> {
+        (0..total).map(|i| SignerStatus { index: i, signed: signed.contains(&i), label: None }).collect()
+    }
+
+    #[test]
+    fn immediate_leaf_is_always_active() {
+        let status = evaluate_leaf_vault_status(&three_leaf_policy(), 0, None);
+        let founders = status.leaves.iter().find(|l| l.id == "founders_now").unwrap();
+        assert!(founders.active);
+        assert!(founders.blocks_until_active.is_none());
+    }
+
+    #[test]
+    fn a_previously_unauditable_leaf_type_now_gets_real_status() {
+        // "protector" has no SpendingPath variant -- this is exactly the
+        // gap docs flagged: protector/backup/second-inheritance spends
+        // were invisible to governance entirely. Proven closed here.
+        let before = evaluate_leaf_vault_status(&three_leaf_policy(), 10_000, None);
+        let protector_before = before.leaves.iter().find(|l| l.id == "protector").unwrap();
+        assert!(!protector_before.active);
+        assert_eq!(protector_before.blocks_until_active, Some(30_000));
+
+        let after = evaluate_leaf_vault_status(&three_leaf_policy(), 40_000, None);
+        let protector_after = after.leaves.iter().find(|l| l.id == "protector").unwrap();
+        assert!(protector_after.active);
+        assert!(protector_after.blocks_until_active.is_none());
+    }
+
+    #[test]
+    fn older_leaf_without_confirmed_at_is_fail_closed() {
+        let status = evaluate_leaf_vault_status(&three_leaf_policy(), 999_999, None);
+        let refresh = status.leaves.iter().find(|l| l.id == "refresh").unwrap();
+        assert!(!refresh.active, "no confirmed-at height given -- must not guess it's active");
+    }
+
+    #[test]
+    fn older_leaf_activates_relative_to_utxo_confirmation_not_genesis() {
+        let confirmed_at = 100_000;
+        let status = evaluate_leaf_vault_status(
+            &three_leaf_policy(),
+            confirmed_at + 52_560,
+            Some(confirmed_at),
+        );
+        let refresh = status.leaves.iter().find(|l| l.id == "refresh").unwrap();
+        assert!(refresh.active, "current_block == confirmed_at + blocks -- should just be active");
+
+        let too_early = evaluate_leaf_vault_status(
+            &three_leaf_policy(),
+            confirmed_at + 10_000,
+            Some(confirmed_at),
+        );
+        let refresh_early = too_early.leaves.iter().find(|l| l.id == "refresh").unwrap();
+        assert!(!refresh_early.active);
+        assert_eq!(refresh_early.blocks_until_active, Some(42_560));
+    }
+
+    #[test]
+    fn evaluate_spend_on_unknown_leaf_id_is_rejected_not_panicked() {
+        let eval = evaluate_leaf_spend_proposal(
+            &three_leaf_policy(), "not_a_real_leaf", 100_000, None, &signers(&[0], 1),
+        );
+        assert!(!eval.allowed);
+        assert!(eval.reason.contains("no path named"));
+    }
+
+    #[test]
+    fn audit_approves_a_protector_spend_once_unlocked_and_quorum_met() {
+        let spend = LeafProposedSpend {
+            leaf_id: "protector".into(),
+            amount_sats: 100_000,
+            destination: "tb1p...".to_string(),
+            current_block: 50_000,
+            utxo_confirmed_at: None,
+            signer_statuses: signers(&[0], 1),
+            total_vault_sats: 1_000_000,
+        };
+        let audit = audit_leaf_spend(&three_leaf_policy(), &spend);
+        assert!(audit.approved, "{:?}", audit.violations);
+        assert!(audit.notes.iter().any(|n| n.rule.id == "GOV-006"), "non-primary path note expected");
+    }
+
+    #[test]
+    fn audit_rejects_protector_spend_before_its_timelock() {
+        let spend = LeafProposedSpend {
+            leaf_id: "protector".into(),
+            amount_sats: 100_000,
+            destination: "tb1p...".to_string(),
+            current_block: 1_000,
+            utxo_confirmed_at: None,
+            signer_statuses: signers(&[0], 1),
+            total_vault_sats: 1_000_000,
+        };
+        let audit = audit_leaf_spend(&three_leaf_policy(), &spend);
+        assert!(!audit.approved);
+        assert!(audit.violations.iter().any(|v| v.rule.id == "GOV-001"));
+    }
+
+    #[test]
+    fn audit_rejects_dust_and_over_balance_same_as_the_named_enum_path() {
+        let dust = LeafProposedSpend {
+            leaf_id: "founders_now".into(),
+            amount_sats: 100,
+            destination: "tb1p...".to_string(),
+            current_block: 0,
+            utxo_confirmed_at: None,
+            signer_statuses: signers(&[0, 1], 3),
+            total_vault_sats: 1_000_000,
+        };
+        let audit = audit_leaf_spend(&three_leaf_policy(), &dust);
+        assert!(audit.violations.iter().any(|v| v.rule.id == "GOV-003"));
+
+        let over_balance = LeafProposedSpend {
+            leaf_id: "founders_now".into(),
+            amount_sats: 2_000_000,
+            destination: "tb1p...".to_string(),
+            current_block: 0,
+            utxo_confirmed_at: None,
+            signer_statuses: signers(&[0, 1], 3),
+            total_vault_sats: 1_000_000,
+        };
+        let audit2 = audit_leaf_spend(&three_leaf_policy(), &over_balance);
+        assert!(audit2.violations.iter().any(|v| v.rule.id == "GOV-004"));
+    }
+
+    #[test]
+    fn audit_no_non_primary_note_when_the_primary_leaf_is_used() {
+        let spend = LeafProposedSpend {
+            leaf_id: "founders_now".into(),
+            amount_sats: 100_000,
+            destination: "tb1p...".to_string(),
+            current_block: 0,
+            utxo_confirmed_at: None,
+            signer_statuses: signers(&[0, 1], 3),
+            total_vault_sats: 1_000_000,
+        };
+        let audit = audit_leaf_spend(&three_leaf_policy(), &spend);
+        assert!(audit.approved);
+        assert!(!audit.notes.iter().any(|n| n.rule.id == "GOV-006"));
     }
 }
