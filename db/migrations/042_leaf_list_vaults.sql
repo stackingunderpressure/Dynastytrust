@@ -22,7 +22,7 @@
 --       "id": "primary",              -- caller-chosen, stable identifier;
 --                                      -- this is what proposals.path names
 --       "label": "Founders",          -- plain-language display label
---       "pubkeys": ["66hex", ...],
+--       "keys": ["66hex", ...],       -- pubkey hex, matches LeafSpecWire.keys
 --       "quorum": 2,
 --       "unlock": {"type": "immediate"}
 --               | {"type": "after", "blocks": <absolute height>}
