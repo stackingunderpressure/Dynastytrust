@@ -196,11 +196,22 @@ const LEAF_SHAPE_TABS: LeafShapeTab[] = [
   },
   {
     id: 'self-refreshing',
-    title: 'Stays strong unless I go quiet',
-    why: 'Every signer is needed as long as the vault is active. Only if it sits completely untouched for a while does it relax to needing one fewer -- and simply moving the coins resets the clock back to full strength.',
+    title: 'Active use, stays strong unless I go quiet',
+    why: 'For a vault you actually use. Every signer is needed as long as it stays active. Only if it sits completely untouched for about 13 months does it relax to needing one fewer -- and any normal spend resets the clock back to full strength, so using the vault the way you already do is what keeps it at full strength. Best for frequent spending, not a vault you plan to fund once and leave alone for years -- see "A long-term family vault" below for that.',
     build: () => [
       { ...defaultPrimaryLeaf(), plannedKeys: 3, quorum: 3 },
-      { ...defaultSecondaryLeaf('If untouched for a while'), plannedKeys: 3, quorum: 2, unlockType: 'older', olderBlocks: 52_560 },
+      { ...defaultSecondaryLeaf('If untouched for a while'), plannedKeys: 3, quorum: 2, unlockType: 'older', olderBlocks: MAX_RELATIVE_BLOCKS },
+    ],
+  },
+  {
+    id: 'long-horizon-family-vault',
+    title: 'A long-term family vault',
+    why: 'For a vault you fund once and may not touch again for years. Every stage opens on a fixed calendar date no matter what -- nothing has to be refreshed or maintained to keep the earlier stages locked, so nobody forgetting to do something ever opens a path early. An emergency path after 3 years, a full hand-off to heirs after a longer wait, and a last-resort path after 20 years in case everything else has failed by then.',
+    build: () => [
+      defaultPrimaryLeaf(),
+      { ...defaultSecondaryLeaf('Emergency'), plannedKeys: 2, quorum: 2, unlockType: 'after', afterBlocks: 157_680 },
+      { ...defaultSecondaryLeaf('Inheritance'), plannedKeys: 2, quorum: 2, unlockType: 'after', afterBlocks: 525_600 },
+      { ...defaultSecondaryLeaf('Ultimate recovery'), plannedKeys: 1, quorum: 1, unlockType: 'after', afterBlocks: 1_051_200 },
     ],
   },
 ];
