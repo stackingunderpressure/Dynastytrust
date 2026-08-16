@@ -101,6 +101,34 @@ function defaultSecondaryLeaf(label = 'New path'): LeafDraft {
   };
 }
 
+// Generic counterpart of Bloc's hardcoded "kid ladder" floor-warning
+// sentence (BehaviorTimeline's own floorWarning/kidCount pair) -- a
+// leaf-list vault's decay-enabled paths aren't always about kids, so this
+// builds the same "a single key would eventually be enough alone"
+// warning from whatever the path is actually named, naming every
+// decay-enabled path that bottoms out at a floor of 1 rather than
+// assuming there's only ever one.
+function leafFloorWarningText(drafts: LeafDraft[]): string | undefined {
+  const offenders = drafts.filter(l => l.enabled && l.decayEnabled && l.decayFloorQ === 1);
+  if (!offenders.length) return undefined;
+  const names = offenders.map(l => `"${l.label}"`).join(', ');
+  return `Heads up: ${names} eventually lets a SINGLE key spend alone. Consider a floor of 2 or higher -- so no one lost or stolen key is ever enough on its own.`;
+}
+
+// Generalizes the hand-written key-loss sentences already sitting in
+// every VaultTemplate.scenarios[] entry (vault-templates.ts) into
+// something computed live from the operator's actual quorum/count for
+// THIS path, instead of static per-template text that goes stale the
+// moment a quorum is tuned away from the template's own defaults.
+function keyLossLine(quorum: number, total: number): string {
+  if (total <= 0) return '';
+  if (quorum >= total) {
+    return `If any one of these ${total} ${total === 1 ? 'key is' : 'keys is'} lost, this path can never be used again.`;
+  }
+  const spare = total - quorum;
+  return `This path can lose up to ${spare} of these ${total} and still work -- the remaining ${quorum} can act.`;
+}
+
 function leafUnlockOf(l: LeafDraft): LeafUnlock {
   if (l.unlockType === 'immediate') return { type: 'immediate' };
   if (l.unlockType === 'after') return { type: 'after', blocks: l.afterBlocks };
@@ -988,7 +1016,7 @@ function ConfigureStep({
           <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 10 }}>
             How this vault behaves over time
           </div>
-          <BehaviorTimeline legs={leafLegs} floorWarning={false} kidCount={0} />
+          <BehaviorTimeline legs={leafLegs} floorWarningText={leafFloorWarningText(leafDrafts)} />
         </Card>
       )}
 
@@ -1401,6 +1429,9 @@ function LeavesConfigureFields({
           />
           <QuorumPicker max={primary.plannedKeys} value={primary.quorum} onChange={n => updatePrimary(l => ({ ...l, quorum: n }))} color={colors.gold} />
         </Field>
+        <p style={{ fontSize: 12, color: colors.muted, marginTop: -8 }}>
+          {keyLossLine(primary.quorum, primary.plannedKeys)}
+        </p>
       </Card>
 
       {secondaries.map((leaf, i) => (
@@ -1454,6 +1485,9 @@ function LeafCard({
             />
             <QuorumPicker max={leaf.plannedKeys} value={leaf.quorum} onChange={n => onChange(l => ({ ...l, quorum: n, decayFloorQ: Math.min(l.decayFloorQ, n) }))} color={colors.blue} />
           </Field>
+          <p style={{ fontSize: 12, color: colors.muted, marginTop: -10 }}>
+            {keyLossLine(leaf.quorum, leaf.plannedKeys)}
+          </p>
           <Field label="When does this open?">
             <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
               <Button size="sm" variant={leaf.unlockType === 'after' ? 'primary' : 'ghost'} onClick={() => onChange(l => ({ ...l, unlockType: 'after' }))}>
@@ -1706,7 +1740,23 @@ function KeysStep({
                   + (leaf.decayEnabled ? ` One fewer is needed every ${blocksToHuman(leaf.decayStepBlocks)} after that, down to ${leaf.decayFloorQ}.` : '')
                 : `Opens if the vault sits untouched for ${blocksToHuman(leaf.olderBlocks)} -- ${leaf.quorum} of `
                   + `${leaf.plannedKeys} can then spend. Moving the coins resets this clock.`;
-            return role(leaf.id, `${leaf.label} keys`, leaf.plannedKeys, leafKeys[leaf.id] ?? [], setLeafSelected, i === 0 ? colors.gold : colors.blue, description);
+            // Client-side approximation of the compiler's own
+            // find_key_reuse (policy_compiler.rs) -- computed here instead
+            // of waiting on a compile round trip, so the warning shows up
+            // the moment a key is picked into a second path, not after.
+            // Never says "leaf" or "quorum" -- docs/ux-coherence-redesign.md
+            // section 5 -- names the OTHER path in plain language instead.
+            const mySelected = leafKeys[leaf.id] ?? [];
+            const elsewhere = enabledLeaves.filter(o => o.id !== leaf.id);
+            const reusedInto = new Set(
+              elsewhere
+                .filter(o => (leafKeys[o.id] ?? []).some(ok => mySelected.some(mk => mk.keyId === ok.keyId)))
+                .map(o => o.label),
+            );
+            const reuseNote = reusedInto.size
+              ? ` Heads up: one of the keys picked below is also used in ${Array.from(reusedInto).join(', ')} -- that key can spend either path once that path's own conditions are met, not just this one.`
+              : '';
+            return role(leaf.id, `${leaf.label} keys`, leaf.plannedKeys, mySelected, setLeafSelected, i === 0 ? colors.gold : colors.blue, description + reuseNote);
           })}
         </>
       )}

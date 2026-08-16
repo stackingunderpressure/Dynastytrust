@@ -22,7 +22,21 @@ export interface SpendLeg {
 // behavior) share one implementation. The floor warning is the
 // educate-out-of-a-bad-choice guardrail: a decay rung that would let one
 // kid spend entirely alone.
-export function BehaviorTimeline({ legs, floorWarning, kidCount }: { legs: SpendLeg[]; floorWarning: boolean; kidCount: number }) {
+//
+// floorWarning/kidCount are Bloc's own original shape (kept as-is, no
+// behavior change, for its one existing call site). floorWarningText is
+// the generalization for every other caller -- the generic leaf-list
+// vault's decay-enabled paths aren't always about "kids," so a fixed
+// Bloc-flavored sentence would be misleading there; a caller that already
+// knows its own plain-language warning passes the finished sentence
+// directly instead. Either mechanism renders the same way; a caller
+// should use exactly one of them, not both.
+export function BehaviorTimeline({ legs, floorWarning, kidCount, floorWarningText }: {
+  legs: SpendLeg[];
+  floorWarning?: boolean;
+  kidCount?: number;
+  floorWarningText?: string;
+}) {
   const groups: { afterBlocks: number; legs: SpendLeg[] }[] = [];
   for (const leg of legs) {
     const g = groups.find(x => x.afterBlocks === leg.afterBlocks);
@@ -57,9 +71,10 @@ export function BehaviorTimeline({ legs, floorWarning, kidCount }: { legs: Spend
           </div>
         );
       })}
-      {floorWarning && (
+      {(floorWarning || floorWarningText) && (
         <div style={{ marginTop: 6, padding: '10px 14px', borderRadius: radii.md, background: colors.red + '11', border: `1px solid ${colors.red}33`, color: colors.red, fontSize: 12, lineHeight: 1.5 }}>
-          Heads up: the kid ladder eventually lets a SINGLE kid key spend alone (1 of {kidCount}). If the kids hold phone keys, consider a decay floor of 2 or higher -- so no one lost or stolen phone is ever enough on its own.
+          {floorWarningText ??
+            `Heads up: the kid ladder eventually lets a SINGLE kid key spend alone (1 of ${kidCount}). If the kids hold phone keys, consider a decay floor of 2 or higher -- so no one lost or stolen phone is ever enough on its own.`}
         </div>
       )}
     </div>
