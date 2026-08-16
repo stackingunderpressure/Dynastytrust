@@ -15,6 +15,7 @@ import { blocksToHuman, TIMELOCK_PRESETS } from '../lib/blocks';
 import { approxWallclockDate, blocksUntilDate } from '../lib/chain';
 import { VAULT_TEMPLATES, type VaultTemplate, type StandardConfig, type BlocConfig } from '../lib/vault-templates';
 import { buildStandardTrustDoc, buildBlocTrustDoc } from '../lib/trust-doc';
+import type { LeafSpec, LeafUnlock } from '../lib/api';
 import { colors, radii } from '../theme';
 import { Button, Input, Card, Field } from '../components/ui';
 import { useToast } from '../components/toast';
@@ -40,9 +41,141 @@ import {
 // anyone else's help to defer their own keys either (see
 // vaults-compile-bloc.js and vaults-compile.js's direct_keys mode).
 
-type Shape = 'standard' | 'bloc';
+type Shape = 'standard' | 'bloc' | 'leaves';
 type Step = 'configure' | 'keys' | 'compile' | 'backup' | 'fund' | 'done';
 type NetworkChoice = 'testnet' | 'signet' | 'bitcoin';
+
+// ── Generic leaf-list vault (the "toggle-a-leaf" builder) ───────────────
+// Configure-step working model for a LeafSpec (lib/api.ts) -- adds the
+// UI-only fields a wire LeafSpec doesn't need: plannedKeys (a count,
+// before real keys exist -- same role planned_founder_count plays for
+// the standard shape), enabled (secondary paths only; the primary path
+// is always on, matching how it always exists server-side), and split
+// afterBlocks/olderBlocks so switching unlockType never loses whichever
+// value isn't currently shown. "Leaf" and "quorum" never appear in any
+// user-facing copy built from this -- docs/ux-coherence-redesign.md
+// section 5 -- every label below calls this a "path" and phrases the
+// count as "how many people must agree."
+interface LeafDraft {
+  id: string;
+  label: string;
+  plannedKeys: number;
+  quorum: number;
+  unlockType: 'immediate' | 'after' | 'older';
+  afterBlocks: number;
+  olderBlocks: number;
+  decayEnabled: boolean;
+  decayStepBlocks: number;
+  decayFloorQ: number;
+  enabled: boolean;
+}
+
+// Mirrors protocol::MAX_RELATIVE_BLOCKS (60_000, ~13.7 months) --
+// verify_leaf_policy rejects an "if untouched for" path above this. Kept
+// in sync by hand; both sides are unlikely to change often, and this is
+// the one place the frontend needs the number at all (for the input's
+// cap and the explanatory copy next to it).
+const MAX_RELATIVE_BLOCKS = 60_000;
+
+let leafIdCounter = 0;
+function newLeafId(prefix: string): string {
+  leafIdCounter += 1;
+  return `${prefix}_${leafIdCounter}`;
+}
+
+function defaultPrimaryLeaf(): LeafDraft {
+  return {
+    id: 'primary', label: 'Everyday signers', plannedKeys: 2, quorum: 2,
+    unlockType: 'immediate', afterBlocks: 0, olderBlocks: 0,
+    decayEnabled: false, decayStepBlocks: 26_280, decayFloorQ: 1,
+    enabled: true,
+  };
+}
+
+function defaultSecondaryLeaf(label = 'New path'): LeafDraft {
+  return {
+    id: newLeafId('path'), label, plannedKeys: 1, quorum: 1,
+    unlockType: 'after', afterBlocks: 52_560, olderBlocks: 26_280,
+    decayEnabled: false, decayStepBlocks: 26_280, decayFloorQ: 1,
+    enabled: true,
+  };
+}
+
+function leafUnlockOf(l: LeafDraft): LeafUnlock {
+  if (l.unlockType === 'immediate') return { type: 'immediate' };
+  if (l.unlockType === 'after') return { type: 'after', blocks: l.afterBlocks };
+  return { type: 'older', blocks: Math.min(l.olderBlocks, MAX_RELATIVE_BLOCKS) };
+}
+
+function leafDraftToSpec(l: LeafDraft, keys: string[]): LeafSpec {
+  return {
+    id: l.id, label: l.label, keys, quorum: l.quorum, unlock: leafUnlockOf(l),
+    decay: l.decayEnabled ? { step_blocks: l.decayStepBlocks, floor_quorum: l.decayFloorQ } : null,
+  };
+}
+
+// One named starting point per shape tab -- tapping a tab REPLACES the
+// current path list with this generator's output (with a confirm step if
+// the operator has already hand-edited away from it, see
+// LeavesConfigureFields). This is the "shape becomes a preset, not a
+// one-shot prefill" refinement: switchable at any time, not fired once
+// and forgotten the way templateToStandardConfig is for the older shapes.
+interface LeafShapeTab {
+  id: string;
+  title: string;
+  why: string;
+  build: () => LeafDraft[];
+}
+
+const LEAF_SHAPE_TABS: LeafShapeTab[] = [
+  {
+    id: 'simple',
+    title: 'Just the essentials',
+    why: 'One group of signers, nothing else. The fewest moving parts -- add a path below any time you want more.',
+    build: () => [defaultPrimaryLeaf()],
+  },
+  {
+    id: 'deep-recovery',
+    title: 'A long-term fallback',
+    why: 'Your everyday signers, plus a single fallback that only opens after a long wait -- for the "everyone is gone or unreachable" case, not day-to-day use.',
+    build: () => [
+      defaultPrimaryLeaf(),
+      { ...defaultSecondaryLeaf('Long-term fallback'), plannedKeys: 1, quorum: 1, unlockType: 'after', afterBlocks: 157_680 },
+    ],
+  },
+  {
+    id: 'family-inheritance',
+    title: 'Family inheritance',
+    why: 'Everyday signers now, a shorter-wait recovery path if they go quiet, and a longer-wait path that hands off to heirs entirely.',
+    build: () => [
+      defaultPrimaryLeaf(),
+      { ...defaultSecondaryLeaf('Recovery'), plannedKeys: 2, quorum: 2, unlockType: 'after', afterBlocks: 26_280 },
+      { ...defaultSecondaryLeaf('Heirs'), plannedKeys: 2, quorum: 2, unlockType: 'after', afterBlocks: 52_560 },
+    ],
+  },
+  {
+    id: 'passing-it-on',
+    title: 'Passing it to my kids',
+    why: 'Everyday signers now; a group of heirs that starts needing everyone and, if it sits untouched, quietly needs one fewer every so often -- so losing a key over the years doesn’t lock anyone out.',
+    build: () => [
+      defaultPrimaryLeaf(),
+      {
+        ...defaultSecondaryLeaf('Heirs, decaying over time'),
+        plannedKeys: 5, quorum: 5, unlockType: 'after', afterBlocks: 52_560,
+        decayEnabled: true, decayStepBlocks: 26_280, decayFloorQ: 2,
+      },
+    ],
+  },
+  {
+    id: 'self-refreshing',
+    title: 'Stays strong unless I go quiet',
+    why: 'Every signer is needed as long as the vault is active. Only if it sits completely untouched for a while does it relax to needing one fewer -- and simply moving the coins resets the clock back to full strength.',
+    build: () => [
+      { ...defaultPrimaryLeaf(), plannedKeys: 3, quorum: 3 },
+      { ...defaultSecondaryLeaf('If untouched for a while'), plannedKeys: 3, quorum: 2, unlockType: 'older', olderBlocks: 52_560 },
+    ],
+  },
+];
 
 const DEFAULT_STANDARD_CONFIG: StandardConfig = {
   mode: 'inheritance',
@@ -114,6 +247,14 @@ function friendlyCompileError(message: string): string {
     return 'All keys in a vault must be on the same network (all testnet, all signet, or all mainnet).';
   if (m.includes('failed to fetch') || m.includes('non-json') || m.includes('502') || m.includes('503'))
     return 'The compiler did not respond. It may be waking from idle -- wait a couple of seconds and try again.';
+  if (m.includes('relativetimelockneedsabsolutefallback'))
+    return 'An "if untouched for" path can\'t be the only fallback -- add a fixed-date path too, or turn this one off.';
+  if (m.includes('relativetimelocktoolong'))
+    return `An "if untouched for" path can't wait longer than about 13.7 months (${MAX_RELATIVE_BLOCKS} blocks). Use a fixed-date path instead for a longer wait.`;
+  if (m.includes('noimmediateleaf'))
+    return 'Every vault needs at least one path that can spend right away.';
+  if (m.includes('decayrequirestimelock'))
+    return 'The step-down option only applies to a path that waits for something -- turn on a fixed date or "if untouched for" first.';
   return message;
 }
 
@@ -178,6 +319,9 @@ export default function VaultWizard() {
 
   const [stdConfig, setStdConfig] = useState<StandardConfig>(DEFAULT_STANDARD_CONFIG);
   const [blocConfig, setBlocConfig] = useState<BlocConfig>(DEFAULT_BLOC_CONFIG);
+  const [leafDrafts, setLeafDrafts] = useState<LeafDraft[]>(() => [defaultPrimaryLeaf()]);
+  const [activeLeafTab, setActiveLeafTab] = useState<string | null>(null);
+  const [leafDirty, setLeafDirty] = useState(false);
   // Kept only for its hand-written trustDoc.purpose line -- everything else
   // the trust doc needs is computed fresh from stdConfig/blocConfig at
   // compile time, so it stays accurate even if the user tunes quorums or
@@ -216,6 +360,10 @@ export default function VaultWizard() {
   const [secondHeirKeys, setSecondHeirKeys] = useState<SelectedKey[]>([]);
   const [parentKeys, setParentKeys] = useState<SelectedKey[]>([]);
   const [kidKeys, setKidKeys] = useState<SelectedKey[]>([]);
+  // Generic leaf-list vault: keyed by leaf id rather than a fixed set of
+  // named useState vars, since the id list is whatever the operator built
+  // in Configure, not a known-in-advance set of roles.
+  const [leafKeys, setLeafKeys] = useState<Record<string, SelectedKey[]>>({});
 
   const [draftVault, setDraftVault] = useState<Vault | null>(null);
   const [configuring, setConfiguring] = useState(false);
@@ -250,6 +398,9 @@ export default function VaultWizard() {
     else if (role === 'second_heir') setSecondHeirKeys(p => [...p, sk]);
     else if (role === 'parent') setParentKeys(p => [...p, sk]);
     else if (role === 'kid') setKidKeys(p => [...p, sk]);
+    // Any other role string is a leaf id from the generic leaf-list
+    // builder -- there's no fixed set of those to enumerate up front.
+    else setLeafKeys(p => ({ ...p, [role]: [...(p[role] ?? []), sk] }));
   }
 
   // Resume an existing draft. Reached from VaultDetail's "Continue setup"
@@ -401,6 +552,15 @@ export default function VaultWizard() {
           second_inheritance_after: c.secondInheritanceEnabled ? c.secondInheritanceAfter : null,
         });
         setDraftVault(res.vault);
+      } else if (shape === 'leaves') {
+        const enabled = leafDrafts.filter(l => l.enabled);
+        const res = await api.vaults.createLeavesDraft({
+          name,
+          network,
+          address_type: 'tr_multileaf',
+          leaves: enabled.map(l => leafDraftToSpec(l, [])),
+        });
+        setDraftVault(res.vault);
       } else {
         const c = blocConfig;
         const bp: Partial<BlocPolicy> = {
@@ -462,9 +622,12 @@ export default function VaultWizard() {
       const secondHeirsReady = !c.secondInheritanceEnabled || secondHeirKeys.length >= c.plannedSecondHeirs;
       return foundersReady && heirsReady && protectorsReady && consentersReady && backupsReady && secondHeirsReady;
     }
+    if (shape === 'leaves') {
+      return leafDrafts.filter(l => l.enabled).every(l => (leafKeys[l.id]?.length ?? 0) >= l.plannedKeys);
+    }
     const c = blocConfig;
     return parentKeys.length >= c.plannedParents && kidKeys.length >= c.plannedKids;
-  }, [shape, stdConfig, blocConfig, founderKeys, heirKeys, protectorKeys, consentKeys, backupKeys, secondHeirKeys, parentKeys, kidKeys]);
+  }, [shape, stdConfig, blocConfig, leafDrafts, leafKeys, founderKeys, heirKeys, protectorKeys, consentKeys, backupKeys, secondHeirKeys, parentKeys, kidKeys]);
 
   // Best-effort: the vault is already compiled and usable by the time this
   // runs, so a failed save here shouldn't surface as a compile error --
@@ -513,6 +676,21 @@ export default function VaultWizard() {
           templatePurpose: selectedTemplate?.trustDoc?.purpose,
           config: stdConfig,
         }));
+      } else if (shape === 'leaves') {
+        const enabled = leafDrafts.filter(l => l.enabled);
+        const leavesWithKeys = enabled.map(l => leafDraftToSpec(l, (leafKeys[l.id] ?? []).map(toPubkeyHex)));
+        await api.vaults.updateLeaves(draftVault.id, leavesWithKeys);
+        const res = await api.vaults.compileLeaves(draftVault.id);
+        const allLeafKeys = enabled.flatMap(l => leafKeys[l.id] ?? []);
+        const origins = buildKeyOrigins(allLeafKeys);
+        const upgraded = res.vault.descriptor ? upgradeDescriptor(res.vault.descriptor, origins) : res.vault.descriptor;
+        setCompiledVault({ ...res.vault, descriptor: upgraded });
+        // Trust-doc auto-generation for an arbitrary, operator-shaped
+        // path list has no template to draw from the way the standard
+        // and Bloc shapes do (buildStandardTrustDoc/buildBlocTrustDoc) --
+        // left blank for the owner to fill in from the Trust tab, same
+        // as saveGeneratedTrustDoc's own no-op path for a vault that
+        // already has content.
       } else {
         const res = await api.vaults.compileBloc({
           vault_id: draftVault.id,
@@ -557,6 +735,46 @@ export default function VaultWizard() {
     return legs;
   }, [blocConfig]);
 
+  // ---- Leaf-list live behavior-timeline preview (Configure step) --------
+  // Full generalization of BehaviorTimeline's grouping (an "if untouched
+  // for" path visually grouped alongside an "after" path at the same
+  // block count) is task #142's scope; this stays honest by spelling the
+  // difference out in each leg's own meaning text.
+  const leafLegs: SpendLeg[] = useMemo(() => {
+    const legs: SpendLeg[] = [];
+    for (const l of leafDrafts) {
+      if (!l.enabled) continue;
+      if (l.unlockType === 'immediate') {
+        legs.push({
+          label: l.label, who: `${l.quorum} of ${l.plannedKeys}`, afterBlocks: 0,
+          requiredSigners: l.quorum, meaning: 'Any normal spend, right away.',
+        });
+        continue;
+      }
+      const rungs = l.decayEnabled
+        ? Array.from({ length: Math.max(1, l.quorum - l.decayFloorQ + 1) }, (_, i) => l.quorum - i)
+        : [l.quorum];
+      for (const [i, q] of rungs.entries()) {
+        const isOlder = l.unlockType === 'older';
+        const base = isOlder ? l.olderBlocks : l.afterBlocks;
+        const height = base + (l.decayEnabled ? i * l.decayStepBlocks : 0);
+        legs.push({
+          label: rungs.length > 1 ? `${l.label} (${q} of ${l.plannedKeys})` : l.label,
+          who: `${q} of ${l.plannedKeys}`,
+          afterBlocks: height,
+          requiredSigners: q,
+          meaning: isOlder
+            ? `Opens if the vault sits untouched for ${blocksToHuman(height)} -- moving the coins resets this clock back to full strength.`
+            : rungs.length > 1
+              ? `From ${blocksToHuman(height)} after funding, any ${q} can spend together.`
+              : `From ${blocksToHuman(height)} after funding, on its own.`,
+          weak: l.decayEnabled && q === 1,
+        });
+      }
+    }
+    return legs;
+  }, [leafDrafts]);
+
   return (
     <div style={{ maxWidth: 760, display: 'flex', flexDirection: 'column', gap: 18 }}>
       <StepRail current={step} />
@@ -569,6 +787,10 @@ export default function VaultWizard() {
           stdConfig={stdConfig} setStdConfig={setStdConfig}
           blocConfig={blocConfig} setBlocConfig={setBlocConfig}
           blocLegs={blocLegs}
+          leafDrafts={leafDrafts} setLeafDrafts={setLeafDrafts}
+          leafLegs={leafLegs}
+          activeLeafTab={activeLeafTab} setActiveLeafTab={setActiveLeafTab}
+          leafDirty={leafDirty} setLeafDirty={setLeafDirty}
           onConfirm={confirmConfigure}
           busy={configuring}
           err={configureErr}
@@ -580,6 +802,8 @@ export default function VaultWizard() {
           shape={shape}
           stdConfig={stdConfig}
           blocConfig={blocConfig}
+          leafDrafts={leafDrafts}
+          leafKeys={leafKeys} setLeafKeys={setLeafKeys}
           allKeys={allKeys}
           founderKeys={founderKeys} setFounderKeys={setFounderKeys}
           heirKeys={heirKeys} setHeirKeys={setHeirKeys}
@@ -685,6 +909,7 @@ export default function VaultWizard() {
 function ConfigureStep({
   shape, setShape, name, setName, network, setNetwork,
   stdConfig, setStdConfig, blocConfig, setBlocConfig, blocLegs,
+  leafDrafts, setLeafDrafts, leafLegs, activeLeafTab, setActiveLeafTab, leafDirty, setLeafDirty,
   onConfirm, busy, err,
 }: {
   shape: Shape; setShape: (s: Shape) => void;
@@ -693,6 +918,10 @@ function ConfigureStep({
   stdConfig: StandardConfig; setStdConfig: (fn: (c: StandardConfig) => StandardConfig) => void;
   blocConfig: BlocConfig; setBlocConfig: (fn: (c: BlocConfig) => BlocConfig) => void;
   blocLegs: SpendLeg[];
+  leafDrafts: LeafDraft[]; setLeafDrafts: (fn: (l: LeafDraft[]) => LeafDraft[]) => void;
+  leafLegs: SpendLeg[];
+  activeLeafTab: string | null; setActiveLeafTab: (id: string | null) => void;
+  leafDirty: boolean; setLeafDirty: (b: boolean) => void;
   onConfirm: () => void;
   busy: boolean;
   err: string | null;
@@ -728,15 +957,22 @@ function ConfigureStep({
               <Button size="sm" variant={shape === 'bloc' ? 'primary' : 'ghost'} onClick={() => setShape('bloc')}>
                 Pass it to my kids
               </Button>
+              <Button size="sm" variant={shape === 'leaves' ? 'primary' : 'ghost'} onClick={() => setShape('leaves')}>
+                Build your own
+              </Button>
             </div>
           </Field>
         </div>
       </Card>
 
-      {shape === 'standard' ? (
-        <StandardConfigureFields config={stdConfig} setConfig={setStdConfig} />
-      ) : (
-        <BlocConfigureFields config={blocConfig} setConfig={setBlocConfig} />
+      {shape === 'standard' && <StandardConfigureFields config={stdConfig} setConfig={setStdConfig} />}
+      {shape === 'bloc' && <BlocConfigureFields config={blocConfig} setConfig={setBlocConfig} />}
+      {shape === 'leaves' && (
+        <LeavesConfigureFields
+          leafDrafts={leafDrafts} setLeafDrafts={setLeafDrafts}
+          activeTab={activeLeafTab} setActiveTab={setActiveLeafTab}
+          dirty={leafDirty} setDirty={setLeafDirty}
+        />
       )}
 
       {shape === 'bloc' && (
@@ -745,6 +981,14 @@ function ConfigureStep({
             How this vault behaves over time
           </div>
           <BehaviorTimeline legs={blocLegs} floorWarning={blocConfig.kidsDecayFloorQ === 1} kidCount={blocConfig.plannedKids} />
+        </Card>
+      )}
+      {shape === 'leaves' && (
+        <Card>
+          <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 10 }}>
+            How this vault behaves over time
+          </div>
+          <BehaviorTimeline legs={leafLegs} floorWarning={false} kidCount={0} />
         </Card>
       )}
 
@@ -1071,6 +1315,202 @@ function BlocConfigureFields({ config, setConfig }: { config: BlocConfig; setCon
   );
 }
 
+// ── Leaves (the "toggle-a-leaf" builder) ─────────────────────────────────
+// Operator, 2026-08-16: "Starts simple then gains complexity with each
+// [path] and purpose your solving for... show the vault structure and
+// logic and reasoning and consequences so user can shape it to fit them
+// while being informed." Shape tabs are alive, not a one-shot prefill --
+// tapping one shows why it fits (LeafShapeTab.why) and REPLACES the
+// current path list; a hand-edited list needs one confirming tap first so
+// a stray tab tap never silently discards work (leafDirty).
+function LeavesConfigureFields({
+  leafDrafts, setLeafDrafts, activeTab, setActiveTab, dirty, setDirty,
+}: {
+  leafDrafts: LeafDraft[]; setLeafDrafts: (fn: (l: LeafDraft[]) => LeafDraft[]) => void;
+  activeTab: string | null; setActiveTab: (id: string | null) => void;
+  dirty: boolean; setDirty: (b: boolean) => void;
+}) {
+  const [pendingTab, setPendingTab] = useState<string | null>(null);
+  const primary = leafDrafts[0];
+  const secondaries = leafDrafts.slice(1);
+  const activeTabInfo = LEAF_SHAPE_TABS.find(t => t.id === activeTab);
+
+  function applyTab(tab: LeafShapeTab) {
+    setLeafDrafts(() => tab.build());
+    setActiveTab(tab.id);
+    setDirty(false);
+    setPendingTab(null);
+  }
+
+  function updateLeaf(id: string, fn: (l: LeafDraft) => LeafDraft) {
+    setLeafDrafts(list => list.map(l => (l.id === id ? fn(l) : l)));
+    setDirty(true);
+  }
+
+  function updatePrimary(fn: (l: LeafDraft) => LeafDraft) {
+    updateLeaf(primary.id, fn);
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <Card>
+        <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 10 }}>
+          Start from a shape, then tune it
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {LEAF_SHAPE_TABS.map(tab => (
+            <Button
+              key={tab.id}
+              size="sm"
+              variant={activeTab === tab.id ? 'primary' : 'ghost'}
+              onClick={() => (dirty && activeTab !== tab.id ? setPendingTab(tab.id) : applyTab(tab))}
+            >
+              {tab.title}
+            </Button>
+          ))}
+        </div>
+        {activeTabInfo && (
+          <p style={{ fontSize: 12, color: colors.muted, marginTop: 10, marginBottom: 0, lineHeight: 1.5 }}>
+            {activeTabInfo.why}
+          </p>
+        )}
+        {pendingTab && (
+          <div style={{ marginTop: 12, padding: 12, background: colors.inset, borderRadius: radii.md }}>
+            <p style={{ fontSize: 12, color: colors.sub, marginTop: 0, marginBottom: 10 }}>
+              Switching starting points replaces what you've set up below. Switch anyway?
+            </p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Button size="sm" onClick={() => { const t = LEAF_SHAPE_TABS.find(x => x.id === pendingTab); if (t) applyTab(t); }}>
+                Switch anyway
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setPendingTab(null)}>Keep what I have</Button>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <SectionHeader step={1} title="Everyday signers" color={colors.gold} />
+        <p style={{ fontSize: 13, color: colors.muted, marginTop: -4, marginBottom: 14 }}>
+          Always on -- the moment enough of them agree, funds move, no waiting. Every vault needs this path.
+        </p>
+        <Field label="How many people sign?">
+          <CountStepper
+            value={primary.plannedKeys} min={1} label="signers" color={colors.gold}
+            onChange={n => updatePrimary(l => ({ ...l, plannedKeys: n, quorum: Math.min(l.quorum, n) }))}
+          />
+          <QuorumPicker max={primary.plannedKeys} value={primary.quorum} onChange={n => updatePrimary(l => ({ ...l, quorum: n }))} color={colors.gold} />
+        </Field>
+      </Card>
+
+      {secondaries.map((leaf, i) => (
+        <LeafCard
+          key={leaf.id}
+          leaf={leaf}
+          step={i + 2}
+          onChange={fn => updateLeaf(leaf.id, fn)}
+          onRemove={() => { setLeafDrafts(list => list.filter(l => l.id !== leaf.id)); setDirty(true); }}
+        />
+      ))}
+
+      <Button
+        variant="ghost"
+        onClick={() => { setLeafDrafts(list => [...list, defaultSecondaryLeaf(`Path ${list.length}`)]); setDirty(true); }}
+        style={{ alignSelf: 'flex-start' }}
+      >
+        + Add another path
+      </Button>
+    </div>
+  );
+}
+
+function LeafCard({
+  leaf, step, onChange, onRemove,
+}: {
+  leaf: LeafDraft;
+  step: number;
+  onChange: (fn: (l: LeafDraft) => LeafDraft) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <Card>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+        <SectionHeader step={step} title={leaf.label} color={colors.blue} />
+        <Button size="sm" variant="ghost" onClick={onRemove}>Remove</Button>
+      </div>
+      <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', marginBottom: leaf.enabled ? 14 : 0 }}>
+        <input type="checkbox" checked={leaf.enabled} onChange={e => onChange(l => ({ ...l, enabled: e.target.checked }))} />
+        <span style={{ fontSize: 13, color: colors.sub }}>Turn on this path</span>
+      </label>
+      {leaf.enabled && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <Field label="Path name">
+            <Input value={leaf.label} onChange={e => onChange(l => ({ ...l, label: e.target.value }))} />
+          </Field>
+          <Field label="How many people?">
+            <CountStepper
+              value={leaf.plannedKeys} min={1} label="signers" color={colors.blue}
+              onChange={n => onChange(l => ({ ...l, plannedKeys: n, quorum: Math.min(l.quorum, n) || 1, decayFloorQ: Math.min(l.decayFloorQ, n) || 1 }))}
+            />
+            <QuorumPicker max={leaf.plannedKeys} value={leaf.quorum} onChange={n => onChange(l => ({ ...l, quorum: n, decayFloorQ: Math.min(l.decayFloorQ, n) }))} color={colors.blue} />
+          </Field>
+          <Field label="When does this open?">
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              <Button size="sm" variant={leaf.unlockType === 'after' ? 'primary' : 'ghost'} onClick={() => onChange(l => ({ ...l, unlockType: 'after' }))}>
+                After a fixed date
+              </Button>
+              <Button size="sm" variant={leaf.unlockType === 'older' ? 'primary' : 'ghost'} onClick={() => onChange(l => ({ ...l, unlockType: 'older', decayEnabled: false }))}>
+                If left untouched
+              </Button>
+            </div>
+            {leaf.unlockType === 'after' ? (
+              <TimelockField label="" value={leaf.afterBlocks} onChange={v => onChange(l => ({ ...l, afterBlocks: v }))} />
+            ) : (
+              <>
+                <TimelockField label="" value={leaf.olderBlocks} onChange={v => onChange(l => ({ ...l, olderBlocks: Math.min(v, MAX_RELATIVE_BLOCKS) }))} />
+                <p style={{ fontSize: 12, color: colors.muted, marginTop: 4 }}>
+                  This clock resets every time the coins move -- it's for "the vault has sat quiet a long
+                  time," not a fixed deadline. Longest allowed is about 13.7 months
+                  ({MAX_RELATIVE_BLOCKS.toLocaleString()} blocks); for anything longer, use "after a fixed date" instead.
+                </p>
+              </>
+            )}
+          </Field>
+          {leaf.unlockType === 'after' && (
+            <div>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={leaf.decayEnabled}
+                  onChange={e => onChange(l => ({ ...l, decayEnabled: e.target.checked, decayFloorQ: Math.min(l.decayFloorQ, l.quorum) || 1 }))}
+                />
+                <span style={{ fontSize: 13, color: colors.sub }}>
+                  Need one fewer signer every so often, the longer it waits
+                </span>
+              </label>
+              {leaf.decayEnabled && (
+                <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <Field label="One fewer required every">
+                    <TimelockField label="" value={leaf.decayStepBlocks} onChange={v => onChange(l => ({ ...l, decayStepBlocks: v }))} />
+                  </Field>
+                  <Field label="Lowest it can ever drop to">
+                    <QuorumPicker max={leaf.quorum} value={leaf.decayFloorQ} onChange={n => onChange(l => ({ ...l, decayFloorQ: n }))} color={colors.red} />
+                  </Field>
+                  <p style={{ fontSize: 12, color: colors.muted, marginTop: -8 }}>
+                    Starts needing all {leaf.quorum}. Every {blocksToHuman(leaf.decayStepBlocks)} after that, one
+                    fewer is needed, down to {leaf.decayFloorQ} of {leaf.plannedKeys}.
+                    {leaf.decayFloorQ === 1 && ' A floor of 1 means a single lost or stolen key is eventually enough on its own -- consider 2 or higher.'}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
@@ -1140,7 +1580,7 @@ function TimelockField({ label, value, onChange }: { label: string; value: numbe
 // ── Keys ──────────────────────────────────────────────────────────────
 
 function KeysStep({
-  shape, stdConfig, blocConfig, allKeys,
+  shape, stdConfig, blocConfig, leafDrafts, leafKeys, setLeafKeys, allKeys,
   founderKeys, setFounderKeys, heirKeys, setHeirKeys,
   protectorKeys, setProtectorKeys, consentKeys, setConsentKeys,
   backupKeys, setBackupKeys, secondHeirKeys, setSecondHeirKeys,
@@ -1149,6 +1589,8 @@ function KeysStep({
   slotsReady, onContinue, onSaveForLater,
 }: {
   shape: Shape; stdConfig: StandardConfig; blocConfig: BlocConfig;
+  leafDrafts: LeafDraft[];
+  leafKeys: Record<string, SelectedKey[]>; setLeafKeys: (fn: (p: Record<string, SelectedKey[]>) => Record<string, SelectedKey[]>) => void;
   allKeys: LocalKey[];
   founderKeys: SelectedKey[]; setFounderKeys: (fn: (p: SelectedKey[]) => SelectedKey[]) => void;
   heirKeys: SelectedKey[]; setHeirKeys: (fn: (p: SelectedKey[]) => SelectedKey[]) => void;
@@ -1169,7 +1611,11 @@ function KeysStep({
   onContinue: () => void;
   onSaveForLater: () => void;
 }) {
-  const claimed = new Set([...founderKeys, ...heirKeys, ...protectorKeys, ...consentKeys, ...backupKeys, ...secondHeirKeys, ...parentKeys, ...kidKeys].map(k => k.keyId));
+  const enabledLeaves = leafDrafts.filter(l => l.enabled);
+  const claimed = new Set([
+    ...founderKeys, ...heirKeys, ...protectorKeys, ...consentKeys, ...backupKeys, ...secondHeirKeys, ...parentKeys, ...kidKeys,
+    ...enabledLeaves.flatMap(l => leafKeys[l.id] ?? []),
+  ].map(k => k.keyId));
   const availableKeys = allKeys.filter(k => !claimed.has(k.keyId) && keyNetworkMatches(k.network, network));
 
   function role(
@@ -1247,7 +1693,24 @@ function KeysStep({
         )}
       </Card>
 
-      {shape === 'standard' ? (
+      {shape === 'leaves' && (
+        <>
+          {enabledLeaves.map((leaf, i) => {
+            const setLeafSelected = (fn: (p: SelectedKey[]) => SelectedKey[]) =>
+              setLeafKeys(p => ({ ...p, [leaf.id]: fn(p[leaf.id] ?? []) }));
+            const description = leaf.unlockType === 'immediate'
+              ? `Can spend right away, no waiting -- needs ${leaf.quorum} of ${leaf.plannedKeys} to sign.`
+              : leaf.unlockType === 'after'
+                ? `Locked until ${blocksToHuman(leaf.afterBlocks)} from when the vault is funded. `
+                  + `After that, ${leaf.quorum} of ${leaf.plannedKeys} can spend on their own.`
+                  + (leaf.decayEnabled ? ` One fewer is needed every ${blocksToHuman(leaf.decayStepBlocks)} after that, down to ${leaf.decayFloorQ}.` : '')
+                : `Opens if the vault sits untouched for ${blocksToHuman(leaf.olderBlocks)} -- ${leaf.quorum} of `
+                  + `${leaf.plannedKeys} can then spend. Moving the coins resets this clock.`;
+            return role(leaf.id, `${leaf.label} keys`, leaf.plannedKeys, leafKeys[leaf.id] ?? [], setLeafSelected, i === 0 ? colors.gold : colors.blue, description);
+          })}
+        </>
+      )}
+      {shape !== 'leaves' && (shape === 'standard' ? (
         <>
           {role(
             'founder', 'Signing keys', stdConfig.plannedFounders, founderKeys, setFounderKeys, colors.gold,
@@ -1303,7 +1766,7 @@ function KeysStep({
               + `${blocksToHuman(blocConfig.kidsDecayStepBlocks)} after that, down to ${blocConfig.kidsDecayFloorQ}.`,
           )}
         </>
-      )}
+      ))}
 
       <div style={{ display: 'flex', gap: 10 }}>
         <Button variant="ghost" onClick={onSaveForLater}>Save and finish later</Button>

@@ -140,6 +140,39 @@ export interface Vault {
    *  that each spot of every vault and every key has a spot to assign
    *  that label to it where it needs to be." */
   key_labels: { pubkey: string; label: string }[];
+  /** Generic leaf-list vault (migration 042, the "toggle-a-leaf" builder)
+   *  -- present only for a vault created via createLeavesDraft, null for
+   *  every founders/heirs and Bloc vault. Presence, not a separate type
+   *  column, is the discriminator, same pattern as bloc_policy. Before
+   *  compile, unlock.blocks on an "after" entry is a RELATIVE offset;
+   *  compile-leaves.js overwrites it with the absolute height baked into
+   *  the compiled tree, same as recovery_after/inheritance_after above.
+   *  An "older" entry's blocks is always a duration, never converted. */
+  leaves: LeafSpec[] | null;
+}
+
+export type LeafUnlock =
+  | { type: 'immediate' }
+  | { type: 'after'; blocks: number }
+  | { type: 'older'; blocks: number };
+
+export interface LeafDecay {
+  step_blocks: number;
+  floor_quorum: number;
+}
+
+/** One spending path in a generic leaf-list vault. `keys` is empty on a
+ *  freshly-created draft (Configure only picks quorum/timing/decay --
+ *  see VaultWizard's leaf builder) and filled in before compile via
+ *  api.vaults.updateLeaves, mirroring how a standard draft's key slots
+ *  are filled in the Keys step before api.vaults.compile. */
+export interface LeafSpec {
+  id: string;
+  label: string;
+  keys: string[];
+  quorum: number;
+  unlock: LeafUnlock;
+  decay: LeafDecay | null;
 }
 
 /** The whole Bloc policy the compiler needs to rebuild the exact tree
@@ -608,6 +641,44 @@ export const api = {
       req<{ ok: true; vault: Vault }>('/vaults-compile', {
         method: 'POST',
         body: JSON.stringify(direct_keys ? { vault_id, direct_keys } : { vault_id }),
+      }),
+
+    // Shape-only generic leaf-list vault (migration 042): the primary
+    // path plus whichever secondary paths the operator picked are saved
+    // with quorum/unlock/decay set but keys empty -- mirrors
+    // createBlocDraft's role exactly, just for the generic shape instead
+    // of the fixed Bloc one. Call updateLeaves() once real keys are
+    // picked in the Keys step, then compileLeaves() to turn this into a
+    // real, spendable vault.
+    createLeavesDraft: (body: {
+      name: string;
+      network: 'testnet' | 'signet' | 'bitcoin';
+      address_type?: string;
+      leaves: LeafSpec[];
+    }) => req<{ ok: true; vault: Vault }>('/vaults', {
+      method: 'POST',
+      body: JSON.stringify({ ...body, mode: 'leaves-draft' }),
+    }),
+
+    // Saves the operator's in-progress leaf configuration onto a
+    // leaves-draft row -- draft-only server-side (same "can't touch this
+    // after compile" guard as updateNetwork above, since editing the
+    // policy after the address is derived would leave the DB describing
+    // a different vault than the one that's actually funded).
+    updateLeaves: (id: string, leaves: LeafSpec[]) =>
+      req<{ ok: true; vault: Vault }>(`/vaults?id=${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ leaves }),
+      }),
+
+    // Compiles a leaves-draft (created via createLeavesDraft, keys filled
+    // in via updateLeaves) into a live, spendable vault. Unlike
+    // compile()/compileBloc(), the keys aren't passed here -- they're
+    // already saved on the draft row by the time this is called.
+    compileLeaves: (vault_id: string) =>
+      req<{ ok: true; vault: Vault }>('/compile-leaves', {
+        method: 'POST',
+        body: JSON.stringify({ vault_id }),
       }),
 
     archive: (id: string) =>
