@@ -2046,6 +2046,130 @@ mod psbt_binary_tests {
         let (leaves, _) = psbt.outputs[1].tap_key_origins.values().next().unwrap();
         assert_eq!(leaves.len(), 1, "heir key is only in the inheritance leaf");
     }
+
+    // ── Generic leaf-list vault (req.leaves) ────────────────────────────
+    // Exercises the branch added alongside the named-field path above:
+    // leaf lookup by id, tx.lock_time for an After leaf, and -- new here
+    // -- nSequence for an OlderThan leaf, which the named-field path
+    // never sets at all (BIP68 CSV is enforced through nSequence, never
+    // lock_time).
+
+    fn sample_leaves() -> Vec<LeafSpecWire> {
+        vec![
+            LeafSpecWire {
+                id: "primary".into(),
+                label: "Founders".into(),
+                keys: vec![FOUNDER_A.into(), FOUNDER_B.into()],
+                quorum: 2,
+                unlock: LeafUnlockWire { kind: "immediate".into(), blocks: None },
+                decay: None,
+            },
+            LeafSpecWire {
+                id: "refresh".into(),
+                label: "If untouched".into(),
+                keys: vec![FOUNDER_A.into(), FOUNDER_B.into()],
+                quorum: 1,
+                unlock: LeafUnlockWire { kind: "older".into(), blocks: Some(52_560) },
+                decay: None,
+            },
+            LeafSpecWire {
+                id: "recovery".into(),
+                label: "Recovery".into(),
+                keys: vec![FOUNDER_A.into(), FOUNDER_B.into()],
+                quorum: 1,
+                unlock: LeafUnlockWire { kind: "after".into(), blocks: Some(100_000) },
+                decay: None,
+            },
+        ]
+    }
+
+    async fn build_leaf_psbt(path: &str) -> Result<Psbt, ApiError> {
+        let policy = parse_leaf_policy(&sample_leaves(), &[], None).unwrap();
+        let out = build_leaf_multileaf(&policy).unwrap();
+        let addr = bitcoin::Address::p2tr_tweaked(out.spend_info.output_key(), Network::Testnet);
+        let addr_str = addr.to_string();
+        let spk_hex = hex::encode(addr.script_pubkey().as_bytes());
+
+        let req = PsbtBinaryRequest {
+            inputs: vec![UtxoInput {
+                txid: "0000000000000000000000000000000000000000000000000000000000000001".into(),
+                vout: 0,
+                value_sats: 100_000,
+                script_pubkey: spk_hex,
+            }],
+            destination: addr_str.clone(),
+            amount_sats: 50_000,
+            fee_sats: 1_000,
+            change_address: addr_str,
+            network: "testnet".into(),
+            founder_keys: None,
+            founder_quorum: None,
+            heir_keys: None,
+            heir_quorum: None,
+            recovery_after: None,
+            inheritance_after: None,
+            address_type: Some("tr_multileaf".into()),
+            consent_keys: vec![],
+            consent_quorum: None,
+            recovery_quorum: None,
+            protector_keys: vec![],
+            protector_quorum: None,
+            protector_after: None,
+            backup_keys: vec![],
+            backup_quorum: None,
+            second_heir_keys: vec![],
+            second_heir_quorum: None,
+            second_inheritance_after: None,
+            path: Some(path.into()),
+            witness_script_hex: None,
+            key_origins: vec![],
+            leaves: Some(sample_leaves()),
+        };
+        let (state, headers) = test_auth_state_and_headers();
+        psbt_binary(State(state), headers, Json(req)).await.map(|Json(resp)| {
+            let bytes = hex::decode(resp.psbt_hex).unwrap();
+            Psbt::deserialize(&bytes).unwrap()
+        })
+    }
+
+    #[tokio::test]
+    async fn leaf_list_immediate_path_has_zero_locktime_and_no_relative_sequence() {
+        let psbt = build_leaf_psbt("primary").await.unwrap();
+        assert_eq!(psbt.unsigned_tx.lock_time, LockTime::ZERO);
+        assert_eq!(
+            psbt.unsigned_tx.input[0].sequence,
+            bitcoin::Sequence::ENABLE_RBF_NO_LOCKTIME,
+            "an Immediate leaf must not touch nSequence"
+        );
+    }
+
+    #[tokio::test]
+    async fn leaf_list_after_path_stamps_tx_lock_time_not_sequence() {
+        let psbt = build_leaf_psbt("recovery").await.unwrap();
+        assert_eq!(psbt.unsigned_tx.lock_time, LockTime::from_height(100_000).unwrap());
+        assert_eq!(
+            psbt.unsigned_tx.input[0].sequence,
+            bitcoin::Sequence::ENABLE_RBF_NO_LOCKTIME,
+            "CLTV (after) is enforced through lock_time, never nSequence"
+        );
+    }
+
+    #[tokio::test]
+    async fn leaf_list_older_path_stamps_sequence_on_every_input_not_lock_time() {
+        let psbt = build_leaf_psbt("refresh").await.unwrap();
+        assert_eq!(
+            psbt.unsigned_tx.lock_time,
+            LockTime::ZERO,
+            "CSV (older) is enforced through nSequence, never lock_time"
+        );
+        assert_eq!(psbt.unsigned_tx.input[0].sequence, bitcoin::Sequence::from_height(52_560));
+    }
+
+    #[tokio::test]
+    async fn leaf_list_unknown_path_is_rejected_not_defaulted_to_primary() {
+        let err = build_leaf_psbt("nonexistent").await.unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+    }
 }
 
 // 2026-08-11 fix regression coverage. Operator report: a real finalize

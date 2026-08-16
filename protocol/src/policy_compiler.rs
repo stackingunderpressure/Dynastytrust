@@ -3188,4 +3188,453 @@ mod leaf_policy_tests {
             "consent must not leak into the recovery leaf -- it exists precisely to rescue funds when a beneficiary won't cosign"
         );
     }
+
+    // The remaining named-branch shapes build_multileaf hand-writes,
+    // proven byte-identical against build_leaf_multileaf the same way
+    // plain_leaf_policy_... and standard_three_leaf_policy_... above do.
+    // Together with those two, every one of build_multileaf's 8 return
+    // points now has a byte-identical proof.
+
+    fn backups() -> Vec<PublicKey> {
+        vec![pk("03acd484e2f0c7f65309ad178a9f559abde09796974c57e714c35f110dfc27ccbe")]
+    }
+    fn protectors() -> Vec<PublicKey> {
+        vec![pk("02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9")]
+    }
+    fn second_heirs() -> Vec<PublicKey> {
+        vec![pk("03fff97bd5755eeea420453a14355235d382f6472f8568a18b2f057a1460297556")]
+    }
+
+    #[test]
+    fn backup_only_shape_no_inheritance_produces_byte_identical_leaves_to_the_named_branch_path() {
+        let old = DynastyPolicy {
+            founder_keys: founders(),
+            founder_quorum: 2,
+            recovery_quorum: None,
+            heir_keys: vec![],
+            heir_quorum: 0,
+            recovery_after: 0,
+            inheritance_after: 0,
+            protector_keys: vec![],
+            protector_quorum: None,
+            protector_after: None,
+            consent_keys: vec![],
+            consent_quorum: None,
+            backup_keys: backups(),
+            backup_quorum: Some(1),
+            second_heir_keys: vec![],
+            second_heir_quorum: None,
+            second_inheritance_after: None,
+        };
+        let old_out = build_multileaf(&old).unwrap();
+
+        let new_policy = LeafPolicy {
+            leaves: vec![
+                Leaf {
+                    id: "primary".into(),
+                    label: "Founders".into(),
+                    keys: founders(),
+                    quorum: 2,
+                    unlock: Unlock::Immediate,
+                    decay: None,
+                },
+                Leaf {
+                    id: "backup".into(),
+                    label: "Backup".into(),
+                    keys: backups(),
+                    quorum: 1,
+                    unlock: Unlock::Immediate,
+                    decay: None,
+                },
+            ],
+            consent_keys: vec![],
+            consent_quorum: None,
+        };
+        let new_out = build_leaf_multileaf(&new_policy).unwrap();
+
+        assert_eq!(new_out.founder_leaf, old_out.founder_leaf, "founder leaf script");
+        assert_eq!(
+            new_out.leaf_scripts.iter().find(|(id, _)| id == "backup").map(|(_, s)| s.clone()),
+            old_out.recovery_leaf,
+            "the named branch stores the untimelocked backup leaf under recovery_leaf -- see MultileafOutput's doc comment"
+        );
+        assert_eq!(new_out.descriptor, old_out.descriptor);
+        assert_eq!(new_out.spend_info.output_key(), old_out.spend_info.output_key());
+    }
+
+    #[test]
+    fn gift_locker_shape_produces_byte_identical_leaves_to_the_named_branch_path() {
+        let old = DynastyPolicy {
+            founder_keys: founders(),
+            founder_quorum: 2,
+            recovery_quorum: None,
+            heir_keys: heirs(),
+            heir_quorum: 2,
+            recovery_after: 0,
+            inheritance_after: 200_000,
+            protector_keys: vec![],
+            protector_quorum: None,
+            protector_after: None,
+            consent_keys: vec![],
+            consent_quorum: None,
+            backup_keys: vec![],
+            backup_quorum: None,
+            second_heir_keys: vec![],
+            second_heir_quorum: None,
+            second_inheritance_after: None,
+        };
+        let old_out = build_multileaf(&old).unwrap();
+
+        let new_policy = LeafPolicy {
+            leaves: vec![
+                Leaf {
+                    id: "primary".into(),
+                    label: "Founders".into(),
+                    keys: founders(),
+                    quorum: 2,
+                    unlock: Unlock::Immediate,
+                    decay: None,
+                },
+                Leaf {
+                    id: "inheritance".into(),
+                    label: "Inheritance".into(),
+                    keys: heirs(),
+                    quorum: 2,
+                    unlock: Unlock::After { blocks: 200_000 },
+                    decay: None,
+                },
+            ],
+            consent_keys: vec![],
+            consent_quorum: None,
+        };
+        let new_out = build_leaf_multileaf(&new_policy).unwrap();
+
+        assert_eq!(new_out.founder_leaf, old_out.founder_leaf);
+        assert_eq!(
+            new_out.leaf_scripts.iter().find(|(id, _)| id == "inheritance").map(|(_, s)| s.clone()),
+            old_out.inheritance_leaf,
+        );
+        assert_eq!(new_out.descriptor, old_out.descriptor);
+        assert_eq!(new_out.spend_info.output_key(), old_out.spend_info.output_key());
+    }
+
+    #[test]
+    fn gift_locker_with_second_inheritance_produces_byte_identical_leaves_to_the_named_branch_path() {
+        let old = DynastyPolicy {
+            founder_keys: founders(),
+            founder_quorum: 2,
+            recovery_quorum: None,
+            heir_keys: heirs(),
+            heir_quorum: 2,
+            recovery_after: 0,
+            inheritance_after: 200_000,
+            protector_keys: vec![],
+            protector_quorum: None,
+            protector_after: None,
+            consent_keys: vec![],
+            consent_quorum: None,
+            backup_keys: vec![],
+            backup_quorum: None,
+            second_heir_keys: second_heirs(),
+            second_heir_quorum: Some(1),
+            second_inheritance_after: Some(300_000),
+        };
+        let old_out = build_multileaf(&old).unwrap();
+
+        let new_policy = LeafPolicy {
+            leaves: vec![
+                Leaf {
+                    id: "primary".into(),
+                    label: "Founders".into(),
+                    keys: founders(),
+                    quorum: 2,
+                    unlock: Unlock::Immediate,
+                    decay: None,
+                },
+                Leaf {
+                    id: "inheritance".into(),
+                    label: "Inheritance".into(),
+                    keys: heirs(),
+                    quorum: 2,
+                    unlock: Unlock::After { blocks: 200_000 },
+                    decay: None,
+                },
+                Leaf {
+                    id: "second_inheritance".into(),
+                    label: "Second inheritance".into(),
+                    keys: second_heirs(),
+                    quorum: 1,
+                    unlock: Unlock::After { blocks: 300_000 },
+                    decay: None,
+                },
+            ],
+            consent_keys: vec![],
+            consent_quorum: None,
+        };
+        let new_out = build_leaf_multileaf(&new_policy).unwrap();
+
+        assert_eq!(new_out.founder_leaf, old_out.founder_leaf);
+        assert_eq!(
+            new_out.leaf_scripts.iter().find(|(id, _)| id == "inheritance").map(|(_, s)| s.clone()),
+            old_out.inheritance_leaf,
+        );
+        assert_eq!(
+            new_out.leaf_scripts.iter().find(|(id, _)| id == "second_inheritance").map(|(_, s)| s.clone()),
+            old_out.second_inheritance_leaf,
+        );
+        assert_eq!(new_out.descriptor, old_out.descriptor);
+        assert_eq!(new_out.spend_info.output_key(), old_out.spend_info.output_key());
+    }
+
+    #[test]
+    fn protector_shape_produces_byte_identical_leaves_to_the_named_branch_path() {
+        let old = DynastyPolicy {
+            founder_keys: founders(),
+            founder_quorum: 2,
+            recovery_quorum: None,
+            heir_keys: heirs(),
+            heir_quorum: 2,
+            recovery_after: 100_000,
+            inheritance_after: 200_000,
+            protector_keys: protectors(),
+            protector_quorum: Some(1),
+            protector_after: Some(150_000),
+            consent_keys: vec![],
+            consent_quorum: None,
+            backup_keys: vec![],
+            backup_quorum: None,
+            second_heir_keys: vec![],
+            second_heir_quorum: None,
+            second_inheritance_after: None,
+        };
+        let old_out = build_multileaf(&old).unwrap();
+
+        let new_policy = LeafPolicy {
+            leaves: vec![
+                Leaf {
+                    id: "primary".into(),
+                    label: "Founders".into(),
+                    keys: founders(),
+                    quorum: 2,
+                    unlock: Unlock::Immediate,
+                    decay: None,
+                },
+                Leaf {
+                    id: "recovery".into(),
+                    label: "Recovery".into(),
+                    keys: founders(),
+                    quorum: 2,
+                    unlock: Unlock::After { blocks: 100_000 },
+                    decay: None,
+                },
+                Leaf {
+                    id: "inheritance".into(),
+                    label: "Inheritance".into(),
+                    keys: heirs(),
+                    quorum: 2,
+                    unlock: Unlock::After { blocks: 200_000 },
+                    decay: None,
+                },
+                Leaf {
+                    id: "protector".into(),
+                    label: "Protector".into(),
+                    keys: protectors(),
+                    quorum: 1,
+                    unlock: Unlock::After { blocks: 150_000 },
+                    decay: None,
+                },
+            ],
+            consent_keys: vec![],
+            consent_quorum: None,
+        };
+        let new_out = build_leaf_multileaf(&new_policy).unwrap();
+
+        assert_eq!(new_out.founder_leaf, old_out.founder_leaf);
+        assert_eq!(
+            new_out.leaf_scripts.iter().find(|(id, _)| id == "recovery").map(|(_, s)| s.clone()),
+            old_out.recovery_leaf,
+        );
+        assert_eq!(
+            new_out.leaf_scripts.iter().find(|(id, _)| id == "inheritance").map(|(_, s)| s.clone()),
+            old_out.inheritance_leaf,
+        );
+        assert_eq!(
+            new_out.leaf_scripts.iter().find(|(id, _)| id == "protector").map(|(_, s)| s.clone()),
+            old_out.protector_leaf,
+        );
+        assert_eq!(new_out.descriptor, old_out.descriptor);
+        assert_eq!(new_out.spend_info.output_key(), old_out.spend_info.output_key());
+    }
+
+    #[test]
+    fn protector_with_second_inheritance_produces_byte_identical_leaves_to_the_named_branch_path() {
+        let old = DynastyPolicy {
+            founder_keys: founders(),
+            founder_quorum: 2,
+            recovery_quorum: None,
+            heir_keys: heirs(),
+            heir_quorum: 2,
+            recovery_after: 100_000,
+            inheritance_after: 200_000,
+            protector_keys: protectors(),
+            protector_quorum: Some(1),
+            protector_after: Some(150_000),
+            consent_keys: vec![],
+            consent_quorum: None,
+            backup_keys: vec![],
+            backup_quorum: None,
+            second_heir_keys: second_heirs(),
+            second_heir_quorum: Some(1),
+            second_inheritance_after: Some(300_000),
+        };
+        let old_out = build_multileaf(&old).unwrap();
+
+        let new_policy = LeafPolicy {
+            leaves: vec![
+                Leaf {
+                    id: "primary".into(),
+                    label: "Founders".into(),
+                    keys: founders(),
+                    quorum: 2,
+                    unlock: Unlock::Immediate,
+                    decay: None,
+                },
+                Leaf {
+                    id: "recovery".into(),
+                    label: "Recovery".into(),
+                    keys: founders(),
+                    quorum: 2,
+                    unlock: Unlock::After { blocks: 100_000 },
+                    decay: None,
+                },
+                Leaf {
+                    id: "inheritance".into(),
+                    label: "Inheritance".into(),
+                    keys: heirs(),
+                    quorum: 2,
+                    unlock: Unlock::After { blocks: 200_000 },
+                    decay: None,
+                },
+                Leaf {
+                    id: "protector".into(),
+                    label: "Protector".into(),
+                    keys: protectors(),
+                    quorum: 1,
+                    unlock: Unlock::After { blocks: 150_000 },
+                    decay: None,
+                },
+                Leaf {
+                    id: "second_inheritance".into(),
+                    label: "Second inheritance".into(),
+                    keys: second_heirs(),
+                    quorum: 1,
+                    unlock: Unlock::After { blocks: 300_000 },
+                    decay: None,
+                },
+            ],
+            consent_keys: vec![],
+            consent_quorum: None,
+        };
+        let new_out = build_leaf_multileaf(&new_policy).unwrap();
+
+        assert_eq!(new_out.founder_leaf, old_out.founder_leaf);
+        assert_eq!(
+            new_out.leaf_scripts.iter().find(|(id, _)| id == "recovery").map(|(_, s)| s.clone()),
+            old_out.recovery_leaf,
+        );
+        assert_eq!(
+            new_out.leaf_scripts.iter().find(|(id, _)| id == "inheritance").map(|(_, s)| s.clone()),
+            old_out.inheritance_leaf,
+        );
+        assert_eq!(
+            new_out.leaf_scripts.iter().find(|(id, _)| id == "protector").map(|(_, s)| s.clone()),
+            old_out.protector_leaf,
+        );
+        assert_eq!(
+            new_out.leaf_scripts.iter().find(|(id, _)| id == "second_inheritance").map(|(_, s)| s.clone()),
+            old_out.second_inheritance_leaf,
+        );
+        assert_eq!(new_out.descriptor, old_out.descriptor);
+        assert_eq!(new_out.spend_info.output_key(), old_out.spend_info.output_key());
+    }
+
+    #[test]
+    fn second_inheritance_without_protector_produces_byte_identical_leaves_to_the_named_branch_path() {
+        let old = DynastyPolicy {
+            founder_keys: founders(),
+            founder_quorum: 2,
+            recovery_quorum: None,
+            heir_keys: heirs(),
+            heir_quorum: 2,
+            recovery_after: 100_000,
+            inheritance_after: 200_000,
+            protector_keys: vec![],
+            protector_quorum: None,
+            protector_after: None,
+            consent_keys: vec![],
+            consent_quorum: None,
+            backup_keys: vec![],
+            backup_quorum: None,
+            second_heir_keys: second_heirs(),
+            second_heir_quorum: Some(1),
+            second_inheritance_after: Some(300_000),
+        };
+        let old_out = build_multileaf(&old).unwrap();
+
+        let new_policy = LeafPolicy {
+            leaves: vec![
+                Leaf {
+                    id: "primary".into(),
+                    label: "Founders".into(),
+                    keys: founders(),
+                    quorum: 2,
+                    unlock: Unlock::Immediate,
+                    decay: None,
+                },
+                Leaf {
+                    id: "recovery".into(),
+                    label: "Recovery".into(),
+                    keys: founders(),
+                    quorum: 2,
+                    unlock: Unlock::After { blocks: 100_000 },
+                    decay: None,
+                },
+                Leaf {
+                    id: "inheritance".into(),
+                    label: "Inheritance".into(),
+                    keys: heirs(),
+                    quorum: 2,
+                    unlock: Unlock::After { blocks: 200_000 },
+                    decay: None,
+                },
+                Leaf {
+                    id: "second_inheritance".into(),
+                    label: "Second inheritance".into(),
+                    keys: second_heirs(),
+                    quorum: 1,
+                    unlock: Unlock::After { blocks: 300_000 },
+                    decay: None,
+                },
+            ],
+            consent_keys: vec![],
+            consent_quorum: None,
+        };
+        let new_out = build_leaf_multileaf(&new_policy).unwrap();
+
+        assert_eq!(new_out.founder_leaf, old_out.founder_leaf);
+        assert_eq!(
+            new_out.leaf_scripts.iter().find(|(id, _)| id == "recovery").map(|(_, s)| s.clone()),
+            old_out.recovery_leaf,
+        );
+        assert_eq!(
+            new_out.leaf_scripts.iter().find(|(id, _)| id == "inheritance").map(|(_, s)| s.clone()),
+            old_out.inheritance_leaf,
+        );
+        assert_eq!(
+            new_out.leaf_scripts.iter().find(|(id, _)| id == "second_inheritance").map(|(_, s)| s.clone()),
+            old_out.second_inheritance_leaf,
+        );
+        assert_eq!(new_out.descriptor, old_out.descriptor);
+        assert_eq!(new_out.spend_info.output_key(), old_out.spend_info.output_key());
+    }
 }
