@@ -60,6 +60,13 @@ const INTENTS: Intent[] = [
     route: '/policy',
     template: 'tapit-circle',
   },
+  {
+    emoji: '🧩',
+    title: 'Build your own',
+    desc: 'None of these quite fit. Start from a shape and shape it further -- add as many paths as you need, each with its own signers and its own timing.',
+    route: '/policy',
+    template: 'leaves',
+  },
 ];
 
 export default function StartVault() {

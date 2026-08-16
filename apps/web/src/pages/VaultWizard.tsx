@@ -369,6 +369,14 @@ export default function VaultWizard() {
       window.history.replaceState({}, '');
       return;
     }
+    if (prefill.template === 'leaves') {
+      setShape('leaves');
+      setName('My Vault');
+      setLeafDrafts(() => [defaultPrimaryLeaf()]);
+      setActiveLeafTab('simple');
+      window.history.replaceState({}, '');
+      return;
+    }
     const t = VAULT_TEMPLATES.find(t => t.id === prefill.template);
     if (!t) return;
     setShape('standard');
@@ -1359,9 +1367,9 @@ function LeavesConfigureFields({
   dirty: boolean; setDirty: (b: boolean) => void;
 }) {
   const [pendingTab, setPendingTab] = useState<string | null>(null);
-  const primary = leafDrafts[0];
   const secondaries = leafDrafts.slice(1);
   const activeTabInfo = LEAF_SHAPE_TABS.find(t => t.id === activeTab);
+  const hasImmediate = leafDrafts.some(l => l.enabled && l.unlockType === 'immediate');
 
   function applyTab(tab: LeafShapeTab) {
     setLeafDrafts(() => tab.build());
@@ -1373,10 +1381,6 @@ function LeavesConfigureFields({
   function updateLeaf(id: string, fn: (l: LeafDraft) => LeafDraft) {
     setLeafDrafts(list => list.map(l => (l.id === id ? fn(l) : l)));
     setDirty(true);
-  }
-
-  function updatePrimary(fn: (l: LeafDraft) => LeafDraft) {
-    updateLeaf(primary.id, fn);
   }
 
   return (
@@ -1417,28 +1421,27 @@ function LeavesConfigureFields({
         )}
       </Card>
 
-      <Card>
-        <SectionHeader step={1} title="Everyday signers" color={colors.gold} />
-        <p style={{ fontSize: 13, color: colors.muted, marginTop: -4, marginBottom: 14 }}>
-          Always on -- the moment enough of them agree, funds move, no waiting. Every vault needs this path.
-        </p>
-        <Field label="How many people sign?">
-          <CountStepper
-            value={primary.plannedKeys} min={1} label="signers" color={colors.gold}
-            onChange={n => updatePrimary(l => ({ ...l, plannedKeys: n, quorum: Math.min(l.quorum, n) }))}
-          />
-          <QuorumPicker max={primary.plannedKeys} value={primary.quorum} onChange={n => updatePrimary(l => ({ ...l, quorum: n }))} color={colors.gold} />
-        </Field>
-        <p style={{ fontSize: 12, color: colors.muted, marginTop: -8 }}>
-          {keyLossLine(primary.quorum, primary.plannedKeys)}
-        </p>
-      </Card>
+      {hasImmediate ? null : (
+        <div style={{ padding: 12, background: colors.red + '11', border: `1px solid ${colors.red}33`, borderRadius: radii.md, color: colors.red, fontSize: 12, lineHeight: 1.5 }}>
+          At least one path needs to be able to spend right away, with no wait -- otherwise nothing can ever
+          move until a timelock opens. Set one path's timing to "Right away."
+        </div>
+      )}
+
+      <LeafCard
+        leaf={leafDrafts[0]}
+        step={1}
+        removable={false}
+        onChange={fn => updateLeaf(leafDrafts[0].id, fn)}
+        onRemove={() => {}}
+      />
 
       {secondaries.map((leaf, i) => (
         <LeafCard
           key={leaf.id}
           leaf={leaf}
           step={i + 2}
+          removable
           onChange={fn => updateLeaf(leaf.id, fn)}
           onRemove={() => { setLeafDrafts(list => list.filter(l => l.id !== leaf.id)); setDirty(true); }}
         />
@@ -1456,40 +1459,46 @@ function LeavesConfigureFields({
 }
 
 function LeafCard({
-  leaf, step, onChange, onRemove,
+  leaf, step, removable, onChange, onRemove,
 }: {
   leaf: LeafDraft;
   step: number;
+  removable: boolean;
   onChange: (fn: (l: LeafDraft) => LeafDraft) => void;
   onRemove: () => void;
 }) {
   return (
     <Card>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-        <SectionHeader step={step} title={leaf.label} color={colors.blue} />
-        <Button size="sm" variant="ghost" onClick={onRemove}>Remove</Button>
+        <SectionHeader step={step} title={leaf.label} color={removable ? colors.blue : colors.gold} />
+        {removable && <Button size="sm" variant="ghost" onClick={onRemove}>Remove</Button>}
       </div>
-      <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', marginBottom: leaf.enabled ? 14 : 0 }}>
-        <input type="checkbox" checked={leaf.enabled} onChange={e => onChange(l => ({ ...l, enabled: e.target.checked }))} />
-        <span style={{ fontSize: 13, color: colors.sub }}>Turn on this path</span>
-      </label>
-      {leaf.enabled && (
+      {removable && (
+        <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', marginBottom: leaf.enabled ? 14 : 0 }}>
+          <input type="checkbox" checked={leaf.enabled} onChange={e => onChange(l => ({ ...l, enabled: e.target.checked }))} />
+          <span style={{ fontSize: 13, color: colors.sub }}>Turn on this path</span>
+        </label>
+      )}
+      {(leaf.enabled || !removable) && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <Field label="Path name">
             <Input value={leaf.label} onChange={e => onChange(l => ({ ...l, label: e.target.value }))} />
           </Field>
           <Field label="How many people?">
             <CountStepper
-              value={leaf.plannedKeys} min={1} label="signers" color={colors.blue}
+              value={leaf.plannedKeys} min={1} label="signers" color={removable ? colors.blue : colors.gold}
               onChange={n => onChange(l => ({ ...l, plannedKeys: n, quorum: Math.min(l.quorum, n) || 1, decayFloorQ: Math.min(l.decayFloorQ, n) || 1 }))}
             />
-            <QuorumPicker max={leaf.plannedKeys} value={leaf.quorum} onChange={n => onChange(l => ({ ...l, quorum: n, decayFloorQ: Math.min(l.decayFloorQ, n) }))} color={colors.blue} />
+            <QuorumPicker max={leaf.plannedKeys} value={leaf.quorum} onChange={n => onChange(l => ({ ...l, quorum: n, decayFloorQ: Math.min(l.decayFloorQ, n) }))} color={removable ? colors.blue : colors.gold} />
           </Field>
           <p style={{ fontSize: 12, color: colors.muted, marginTop: -10 }}>
             {keyLossLine(leaf.quorum, leaf.plannedKeys)}
           </p>
           <Field label="When does this open?">
-            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+              <Button size="sm" variant={leaf.unlockType === 'immediate' ? 'primary' : 'ghost'} onClick={() => onChange(l => ({ ...l, unlockType: 'immediate', decayEnabled: false }))}>
+                Right away
+              </Button>
               <Button size="sm" variant={leaf.unlockType === 'after' ? 'primary' : 'ghost'} onClick={() => onChange(l => ({ ...l, unlockType: 'after' }))}>
                 After a fixed date
               </Button>
@@ -1497,7 +1506,11 @@ function LeafCard({
                 If left untouched
               </Button>
             </div>
-            {leaf.unlockType === 'after' ? (
+            {leaf.unlockType === 'immediate' ? (
+              <p style={{ fontSize: 12, color: colors.muted, margin: 0 }}>
+                No waiting -- the moment enough of these sign, funds move.
+              </p>
+            ) : leaf.unlockType === 'after' ? (
               <TimelockField label="" value={leaf.afterBlocks} onChange={v => onChange(l => ({ ...l, afterBlocks: v }))} />
             ) : (
               <>
