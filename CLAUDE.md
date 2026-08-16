@@ -179,29 +179,58 @@ Monorepo root
 
 ## Architecture rules -- never break these
 
-### Timelocks are absolute CLTV (`after(N)`), not relative CSV
+### Timelocks are absolute CLTV (`after(N)`) by default; relative CSV (`older(N)`) is a documented, capped exception
 
 Miniscript's `after(N)` compiles to `OP_CHECKLOCKTIMEVERIFY` —
-**absolute** block height. `older(N)` is CSV (relative to UTXO
-age) but BIP 68 caps CSV at 65,535 blocks (~15 months), which
-can't express 2-5 year inheritance windows. DynastyTrust uses
-`after()` for every timelock leaf, matching Liana.
+**absolute** block height, a deadline that never moves regardless
+of activity. `older(N)` compiles to `OP_CHECKSEQUENCEVERIFY` —
+**relative** to the spent UTXO's confirmation height, and it
+resets every time the coin moves. BIP 68 caps CSV at 65,535
+blocks (~15 months), which can't express 2-5 year inheritance
+windows — so every leaf meant to hold a fixed deadline (recovery,
+inheritance, protector, second inheritance) uses `after()`,
+matching Liana's design for the same reason.
+
+`older()` is permitted, but only for a short, self-refreshing leaf
+where resetting the clock on every spend is the entire point — e.g.
+a normal-quorum leaf that relaxes to a lower quorum only if the coin
+has sat untouched for N months, so simply moving/consolidating the
+coin keeps the vault at its full quorum. `protocol::MAX_RELATIVE_BLOCKS`
+(60,000 blocks, ~13.7 months) hard-caps any `OlderThan` leaf, well
+inside BIP 68's 65,535-block ceiling, and `verify_leaf_policy` rejects
+a leaf policy where a relative leaf is the ONLY non-immediate
+fallback — it is a quality-of-life relaxation on an already-adequate
+vault, never a substitute for a real recovery/inheritance leaf with a
+fixed deadline. This exception exists only on the generic leaf-list
+vault path (`LeafPolicy`/`Unlock::OlderThan`/`build_leaf_multileaf`);
+the named-field `DynastyPolicy`/`build_multileaf` path never emits
+`older()` at all.
 
 **Crucial:** callers pass relative offsets ("6 months = 26,280
 blocks"). The Netlify `compile.js` / `vaults-compile.js` fetch
 the current chain tip from mempool.space and forward **`tip +
-offset`** to the Fly compiler. The leaf then bakes in a specific
-absolute block height. Without the tip addition, the leaf's
+offset`** to the Fly compiler. An `after()` leaf then bakes in a
+specific absolute block height. Without the tip addition, the leaf's
 `after(26280)` compiles to `OP_CLTV` at height 26,280 (long past
-on any live network) → every timelock path unlocks at funding.
+on any live network) → every timelock path unlocks at funding. An
+`older()` leaf's block count is a duration, never a height, and is
+forwarded unchanged — no tip addition, since BIP68 measures it from
+whichever UTXO is actually being spent, not a fixed calendar point.
 
 `vaults.recovery_after / inheritance_after / protector_after`
 store the resulting **absolute block height**. The UI subtracts
 current tip to show "unlocks in Y months".
 
-Spending the timelocked path requires `tx.lock_time = N`;
-psbt-binary accepts a `path` field ("founders_now" | "recovery"
-| "inheritance" | "protector") and sets lock_time accordingly.
+Spending an `after()`-gated leaf requires `tx.lock_time = N`;
+spending an `older()`-gated leaf requires `nSequence = N` on every
+spending input instead — CLTV and CSV are enforced through two
+different transaction fields, never interchangeable, and
+`compiler/src/main.rs`'s `psbt_binary` handler sets exactly one of
+the two per leaf based on its `Unlock` variant. `psbt-binary`
+accepts a `path` field; for the named-field vault it is one of
+"founders_now" | "recovery" | "inheritance" | "protector" |
+"backup" | "second_inheritance", and for the generic leaf-list
+vault it is any `id` the caller's own `LeafPolicy.leaves` declares.
 
 Tranche (T-vesting) wallets are absolute by design — `unlock_block`
 is set directly from the ceremony UI.
