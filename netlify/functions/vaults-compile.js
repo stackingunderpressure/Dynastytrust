@@ -26,7 +26,7 @@
  *   2. forward each key's pubkey hex + quorums + timelocks to the
  *      Fly.io compiler
  *   3. post-process the returned descriptor into Nunchuk key-origin
- *      form pk([fp/path]xpub/0/*) using the xpubs
+ *      form pk([fp/path]xpub/0/0) using the xpubs
  *   4. UPDATE vaults SET address, descriptor, miniscript_policy,
  *      founder_keys, heir_keys, status='compiled'
  *   5. log 'draft_compiled' event
@@ -53,12 +53,26 @@ const VAULT_FIELDS =
 // Replace every occurrence of a raw pubkey hex in the descriptor
 // with its Nunchuk-format key origin expression. Pure string work,
 // same algorithm as the browser's upgradeDescriptor.
+//
+// Fixed at /0/0, not a `/0/*` wildcard range (matches the 2026-08-06
+// fix in apps/web/src/lib/descriptor-keys.ts -- see that file's header
+// comment for the full rationale). This function is the one that
+// actually wins for every vault compiled through this endpoint: it
+// runs BEFORE the browser ever sees the descriptor and consumes the
+// raw pubkey substrings the browser's own upgradeDescriptor searches
+// for, so the browser's /0/0 fix was silently a no-op here the whole
+// time this function still said /0/*. A ranged descriptor lets
+// Nunchuk/Sparrow offer a second receive address at index 1+ that our
+// own compiler has no way to build a spend for (it only ever knows the
+// exact /0/0 key baked into the leaf script) -- funds sent there would
+// be spendable by the hardware wallet directly but invisible to this
+// app's own coordinator.
 function upgradeDescriptor(descriptor, origins) {
   let out = descriptor;
   for (const { pubkey, fingerprint, derivation_path, xpub } of origins) {
     if (!pubkey || !fingerprint || !derivation_path || !xpub) continue;
     const cleanPath = derivation_path.replace(/^m\//, "");
-    const keyExpr = `[${fingerprint}/${cleanPath}]${xpub}/0/*`;
+    const keyExpr = `[${fingerprint}/${cleanPath}]${xpub}/0/0`;
     out = out.split(pubkey).join(keyExpr);
   }
   return out;
