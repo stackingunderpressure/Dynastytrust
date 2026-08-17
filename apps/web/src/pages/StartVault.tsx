@@ -58,7 +58,7 @@ export default function StartVault() {
               {i + 1}. {layer.title.toUpperCase()}
             </div>
             <div style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>{layer.tagline}</div>
-            <div style={{ fontSize: 13, color: colors.muted, lineHeight: 1.5 }}>{layer.explanation}</div>
+            <div style={{ fontSize: 14, color: colors.sub, lineHeight: 1.5 }}>{layer.explanation}</div>
           </button>
         ))}
       </div>

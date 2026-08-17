@@ -1402,7 +1402,7 @@ function LeavesConfigureFields({
           ))}
         </div>
         {activeTabInfo && (
-          <p style={{ fontSize: 12, color: colors.muted, marginTop: 10, marginBottom: 0, lineHeight: 1.5 }}>
+          <p style={{ fontSize: 14, color: colors.text, marginTop: 10, marginBottom: 0, lineHeight: 1.5 }}>
             {activeTabInfo.why}
           </p>
         )}
@@ -1491,7 +1491,7 @@ function LeafCard({
             />
             <QuorumPicker max={leaf.plannedKeys} value={leaf.quorum} onChange={n => onChange(l => ({ ...l, quorum: n, decayFloorQ: Math.min(l.decayFloorQ, n) }))} color={removable ? colors.blue : colors.gold} />
           </Field>
-          <p style={{ fontSize: 12, color: colors.muted, marginTop: -10 }}>
+          <p style={{ fontSize: 14, color: colors.text, marginTop: -6 }}>
             {keyLossLine(leaf.quorum, leaf.plannedKeys)}
           </p>
           <Field label="When does this open?">
@@ -1507,18 +1507,27 @@ function LeafCard({
               </Button>
             </div>
             {leaf.unlockType === 'immediate' ? (
-              <p style={{ fontSize: 12, color: colors.muted, margin: 0 }}>
+              <p style={{ fontSize: 14, color: colors.text, margin: 0 }}>
                 No waiting -- the moment enough of these sign, funds move.
               </p>
             ) : leaf.unlockType === 'after' ? (
-              <TimelockField label="" value={leaf.afterBlocks} onChange={v => onChange(l => ({ ...l, afterBlocks: v }))} />
+              <>
+                <TimelockField label="" value={leaf.afterBlocks} onChange={v => onChange(l => ({ ...l, afterBlocks: v }))} />
+                <p style={{ fontSize: 14, color: colors.text, lineHeight: 1.5, marginTop: 4 }}>
+                  A fixed deadline. Once set, it never moves no matter what happens to the vault before
+                  then -- not even normal spending resets it. Use this for anything that must open by a
+                  specific point no matter what: recovery, inheritance, a rescue path.
+                </p>
+              </>
             ) : (
               <>
-                <TimelockField label="" value={leaf.olderBlocks} onChange={v => onChange(l => ({ ...l, olderBlocks: Math.min(v, MAX_RELATIVE_BLOCKS) }))} />
-                <p style={{ fontSize: 12, color: colors.muted, marginTop: 4 }}>
-                  This clock resets every time the coins move -- it's for "the vault has sat quiet a long
-                  time," not a fixed deadline. Longest allowed is about 13.7 months
-                  ({MAX_RELATIVE_BLOCKS.toLocaleString()} blocks); for anything longer, use "after a fixed date" instead.
+                <TimelockField label="" value={leaf.olderBlocks} onChange={v => onChange(l => ({ ...l, olderBlocks: Math.min(v, MAX_RELATIVE_BLOCKS) }))} max={MAX_RELATIVE_BLOCKS} />
+                <p style={{ fontSize: 14, color: colors.text, lineHeight: 1.5, marginTop: 4 }}>
+                  Unlike a fixed deadline, this clock resets every time the coins move -- it only measures
+                  how long the vault has sat quiet, not a calendar date. That's why it's capped much
+                  shorter: longest allowed is about 13.7 months ({MAX_RELATIVE_BLOCKS.toLocaleString()} blocks).
+                  For a longer wait, or a deadline that must hold even if someone spends from the vault in
+                  the meantime, use "after a fixed date" instead.
                 </p>
               </>
             )}
@@ -1543,7 +1552,7 @@ function LeafCard({
                   <Field label="Lowest it can ever drop to">
                     <QuorumPicker max={leaf.quorum} value={leaf.decayFloorQ} onChange={n => onChange(l => ({ ...l, decayFloorQ: n }))} color={colors.red} />
                   </Field>
-                  <p style={{ fontSize: 12, color: colors.muted, marginTop: -8 }}>
+                  <p style={{ fontSize: 14, color: colors.text, lineHeight: 1.5, marginTop: -4 }}>
                     Starts needing all {leaf.quorum}. Every {blocksToHuman(leaf.decayStepBlocks)} after that, one
                     fewer is needed, down to {leaf.decayFloorQ} of {leaf.plannedKeys}.
                     {leaf.decayFloorQ === 1 && ' A floor of 1 means a single lost or stolen key is eventually enough on its own -- consider 2 or higher.'}
@@ -1573,13 +1582,19 @@ function localTimeStr(d: Date): string {
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
-function TimelockField({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+function TimelockField({ label, value, onChange, max }: { label: string; value: number; onChange: (v: number) => void; max?: number }) {
   // Derived straight from `value` every render (no local state to drift
   // out of sync when a preset button or the raw-blocks input changes it
   // from underneath the date/time pickers).
   const target = approxWallclockDate(value);
   const dateStr = localDateStr(target);
   const timeStr = localTimeStr(target);
+  // Clamp locally so the CONTROL ITSELF stops offering an out-of-range
+  // choice, instead of silently correcting it after the fact -- a preset
+  // button for "5 years" that a caller's own onChange later overwrites to
+  // 13.7 months with no visible feedback is confusing, not a real cap.
+  const clamp = (v: number) => (max !== undefined ? Math.min(v, max) : v);
+  const maxDateStr = max !== undefined ? localDateStr(approxWallclockDate(max)) : undefined;
 
   function pickDateTime(newDateStr: string, newTimeStr: string) {
     if (!newDateStr) return;
@@ -1587,13 +1602,13 @@ function TimelockField({ label, value, onChange }: { label: string; value: numbe
     const [hh, mm] = (newTimeStr || '00:00').split(':').map(Number);
     const picked = new Date(y, m - 1, d, hh, mm);
     if (Number.isNaN(picked.getTime())) return;
-    onChange(blocksUntilDate(picked));
+    onChange(clamp(blocksUntilDate(picked)));
   }
 
   return (
     <Field label={label}>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-        {TIMELOCK_PRESETS.map(p => (
+        {TIMELOCK_PRESETS.filter(p => max === undefined || p.blocks <= max).map(p => (
           <Button key={p.label} size="sm" variant={value === p.blocks ? 'primary' : 'ghost'} onClick={() => onChange(p.blocks)}>
             {p.label}
           </Button>
@@ -1603,6 +1618,7 @@ function TimelockField({ label, value, onChange }: { label: string; value: numbe
         <Input
           type="date"
           value={dateStr}
+          max={maxDateStr}
           onChange={e => pickDateTime(e.target.value, timeStr)}
           style={{ width: 168 }}
         />
@@ -1612,11 +1628,18 @@ function TimelockField({ label, value, onChange }: { label: string; value: numbe
           onChange={e => pickDateTime(dateStr, e.target.value)}
           style={{ width: 118 }}
         />
-        <span style={{ fontSize: 12, color: colors.muted }}>a specific date -- your local time</span>
+        <span style={{ fontSize: 13, color: colors.sub }}>a specific date -- your local time</span>
       </div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Input type="number" min={0} style={{ width: 140 }} value={value} onChange={e => onChange(Math.max(0, Number(e.target.value) || 0))} />
-        <span style={{ fontSize: 12, color: colors.muted }}>
+        <Input
+          type="number"
+          min={0}
+          max={max}
+          style={{ width: 140 }}
+          value={value}
+          onChange={e => onChange(clamp(Math.max(0, Number(e.target.value) || 0)))}
+        />
+        <span style={{ fontSize: 13, color: colors.sub }}>
           blocks ({blocksToHuman(value)}, unlocks around {target.toLocaleDateString()})
         </span>
       </div>
