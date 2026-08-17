@@ -30,7 +30,10 @@ for required in magic_link confirmation recovery; do
     echo "::error::Missing ${TEMPLATES_DIR}/${required}.html" >&2
     exit 1
   fi
-  if grep -qi 'ConfirmationURL' "${TEMPLATES_DIR}/${required}.html"; then
+  # Strip HTML comments first -- the templates' own header comments explain
+  # in prose that they deliberately avoid the ConfirmationURL variable,
+  # which otherwise self-trips this literal string search.
+  if sed -e '/<!--/,/-->/d' "${TEMPLATES_DIR}/${required}.html" | grep -qi 'ConfirmationURL'; then
     echo "::error::${TEMPLATES_DIR}/${required}.html still references {{ .ConfirmationURL }} -- codes only, no links." >&2
     exit 1
   fi
