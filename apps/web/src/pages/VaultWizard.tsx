@@ -1402,7 +1402,7 @@ function LeavesConfigureFields({
           ))}
         </div>
         {activeTabInfo && (
-          <p style={{ fontSize: 14, color: colors.text, marginTop: 10, marginBottom: 0, lineHeight: 1.5 }}>
+          <p style={{ fontSize: 16, fontWeight: 450, color: colors.text, marginTop: 10, marginBottom: 0, lineHeight: 1.5 }}>
             {activeTabInfo.why}
           </p>
         )}
@@ -1491,7 +1491,7 @@ function LeafCard({
             />
             <QuorumPicker max={leaf.plannedKeys} value={leaf.quorum} onChange={n => onChange(l => ({ ...l, quorum: n, decayFloorQ: Math.min(l.decayFloorQ, n) }))} color={removable ? colors.blue : colors.gold} />
           </Field>
-          <p style={{ fontSize: 14, color: colors.text, marginTop: -6 }}>
+          <p style={{ fontSize: 16, fontWeight: 450, color: colors.text, marginTop: -6 }}>
             {keyLossLine(leaf.quorum, leaf.plannedKeys)}
           </p>
           <Field label="When does this open?">
@@ -1507,13 +1507,13 @@ function LeafCard({
               </Button>
             </div>
             {leaf.unlockType === 'immediate' ? (
-              <p style={{ fontSize: 14, color: colors.text, margin: 0 }}>
+              <p style={{ fontSize: 16, fontWeight: 450, color: colors.text, margin: 0 }}>
                 No waiting -- the moment enough of these sign, funds move.
               </p>
             ) : leaf.unlockType === 'after' ? (
               <>
                 <TimelockField label="" value={leaf.afterBlocks} onChange={v => onChange(l => ({ ...l, afterBlocks: v }))} />
-                <p style={{ fontSize: 14, color: colors.text, lineHeight: 1.5, marginTop: 4 }}>
+                <p style={{ fontSize: 16, fontWeight: 450, color: colors.text, lineHeight: 1.5, marginTop: 4 }}>
                   A fixed deadline. Once set, it never moves no matter what happens to the vault before
                   then -- not even normal spending resets it. Use this for anything that must open by a
                   specific point no matter what: recovery, inheritance, a rescue path.
@@ -1522,7 +1522,7 @@ function LeafCard({
             ) : (
               <>
                 <TimelockField label="" value={leaf.olderBlocks} onChange={v => onChange(l => ({ ...l, olderBlocks: Math.min(v, MAX_RELATIVE_BLOCKS) }))} max={MAX_RELATIVE_BLOCKS} />
-                <p style={{ fontSize: 14, color: colors.text, lineHeight: 1.5, marginTop: 4 }}>
+                <p style={{ fontSize: 16, fontWeight: 450, color: colors.text, lineHeight: 1.5, marginTop: 4 }}>
                   Unlike a fixed deadline, this clock resets every time the coins move -- it only measures
                   how long the vault has sat quiet, not a calendar date. That's why it's capped much
                   shorter: longest allowed is about 13.7 months ({MAX_RELATIVE_BLOCKS.toLocaleString()} blocks).
@@ -1552,7 +1552,7 @@ function LeafCard({
                   <Field label="Lowest it can ever drop to">
                     <QuorumPicker max={leaf.quorum} value={leaf.decayFloorQ} onChange={n => onChange(l => ({ ...l, decayFloorQ: n }))} color={colors.red} />
                   </Field>
-                  <p style={{ fontSize: 14, color: colors.text, lineHeight: 1.5, marginTop: -4 }}>
+                  <p style={{ fontSize: 16, fontWeight: 450, color: colors.text, lineHeight: 1.5, marginTop: -4 }}>
                     Starts needing all {leaf.quorum}. Every {blocksToHuman(leaf.decayStepBlocks)} after that, one
                     fewer is needed, down to {leaf.decayFloorQ} of {leaf.plannedKeys}.
                     {leaf.decayFloorQ === 1 && ' A floor of 1 means a single lost or stolen key is eventually enough on its own -- consider 2 or higher.'}

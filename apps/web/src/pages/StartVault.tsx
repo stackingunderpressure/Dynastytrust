@@ -21,7 +21,7 @@ export default function StartVault() {
 
   return (
     <div style={{ maxWidth: 760, display: 'flex', flexDirection: 'column', gap: 18 }}>
-      <p style={{ fontSize: 14, color: colors.sub, lineHeight: 1.6, margin: 0 }}>
+      <p style={{ fontSize: 16, fontWeight: 450, color: colors.text, lineHeight: 1.6, margin: 0 }}>
         Every vault is built from a few pieces you choose -- learn each one, then build the vault that's
         actually yours. Start wherever you want; nothing forces you through all four before you can build.
       </p>
@@ -57,8 +57,8 @@ export default function StartVault() {
             <div style={{ fontSize: 11, fontWeight: 700, color: colors.gold, letterSpacing: '0.06em' }}>
               {i + 1}. {layer.title.toUpperCase()}
             </div>
-            <div style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>{layer.tagline}</div>
-            <div style={{ fontSize: 14, color: colors.sub, lineHeight: 1.5 }}>{layer.explanation}</div>
+            <div style={{ fontSize: 16, fontWeight: 600, color: colors.text }}>{layer.tagline}</div>
+            <div style={{ fontSize: 15, fontWeight: 450, color: colors.text, lineHeight: 1.5 }}>{layer.explanation}</div>
           </button>
         ))}
       </div>

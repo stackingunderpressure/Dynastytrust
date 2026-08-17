@@ -41,26 +41,26 @@ export default function VaultLayerGuide() {
         <div style={{ fontSize: 13, color: colors.gold, fontWeight: 600, letterSpacing: '0.04em', marginBottom: 4 }}>
           {layer.tagline}
         </div>
-        <p style={{ fontSize: 16, color: colors.text, lineHeight: 1.6 }}>{layer.explanation}</p>
+        <p style={{ fontSize: 18, fontWeight: 450, color: colors.text, lineHeight: 1.6 }}>{layer.explanation}</p>
       </div>
 
       <Card>
-        <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 10 }}>The trade-offs</div>
+        <div style={{ fontSize: 16, fontWeight: 600, color: colors.text, marginBottom: 10 }}>The trade-offs</div>
         <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
           {layer.tradeoffs.map((t, i) => (
-            <li key={i} style={{ fontSize: 15, color: colors.text, lineHeight: 1.55 }}>{t}</li>
+            <li key={i} style={{ fontSize: 17, fontWeight: 450, color: colors.text, lineHeight: 1.55 }}>{t}</li>
           ))}
         </ul>
       </Card>
 
       <Card>
-        <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 10 }}>{layer.illustration.title}</div>
+        <div style={{ fontSize: 16, fontWeight: 600, color: colors.text, marginBottom: 10 }}>{layer.illustration.title}</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {layer.illustration.lines.map((line, i) => (
             <div
               key={i}
               style={{
-                fontSize: 15, color: colors.text, lineHeight: 1.5,
+                fontSize: 17, fontWeight: 450, color: colors.text, lineHeight: 1.5,
                 padding: '10px 12px', background: colors.input, borderRadius: radii.sm,
               }}
             >
@@ -74,7 +74,7 @@ export default function VaultLayerGuide() {
         <div
           style={{
             background: colors.input, border: `1px solid ${colors.gold}33`, borderRadius: radii.md,
-            padding: '12px 16px', fontSize: 15, color: colors.text, lineHeight: 1.55,
+            padding: '12px 16px', fontSize: 16, fontWeight: 450, color: colors.text, lineHeight: 1.55,
           }}
         >
           {layer.howToCraft}
