@@ -154,7 +154,9 @@ Monorepo root
 |       |-- psbt_builder.rs            PSBT construction
 |       `-- governance.rs              Spend path evaluation
 |-- packages/policy-engine/            Shared TS policy validation
-|-- db/migrations/                     Supabase SQL migrations
+|-- supabase/migrations/                Supabase SQL migrations (auto-applied
+|                                        on push to main -- see
+|                                        .github/workflows/supabase-db-deploy.yml)
 `-- scripts/test-policy.mjs            Policy-engine test runner (`npm test`)
 ```
 
@@ -385,8 +387,13 @@ id, vault_id, event_type, data (jsonb), created_at
 id, proposal_id, signer_fingerprint, signed_at, psbt_partial_hex
 ```
 
-All tables have RLS enabled. Users can only access their own data. Run
-migrations from `db/migrations/` in order (`001_init.sql`, `002_vaults.sql`).
+All tables have RLS enabled. Users can only access their own data.
+Migrations live in `supabase/migrations/` (CLI-style
+`YYYYMMDDHHMMSS_name.sql` filenames) and apply automatically on push to
+main via `.github/workflows/supabase-db-deploy.yml` -- see that
+workflow's header for the required secrets/variables and the one-time
+bootstrap step. Manual SQL-editor pasting is no longer the normal path;
+only reach for it if the automated pipeline itself is broken.
 
 ---
 
@@ -515,7 +522,8 @@ on descriptor compile + single-source tree builder. Next phase is the trust
   news for anyone whose vault already has the stale text: the address was
   NEVER wrong -- `/0/*` and `/0/0` derive the identical key at index 0, so
   this is purely a descriptor-notation bug, not a fund-safety one. Run
-  `db/migrations/043_repair_ranged_descriptor_notation.sql` once to patch the
+  `supabase/migrations/20260816194321_repair_ranged_descriptor_notation.sql`
+  once to patch the
   stored `descriptor` text in place; no recompile, no address change, no
   funds touched. `Bloc`/`Tranche` (`vaults-compile-bloc.js`,
   `distribution-wallets.js`) never called `upgradeDescriptor` at all -- a

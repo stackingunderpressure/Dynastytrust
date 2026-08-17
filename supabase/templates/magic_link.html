@@ -1,0 +1,70 @@
+<!--
+  DynastyTrust sign-in code email.
+  Deliberately code-only, no clickable link anywhere in this template
+  (operator, 2026-08-17: "only codes in email no links") -- uses
+  Supabase's {{ .Token }} variable (the 6-digit OTP), never
+  {{ .ConfirmationURL }}. Table-based layout + inline styles throughout
+  because email clients (Outlook, Gmail) strip <style> blocks and
+  modern CSS unpredictably; this is the safe, widely-compatible
+  pattern for HTML email. Colors match apps/web/src/theme.ts exactly
+  (colors.bg, colors.gold, colors.text, colors.muted) so this email
+  looks like it came from the same app as the login screen.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Your DynastyTrust sign-in code</title>
+</head>
+<body style="margin:0; padding:0; background-color:#07070F; font-family:Georgia, 'Times New Roman', serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#07070F;">
+  <tr>
+    <td align="center" style="padding:40px 20px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px; background-color:#0F0F1A; border:1px solid #1E1E30; border-radius:12px; overflow:hidden;">
+        <tr>
+          <td style="padding:32px 32px 8px 32px; text-align:center;">
+            <div style="font-family:Georgia, 'Times New Roman', serif; font-size:13px; letter-spacing:0.18em; text-transform:uppercase; color:#C9A84C;">DynastyTrust</div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:16px 32px 8px 32px; text-align:center;">
+            <div style="font-family:Georgia, 'Times New Roman', serif; font-size:22px; color:#E8E4D8;">Your sign-in code</div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:8px 32px 24px 32px; text-align:center;">
+            <div style="font-family:-apple-system, 'Segoe UI', Arial, sans-serif; font-size:14px; line-height:1.6; color:#9994A8;">
+              Enter this code in the DynastyTrust sign-in screen. Do not share it with anyone --
+              no one from DynastyTrust will ever ask you for it.
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:0 32px 32px 32px; text-align:center;">
+            <div style="display:inline-block; background-color:#161622; border:1px solid #C9A84C; border-radius:8px; padding:18px 28px;">
+              <span style="font-family:'Courier New', Courier, monospace; font-size:32px; font-weight:bold; letter-spacing:0.3em; color:#C9A84C;">{{ .Token }}</span>
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:0 32px 32px 32px; text-align:center;">
+            <div style="font-family:-apple-system, 'Segoe UI', Arial, sans-serif; font-size:12px; line-height:1.6; color:#5A5570;">
+              This code expires shortly and can only be used once. If you didn't request this,
+              you can safely ignore this email.
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:20px 32px; border-top:1px solid #1E1E30; text-align:center;">
+            <div style="font-family:-apple-system, 'Segoe UI', Arial, sans-serif; font-size:11px; color:#5A5570;">
+              DynastyTrust &middot; Bitcoin multisig inheritance vaults
+            </div>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>

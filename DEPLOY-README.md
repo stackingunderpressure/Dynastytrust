@@ -5,7 +5,9 @@
 - `netlify/functions` — serverless backend (vaults, PSBTs, governance, balance, compile)
 - `packages/policy-engine` — shared policy validation package
 - `compiler` — optional Rust policy compiler (deploy to Fly.io)
-- `db/migrations` — Supabase/Postgres schema
+- `supabase/migrations` — Supabase/Postgres schema, applied automatically
+  on push to main by `.github/workflows/supabase-db-deploy.yml` (see that
+  file's header for the one-time bootstrap step it needs first)
 
 ## Local development
 ```bash

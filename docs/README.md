@@ -27,4 +27,6 @@ npm test
 
 - Web + functions: Netlify (see `DEPLOY-README.md`)
 - Policy compiler: Fly.io (see `compiler/fly.toml`)
-- Database: Supabase (migrations in `db/migrations/`)
+- Database: Supabase (migrations in `supabase/migrations/`, applied
+  automatically on push to main -- see
+  `.github/workflows/supabase-db-deploy.yml`)

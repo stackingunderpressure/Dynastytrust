@@ -1,0 +1,48 @@
+name: Supabase DB deploy
+
+# Applies pending supabase/migrations/*.sql to the live project on
+# every push to main (operator, 2026-08-17: "auto SQL update on push
+# to main"), via the Supabase Management API's SQL-query endpoint --
+# token only, no CLI, no separate DB password (see
+# scripts/supabase-migrate.sh's header for why). Never touches auth
+# settings or the login-code email templates; see
+# supabase-auth-deploy.yml for that separate, hand-triggered pipeline.
+#
+# ONE-TIME PREREQUISITE before this workflow can run safely: run
+# supabase-db-bootstrap.yml once, by hand, first. Every file in
+# supabase/migrations/ was already applied to the live database by
+# hand before this pipeline existed; bootstrap records that without
+# re-running any of it. See that workflow's own header for why this
+# matters (one historical migration is not safe to blindly re-run).
+#
+# Required repo config (Settings > Secrets and variables > Actions):
+#   Secrets:   SUPABASE_ACCESS_TOKEN (personal access token from
+#              https://supabase.com/dashboard/account/tokens -- NOT
+#              the service role key)
+#   Variables: SUPABASE_PROJECT_REF (the project ref from the
+#              dashboard URL -- not sensitive, just an identifier)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify required config is present
+        run: |
+          missing=0
+          [ -z "$SUPABASE_ACCESS_TOKEN" ] && echo "::error::Missing secret SUPABASE_ACCESS_TOKEN" && missing=1
+          [ -z "$SUPABASE_PROJECT_REF" ] && echo "::error::Missing repository variable SUPABASE_PROJECT_REF" && missing=1
+          if [ "$missing" = "1" ]; then
+            echo "::error::See this workflow's header comment for exactly what to add and where."
+            exit 1
+          fi
+      - name: Apply pending migrations
+        run: bash scripts/supabase-migrate.sh
