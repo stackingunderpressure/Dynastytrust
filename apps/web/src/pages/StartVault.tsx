@@ -1,99 +1,31 @@
 import { useNavigate } from 'react-router-dom';
 import { colors, fonts, radii, space } from '../theme';
 import { Button } from '../components/ui';
-import type { VaultProposal } from '../lib/api';
+import { VAULT_LAYERS } from '../lib/vault-education';
 
-// The coherent front door. A new person answers WHAT THEY WANT to do --
-// plain outcomes, not a catalog of templates -- and we route them into the
-// right builder with the matching shape pre-applied. The cryptography
-// (keys, policy, compile) happens behind this, never in front of it.
-
-interface Intent {
-  emoji: string;
-  title: string;
-  desc: string;
-  route: string;
-  /** Template id to pre-apply on the policy builder. Omit to route as-is. */
-  template?: string;
-}
-
-const INTENTS: Intent[] = [
-  {
-    emoji: '🛡️',
-    title: 'Protect my own stack',
-    desc: 'Just me. Keep my Bitcoin safe -- with a backup that recovers it if I ever lose a device.',
-    route: '/policy',
-    template: 'emergency-backup',
-  },
-  {
-    emoji: '👨‍👩‍👧‍👦',
-    title: 'Pass it to my kids',
-    desc: 'I hold it now. Over time, my children can take it over on their own -- a vault that grows up with them.',
-    route: '/policy',
-    template: 'bloc',
-  },
-  {
-    emoji: '🤝',
-    title: 'A family we all manage',
-    desc: 'A few of us share control. No one can move it alone, and everyone stays in the loop.',
-    route: '/policy',
-    template: 'family-inheritance',
-  },
-  {
-    emoji: '🏢',
-    title: 'A business holds it',
-    desc: 'Company cold storage. Several signers; any few of them can authorize a spend.',
-    route: '/policy',
-    template: 'business-treasury',
-  },
-  {
-    emoji: '🎁',
-    title: 'Lock a gift for later',
-    desc: 'You and a helper can move it now. The recipient alone can claim it once the date arrives -- no waiting on anyone else.',
-    route: '/policy',
-    template: 'gift-locker',
-  },
-  {
-    emoji: '🔐',
-    title: 'A close circle, unanimous',
-    desc: 'Everyone in your circle holds their key in Tapit Wallet and must agree, every time -- no majority override. An easier path opens above it only if the circle can\'t.',
-    route: '/policy',
-    template: 'tapit-circle',
-  },
-  {
-    emoji: '🧩',
-    title: 'Build your own',
-    desc: 'None of these quite fit. Start from a shape and shape it further -- add as many paths as you need, each with its own signers and its own timing.',
-    route: '/policy',
-    template: 'leaves',
-  },
-];
+// The front door (2026-08-17 redesign, operator: "it's everywhere right
+// now all pointing to the same builder compiler... too confusing to
+// normie"). Previously seven template cards, each one tap straight into
+// the compiler with zero explanation. Now: a small, fixed set of layer
+// concepts -- the pieces every vault is actually assembled from -- each
+// its own page teaching why you'd want it and the real trade-offs, before
+// "Build it" hands off into the same builder every path already used.
+// The builder is the centerpiece; these pages are the on-ramp, not
+// another catalog to read through (docs/ux-coherence-redesign.md section
+// 3's actual target was 15 named templates -- this is 4 fixed concept
+// pages teaching the mechanism, a different thing that doc didn't
+// anticipate; see its front-door-redesign amendment).
 
 export default function StartVault() {
   const navigate = useNavigate();
 
-  function go(intent: Intent) {
-    if (intent.template) {
-      // All-zero numeric fields make the policy builder fall back to the
-      // template's own sensible defaults; the user tunes from there.
-      const prefill: VaultProposal = {
-        template: intent.template,
-        founder_quorum: 0,
-        founder_count: 0,
-        heir_quorum: 0,
-        heir_count: 0,
-        recovery_after_months: 0,
-        inheritance_after_months: 0,
-        summary: '',
-      };
-      navigate(intent.route, { state: { prefill } });
-    } else {
-      navigate(intent.route);
-    }
-  }
-
   return (
     <div style={{ maxWidth: 760, display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <p style={{ fontSize: 14, color: colors.sub, lineHeight: 1.6, margin: 0 }}>
+        Every vault is built from a few pieces you choose -- learn each one, then build the vault that's
+        actually yours. Start wherever you want; nothing forces you through all four before you can build.
+      </p>
+
       <div
         style={{
           display: 'grid',
@@ -101,11 +33,11 @@ export default function StartVault() {
           gap: 12,
         }}
       >
-        {INTENTS.map(intent => (
+        {VAULT_LAYERS.map((layer, i) => (
           <button
-            key={intent.title}
+            key={layer.id}
             type="button"
-            onClick={() => go(intent)}
+            onClick={() => navigate(`/start/${layer.id}`)}
             style={{
               textAlign: 'left',
               cursor: 'pointer',
@@ -122,9 +54,11 @@ export default function StartVault() {
             onMouseEnter={e => (e.currentTarget.style.borderColor = colors.gold)}
             onMouseLeave={e => (e.currentTarget.style.borderColor = colors.border)}
           >
-            <div style={{ fontSize: 28, lineHeight: 1 }}>{intent.emoji}</div>
-            <div style={{ fontSize: 17, fontWeight: 600, color: colors.text }}>{intent.title}</div>
-            <div style={{ fontSize: 13, color: colors.muted, lineHeight: 1.5 }}>{intent.desc}</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: colors.gold, letterSpacing: '0.06em' }}>
+              {i + 1}. {layer.title.toUpperCase()}
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>{layer.tagline}</div>
+            <div style={{ fontSize: 13, color: colors.muted, lineHeight: 1.5 }}>{layer.explanation}</div>
           </button>
         ))}
       </div>
@@ -143,7 +77,7 @@ export default function StartVault() {
         }}
       >
         <div style={{ fontSize: 13, color: colors.sub, lineHeight: 1.5 }}>
-          Not sure which fits? Sage walks you through it in plain language -- no Bitcoin knowledge needed.
+          Not sure where to start? Sage walks you through it in plain language -- no Bitcoin knowledge needed.
         </div>
         <Button variant="ghost" size="sm" onClick={() => navigate('/assistant')}>
           Ask Sage

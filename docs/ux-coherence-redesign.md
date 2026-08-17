@@ -114,8 +114,22 @@ Two front doors (START, JOIN) + one home (LIVE). That is the whole app.
 
 ## 3. Intent, not a template catalog
 
-Replace "read 15 templates and guess which fits" with a short, plain
-question and a few big, clear answers -- "this is what I want":
+**Amended 2026-08-17 -- read this before treating the section below as
+current.** This section's target was "read 15 templates and guess" --
+StartVault's one-tap intent cards fixed exactly that, and stayed. But
+"one tap into the compiler, zero explanation" turned out to be its own
+failure mode: the operator's words, "it's everywhere right now all
+pointing to the same builder compiler... too confusing to normie." The
+fix is not a reversion to a template catalog -- it's a small, FIXED set
+of four pages (Primary Path, Backup & Recovery, Inheritance, Long-Horizon
+Backstop) teaching the underlying MECHANISM a vault is assembled from,
+each ending in the same one-tap "Build it" into the builder. This is a
+different thing than the 15-template catalog this section argues
+against: four pages, not fifteen; the mechanism, not a menu of named
+presets; still one tap from "I understand this" to "I'm building it." The
+original one-tap "Expert: open the full builder" escape hatch is
+unchanged -- nobody is forced to read anything before building. See
+section 7 item 6 for the concrete change.
 
 - "Just protect my own stack." (solo, intelligent-timelock starter)
 - "Pass my Bitcoin to my kids." (the Dynasty Bloc shape)
@@ -209,6 +223,18 @@ the old.** Order by leverage:
 4. **JOIN.** Make the invite/claim flow role-aware and plain-language end
    to end (InviteClaim exists; reframe it into the JOIN journey).
 5. Retire each technical tab as its function is absorbed.
+6. **Front-door layer education. DONE 2026-08-17.** StartVault's seven
+   template intent cards (one tap straight into VaultWizard, zero
+   explanation) replaced with four fixed concept pages at
+   `/start/:layerId` (`VaultLayerGuide.tsx`, content in
+   `lib/vault-education.ts`'s `VAULT_LAYERS`) -- Primary Path, Backup &
+   Recovery, Inheritance, Long-Horizon Backstop -- each teaching real
+   trade-offs and ending in a "Build it" CTA into the same builder. The
+   `standard` shape (where every one of these pages and every named
+   template actually lands) gained the BehaviorTimeline + live key-reuse
+   warnings the `leaves` shape already had, closing that parity gap. See
+   section 3's amendment for why this isn't the template catalog that
+   section argues against.
 
 The existing pages keep functioning during the transition; the NAV and the
 FRONT DOOR change first, because that is where coherence is felt and where

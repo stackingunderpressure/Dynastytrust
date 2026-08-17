@@ -25,6 +25,7 @@ import {
   QuorumPicker, CountStepper, KeyPicker, SlotHint, CopyField, BackupFlow, KeyCreatedPrompt, FundingStep,
   BehaviorTimeline, type SpendLeg,
 } from '../components/vault-builder';
+import { keyLossLine, leafFloorWarningText, keyReuseNotes, buildStandardLegs, type KeyReuseRole } from '../lib/vault-education';
 
 // The unified "start a vault" flow (docs/ux-coherence-redesign.md step 2).
 // Absorbs what used to be three separate destinations -- PolicyBuilder
@@ -99,34 +100,6 @@ function defaultSecondaryLeaf(label = 'New path'): LeafDraft {
     decayEnabled: false, decayStepBlocks: 26_280, decayFloorQ: 1,
     enabled: true,
   };
-}
-
-// Generic counterpart of Bloc's hardcoded "kid ladder" floor-warning
-// sentence (BehaviorTimeline's own floorWarning/kidCount pair) -- a
-// leaf-list vault's decay-enabled paths aren't always about kids, so this
-// builds the same "a single key would eventually be enough alone"
-// warning from whatever the path is actually named, naming every
-// decay-enabled path that bottoms out at a floor of 1 rather than
-// assuming there's only ever one.
-function leafFloorWarningText(drafts: LeafDraft[]): string | undefined {
-  const offenders = drafts.filter(l => l.enabled && l.decayEnabled && l.decayFloorQ === 1);
-  if (!offenders.length) return undefined;
-  const names = offenders.map(l => `"${l.label}"`).join(', ');
-  return `Heads up: ${names} eventually lets a SINGLE key spend alone. Consider a floor of 2 or higher -- so no one lost or stolen key is ever enough on its own.`;
-}
-
-// Generalizes the hand-written key-loss sentences already sitting in
-// every VaultTemplate.scenarios[] entry (vault-templates.ts) into
-// something computed live from the operator's actual quorum/count for
-// THIS path, instead of static per-template text that goes stale the
-// moment a quorum is tuned away from the template's own defaults.
-function keyLossLine(quorum: number, total: number): string {
-  if (total <= 0) return '';
-  if (quorum >= total) {
-    return `If any one of these ${total} ${total === 1 ? 'key is' : 'keys is'} lost, this path can never be used again.`;
-  }
-  const spare = total - quorum;
-  return `This path can lose up to ${spare} of these ${total} and still work -- the remaining ${quorum} can act.`;
 }
 
 function leafUnlockOf(l: LeafDraft): LeafUnlock {
@@ -822,6 +795,12 @@ export default function VaultWizard() {
     return legs;
   }, [leafDrafts]);
 
+  // ---- Standard-shape live behavior-timeline preview (Configure step) ---
+  // Parity with the Bloc/leaf-list previews above -- see
+  // vault-education.ts's buildStandardLegs for the leg-building logic
+  // itself.
+  const stdLegs: SpendLeg[] = useMemo(() => buildStandardLegs(stdConfig), [stdConfig]);
+
   return (
     <div style={{ maxWidth: 760, display: 'flex', flexDirection: 'column', gap: 18 }}>
       <StepRail current={step} />
@@ -832,6 +811,7 @@ export default function VaultWizard() {
           name={name} setName={setName}
           network={network} setNetwork={setNetwork}
           stdConfig={stdConfig} setStdConfig={setStdConfig}
+          stdLegs={stdLegs}
           blocConfig={blocConfig} setBlocConfig={setBlocConfig}
           blocLegs={blocLegs}
           leafDrafts={leafDrafts} setLeafDrafts={setLeafDrafts}
@@ -955,7 +935,7 @@ export default function VaultWizard() {
 
 function ConfigureStep({
   shape, setShape, name, setName, network, setNetwork,
-  stdConfig, setStdConfig, blocConfig, setBlocConfig, blocLegs,
+  stdConfig, setStdConfig, stdLegs, blocConfig, setBlocConfig, blocLegs,
   leafDrafts, setLeafDrafts, leafLegs, activeLeafTab, setActiveLeafTab, leafDirty, setLeafDirty,
   onConfirm, busy, err,
 }: {
@@ -963,6 +943,7 @@ function ConfigureStep({
   name: string; setName: (n: string) => void;
   network: NetworkChoice; setNetwork: (n: NetworkChoice) => void;
   stdConfig: StandardConfig; setStdConfig: (fn: (c: StandardConfig) => StandardConfig) => void;
+  stdLegs: SpendLeg[];
   blocConfig: BlocConfig; setBlocConfig: (fn: (c: BlocConfig) => BlocConfig) => void;
   blocLegs: SpendLeg[];
   leafDrafts: LeafDraft[]; setLeafDrafts: (fn: (l: LeafDraft[]) => LeafDraft[]) => void;
@@ -1022,6 +1003,14 @@ function ConfigureStep({
         />
       )}
 
+      {shape === 'standard' && (
+        <Card>
+          <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 10 }}>
+            How this vault behaves over time
+          </div>
+          <BehaviorTimeline legs={stdLegs} />
+        </Card>
+      )}
       {shape === 'bloc' && (
         <Card>
           <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 10 }}>
@@ -1676,6 +1665,26 @@ function KeysStep({
   ].map(k => k.keyId));
   const availableKeys = allKeys.filter(k => !claimed.has(k.keyId) && keyNetworkMatches(k.network, network));
 
+  // Live cross-role key-reuse warnings -- see vault-education.ts's
+  // keyReuseNotes for the shared computation both shapes below use.
+  const leafReuseNotes = keyReuseNotes(
+    enabledLeaves.map(l => ({ id: l.id, label: l.label, keys: leafKeys[l.id] ?? [] })),
+  );
+  const standardRoles: KeyReuseRole[] = [
+    { id: 'founder', label: 'Signing keys', keys: founderKeys },
+    ...(stdConfig.mode === 'inheritance' && stdConfig.plannedHeirs > 0
+      ? [{ id: 'heir', label: 'Heir keys', keys: heirKeys }] : []),
+    ...(stdConfig.protectorEnabled
+      ? [{ id: 'protector', label: 'Protector keys', keys: protectorKeys }] : []),
+    ...(stdConfig.consentEnabled
+      ? [{ id: 'consent', label: 'Beneficiary-consent keys', keys: consentKeys }] : []),
+    ...(stdConfig.backupEnabled
+      ? [{ id: 'backup', label: 'Backup keys', keys: backupKeys }] : []),
+    ...(stdConfig.secondInheritanceEnabled
+      ? [{ id: 'second_heir', label: 'Second inheritance keys', keys: secondHeirKeys }] : []),
+  ];
+  const standardReuseNotes = keyReuseNotes(standardRoles);
+
   function role(
     key: string, label: string, target: number,
     selected: SelectedKey[], setSelected: (fn: (p: SelectedKey[]) => SelectedKey[]) => void,
@@ -1764,22 +1773,8 @@ function KeysStep({
                   + (leaf.decayEnabled ? ` One fewer is needed every ${blocksToHuman(leaf.decayStepBlocks)} after that, down to ${leaf.decayFloorQ}.` : '')
                 : `Opens if the vault sits untouched for ${blocksToHuman(leaf.olderBlocks)} -- ${leaf.quorum} of `
                   + `${leaf.plannedKeys} can then spend. Moving the coins resets this clock.`;
-            // Client-side approximation of the compiler's own
-            // find_key_reuse (policy_compiler.rs) -- computed here instead
-            // of waiting on a compile round trip, so the warning shows up
-            // the moment a key is picked into a second path, not after.
-            // Never says "leaf" or "quorum" -- docs/ux-coherence-redesign.md
-            // section 5 -- names the OTHER path in plain language instead.
             const mySelected = leafKeys[leaf.id] ?? [];
-            const elsewhere = enabledLeaves.filter(o => o.id !== leaf.id);
-            const reusedInto = new Set(
-              elsewhere
-                .filter(o => (leafKeys[o.id] ?? []).some(ok => mySelected.some(mk => mk.keyId === ok.keyId)))
-                .map(o => o.label),
-            );
-            const reuseNote = reusedInto.size
-              ? ` Heads up: one of the keys picked below is also used in ${Array.from(reusedInto).join(', ')} -- that key can spend either path once that path's own conditions are met, not just this one.`
-              : '';
+            const reuseNote = leafReuseNotes.get(leaf.id) ?? '';
             return role(leaf.id, `${leaf.label} keys`, leaf.plannedKeys, mySelected, setLeafSelected, i === 0 ? colors.gold : colors.blue, description + reuseNote);
           })}
         </>
@@ -1791,39 +1786,45 @@ function KeysStep({
             `Can spend right away, no waiting -- needs ${stdConfig.founderQ} of ${stdConfig.plannedFounders} to sign.`
               + (stdConfig.consentEnabled
                 ? ` Every spend also needs ${stdConfig.consentQ} of ${stdConfig.plannedConsenters} beneficiary-consent signatures (below).`
-                : ''),
+                : '')
+              + (standardReuseNotes.get('founder') ?? ''),
           )}
           {stdConfig.mode === 'inheritance' && stdConfig.plannedHeirs > 0 &&
             role(
               'heir', 'Heir keys', stdConfig.plannedHeirs, heirKeys, setHeirKeys, colors.blue,
               `Locked until ${blocksToHuman(stdConfig.inheritanceAfter)} from when the vault is funded. `
                 + `After that, ${stdConfig.heirQ} of ${stdConfig.plannedHeirs} heirs can spend on their own -- `
-                + `founders no longer have a say.`,
+                + `founders no longer have a say.`
+                + (standardReuseNotes.get('heir') ?? ''),
             )}
           {stdConfig.protectorEnabled &&
             role(
               'protector', 'Protector keys', stdConfig.plannedProtectors, protectorKeys, setProtectorKeys, colors.orange,
               `Can rescue funds starting ${blocksToHuman(stdConfig.protectorAfter)} from funding, independent of `
-                + `the founders -- a safety net if trustees go quiet before inheritance kicks in.`,
+                + `the founders -- a safety net if trustees go quiet before inheritance kicks in.`
+                + (standardReuseNotes.get('protector') ?? ''),
             )}
           {stdConfig.consentEnabled &&
             role(
               'consent', 'Beneficiary-consent keys', stdConfig.plannedConsenters, consentKeys, setConsentKeys, colors.green,
               `No timelock -- required on every founders' spend from day one. ${stdConfig.consentQ} of `
-                + `${stdConfig.plannedConsenters} must consent alongside the founder quorum above.`,
+                + `${stdConfig.plannedConsenters} must consent alongside the founder quorum above.`
+                + (standardReuseNotes.get('consent') ?? ''),
             )}
           {stdConfig.backupEnabled &&
             role(
               'backup', 'Backup keys', stdConfig.plannedBackups, backupKeys, setBackupKeys, colors.orange,
               `No waiting, but a separate, harder-to-reach key set from the founders' -- ${stdConfig.backupQ} of `
-                + `${stdConfig.plannedBackups} can spend anytime on their own. Replaces the timelocked recovery path.`,
+                + `${stdConfig.plannedBackups} can spend anytime on their own. Replaces the timelocked recovery path.`
+                + (standardReuseNotes.get('backup') ?? ''),
             )}
           {stdConfig.secondInheritanceEnabled &&
             role(
               'second_heir', 'Second inheritance keys', stdConfig.plannedSecondHeirs, secondHeirKeys, setSecondHeirKeys, colors.green,
               `A second, independent heir group. Locked until ${blocksToHuman(stdConfig.secondInheritanceAfter)} `
                 + `from funding -- ${stdConfig.secondHeirQ} of ${stdConfig.plannedSecondHeirs} can spend after that, `
-                + `separate from the first heir group above.`,
+                + `separate from the first heir group above.`
+                + (standardReuseNotes.get('second_heir') ?? ''),
             )}
         </>
       ) : (

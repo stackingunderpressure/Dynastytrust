@@ -6,6 +6,7 @@ import { startNostrOutboxWorker } from './lib/nostrOutboxWorker';
 import KeyManager from './pages/KeyManager';
 import VaultWizard from './pages/VaultWizard';
 import StartVault from './pages/StartVault';
+import VaultLayerGuide from './pages/VaultLayerGuide';
 import Dashboard from './pages/Dashboard';
 import VaultDetail from './pages/VaultDetail';
 import ProposalDetail from './pages/ProposalDetail';
@@ -67,10 +68,22 @@ function AuthedApp() {
         element={
           <Layout activeNavId={activeNavId} onSignOut={() => { markIntentionalSignOut(); void supabase.auth.signOut(); }}>
             <PageHeader
-              title="What do you want to protect?"
-              sub="Pick what fits. We handle the Bitcoin part behind the scenes -- you just choose the outcome you want."
+              title="How does a vault work?"
+              sub="Every vault is built from a few pieces you choose. Learn each one, then build the vault that's actually yours."
             />
             <StartVault />
+          </Layout>
+        }
+      />
+      <Route
+        path="/start/:layerId"
+        element={
+          <Layout activeNavId={activeNavId} onSignOut={() => { markIntentionalSignOut(); void supabase.auth.signOut(); }}>
+            <PageHeader
+              title="How does a vault work?"
+              sub="Every vault is built from a few pieces you choose. Learn each one, then build the vault that's actually yours."
+            />
+            <VaultLayerGuide />
           </Layout>
         }
       />
