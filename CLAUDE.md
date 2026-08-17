@@ -463,8 +463,7 @@ See `Stack` above for the layout.
 2. **End-to-end testnet spend** verified with real signers.
 3. **Hardware wallet signing flow** (Coldcard PSBT export/import).
 4. **Governance panel** showing real block height from mempool.space.
-5. **PDF vault backup** download (function exists, no UI button).
-6. **Dependency upgrades (no rush, batch when convenient).** Current pins:
+5. **Dependency upgrades (no rush, batch when convenient).** Current pins:
    - Rust: `bitcoin = 0.31.2` (latest stable 0.32.x), `miniscript = 11.2.3`
      (latest 13.0.0). Both rust-bitcoin maintained.
    - Browser: `@scure/bip32 = 1.7.0`, `@scure/bip39 = 1.6.0`, `@noble/curves
@@ -509,6 +508,24 @@ on descriptor compile + single-source tree builder. Next phase is the trust
    is higher in the trust layer.
 
 **Recently closed:**
+
+- **Dead BSMS/Policy Builder reference in the downloadable vault backup
+  (2026-08-17).** `descriptor-backup.ts`'s Nunchuk recovery instructions told
+  a future reader to go find "the BSMS export on the Policy Builder page" --
+  that page was retired when `VaultWizard` absorbed it, and `VaultWizard`
+  never grew a BSMS export of its own, so the instruction pointed at
+  something that no longer exists at all, not just a renamed page. Since
+  this file is explicitly meant to work when DynastyTrust itself is
+  unreachable, a dead in-app pointer there is a real gap, not cosmetic.
+  Fixed to the instruction that was already correct as the doc's own
+  fallback: import the descriptor into Sparrow, then use Sparrow's own BSMS
+  export to hand off to Nunchuk -- now the primary and only instruction,
+  since DynastyTrust doesn't export BSMS directly. Also removed the stale
+  "PDF vault backup -- function exists, no UI button" line from Open Gaps
+  above: grounding for this fix found the button already wired in
+  `VaultDetail.tsx` (`api.pdfUrl` + "Download PDF"), alongside a working
+  descriptor QR code (`DescriptorQr.tsx`, "Show QR") -- both were already
+  done, the doc just hadn't caught up.
 
 - **The 2026-08-06 fix below was incomplete -- server-side copy still had the
   bug (2026-08-16).** `apps/web/src/lib/descriptor-keys.ts`'s `upgradeDescriptor`
