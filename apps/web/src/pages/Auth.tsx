@@ -5,25 +5,25 @@ import { colors, fonts, radii, space } from '../theme';
 import { Button, Input } from '../components/ui';
 import { startTapitFlow } from '../lib/wallet-signin';
 
-interface AuthProps {
-  /**
-   * If the user signs up, Supabase sends a confirmation email. Without
-   * a redirect Supabase routes the click to the site default, which
-   * loses any deep-link context like an invite token. Pass the current
-   * URL here so the confirmation link brings the user back where they
-   * started.
-   */
-  redirectTo?: string;
-}
+// Set once we've asked Supabase to email a 6-digit code -- 'signup' for
+// account confirmation, 'recovery' for password reset. Identifies which
+// verifyOtp type to call once the code comes back. No magic links
+// anywhere: every code-bearing email uses Supabase's {{ .Token }}
+// variable only (operator, 2026-08-17: "6 digit on all sides no links").
+type Pending = 'signup' | 'recovery' | null;
 
-export default function Auth({ redirectTo }: AuthProps = {}) {
+export default function Auth() {
   const [mode, setMode] = useState<'login' | 'signup' | 'reset'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
-  const [resetSent, setResetSent] = useState(false);
+
+  const [pending, setPending] = useState<Pending>(null);
+  const [code, setCode] = useState('');
+  const [codeBusy, setCodeBusy] = useState(false);
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const [resent, setResent] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -32,19 +32,13 @@ export default function Auth({ redirectTo }: AuthProps = {}) {
 
     try {
       if (mode === 'signup') {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-          ...(redirectTo ? { options: { emailRedirectTo: redirectTo } } : null),
-        });
+        const { error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-        setDone(true);
+        setPending('signup');
       } else if (mode === 'reset') {
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
-        });
+        const { error } = await supabase.auth.resetPasswordForEmail(email);
         if (error) throw error;
-        setResetSent(true);
+        setPending('recovery');
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
@@ -54,6 +48,52 @@ export default function Auth({ redirectTo }: AuthProps = {}) {
     } finally {
       setBusy(false);
     }
+  }
+
+  // Verifying a 'signup' code establishes a normal session; verifying a
+  // 'recovery' code fires Supabase's PASSWORD_RECOVERY auth event, which
+  // RequireAuth already listens for and swaps in SetNewPassword. Either
+  // way this screen doesn't need to do anything else on success -- the
+  // session-change listener upstream takes it from here.
+  async function verifyCode(e: React.FormEvent) {
+    e.preventDefault();
+    if (!pending) return;
+    setCodeBusy(true);
+    setCodeError(null);
+    try {
+      const { error } = await supabase.auth.verifyOtp({ email, token: code, type: pending });
+      if (error) throw error;
+    } catch (err: unknown) {
+      setCodeError(friendlyAuthError(err instanceof Error ? err.message : 'Invalid code'));
+    } finally {
+      setCodeBusy(false);
+    }
+  }
+
+  async function resendCode() {
+    setCodeBusy(true);
+    setCodeError(null);
+    setResent(false);
+    try {
+      const { error } =
+        pending === 'signup'
+          ? await supabase.auth.resend({ type: 'signup', email })
+          : await supabase.auth.resetPasswordForEmail(email);
+      if (error) throw error;
+      setResent(true);
+    } catch (err: unknown) {
+      setCodeError(friendlyAuthError(err instanceof Error ? err.message : 'Could not resend code'));
+    } finally {
+      setCodeBusy(false);
+    }
+  }
+
+  function backToSignIn() {
+    setPending(null);
+    setCode('');
+    setCodeError(null);
+    setResent(false);
+    setMode('login');
   }
 
   // Sign in by proving control of a linked Tapit wallet key. On success this
@@ -69,37 +109,52 @@ export default function Auth({ redirectTo }: AuthProps = {}) {
     }
   }
 
-  if (done) {
+  if (pending) {
     return (
       <div style={s.page}>
         <div style={s.card}>
           <div style={s.logo}>{APP_NAME}</div>
-          <h2 style={s.heading}>Check your email</h2>
+          <h2 style={s.heading}>
+            {pending === 'signup' ? 'Confirm your email' : 'Enter your reset code'}
+          </h2>
           <p style={s.sub}>
-            We sent a confirmation link to{' '}
-            <strong style={{ color: colors.gold }}>{email}</strong>. Confirm your
-            address then return here to sign in.
+            We sent a 6-digit code to{' '}
+            <strong style={{ color: colors.gold }}>{email}</strong>. Enter it below
+            {pending === 'recovery' ? ' to choose a new password.' : ' to finish creating your account.'}
           </p>
-          <button style={s.link} onClick={() => { setDone(false); setMode('login'); }}>
-            Back to sign in
+          <form onSubmit={verifyCode} style={s.form}>
+            <label style={s.label} htmlFor="auth-code">Code</label>
+            <Input
+              id="auth-code"
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              value={code}
+              onChange={e => setCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+              required
+              minLength={6}
+              maxLength={6}
+              placeholder="000000"
+              style={{ fontSize: 20, padding: '12px 14px', letterSpacing: '0.3em', textAlign: 'center' }}
+            />
+            {codeError && <p style={s.error}>{codeError}</p>}
+            {resent && !codeError && <p style={s.resent}>New code sent.</p>}
+            <Button
+              type="submit"
+              disabled={codeBusy || code.length !== 6}
+              style={{ marginTop: space[4], padding: '14px', fontSize: 15, letterSpacing: '0.04em' }}
+            >
+              {codeBusy ? 'Working…' : 'Verify code'}
+            </Button>
+          </form>
+          <button
+            style={{ ...s.link, marginTop: space[4] }}
+            disabled={codeBusy}
+            onClick={() => void resendCode()}
+          >
+            Resend code
           </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (resetSent) {
-    return (
-      <div style={s.page}>
-        <div style={s.card}>
-          <div style={s.logo}>{APP_NAME}</div>
-          <h2 style={s.heading}>Check your email</h2>
-          <p style={s.sub}>
-            If an account exists for{' '}
-            <strong style={{ color: colors.gold }}>{email}</strong>, we sent a
-            password reset link. Open it on this device to choose a new password.
-          </p>
-          <button style={s.link} onClick={() => { setResetSent(false); setMode('login'); }}>
+          <button style={{ ...s.link, marginTop: space[2], fontSize: 13 }} onClick={backToSignIn}>
             Back to sign in
           </button>
         </div>
@@ -113,7 +168,7 @@ export default function Auth({ redirectTo }: AuthProps = {}) {
         <div style={s.card}>
           <div style={s.logo}>{APP_NAME}</div>
           <h2 style={s.heading}>Reset password</h2>
-          <p style={s.sub}>Enter your account email and we'll send a reset link.</p>
+          <p style={s.sub}>Enter your account email and we'll send a 6-digit code.</p>
           <form onSubmit={submit} style={s.form}>
             <label style={s.label} htmlFor="auth-email">Email</label>
             <Input
@@ -132,7 +187,7 @@ export default function Auth({ redirectTo }: AuthProps = {}) {
               disabled={busy}
               style={{ marginTop: space[4], padding: '14px', fontSize: 15, letterSpacing: '0.04em' }}
             >
-              {busy ? 'Working…' : 'Send reset link'}
+              {busy ? 'Working…' : 'Send code'}
             </Button>
           </form>
           <button style={{ ...s.link, marginTop: space[4] }} onClick={() => { setMode('login'); setError(null); }}>
@@ -245,14 +300,19 @@ function friendlyAuthError(message: string): string {
   if (m.includes('already registered') || m.includes('already exists'))
     return 'An account with this email already exists. Try signing in instead.';
   if (m.includes('email not confirmed'))
-    return 'Confirm your email first -- check your inbox for the confirmation link.';
+    return 'Confirm your email first -- check your inbox for the 6-digit code.';
+  if (m.includes('token has expired') || m.includes('otp_expired'))
+    return 'That code has expired. Request a new one.';
+  if (m.includes('invalid') && (m.includes('token') || m.includes('otp')))
+    return 'That code is incorrect. Check it and try again.';
   if (m.includes('rate') || m.includes('too many'))
     return 'Too many attempts. Wait a minute and try again.';
   return message;
 }
 
 // Shown by RequireAuth when Supabase reports a PASSWORD_RECOVERY session
-// (the user clicked a reset link). Lets them set a new password in-app.
+// (the user verified their reset code above). Lets them set a new
+// password in-app.
 export function SetNewPassword({ onDone }: { onDone: () => void }) {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -429,6 +489,11 @@ const s: Record<string, CSSProperties> = {
   error: {
     fontSize: 13,
     color: colors.red,
+    margin: '4px 0',
+  },
+  resent: {
+    fontSize: 13,
+    color: colors.gold,
     margin: '4px 0',
   },
   link: {

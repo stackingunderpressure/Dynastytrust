@@ -115,7 +115,7 @@ export default function InviteClaim() {
       >
         <InviteBanner invite={invite} vault={vault} />
         <VaultPreviewBlock invite={invite} vault={vault} members={members} />
-        <Auth redirectTo={typeof window !== 'undefined' ? window.location.href : undefined} />
+        <Auth />
       </div>
     );
   }
