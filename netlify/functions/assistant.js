@@ -25,6 +25,13 @@
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 import { askClaude } from "./_anthropic.js";
+import { wordlist as BIP39_WORDLIST } from "@scure/bip39/wordlists/english";
+
+// Same canonical list apps/web/src/lib/keystore.ts already imports from
+// @scure/bip39 for real mnemonic generation/validation -- one source of
+// truth, so this filter and the actual wallet code can never disagree on
+// what counts as a BIP-39 word. A Set gives O(1) membership checks.
+const BIP39_WORDS = new Set(BIP39_WORDLIST);
 
 // 2026-08-15 security audit: the SECURITY RAIL comment below only ever
 // covered what the SERVER assembles into the model context
@@ -63,13 +70,19 @@ function looksLikeSecretMaterial(text) {
   }
 
   // A BIP-39 seed phrase: 12/15/18/21/24 words is the valid-length set,
-  // but any run of 11+ consecutive short alphabetic words is refused --
-  // a false positive here just asks someone to rephrase an unusual
-  // sentence; a false negative lets a seed phrase through. Deliberately
-  // permissive on the trigger side given the stakes.
-  const wordlike = tokens.map((t) => /^[a-z]{3,8}$/i.test(t));
+  // so a run of 11+ CONSECUTIVE actual BIP-39 wordlist words is refused
+  // -- one short of the shortest valid phrase, deliberately permissive
+  // on the trigger side (catches someone mid-paste) given the stakes.
+  // Checking real wordlist membership instead of "any short alphabetic
+  // token" is the whole point: ordinary sentences routinely run 11+
+  // words of 3-8 letters (articles, prepositions, common short words),
+  // but essentially never 11+ words that are ALSO all drawn from the
+  // exact 2048-word BIP-39 list -- so this catches every real seed
+  // phrase (which by definition is 100% BIP-39 words) while no longer
+  // flagging normal prose that merely happens to use short words.
+  const isBip39Word = tokens.map((t) => BIP39_WORDS.has(t.toLowerCase()));
   let run = 0;
-  for (const isWord of wordlike) {
+  for (const isWord of isBip39Word) {
     run = isWord ? run + 1 : 0;
     if (run >= 11) return true;
   }
