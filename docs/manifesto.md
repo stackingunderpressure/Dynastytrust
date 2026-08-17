@@ -215,6 +215,19 @@ gate, no minimum balance, no geographic restriction.
 - **Not beginner-friendly yet.** We are working on it. A bitcoiner
   who has done at least one multisig setup will have no trouble. A
   normie will want help.
+- **Not an HD wallet with a fresh address every time.** A vault
+  lives at one fixed address for its entire life -- deposits, spends,
+  and change all land on that same address, deliberately, so anyone
+  with a stake in the vault can point at one place and see its whole
+  history and balance. That is the opposite of a typical HD wallet's
+  gap-limit address rotation, and it costs you the privacy that
+  rotation buys: address reuse is Bitcoin's best-known chain-analysis
+  foothold, and anyone who learns the address can see everything that
+  has ever moved through it. Want a genuinely new, unlinked address?
+  Open a new vault -- do not expect this one to hand you one. See
+  `docs/sovereignty-education-bot.md` rung 6 for the full teach,
+  including the nuance that reusing the same keys across vaults can
+  still let them be correlated even with different addresses.
 
 ---
 

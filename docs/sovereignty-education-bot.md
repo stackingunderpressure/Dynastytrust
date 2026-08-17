@@ -267,6 +267,47 @@ to the user's actual chosen template -- trustee dies, beneficiary refuses to
 cosign, trustees go silent six months, single device lost, inheritance triggers
 -- so "how do I control it" is answered as lived scenarios, not parameters.
 
+**One address, not many (2026-08-17, operator: "we are not trying to be an HD
+deterministic wallet... explain our position on the one address and then
+swapping [to a] new vault when you want [a] new address... how you don't
+inherit privacy only from single address and all of the nuances").** All three
+paths above are compiled into the SAME single Taproot address for the life of
+the vault -- DynastyTrust does not behave like a typical HD wallet (Sparrow,
+Electrum, most mobile wallets) that hands out a fresh receive address per
+transaction from a ranged xpub. This is deliberate, not a limitation the team
+hasn't gotten to yet: the compiler bakes each vault's specific founder/heir
+keys into its Taproot leaves ONCE, at creation, and only ever knows how to
+build a spend for that exact `/0/0` child -- a ranged descriptor
+(`pk([fp/path]xpub/0/*)`) would let an imported wallet like Nunchuk or Sparrow
+offer additional "valid" receive addresses at index 1+ that this app's own
+compiler has no spending logic for, funds sent there would be spendable by the
+hardware wallet directly but invisible to DynastyTrust's own coordinator. Change
+from a partial spend also returns to that SAME address (`change_address` is set
+to `vault.address`, not a fresh change output) -- so every deposit, spend, and
+leftover sat that ever touches a given vault accumulates, visibly, on one
+address for as long as it exists.
+
+The plain-language teach here: a single, durable, reused address is a
+deliberate tradeoff, not a bug. The upside is auditability -- trustees, heirs,
+and sometimes an attorney all need to be able to point at one place and see the
+whole balance and history for themselves, the way a company treasury address is
+often deliberately public. The cost is privacy: address reuse is Bitcoin's
+best-known chain-analysis foothold, so anyone who ever learns this address,
+today or in twenty years, can see everything that has moved through it, forever
+-- exactly the property a fresh-address-per-transaction wallet is built to
+avoid. The bot must correct the natural but wrong assumption that "getting a
+new address" works here the way it does in every other wallet the user has
+used: it does not, and asking this vault for a new receive address is not a
+thing. **Opening a brand-new vault is the actual mechanism** for a genuinely
+separate, unlinked place to hold value -- a new compile produces a new Taproot
+output with no on-chain link to the old one. One further nuance worth naming
+honestly rather than oversimplifying: reusing the SAME founder/heir keys across
+several separate vaults can still let chain analysis correlate those vaults
+with each other even though their addresses differ, e.g. via the common-input-
+ownership heuristic if two vaults are ever funded from, or spend to, the same
+place in the same transaction -- a new vault buys a new address, but a truly
+unlinked new address also wants genuinely independent keys behind it.
+
 ### Rung 7 -- "Who do I trust?": the trust question, head-on
 The operator's hardest question, and the one with the most honest answers:
 - **Yourself across time** -- redundant keys you hold in different places.
