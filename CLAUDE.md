@@ -450,6 +450,23 @@ See `Stack` above for the layout.
   toggle, rename, deep links to `/vaults/:id`
 - Vault Detail: overview, send flow with PSBT build, browser signing,
   broadcast to mempool.space, proposal history
+- Legacy Recovery: long-horizon descriptor recovery independent of this app
+  ever running again. `apps/web/src/lib/legacy-recovery.ts` (crypto core,
+  BIP32-derived key locks + audited Shamir sharing, no consensus/Taproot
+  changes) + `legacy-seal.ts` (orchestration) + `vault-legacy.js`/
+  `vault_legacy_*` tables (storage) + `LegacyRecoverySetup.tsx`
+  (`/vaults/:id/legacy-recovery` -- the owner assigns one local key per
+  vault role and seals) + a standalone, offline, single-HTML-file recovery
+  tool at `/dynastytrust-legacy-recovery-tool.html`
+  (`tools/legacy-recovery/`, rebuild with `node tools/legacy-recovery/
+  build.mjs` and commit whenever legacy-recovery.ts changes). Two recovery
+  paths sharing one secret: fast (one key + an on-chain-published pad,
+  pure XOR) and fallback (two different keys' Shamir shares, real GF(2^8)
+  math, for when the on-chain piece is unavailable). Covers the
+  named-field ("standard") vault shape only so far -- see Open Gaps.
+  Publishing the on-chain pad itself is a deliberate, separate, not-yet-built
+  step (it moves real sats and needs explicit human confirmation each time,
+  not something to automate).
 
 **Open gaps (prioritized):**
 
@@ -473,6 +490,16 @@ See `Stack` above for the layout.
    paulmillr v2). No CVE pressure; upgrade when a specific feature or fix
    is needed, not on schedule. Cheapest path: browser libs first, then
    bitcoin 0.31 -> 0.32, then miniscript 11 -> 13.
+6. **Legacy Recovery: leaf-list ("generic") vault shape not covered yet.**
+   `LegacyRecoverySetup.tsx` only enumerates founder/backup/heir/protector/
+   second_heir roles -- a vault built on the newer `leaves` shape has no
+   sealing UI. The crypto core (`legacy-recovery.ts`) doesn't care about
+   vault shape at all; this is purely a missing role-enumeration branch in
+   the setup page.
+7. **Legacy Recovery: on-chain publication of the pad.** The on-chain share
+   is generated and stored (fast-path recovery already works today), but
+   nothing funds a transaction or embeds it in an OP_RETURN yet -- that's a
+   deliberate, separate, human-confirmed step, not automated.
 
 **Next roadmap (captured 2026-04-18, post audit-fix push):**
 
