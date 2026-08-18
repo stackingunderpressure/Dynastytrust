@@ -31,6 +31,14 @@ export const WALLET_SIGN_URL =
   (import.meta.env.VITE_TAPIT_WALLET_URL as string | undefined) ??
   'https://tapit-wallet.netlify.app/sign';
 
+// The wallet's plain root -- visiting it with no existing session routes
+// into Tapit's own FreshOnboarding (tapit-wallet's WalletProvider/
+// FreshLoginShell gate on wallet state at that root, no query params
+// needed). Used for "new to Tapit, create an account" -- deliberately NOT
+// the /sign challenge URL above, which bundles a DynastyTrust sign-in
+// request that makes no sense for someone who has nothing to sign yet.
+export const WALLET_BASE_URL = WALLET_SIGN_URL.replace(/\/sign\/?$/, '') || WALLET_SIGN_URL;
+
 export type TapitMode = 'signin' | 'link';
 
 // Challenge + attestation payloads are pure ASCII (hex, ISO timestamps, a

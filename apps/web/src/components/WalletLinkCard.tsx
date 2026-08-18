@@ -1,15 +1,19 @@
 import { useState, type CSSProperties } from 'react';
-import { startTapitFlow } from '../lib/wallet-signin';
+import { startTapitFlow, WALLET_BASE_URL } from '../lib/wallet-signin';
 import { Button } from './ui';
 import { useToast } from './toast';
 import { colors, fonts, radii, space } from '../theme';
 
 /**
- * WalletLinkCard -- start the bind flow that links a Tapit wallet to this
- * account, so the user can later sign in by proving key control. This is the
- * entry point for the whole Tapit path: a person with no wallet yet clicks
- * Link, the wallet walks them through creating one, and (with the wallet's
- * return-path fix) brings them back here to finish binding.
+ * WalletLinkCard -- two distinct entry points into the Tapit relationship,
+ * split (2026-08-18, operator request) because they were previously one
+ * button doing two different things depending on whether the person
+ * already had a wallet: someone who already has Tapit wants to prove key
+ * control and link it (the real challenge/response flow below); someone
+ * who doesn't has nothing to sign yet and just needs to go create one,
+ * then come back. Bundling both into a single redirect meant a brand-new
+ * user's very first Tapit visit carried a DynastyTrust sign-in challenge
+ * that made no sense yet.
  */
 export function WalletLinkCard() {
   const toast = useToast();
@@ -26,6 +30,13 @@ export function WalletLinkCard() {
     }
   }
 
+  function createAccount() {
+    // New tab, not a redirect: creating a wallet has no callback path back
+    // to a specific DynastyTrust URL, so this tab stays put -- the person
+    // comes back to it and taps "Link an existing wallet" once they have one.
+    window.open(WALLET_BASE_URL, '_blank', 'noopener,noreferrer');
+  }
+
   return (
     <div style={s.wrap}>
       <div style={s.head}>
@@ -33,19 +44,17 @@ export function WalletLinkCard() {
         <span style={s.title}>Tapit wallet</span>
       </div>
       <p style={s.body}>
-        Link a Tapit wallet to sign in by proving you control your key. No Tapit
-        wallet yet? You'll create one in a moment and come right back here to
-        finish linking.
+        Sign in by proving you control your Tapit key -- no password to remember, no key ever
+        leaves the wallet.
       </p>
-      <Button
-        variant="primary"
-        size="sm"
-        disabled={busy}
-        onClick={() => void link()}
-        style={{ marginTop: space[3] }}
-      >
-        Link your Tapit wallet
-      </Button>
+      <div style={{ display: 'flex', gap: space[2], marginTop: space[3], flexWrap: 'wrap' }}>
+        <Button variant="primary" size="sm" disabled={busy} onClick={() => void link()}>
+          Link an existing wallet
+        </Button>
+        <Button variant="ghost" size="sm" onClick={createAccount}>
+          New to Tapit? Create an account
+        </Button>
+      </div>
     </div>
   );
 }
