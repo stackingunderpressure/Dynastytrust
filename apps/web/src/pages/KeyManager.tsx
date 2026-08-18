@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   listAllKeys, generateTestKey, generateSoftwareKey, importXpub,
-  updateKeyStatus, deleteKey, revealMnemonic, secureTestKey,
+  updateKeyStatus, deleteKey, revealMnemonic, secureTestKey, removeKeyPassword,
   exportKeyring, importKeyringJson, renameKey, parseXpubText,
   DEFAULT_PERSONAS, type LocalKey, type Network,
 } from "../lib/keystore";
@@ -336,12 +336,14 @@ function RevealModal({
   onClose: () => void;
   onBackedUp: () => void;
 }) {
+  const confirm = useConfirm();
   const [pw, setPw] = useState("");
   const isTest = !!keyData.testMnemonic;
   const [mnemonic, setMn] = useState<string | null>(isTest ? keyData.testMnemonic! : null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [doBackup, setDoBackup] = useState(false);
+  const [passwordRemoved, setPasswordRemoved] = useState(false);
 
   async function unlock(e: React.FormEvent) {
     e.preventDefault();
@@ -354,6 +356,19 @@ function RevealModal({
     } finally {
       setBusy(false);
     }
+  }
+
+  async function dropPassword() {
+    if (!mnemonic) return;
+    if (
+      !(await confirm({
+        title: "Remove password",
+        message: `Remove the password from "${keyData.label}"? The recovery phrase will be stored in the browser without encryption, and no password will be asked for when signing with this key.`,
+      }))
+    )
+      return;
+    removeKeyPassword(keyData.keyId, mnemonic);
+    setPasswordRemoved(true);
   }
 
   if (doBackup && mnemonic)
@@ -391,9 +406,11 @@ function RevealModal({
         </form>
       ) : (
         <>
-          {isTest ? (
+          {isTest || passwordRemoved ? (
             <div style={{ padding: "10px 14px", background: colors.successBg, border: `1px solid ${colors.green}44`, borderRadius: radii.md, marginBottom: 14 }}>
-              <p style={{ fontSize: 12, color: colors.green, margin: 0 }}>Test key - no password needed.</p>
+              <p style={{ fontSize: 12, color: colors.green, margin: 0 }}>
+                {passwordRemoved ? "Password removed - no password needed for this key anymore." : "Test key - no password needed."}
+              </p>
             </div>
           ) : (
             <div style={{ padding: "10px 14px", background: colors.dangerBg, border: `1px solid ${colors.borderDanger}`, borderRadius: radii.md, marginBottom: 14 }}>
@@ -401,13 +418,18 @@ function RevealModal({
             </div>
           )}
           <WordGrid words={mnemonic!.split(" ")} />
-          <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+          <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
             <Button variant="ghost" style={{ flex: 1 }} onClick={onClose}>
               Close
             </Button>
             {!keyData.backedUp && (
               <Button style={{ flex: 1 }} onClick={() => setDoBackup(true)}>
                 Verify backup
+              </Button>
+            )}
+            {!isTest && !passwordRemoved && (
+              <Button variant="ghost" style={{ flex: 1 }} onClick={dropPassword}>
+                Remove password
               </Button>
             )}
           </div>

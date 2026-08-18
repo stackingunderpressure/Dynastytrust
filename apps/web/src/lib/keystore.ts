@@ -591,6 +591,25 @@ export async function secureTestKey(keyId: string, password: string): Promise<Lo
   return all[idx];
 }
 
+/**
+ * Downgrade a secure encrypted key back to a plaintext test key (drops the
+ * password requirement). Takes the already-decrypted mnemonic rather than a
+ * password -- the caller must have just proven possession of it via a
+ * successful revealMnemonic() call, so this never re-derives or re-checks
+ * anything on its own.
+ */
+export function removeKeyPassword(keyId: string, mnemonic: string): LocalKey {
+  const key = getKey(keyId);
+  if (!key)                     throw new Error('Key not found');
+  if (!key.encryptedMnemonic)   throw new Error('Not a password-protected key');
+
+  const all = loadAll();
+  const idx = all.findIndex(k => k.keyId === keyId);
+  all[idx] = { ...all[idx], testMnemonic: mnemonic, encryptedMnemonic: undefined };
+  saveAll(all);
+  return all[idx];
+}
+
 /** Mark a key as backed up after completing verify flow */
 export function markBackedUp(keyId: string): void {
   const all = loadAll();

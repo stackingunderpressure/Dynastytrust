@@ -1886,7 +1886,7 @@ function InlineKeyCreate({
   onCancel: () => void;
 }) {
   const [tab, setTab] = useState<'generate' | 'import' | 'tapit'>('generate');
-  const [secure, setSecure] = useState(true);
+  const [secure, setSecure] = useState(false);
   const [password, setPassword] = useState('');
   const [xpub, setXpub] = useState('');
   const [path, setPath] = useState("m/48'/1'/0'/2'");
