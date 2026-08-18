@@ -891,7 +891,7 @@ function OverviewTab({
           >
             DESCRIPTOR
           </span>
-          <div style={{ display: "flex", gap: 6 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "flex-end" }}>
             <Button
               variant="ghost"
               size="sm"
