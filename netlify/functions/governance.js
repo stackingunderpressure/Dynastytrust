@@ -57,7 +57,7 @@ export async function handler(event) {
   const supabase = getSupabaseAdmin();
   const { data: vault, error: vaultErr } = await supabase
     .from('vaults')
-    .select('id, name, network, founder_quorum, heir_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, address')
+    .select('id, name, network, founder_quorum, heir_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, address, protector_keys, protector_quorum, protector_after')
     .eq('id', vault_id)
     .eq('user_id', u.userId)
     .single();
@@ -71,6 +71,12 @@ export async function handler(event) {
     heir_key_count:    (vault.heir_keys || []).length,
     recovery_after:    vault.recovery_after,
     inheritance_after: vault.inheritance_after,
+    // Optional -- only present when the vault actually configured a
+    // protector. All three arrive together or not at all (see
+    // policy_compiler.rs's DynastyPolicy.has_protector()).
+    protector_quorum:    vault.protector_quorum ?? null,
+    protector_key_count: (vault.protector_keys || []).length || null,
+    protector_after:     vault.protector_after ?? null,
   };
 
   // ── status: evaluate which paths are active ──────────────────────────────
@@ -150,9 +156,14 @@ function jsGovernanceStatus(policy, utxo_age_blocks) {
   const has_recovery         = policy.recovery_after > 0;
   const recovery_unlocked    = has_recovery && utxo_age_blocks >= policy.recovery_after;
   const inheritance_unlocked = utxo_age_blocks >= policy.inheritance_after;
+  // Protector is optional -- only present when the vault actually
+  // configured one (see governance.js's policyBase builder above).
+  const has_protector        = policy.protector_quorum != null && policy.protector_after != null;
+  const protector_unlocked   = has_protector && utxo_age_blocks >= policy.protector_after;
 
   const active_paths = ['founders_now'];
   if (recovery_unlocked)    active_paths.push('recovery');
+  if (protector_unlocked)   active_paths.push('protector');
   if (inheritance_unlocked) active_paths.push('inheritance');
 
   const phase = inheritance_unlocked ? 'inheritance_unlocked'
@@ -161,6 +172,14 @@ function jsGovernanceStatus(policy, utxo_age_blocks) {
 
   const blocks_until_recovery    = (!has_recovery || recovery_unlocked) ? null : policy.recovery_after - utxo_age_blocks;
   const blocks_until_inheritance = inheritance_unlocked ? null : policy.inheritance_after - utxo_age_blocks;
+  const blocks_until_protector   = (!has_protector || protector_unlocked) ? null : policy.protector_after - utxo_age_blocks;
+
+  // Protector opening is folded into the status label as an extra
+  // sentence rather than its own phase, same reasoning as the Rust
+  // engine this mirrors (protocol/src/governance.rs) -- it's optional,
+  // unlike founders/recovery/inheritance which every vault has some
+  // form of.
+  const protectorNote = (protector_unlocked && !inheritance_unlocked) ? ' Protector rescue path is open.' : '';
 
   return {
     current_block: utxo_age_blocks,
@@ -168,15 +187,17 @@ function jsGovernanceStatus(policy, utxo_age_blocks) {
     phase,
     blocks_until_recovery,
     blocks_until_inheritance,
+    blocks_until_protector,
     days_until_recovery:    blocks_until_recovery    != null ? blocks_until_recovery / BLOCKS_PER_DAY    : null,
     days_until_inheritance: blocks_until_inheritance != null ? blocks_until_inheritance / BLOCKS_PER_DAY : null,
-    status_label: phase === 'active'
+    days_until_protector:   blocks_until_protector   != null ? blocks_until_protector / BLOCKS_PER_DAY   : null,
+    status_label: (phase === 'active'
       ? (has_recovery
           ? `Active — founders can spend. Recovery unlocks in ~${Math.round(blocks_until_recovery / BLOCKS_PER_DAY)} days.`
           : `Active — founders can spend. No separate recovery path on this vault.`)
       : phase === 'recovery_unlocked'
       ? `Recovery path unlocked. Inheritance unlocks in ~${Math.round(blocks_until_inheritance / BLOCKS_PER_DAY)} days.`
-      : 'All paths unlocked. Founders and heirs can spend.',
+      : 'All paths unlocked. Founders and heirs can spend.') + protectorNote,
   };
 }
 
@@ -184,13 +205,20 @@ function jsGovernanceAudit(policy, { path, amount_sats, destination, utxo_age_bl
   // Same has_recovery guard as jsGovernanceStatus above -- a Gift
   // Locker vault (recovery_after == 0) has no recovery leaf, so a
   // Recovery-path audit must never be reported timelock-satisfied
-  // just because utxo_age_blocks >= 0 is trivially true.
+  // just because utxo_age_blocks >= 0 is trivially true. Protector gets
+  // the identical treatment: optional, and a spend on that path must
+  // check protector_after / protector_quorum specifically, never fall
+  // through to inheritance_after or founder_quorum by accident.
   const has_recovery = policy.recovery_after > 0;
+  const has_protector = policy.protector_quorum != null && policy.protector_after != null;
   const timelock_ok = path === 'founders_now' ? true
     : path === 'recovery'    ? (has_recovery && utxo_age_blocks >= policy.recovery_after)
+    : path === 'protector'   ? (has_protector && utxo_age_blocks >= policy.protector_after)
     : utxo_age_blocks >= policy.inheritance_after;
 
-  const required = (path === 'inheritance') ? policy.heir_quorum : policy.founder_quorum;
+  const required = path === 'inheritance' ? policy.heir_quorum
+    : path === 'protector' ? (policy.protector_quorum ?? 0)
+    : policy.founder_quorum;
   const signed   = signers.filter(s => s.signed).length;
   const quorum_ok = signed >= required;
 
@@ -202,9 +230,12 @@ function jsGovernanceAudit(policy, { path, amount_sats, destination, utxo_age_bl
     if (path === 'recovery' && !has_recovery) {
       violations.push({ rule: { id: 'GOV-001', description: 'Timelock not satisfied', severity: 'hard' },
         detail: 'This vault has no separate recovery path -- founders spend via Founders Now at any time.' });
+    } else if (path === 'protector' && !has_protector) {
+      violations.push({ rule: { id: 'GOV-001', description: 'Timelock not satisfied', severity: 'hard' },
+        detail: 'This vault has no protector configured.' });
     } else {
-      const needed = path === 'recovery'
-        ? policy.recovery_after - utxo_age_blocks
+      const needed = path === 'recovery' ? policy.recovery_after - utxo_age_blocks
+        : path === 'protector' ? policy.protector_after - utxo_age_blocks
         : policy.inheritance_after - utxo_age_blocks;
       violations.push({ rule: { id: 'GOV-001', description: 'Timelock not satisfied', severity: 'hard' },
         detail: `Current chain height ${utxo_age_blocks} is below the unlock height. Needs ${needed} more blocks (~${Math.round(needed/BLOCKS_PER_DAY)} days).` });
@@ -229,6 +260,10 @@ function jsGovernanceAudit(policy, { path, amount_sats, destination, utxo_age_bl
   if (path === 'inheritance') {
     notes.push({ rule: { id: 'GOV-006', description: 'Inheritance path active', severity: 'info' },
       detail: 'This spend uses the heir inheritance path.' });
+  }
+  if (path === 'protector') {
+    notes.push({ rule: { id: 'GOV-009', description: 'Protector path used', severity: 'info' },
+      detail: 'Protector rescue path selected. This is typically used when founders have gone silent or unresponsive.' });
   }
 
   const missing = Math.max(0, required - signed);

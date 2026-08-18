@@ -1328,6 +1328,14 @@ struct GovernanceStatusRequest {
     // UTXO age. Timelocks are absolute CLTV; recovery_after/inheritance_after
     // are absolute heights, so callers must pass the chain tip here.
     utxo_age_blocks: u32,
+    // Protector is optional -- only present when the vault's policy
+    // actually configured one. All three arrive together or not at all.
+    #[serde(default)]
+    protector_quorum: Option<usize>,
+    #[serde(default)]
+    protector_key_count: Option<usize>,
+    #[serde(default)]
+    protector_after: Option<u32>,
 }
 
 async fn governance_status(
@@ -1344,6 +1352,8 @@ async fn governance_status(
         founder_quorum: req.founder_quorum, founder_key_count: req.founder_key_count,
         heir_quorum:    req.heir_quorum,    heir_key_count:    req.heir_key_count,
         recovery_after: req.recovery_after, inheritance_after: req.inheritance_after,
+        protector_quorum: req.protector_quorum, protector_key_count: req.protector_key_count,
+        protector_after: req.protector_after,
     }, req.utxo_age_blocks);
     Ok(Json(serde_json::to_value(&status).unwrap()))
 }
@@ -1361,6 +1371,13 @@ struct GovernanceAuditRequest {
     utxo_age_blocks: u32, total_vault_sats: u64,
     #[serde(default)]
     signers: Vec<serde_json::Value>,
+    // Protector is optional -- see GovernanceStatusRequest's doc comment.
+    #[serde(default)]
+    protector_quorum: Option<usize>,
+    #[serde(default)]
+    protector_key_count: Option<usize>,
+    #[serde(default)]
+    protector_after: Option<u32>,
 }
 
 async fn governance_audit(
@@ -1381,22 +1398,25 @@ async fn governance_audit(
         founder_quorum: req.founder_quorum, founder_key_count: req.founder_key_count,
         heir_quorum:    req.heir_quorum,    heir_key_count:    req.heir_key_count,
         recovery_after: req.recovery_after, inheritance_after: req.inheritance_after,
+        protector_quorum: req.protector_quorum, protector_key_count: req.protector_key_count,
+        protector_after: req.protector_after,
     };
-    // SpendingPath only models the three-leaf shape (founders_now /
-    // recovery / inheritance) -- protector, backup, and
-    // second_inheritance have no governance-audit equivalent here.
-    // Silently falling through to FoundersNow for any of those (or any
-    // typo) would rubber-stamp the audit as the MOST permissive path
-    // (no timelock, founder_quorum only) for a spend that may need
-    // different signers or a different timelock entirely -- reject
-    // instead of guessing.
+    // SpendingPath models founders_now / recovery / protector / inheritance
+    // -- backup and second_inheritance still have no governance-audit
+    // equivalent here (they only exist via the generic leaf-list vault
+    // shape, audited through audit_leaf_spend instead). Silently falling
+    // through to FoundersNow for any unrecognized path (or a typo) would
+    // rubber-stamp the audit as the MOST permissive path (no timelock,
+    // founder_quorum only) for a spend that may need different signers or
+    // a different timelock entirely -- reject instead of guessing.
     let path = match req.path.as_str() {
         "founders_now" => SpendingPath::FoundersNow,
         "recovery"     => SpendingPath::Recovery,
+        "protector"    => SpendingPath::Protector,
         "inheritance"  => SpendingPath::Inheritance,
         other => return Err(api_err(
             StatusCode::BAD_REQUEST,
-            format!("Unsupported governance path: {other} (expected founders_now, recovery, or inheritance)"),
+            format!("Unsupported governance path: {other} (expected founders_now, recovery, protector, or inheritance)"),
         )),
     };
     let signer_statuses: Vec<SignerStatus> = req.signers.iter().enumerate().map(|(i, s)| SignerStatus {

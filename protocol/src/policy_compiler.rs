@@ -221,6 +221,8 @@ pub enum PolicyError {
     BackupConflictsWithRecovery,
     #[error("a protector branch requires an inheritance leaf (heir_keys set); protector sits between them")]
     ProtectorRequiresInheritance,
+    #[error("protector_after must be >= recovery_after and < inheritance_after -- protector sits between founders' own recovery and heirs' inheritance")]
+    ProtectorOutOfOrder,
     #[error("a second inheritance branch requires the primary inheritance leaf (heir_keys set); it is an additional heir path, not a replacement")]
     SecondInheritanceRequiresInheritance,
     #[error("second_inheritance_after must be > 0 when second_heir_keys is set")]
@@ -1785,6 +1787,29 @@ fn verify(policy: &DynastyPolicy) -> Result<(), PolicyError> {
         if policy.inheritance_after <= policy.recovery_after {
             return Err(PolicyError::InheritanceTooSoon);
         }
+
+        // Protector is meant to sit BETWEEN founders' own recovery and
+        // heirs' inheritance (field doc comment: "trustees recover
+        // first, then protector can rescue funds if trustees failed,
+        // then finally successor trustees take over") -- an
+        // independent-party rescue window that opens before the
+        // founders' own recovery leaf, or on/after the heirs already
+        // have full access, defeats that escalation-ladder story
+        // entirely (either the protector jumps the founders' own
+        // recovery, or the "protector" role is a no-op since heirs can
+        // already spend everything by the time it opens). Only checked
+        // when recovery is the actual middle leaf -- backup has no
+        // after() height to compare against, and there's no equivalent
+        // ordering concern for an anytime, untimelocked leaf.
+        if policy.has_protector() {
+            let protector_after = policy.protector_after.unwrap();
+            if protector_after < policy.recovery_after {
+                return Err(PolicyError::ProtectorOutOfOrder);
+            }
+            if protector_after >= policy.inheritance_after {
+                return Err(PolicyError::ProtectorOutOfOrder);
+            }
+        }
     } else if policy.inheritance_after == 0 {
         // "Gift Locker" shape (founders-now OR a single beneficiary key
         // after a delay, no separate recovery leaf): still needs a real
@@ -2041,6 +2066,48 @@ mod multileaf_leaf_exposure_tests {
         assert!(out.recovery_leaf.is_some());
         assert!(out.inheritance_leaf.is_some());
         assert!(out.protector_leaf.is_some());
+    }
+
+    // base_policy() has recovery_after: 100_000, inheritance_after: 200_000.
+    // Protector is meant to sit between them (an independent-party rescue
+    // window between "founders can still recover themselves" and "heirs
+    // already have full access") -- a protector configured to open
+    // BEFORE recovery, or on/after inheritance, defeats that story and is
+    // rejected rather than silently compiled into a working but
+    // nonsensical vault.
+    #[test]
+    fn protector_before_recovery_is_rejected() {
+        let mut p = base_policy();
+        p.protector_keys = protectors();
+        p.protector_quorum = Some(1);
+        p.protector_after = Some(50_000); // before recovery_after (100_000)
+        let err = build_multileaf(&p).unwrap_err();
+        assert!(matches!(err, PolicyError::ProtectorOutOfOrder), "{err:?}");
+    }
+
+    #[test]
+    fn protector_on_or_after_inheritance_is_rejected() {
+        let mut p = base_policy();
+        p.protector_keys = protectors();
+        p.protector_quorum = Some(1);
+        p.protector_after = Some(200_000); // == inheritance_after
+        let err = build_multileaf(&p).unwrap_err();
+        assert!(matches!(err, PolicyError::ProtectorOutOfOrder), "{err:?}");
+
+        p.protector_after = Some(250_000); // past inheritance_after
+        let err = build_multileaf(&p).unwrap_err();
+        assert!(matches!(err, PolicyError::ProtectorOutOfOrder), "{err:?}");
+    }
+
+    #[test]
+    fn protector_exactly_at_recovery_after_is_accepted() {
+        // Equal to recovery_after is fine -- only strictly BEFORE
+        // recovery, or on/after inheritance, is rejected.
+        let mut p = base_policy();
+        p.protector_keys = protectors();
+        p.protector_quorum = Some(1);
+        p.protector_after = Some(100_000); // == recovery_after
+        assert!(build_multileaf(&p).is_ok());
     }
 
     // The critical regression check: each exposed leaf must actually be
