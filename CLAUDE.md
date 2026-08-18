@@ -190,8 +190,8 @@ of activity. `older(N)` compiles to `OP_CHECKSEQUENCEVERIFY` —
 resets every time the coin moves. BIP 68 caps CSV at 65,535
 blocks (~15 months), which can't express 2-5 year inheritance
 windows — so every leaf meant to hold a fixed deadline (recovery,
-inheritance, protector, second inheritance) uses `after()`,
-matching Liana's design for the same reason.
+inheritance, second inheritance) uses `after()`, matching Liana's
+design for the same reason.
 
 `older()` is permitted, but only for a short, self-refreshing leaf
 where resetting the clock on every spend is the entire point — e.g.
@@ -219,9 +219,9 @@ on any live network) → every timelock path unlocks at funding. An
 forwarded unchanged — no tip addition, since BIP68 measures it from
 whichever UTXO is actually being spent, not a fixed calendar point.
 
-`vaults.recovery_after / inheritance_after / protector_after`
-store the resulting **absolute block height**. The UI subtracts
-current tip to show "unlocks in Y months".
+`vaults.recovery_after / inheritance_after` store the resulting
+**absolute block height**. The UI subtracts current tip to show
+"unlocks in Y months".
 
 Spending an `after()`-gated leaf requires `tx.lock_time = N`;
 spending an `older()`-gated leaf requires `nSequence = N` on every
@@ -230,9 +230,9 @@ different transaction fields, never interchangeable, and
 `compiler/src/main.rs`'s `psbt_binary` handler sets exactly one of
 the two per leaf based on its `Unlock` variant. `psbt-binary`
 accepts a `path` field; for the named-field vault it is one of
-"founders_now" | "recovery" | "inheritance" | "protector" |
-"backup" | "second_inheritance", and for the generic leaf-list
-vault it is any `id` the caller's own `LeafPolicy.leaves` declares.
+"founders_now" | "recovery" | "inheritance" | "backup" |
+"second_inheritance", and for the generic leaf-list vault it is
+any `id` the caller's own `LeafPolicy.leaves` declares.
 
 Tranche (T-vesting) wallets are absolute by design — `unlock_block`
 is set directly from the ceremony UI.
@@ -503,7 +503,7 @@ See `Stack` above for the layout.
    is needed, not on schedule. Cheapest path: browser libs first, then
    bitcoin 0.31 -> 0.32, then miniscript 11 -> 13.
 6. **Legacy Recovery: leaf-list ("generic") vault shape not covered yet.**
-   `LegacyRecoverySetup.tsx` only enumerates founder/backup/heir/protector/
+   `LegacyRecoverySetup.tsx` only enumerates founder/backup/heir/
    second_heir roles -- a vault built on the newer `leaves` shape has no
    sealing UI. The crypto core (`legacy-recovery.ts`) doesn't care about
    vault shape at all; this is purely a missing role-enumeration branch in
@@ -551,6 +551,40 @@ on descriptor compile + single-source tree builder. Next phase is the trust
    is higher in the trust layer.
 
 **Recently closed:**
+
+- **Standalone protector leaf/timelock/quorum retired (2026-08-19).**
+  Operator: "I don't like the protector path. I only like it as an added
+  key to a quorum so as to keep a leaf honest not a leaf all of its own"
+  -- followed by, on which leaf it should co-sign: "Just as a suggested
+  signer just like trustee. Prolly not use much so don't need it." Read
+  as authorization to remove the dedicated mechanism entirely: an
+  independent overseer, if wanted, is just another key added directly to
+  `founder_keys` -- no separate field, leaf, or timelock needed, since
+  that person then counts toward the existing founder quorum like any
+  other trustee. Removed `protector_keys`/`protector_quorum`/
+  `protector_after` from `DynastyPolicy` and the protector branch from
+  `build_multileaf` (`policy_compiler.rs`), the protector fields/path from
+  `compiler/src/main.rs`'s compile and psbt-binary handlers, and the
+  matching plumbing from every Netlify function that touched them
+  (`compile.js`, `vaults.js`, `vaults-compile.js`, `vaults-rotate.js`,
+  `psbt-binary.js`, `invites.js`, `invites-lookup.js`, `vault-audit-pdf.js`,
+  `assistant.js`). Frontend: dropped the "Add a protector" toggle and its
+  key picker from `VaultWizard.tsx`, the spend-path option and
+  countdown/reminder banners from `VaultDetail.tsx`, and the config fields
+  from `StandardConfig`/`VaultTemplate` (`vault-templates.ts`) -- the
+  Generational Trust template's "independent protector" story is now "seat
+  an overseer as one of the 5 trustee keys instead." A same-session audit
+  of this mechanism (governance-layer protector tracking, an ordering
+  guardrail) is reverted along with it -- see commit `66130c7`, cleanly
+  undone via `git checkout 66130c7~1` for the three files it touched
+  outside `policy_compiler.rs`. `vaults.protector_keys/protector_quorum/
+  protector_after` columns are deliberately left in the DB schema, unused
+  -- dropping them is a separate, destructive call the operator didn't
+  ask for. Any vault compiled before this change that actually used the
+  protector leaf keeps spending exactly as before; the Taproot tree
+  already on-chain does not change retroactively. All 158 protocol +
+  compiler tests pass; frontend typecheck/lint/build clean against the
+  pre-existing baseline (documented below).
 
 - **Dead BSMS/Policy Builder reference in the downloadable vault backup
   (2026-08-17).** `descriptor-backup.ts`'s Nunchuk recovery instructions told

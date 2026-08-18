@@ -32,12 +32,10 @@ interface VaultInfo {
   heir_quorum: number;
   recovery_after: number;
   inheritance_after: number;
-  protector_after: number | null;
   consent_quorum: number | null;
   trust_doc: TrustDoc;
   founder_count: number;
   heir_count: number;
-  protector_count: number;
   consent_count: number;
   planned_founder_count: number | null;
   planned_heir_count: number | null;
@@ -729,9 +727,6 @@ function VaultPreviewBlock({
         <Fact label="Recovery unlocks" value={blocksToApproxMonths(vault.recovery_after)} />
         {vault.inheritance_after > 0 && (
           <Fact label="Inheritance unlocks" value={blocksToApproxMonths(vault.inheritance_after)} />
-        )}
-        {vault.protector_after && vault.protector_after > 0 && (
-          <Fact label="Protector unlocks" value={blocksToApproxMonths(vault.protector_after)} />
         )}
         {vault.consent_quorum != null && (
           <Fact label="Consent quorum" value={`${vault.consent_quorum} beneficiary sig(s)`} />

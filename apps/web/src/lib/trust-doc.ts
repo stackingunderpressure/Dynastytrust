@@ -47,11 +47,6 @@ export function buildStandardTrustDoc(opts: {
       `Every one of those spends also requires ${c.consentQ} of ${c.plannedConsenters} beneficiary signature${c.plannedConsenters === 1 ? '' : 's'} -- the founders cannot move funds without at least one beneficiary agreeing.`,
     );
   }
-  if (c.protectorEnabled) {
-    rules.push(
-      `A separate protector path lets ${c.protectorQ} of ${c.plannedProtectors} protector key${c.plannedProtectors === 1 ? '' : 's'} intervene after ${when(c.protectorAfter)} of inactivity -- an early safety valve to move funds to a fresh vault if something looks wrong, independent of the paths below.`,
-    );
-  }
   if (c.backupEnabled) {
     rules.push(
       `A separate backup path lets ${c.backupQ} of ${c.plannedBackups} backup key${c.plannedBackups === 1 ? '' : 's'} -- held by the founders themselves, kept apart from the day-to-day keys -- spend at any time, no waiting. This is not a committee override: it exists so the founders can always move funds even if the day-to-day quorum can't be reached, at the cost of more physical effort to gather the backup keys.`,
@@ -109,7 +104,7 @@ export function buildStandardTrustDoc(opts: {
 // resumed from VaultDetail -- members bring their own xpub via an invite
 // link, then the owner hits "Compile" from DraftReadinessCard -- never
 // passes through the wizard at all, and by the time compile() returns,
-// recovery_after/inheritance_after/protector_after are already ABSOLUTE
+// recovery_after/inheritance_after are already ABSOLUTE
 // CLTV heights, not relative offsets. This reprojects them back to
 // "blocks from now" against the current chain tip so the same generator
 // still reads as a countdown instead of quoting a raw absolute height as
@@ -122,9 +117,6 @@ export function standardConfigFromCompiledVault(
     heir_keys: string[];
     recovery_after: number;
     inheritance_after: number;
-    protector_quorum: number | null;
-    protector_keys: string[];
-    protector_after: number | null;
     consent_quorum: number | null;
     consent_keys: string[];
     backup_quorum?: number | null;
@@ -141,8 +133,6 @@ export function standardConfigFromCompiledVault(
     return Math.max(0, abs - tip);
   };
   const hasHeirs = vault.heir_keys.length > 0 && vault.inheritance_after > 0;
-  const hasProtector =
-    vault.protector_keys.length > 0 && vault.protector_quorum != null && vault.protector_after != null;
   const hasConsent = vault.consent_keys.length > 0 && vault.consent_quorum != null;
   const backupKeys = vault.backup_keys ?? [];
   const hasBackup = backupKeys.length > 0 && vault.backup_quorum != null;
@@ -158,10 +148,6 @@ export function standardConfigFromCompiledVault(
     recoveryEnabled: vault.recovery_after > 0,
     recoveryAfter: relative(vault.recovery_after),
     inheritanceAfter: relative(vault.inheritance_after),
-    protectorEnabled: hasProtector,
-    protectorAfter: hasProtector ? relative(vault.protector_after) : 0,
-    protectorQ: vault.protector_quorum ?? 1,
-    plannedProtectors: vault.protector_keys.length,
     consentEnabled: hasConsent,
     consentQ: vault.consent_quorum ?? 1,
     plannedConsenters: vault.consent_keys.length,

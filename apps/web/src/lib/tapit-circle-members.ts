@@ -9,8 +9,8 @@
  * vaults-compile.js's keyStoreValue) -- nothing else in this app stores a
  * key that way, so this is the closest available signal that "this vault
  * expects a Tapit circle member here." Role-agnostic on purpose (2026-08-11
- * fix) -- pass whichever of the vault's five key arrays (founder_keys,
- * heir_keys, protector_keys, backup_keys, consent_keys) you're checking;
+ * fix) -- pass whichever of the vault's key arrays (founder_keys,
+ * heir_keys, backup_keys, consent_keys) you're checking;
  * the caller is what knows the role, this only knows "is it Tapit-origin
  * and named here."
  */

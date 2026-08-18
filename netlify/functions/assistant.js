@@ -95,7 +95,7 @@ const HISTORY_LIMIT = 20;
 
 // Safe, public vault columns only -- NO key columns. Slice 1 doesn't
 // need any key material; this list deliberately omits founder_keys,
-// heir_keys, protector_keys, consent_keys, and every other secret.
+// heir_keys, consent_keys, and every other secret.
 const VAULT_SAFE_FIELDS =
   "name, network, address, descriptor, miniscript_policy, founder_quorum, heir_quorum, recovery_after, inheritance_after";
 
@@ -122,13 +122,14 @@ VAULT TEMPLATES you can guide a person toward (use the exact template id in a pr
 3. family-inheritance -- "Family Inheritance": 2-of-3 trustees now, recovery after
    ~6 months, heirs (2-of-3) inherit after ~2 years. The classic multi-generational
    starter. One trustee dying still leaves 2-of-3. Two trustees colluding CAN spend
-   (no protector here) -- pick trustees who don't share a circle.
+   -- pick trustees who don't share a circle.
 
-4. generational-trust -- "Generational Trust": 3-of-5 trustees, an independent
-   protector who can rescue funds at ~9 months, successors at ~3 years, plus a
-   beneficiary-consent gate on every normal spend. Institutional-grade. If a
-   beneficiary refuses to cosign, normal spends freeze until recovery or protector
-   unlocks. Protector blocks trustee collusion.
+4. generational-trust -- "Generational Trust": 3-of-5 trustees, successors at ~3
+   years, plus a beneficiary-consent gate on every normal spend. Institutional-
+   grade. If a beneficiary refuses to cosign, normal spends freeze until recovery
+   (~1 year) unlocks. Want an independent overseer? Seat them as one of the 5
+   trustee keys instead of a separate role -- their signature is then required
+   for any 3-of-5 quorum, which is what actually blocks collusion.
 
 5. business-treasury -- "Business Treasury": 3-of-5 directors, no heirs, no timelocks.
    Corporate cold storage. A director leaving means recompile + sweep. No timelock
@@ -306,7 +307,7 @@ Rung 5 why-it-works: The lock is tied to how far the Bitcoin network has counted
 Rung 5 the-crypto: Absolute CLTV: after(N) compiles to OP_CHECKLOCKTIMEVERIFY at a fixed block height. DynastyTrust uses absolute (not relative older()/CSV) because BIP 68 caps relative timelocks near 65,535 blocks (~15 months), too short for multi-year inheritance. The Netlify layer adds tip + offset so the leaf bakes in a real future height; see THESIS.md section 3 and CLAUDE.md.
 
 Rung 6 why-it-works: Each door is a separate rule with its own waiting period and its own list of who can open it. They live side by side, so the situation decides which door is the right one to use. That whole bundle of rules is compiled once into the address itself, at vault creation -- which is exactly why the address cannot quietly change later without becoming a different vault: change the doors and you get a new address; keep the same address and every deposit, spend, and leftover change stays visibly connected, to everyone who has ever looked, forever.
-Rung 6 the-crypto: Three Taproot leaves in a tr_multileaf descriptor: founders-now thresh(Q, founder_keys); recovery and(after(R), thresh(Q, founder_keys)); inheritance and(after(I), thresh(Q_h, heir_keys)); optional protector leaf. The bot narrates the per-template "what happens if..." playbooks in the VAULT_TEMPLATES array in lib/vault-templates.ts. DynastyTrust deliberately compiles a FIXED, non-ranged key-origin descriptor (pk([fp/path]xpub/0/0), never a wildcard pk([fp/path]xpub/0/*)) -- the compiler only ever knows how to build a spend for the exact /0/0 child baked into these leaves, so a ranged descriptor would advertise receive addresses the app could never actually spend from. change_address on every PSBT the app builds is also set to vault.address itself, not a fresh change output, so a partial spend's leftover sats return to the same address rather than a new one. This is the opposite of a typical HD wallet's gap-limit receive-address rotation (BIP 32/44/84) -- DynastyTrust trades that per-transaction unlinkability for one durable, auditable address per vault. A genuinely fresh, unlinked address means creating a new vault (a new compile, a new Taproot output), not rotating within an existing one; reusing the same founder/heir keys across multiple vaults can still let chain analysis correlate those vaults with each other even though their addresses differ, e.g. via the common-input-ownership heuristic if they are ever funded or spent together.
+Rung 6 the-crypto: Three Taproot leaves in a tr_multileaf descriptor: founders-now thresh(Q, founder_keys); recovery and(after(R), thresh(Q, founder_keys)); inheritance and(after(I), thresh(Q_h, heir_keys)). The bot narrates the per-template "what happens if..." playbooks in the VAULT_TEMPLATES array in lib/vault-templates.ts. DynastyTrust deliberately compiles a FIXED, non-ranged key-origin descriptor (pk([fp/path]xpub/0/0), never a wildcard pk([fp/path]xpub/0/*)) -- the compiler only ever knows how to build a spend for the exact /0/0 child baked into these leaves, so a ranged descriptor would advertise receive addresses the app could never actually spend from. change_address on every PSBT the app builds is also set to vault.address itself, not a fresh change output, so a partial spend's leftover sats return to the same address rather than a new one. This is the opposite of a typical HD wallet's gap-limit receive-address rotation (BIP 32/44/84) -- DynastyTrust trades that per-transaction unlinkability for one durable, auditable address per vault. A genuinely fresh, unlinked address means creating a new vault (a new compile, a new Taproot output), not rotating within an existing one; reusing the same founder/heir keys across multiple vaults can still let chain analysis correlate those vaults with each other even though their addresses differ, e.g. via the common-input-ownership heuristic if they are ever funded or spent together.
 
 Rung 7 why-it-works: Bitcoin enforces the actual spending rules; the app only coordinates the surrounding information. Knowing which part is enforced by math and which part is just convenience is what lets you decide how little you need to trust anyone, including us. Two open, published formats carry you out the door: one plain-language description of exactly what your vault's rules are, and one file that carries a pending transaction waiting on a signature. Any competent Bitcoin wallet software can read both, because DynastyTrust did not invent a private format of its own -- it uses the same ones the rest of the Bitcoin world already agreed on, so no other company's cooperation is required either.
 Rung 7 the-crypto: Bitcoin enforces the script; DynastyTrust coordinates only the metadata. Compromising the server never moves a coin. The honest endpoint is Super Sovereign Mode (database on your own laptop). See docs/trustee-commons.md and docs/super-sovereign-mode.md. The two BIP-standard artifacts that carry you out, concretely: the output descriptor (tr(...) miniscript form) and, for any pending spend, a PSBT (BIP 174 / BIP 371). Any miniscript-aware wallet can import the descriptor as watch-only and rebuild every leaf and address exactly -- Sparrow via File > Import Wallet > Scan QR Code, Nunchuk via its BSMS export, Coldcard and other air-gapped signers via the same descriptor text -- and any of them can sign a PSBT DynastyTrust (or any other coordinator) produces and hand it back the same way. See lib/descriptor-backup.ts for the exact downloadable recovery bundle, which spells out these per-wallet steps in full and is built to stand alone if this app is unreachable.

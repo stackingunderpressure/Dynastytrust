@@ -70,9 +70,7 @@ function roleStatus(v: Vault): string {
         ? `Inheritance unlocks in ${blocksToLabel(v.inheritance_after)}`
         : "Successor on standby";
     case "protector":
-      return v.protector_after
-        ? `Protector path unlocks in ${blocksToLabel(v.protector_after)}`
-        : "Protector role (no timelock)";
+      return "Protector role (no timelock)";
     case "beneficiary":
       return v.consent_quorum
         ? "Consent required for spends"
@@ -574,8 +572,8 @@ function ModalShell({
 // // -- Role summary (cross-vault)
 // Rolls up "who am I across my portfolio" at the top of the
 // dashboard: count of vaults per role, soonest upcoming unlock
-// (recovery for trustees, protector for protectors, inheritance
-// for heirs), so the user sees what's coming without drilling
+// (recovery for trustees, inheritance for heirs), so the user
+// sees what's coming without drilling
 // into each vault.
 
 function RoleSummary({ vaults }: { vaults: Vault[] }) {
@@ -629,16 +627,10 @@ function RoleSummary({ vaults }: { vaults: Vault[] }) {
     });
   }
   if (byRole.protector.length) {
-    const soonest = byRole.protector
-      .map(v => v.protector_after ?? 0)
-      .filter(n => n > 0)
-      .sort((a, b) => a - b)[0];
     cards.push({
       label: "Protector",
       count: byRole.protector.length,
-      detail: soonest
-        ? `soonest path unlocks in ${blocksToLabel(soonest)}`
-        : `${byRole.protector.length} vault${byRole.protector.length === 1 ? "" : "s"}`,
+      detail: `${byRole.protector.length} vault${byRole.protector.length === 1 ? "" : "s"}`,
       color: colors.blue,
     });
   }

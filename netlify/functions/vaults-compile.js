@@ -2,7 +2,7 @@
  * POST /api/vaults-compile
  * Body: { vault_id } -- invite-based (members bring their own xpub via a
  *   claim link), OR { vault_id, direct_keys: { founder_keys, heir_keys,
- *   protector_keys?, consent_keys? } } -- single-owner direct mode, each
+ *   consent_keys? } } -- single-owner direct mode, each
  *   entry { pubkey, xpub, fingerprint, derivation_path }, same shape the
  *   Bloc draft path (vaults-compile-bloc.js) already uses. This is for
  *   the common "I'm bringing every key myself, just not all in the same
@@ -134,12 +134,11 @@ export async function handler(event) {
   };
 
   const dk = body.direct_keys;
-  let founders, heirs, protectors, consenters, backups, secondHeirs;
+  let founders, heirs, consenters, backups, secondHeirs;
   if (dk && typeof dk === "object") {
     const clean = (arr) => (Array.isArray(arr) ? arr : []).filter(isProvisioned);
     founders = clean(dk.founder_keys);
     heirs = clean(dk.heir_keys);
-    protectors = clean(dk.protector_keys);
     consenters = clean(dk.consent_keys);
     backups = clean(dk.backup_keys);
     secondHeirs = clean(dk.second_heir_keys);
@@ -154,7 +153,6 @@ export async function handler(event) {
     const ready = (members ?? []).filter(isProvisioned);
     founders = ready.filter(m => m.role === "founder" || m.role === "owner");
     heirs = ready.filter(m => m.role === "heir");
-    protectors = ready.filter(m => m.role === "protector");
     consenters = ready.filter(m => m.role === "beneficiary");
     // Backup keys and the second inheritance cohort are the owner's own
     // (or independently-arranged) keys -- never invited, never a
@@ -189,15 +187,10 @@ export async function handler(event) {
   // the leaf is compiled; otherwise `after(N)` ends up at a tiny
   // absolute height that is long past on every live network and
   // the timelock path unlocks immediately.
-  const hasProtector =
-    protectors.length > 0 &&
-    vault.protector_quorum != null &&
-    vault.protector_after != null;
   // No timelock to convert -- backup is always immediately spendable.
   // Mutually exclusive with a timelocked recovery leaf (the Rust
   // compiler rejects both set at once); the wizard is responsible for
-  // never setting recovery_after > 0 on a vault that also has backup
-  // keys, same as it already keeps protector's ordering constraints.
+  // never setting recovery_after > 0 on a vault that also has backup keys.
   const hasBackup = backups.length > 0 && vault.backup_quorum != null;
   // Second, independent inheritance leaf (2026-08-11) -- its own key
   // set, quorum, and absolute timelock alongside the primary
@@ -211,7 +204,6 @@ export async function handler(event) {
     heirs.length > 0;
   let tipHeight = 0;
   if (vault.recovery_after || vault.inheritance_after ||
-      (hasProtector && vault.protector_after) ||
       (hasSecondInheritance && vault.second_inheritance_after)) {
     try {
       tipHeight = await fetchTipHeight(vault.network);
@@ -223,7 +215,6 @@ export async function handler(event) {
   }
   const absRecoveryAfter    = relativeToAbsolute(vault.recovery_after,    tipHeight);
   const absInheritanceAfter = relativeToAbsolute(vault.inheritance_after, tipHeight);
-  const absProtectorAfter   = relativeToAbsolute(vault.protector_after,   tipHeight);
   const absSecondInheritanceAfter = relativeToAbsolute(vault.second_inheritance_after, tipHeight);
 
   // Xpub-based keys are re-derived from the xpub itself (never trust the
@@ -245,13 +236,6 @@ export async function handler(event) {
     heir_quorum: vault.heir_quorum,
     recovery_after: absRecoveryAfter,
     inheritance_after: absInheritanceAfter,
-    ...(hasProtector
-      ? {
-          protector_keys: protectors.map(keyPubkeyHex),
-          protector_quorum: vault.protector_quorum,
-          protector_after: absProtectorAfter,
-        }
-      : {}),
     ...(vault.consent_quorum != null && consenters.length >= (vault.consent_quorum ?? 0)
       ? {
           consent_keys: consenters.map(keyPubkeyHex),
@@ -308,7 +292,7 @@ export async function handler(event) {
   // Bloc (vaults.bloc_policy.key_origins) and tranche
   // (037_tranche_key_origins.sql) already closed. Computed uniformly
   // for both paths so future readers have one place to look.
-  const keyOrigins = [...founders, ...heirs, ...protectors, ...consenters, ...backups, ...secondHeirs]
+  const keyOrigins = [...founders, ...heirs, ...consenters, ...backups, ...secondHeirs]
     .filter((m) => m.pubkey && m.fingerprint && m.derivation_path)
     .map((m) => ({
       pubkey: m.pubkey,
@@ -337,7 +321,6 @@ export async function handler(event) {
       miniscript_policy: compiled.miniscript_policy,
       founder_keys: founders.map(keyStoreValue),
       heir_keys: heirs.map(keyStoreValue),
-      protector_keys: protectors.map(keyStoreValue),
       consent_keys:
         vault.consent_quorum != null ? consenters.map(keyStoreValue) : [],
       backup_keys: backups.map(keyStoreValue),
@@ -346,7 +329,6 @@ export async function handler(event) {
       // CLTV heights that got baked into the compiled leaves.
       recovery_after: absRecoveryAfter,
       inheritance_after: absInheritanceAfter,
-      protector_after: hasProtector ? absProtectorAfter : vault.protector_after,
       second_inheritance_after: hasSecondInheritance ? absSecondInheritanceAfter : vault.second_inheritance_after,
       status: "compiled",
       // Per-role tapscript leaf bytes (Cut C3 prerequisite) -- absent

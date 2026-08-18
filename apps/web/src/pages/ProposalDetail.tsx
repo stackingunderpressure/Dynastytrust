@@ -42,7 +42,7 @@ function satsToBtc(sats: number): string {
  *  signing screen said "0 of 2 signatures needed" instead of "0 of 1").
  *  This page had the identical bug: it always showed vault.founder_quorum
  *  and vault.founder_keys regardless of which leaf the proposal actually
- *  spends from, so recovery/inheritance/protector/backup/second_inheritance
+ *  spends from, so recovery/inheritance/backup/second_inheritance
  *  proposals all showed the wrong required count and the wrong signable-key
  *  set. Bloc vaults (bloc_policy != null) never had ANY branch here at
  *  all -- vault.founder_quorum is unset for a Bloc-only vault, so every
@@ -80,8 +80,6 @@ function resolvePathSigners(
       return { keyArray: vault.founder_keys, required: vault.recovery_quorum ?? vault.founder_quorum };
     case "inheritance":
       return { keyArray: vault.heir_keys, required: vault.heir_quorum };
-    case "protector":
-      return { keyArray: vault.protector_keys, required: vault.protector_quorum ?? 0 };
     case "backup":
       return { keyArray: vault.backup_keys, required: vault.backup_quorum ?? 0 };
     case "second_inheritance":

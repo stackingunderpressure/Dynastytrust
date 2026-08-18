@@ -65,9 +65,6 @@ export async function handler(event) {
     heir_quorum = 1,
     recovery_after = 0,
     inheritance_after = 0,
-    protector_keys = [],
-    protector_quorum = null,
-    protector_after = null,
     consent_keys = [],
     consent_quorum = null,
     save = true,   // if true, auto-save compiled vault to DB
@@ -91,7 +88,7 @@ export async function handler(event) {
   // stored whatever it was given with no check. A private extended key
   // (xprv/tprv/uprv/vprv) must never reach the server at all, whether or
   // not anything is derived from it.
-  for (const k of [...founder_keys, ...heir_keys, ...protector_keys, ...consent_keys]) {
+  for (const k of [...founder_keys, ...heir_keys, ...consent_keys]) {
     try {
       assertNotPrivateExtendedKey(k);
     } catch (e) {
@@ -133,8 +130,7 @@ export async function handler(event) {
   // leaf bakes in a specific block height at compile time. Without
   // this step every timelock N < current tip would be unlocked.
   let tipHeight = 0;
-  if (finalRecoveryAfter || finalInheritanceAfter ||
-      (protector_after && protector_keys.length > 0)) {
+  if (finalRecoveryAfter || finalInheritanceAfter) {
     try {
       tipHeight = await fetchTipHeight(network);
     } catch (e) {
@@ -143,7 +139,6 @@ export async function handler(event) {
   }
   const absRecoveryAfter    = relativeToAbsolute(finalRecoveryAfter,    tipHeight);
   const absInheritanceAfter = relativeToAbsolute(finalInheritanceAfter, tipHeight);
-  const absProtectorAfter   = relativeToAbsolute(protector_after,       tipHeight);
 
   // 4. Forward to Fly.io compiler — fetchCompiler retries once in case
   // the machine is waking up from a cold start.
@@ -157,9 +152,6 @@ export async function handler(event) {
       heir_quorum: finalHeirQuorum,
       recovery_after: absRecoveryAfter,
       inheritance_after: absInheritanceAfter,
-      ...(protector_keys.length > 0 && protector_quorum != null && absProtectorAfter > 0
-        ? { protector_keys, protector_quorum, protector_after: absProtectorAfter }
-        : {}),
       ...(consent_keys.length > 0 && consent_quorum != null
         ? { consent_keys, consent_quorum }
         : {}),
@@ -218,9 +210,6 @@ export async function handler(event) {
           inheritance_after: absInheritanceAfter,
           founder_keys,
           heir_keys,
-          protector_keys,
-          protector_quorum,
-          protector_after: absProtectorAfter,
           consent_keys,
           consent_quorum,
         })
@@ -251,7 +240,6 @@ export async function handler(event) {
         absolute_timelocks: {
           recovery_after: absRecoveryAfter,
           inheritance_after: absInheritanceAfter,
-          protector_after: absProtectorAfter,
           tip_height: tipHeight,
         },
       });
@@ -272,7 +260,6 @@ export async function handler(event) {
     absolute_timelocks: {
       recovery_after: absRecoveryAfter,
       inheritance_after: absInheritanceAfter,
-      protector_after: absProtectorAfter,
       tip_height: tipHeight,
     },
   });

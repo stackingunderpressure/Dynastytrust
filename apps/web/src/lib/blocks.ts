@@ -1,6 +1,6 @@
 // Bitcoin block-count <-> human-duration helpers, shared by anything that
-// lets a user pick a timelock (recovery/inheritance/protector durations,
-// Bloc's decay-rung intervals). Relocated out of PolicyBuilder.tsx --
+// lets a user pick a timelock (recovery/inheritance durations, Bloc's
+// decay-rung intervals). Relocated out of PolicyBuilder.tsx --
 // unchanged logic, no longer duplicated in BlocBuilder.tsx under a
 // different local name (TIMELOCK_PRESETS).
 

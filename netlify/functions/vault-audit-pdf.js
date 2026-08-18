@@ -201,7 +201,6 @@ async function buildAuditPdf(data) {
   if (vault.recovery_quorum != null) keyValue('Recovery quorum', `${vault.recovery_quorum} of ${(vault.founder_keys || []).length}`);
   keyValue('Recovery at block', (vault.recovery_after || 0).toLocaleString());
   keyValue('Inheritance at block', (vault.inheritance_after || 0).toLocaleString());
-  if (vault.protector_after) keyValue('Protector at block', (vault.protector_after).toLocaleString());
   if (vault.consent_quorum != null) keyValue('Consent quorum', `${vault.consent_quorum} of ${(vault.consent_keys || []).length}`);
   keyValue('Compiled', fmtDate(vault.updated_at || vault.created_at));
   y -= 6;

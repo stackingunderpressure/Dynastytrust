@@ -101,7 +101,7 @@ export function keyReuseNotes(roles: KeyReuseRole[]): Map<string, string> {
 // ── Standard-shape BehaviorTimeline parity ─────────────────────────────
 
 // Converts a standard-shape config (founders/backup/recovery/heirs/
-// protector/second-inheritance) into the same SpendLeg[] shape
+// second-inheritance) into the same SpendLeg[] shape
 // BehaviorTimeline already consumes for Bloc and the leaf-list builder --
 // the timeline component itself needs zero changes, it just gets a new
 // caller. Consent is deliberately NOT its own leg here: it's a modifier
@@ -151,17 +151,6 @@ export function buildStandardLegs(config: StandardConfig): SpendLeg[] {
       requiredSigners: config.heirQ,
       meaning: `From ${blocksToHuman(config.inheritanceAfter)} after funding, your heirs can spend on their own -- your everyday signers no longer have a say.`,
       weak: config.heirQ === 1,
-    });
-  }
-
-  if (config.protectorEnabled) {
-    legs.push({
-      label: 'Protector',
-      who: `${config.protectorQ} of ${config.plannedProtectors}`,
-      afterBlocks: config.protectorAfter,
-      requiredSigners: config.protectorQ,
-      meaning: `From ${blocksToHuman(config.protectorAfter)} after funding, an independent protector can step in and rescue the funds.`,
-      weak: config.protectorQ === 1,
     });
   }
 

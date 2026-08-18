@@ -47,9 +47,9 @@ export async function handler(event) {
     .from("vaults")
     .select(
       "id, name, network, status, address_type, founder_quorum, heir_quorum, " +
-      "recovery_quorum, recovery_after, inheritance_after, protector_quorum, " +
-      "protector_after, consent_quorum, trust_doc, founder_keys, heir_keys, " +
-      "protector_keys, consent_keys, planned_founder_count, planned_heir_count",
+      "recovery_quorum, recovery_after, inheritance_after, " +
+      "consent_quorum, trust_doc, founder_keys, heir_keys, " +
+      "consent_keys, planned_founder_count, planned_heir_count",
     )
     .eq("id", invite.vault_id)
     .maybeSingle();
@@ -85,13 +85,10 @@ export async function handler(event) {
       recovery_quorum: vault.recovery_quorum,
       recovery_after: vault.recovery_after,
       inheritance_after: vault.inheritance_after,
-      protector_quorum: vault.protector_quorum,
-      protector_after: vault.protector_after,
       consent_quorum: vault.consent_quorum,
       trust_doc: vault.trust_doc || {},
       founder_count: (vault.founder_keys || []).length,
       heir_count: (vault.heir_keys || []).length,
-      protector_count: (vault.protector_keys || []).length,
       consent_count: (vault.consent_keys || []).length,
       planned_founder_count: vault.planned_founder_count,
       planned_heir_count: vault.planned_heir_count,

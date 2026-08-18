@@ -37,13 +37,10 @@ export interface VaultBackupLike {
   inheritance_after: number;
   founder_keys: string[];
   heir_keys: string[];
-  /** Optional fourth/fifth/sixth leaves -- absent on plain founders/heirs
+  /** Optional fourth/fifth leaves -- absent on plain founders/heirs
    *  vaults and on older backups' worth of data, so every field here is
    *  optional and defaulted at read time rather than widening the
    *  required shape every caller has to satisfy. */
-  protector_keys?: string[];
-  protector_quorum?: number | null;
-  protector_after?: number | null;
   consent_keys?: string[];
   consent_quorum?: number | null;
   backup_keys?: string[];
@@ -54,8 +51,6 @@ export interface VaultBackupLike {
 }
 
 export function vaultBackupText(v: VaultBackupLike): string {
-  const protectorKeys = v.protector_keys ?? [];
-  const hasProtector = protectorKeys.length > 0 && v.protector_quorum != null && v.protector_after != null;
   const consentKeys = v.consent_keys ?? [];
   const hasConsent = consentKeys.length > 0 && v.consent_quorum != null;
   const backupKeys = v.backup_keys ?? [];
@@ -88,7 +83,6 @@ export function vaultBackupText(v: VaultBackupLike): string {
       : [`Recovery after: ${v.recovery_after.toLocaleString()} blocks -- same founder keys as above`]),
     `Heirs:          ${v.heir_quorum} of ${v.heir_keys.length}`,
     `Inheritance after: ${v.inheritance_after.toLocaleString()} blocks`,
-    ...(hasProtector ? [`Protector:      ${v.protector_quorum} of ${protectorKeys.length} -- after ${v.protector_after!.toLocaleString()} blocks`] : []),
     ...(hasSecondInheritance
       ? [`Second inheritance: ${v.second_heir_quorum} of ${secondHeirKeys.length} -- after ${v.second_inheritance_after!.toLocaleString()} blocks (independent heir group)`]
       : []),
@@ -98,7 +92,6 @@ export function vaultBackupText(v: VaultBackupLike): string {
     ``,
     `# Heir xpubs`,
     ...v.heir_keys,
-    ...(hasProtector ? [``, `# Protector xpubs`, ...protectorKeys] : []),
     ...(hasConsent ? [``, `# Beneficiary-consent xpubs`, ...consentKeys] : []),
     ...(hasBackup ? [``, `# Backup xpubs (separate from founders -- keep these apart)`, ...backupKeys] : []),
     ...(hasSecondInheritance ? [``, `# Second inheritance xpubs (independent heir group)`, ...secondHeirKeys] : []),

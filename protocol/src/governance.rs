@@ -14,33 +14,27 @@
 //!
 //! ## Spending Paths
 //!
-//! A standard dynasty vault has three spending paths, plus an optional
-//! fourth:
+//! A standard dynasty vault has three spending paths:
 //!
 //! ```text
 //! Path A — Founders Now:    thresh(Q_f, pk(f1), pk(f2), ...)
 //! Path B — Recovery:        and(after(R), thresh(Q_f, ...))
-//! Path D — Protector:       and(after(P), thresh(Q_p, pk(p1), ...))  -- optional
 //! Path C — Inheritance:     and(after(I), thresh(Q_h, pk(h1), ...))
 //! ```
 //!
-//! At any block height, paths B, D, and/or C may or may not be unlocked.
-//! Protector (D) is optional -- see `DynastyPolicy::has_protector()` in
-//! policy_compiler.rs -- and when configured typically sits between
-//! recovery and inheritance as an independent-party rescue path.
+//! At any block height, paths B and/or C may or may not be unlocked.
 //!
 //! A "Gift Locker"-shaped vault (`recovery_after == 0`, the same
 //! sentinel `DynastyPolicy::has_recovery()` uses in policy_compiler.rs)
 //! has only Path A and Path C -- Recovery never appears in
 //! `active_paths` and is rejected as a proposed spend path regardless of
-//! block height, since no such leaf exists in its descriptor. Same
-//! reasoning applies to Protector when the vault has none configured.
+//! block height, since no such leaf exists in its descriptor.
 
 use serde::{Deserialize, Serialize};
 
 // ── Core types ────────────────────────────────────────────────────────────────
 
-/// Identifies which of the dynasty spending paths to use.
+/// Identifies which of the three dynasty spending paths to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SpendingPath {
@@ -48,10 +42,6 @@ pub enum SpendingPath {
     FoundersNow,
     /// Founders spend via the recovery branch (timelock must be satisfied).
     Recovery,
-    /// An independent protector spends via their own branch (timelock
-    /// must be satisfied). Optional -- only valid when the vault's
-    /// policy actually configured a protector leaf.
-    Protector,
     /// Heirs spend via the inheritance branch (timelock must be satisfied).
     Inheritance,
 }
@@ -61,7 +51,6 @@ impl std::fmt::Display for SpendingPath {
         match self {
             Self::FoundersNow  => write!(f, "Founders (immediate)"),
             Self::Recovery     => write!(f, "Founder Recovery"),
-            Self::Protector    => write!(f, "Protector Rescue"),
             Self::Inheritance  => write!(f, "Heir Inheritance"),
         }
     }
@@ -80,17 +69,10 @@ pub struct VaultStatus {
     pub blocks_until_recovery: Option<u32>,
     /// Blocks until inheritance path unlocks (None if already unlocked).
     pub blocks_until_inheritance: Option<u32>,
-    /// Blocks until protector path unlocks (None if already unlocked, or
-    /// if this vault has no protector configured at all).
-    #[serde(default)]
-    pub blocks_until_protector: Option<u32>,
     /// Approximate days until recovery (None if unlocked).
     pub days_until_recovery: Option<f64>,
     /// Approximate days until inheritance (None if unlocked).
     pub days_until_inheritance: Option<f64>,
-    /// Approximate days until protector (None if unlocked or unconfigured).
-    #[serde(default)]
-    pub days_until_protector: Option<f64>,
     /// Phase label for UI display.
     pub phase: VaultPhase,
 }
@@ -126,23 +108,6 @@ pub struct VaultPolicy {
     pub heir_key_count:    usize,
     pub recovery_after:    u32,
     pub inheritance_after: u32,
-    /// Protector is optional -- see `DynastyPolicy::has_protector()` in
-    /// policy_compiler.rs. All three fields are set together or not at
-    /// all; `#[serde(default)]` so an old caller that doesn't know about
-    /// protector yet still deserializes as "no protector configured"
-    /// rather than failing to parse.
-    #[serde(default)]
-    pub protector_quorum:    Option<usize>,
-    #[serde(default)]
-    pub protector_key_count: Option<usize>,
-    #[serde(default)]
-    pub protector_after:     Option<u32>,
-}
-
-impl VaultPolicy {
-    fn has_protector(&self) -> bool {
-        self.protector_quorum.is_some() && self.protector_after.is_some()
-    }
 }
 
 // ── Status evaluation ─────────────────────────────────────────────────────────
@@ -171,12 +136,9 @@ pub fn evaluate_vault_status(
     let has_recovery         = policy.recovery_after > 0;
     let recovery_unlocked    = has_recovery && current_block >= policy.recovery_after;
     let inheritance_unlocked = current_block >= policy.inheritance_after;
-    let has_protector        = policy.has_protector();
-    let protector_unlocked   = has_protector && current_block >= policy.protector_after.unwrap();
 
     let mut active_paths = vec![SpendingPath::FoundersNow];
     if recovery_unlocked    { active_paths.push(SpendingPath::Recovery); }
-    if protector_unlocked   { active_paths.push(SpendingPath::Protector); }
     if inheritance_unlocked { active_paths.push(SpendingPath::Inheritance); }
 
     let phase = if inheritance_unlocked {
@@ -199,42 +161,21 @@ pub fn evaluate_vault_status(
         Some(policy.inheritance_after - current_block)
     };
 
-    let blocks_until_protector = if !has_protector || protector_unlocked {
-        None
-    } else {
-        Some(policy.protector_after.unwrap() - current_block)
-    };
-
-    // Protector opening is folded into the existing phase labels as an
-    // extra sentence rather than a new VaultPhase variant -- protector is
-    // optional (unlike founders/recovery/inheritance, which every vault
-    // has some form of), so it doesn't fit the "what stage is this vault
-    // at" enum cleanly. Once inheritance is unlocked, protector opening
-    // is redundant to call out (heirs can already spend everything).
-    let protector_note = if protector_unlocked && !inheritance_unlocked {
-        " Protector rescue path is open."
-    } else {
-        ""
-    };
-
     let status_label = match phase {
         VaultPhase::Active if has_recovery =>
             format!(
-                "Active — founders can spend. Recovery unlocks in ~{} days.{}",
-                blocks_until_recovery.map(|b| (b as f64 / BLOCKS_PER_DAY) as u32).unwrap_or(0),
-                protector_note,
+                "Active — founders can spend. Recovery unlocks in ~{} days.",
+                blocks_until_recovery.map(|b| (b as f64 / BLOCKS_PER_DAY) as u32).unwrap_or(0)
             ),
         VaultPhase::Active =>
             format!(
-                "Active — founders can spend. Gift unlocks in ~{} days.{}",
-                blocks_until_inheritance.map(|b| (b as f64 / BLOCKS_PER_DAY) as u32).unwrap_or(0),
-                protector_note,
+                "Active — founders can spend. Gift unlocks in ~{} days.",
+                blocks_until_inheritance.map(|b| (b as f64 / BLOCKS_PER_DAY) as u32).unwrap_or(0)
             ),
         VaultPhase::RecoveryUnlocked =>
             format!(
-                "Recovery path unlocked. Inheritance unlocks in ~{} days.{}",
-                blocks_until_inheritance.map(|b| (b as f64 / BLOCKS_PER_DAY) as u32).unwrap_or(0),
-                protector_note,
+                "Recovery path unlocked. Inheritance unlocks in ~{} days.",
+                blocks_until_inheritance.map(|b| (b as f64 / BLOCKS_PER_DAY) as u32).unwrap_or(0)
             ),
         VaultPhase::InheritanceUnlocked =>
             "All paths unlocked. Founders and heirs can spend.".to_string(),
@@ -246,10 +187,8 @@ pub fn evaluate_vault_status(
         status_label,
         blocks_until_recovery,
         blocks_until_inheritance,
-        blocks_until_protector,
         days_until_recovery:    blocks_until_recovery.map(|b| b as f64 / BLOCKS_PER_DAY),
         days_until_inheritance: blocks_until_inheritance.map(|b| b as f64 / BLOCKS_PER_DAY),
-        days_until_protector:   blocks_until_protector.map(|b| b as f64 / BLOCKS_PER_DAY),
         phase,
     }
 }
@@ -301,17 +240,14 @@ pub fn evaluate_spend_proposal(
     // already refuses to attach a nonexistent recovery leaf, so this
     // keeps the evaluation consistent with what can actually be built.
     let has_recovery = policy.recovery_after > 0;
-    let has_protector = policy.has_protector();
     let timelock_satisfied = match path {
         SpendingPath::FoundersNow => true,
         SpendingPath::Recovery    => has_recovery && utxo_age_blocks >= policy.recovery_after,
-        SpendingPath::Protector   => has_protector && utxo_age_blocks >= policy.protector_after.unwrap(),
         SpendingPath::Inheritance => utxo_age_blocks >= policy.inheritance_after,
     };
 
     let required_signers = match path {
         SpendingPath::FoundersNow | SpendingPath::Recovery => policy.founder_quorum,
-        SpendingPath::Protector   => policy.protector_quorum.unwrap_or(0),
         SpendingPath::Inheritance => policy.heir_quorum,
     };
 
@@ -331,12 +267,9 @@ pub fn evaluate_spend_proposal(
         )
     } else if path == SpendingPath::Recovery && !has_recovery {
         "This vault has no separate recovery path -- founders spend via Founders Now at any time.".to_string()
-    } else if path == SpendingPath::Protector && !has_protector {
-        "This vault has no protector configured.".to_string()
     } else if !timelock_satisfied {
         let needed = match path {
             SpendingPath::Recovery    => policy.recovery_after.saturating_sub(utxo_age_blocks),
-            SpendingPath::Protector   => policy.protector_after.unwrap_or(0).saturating_sub(utxo_age_blocks),
             SpendingPath::Inheritance => policy.inheritance_after.saturating_sub(utxo_age_blocks),
             SpendingPath::FoundersNow => 0,
         };
@@ -489,24 +422,19 @@ pub fn audit_spend(policy: &VaultPolicy, spend: &ProposedSpend) -> GovernanceAud
     // is trivially true, contradicting evaluate_spend_proposal's own
     // `has_recovery` gate for the identical path/policy pair.
     let has_recovery = policy.recovery_after > 0;
-    let has_protector = policy.has_protector();
     let timelock_ok = match spend.path {
         SpendingPath::FoundersNow => true,
         SpendingPath::Recovery    => has_recovery && spend.utxo_age_blocks >= policy.recovery_after,
-        SpendingPath::Protector   => has_protector && spend.utxo_age_blocks >= policy.protector_after.unwrap(),
         SpendingPath::Inheritance => spend.utxo_age_blocks >= policy.inheritance_after,
     };
     if !timelock_ok {
         add(&mut violations, "GOV-001", "Timelock not satisfied", RuleSeverity::Hard,
             if spend.path == SpendingPath::Recovery && !has_recovery {
                 "This vault has no separate recovery path -- founders spend via Founders Now at any time.".to_string()
-            } else if spend.path == SpendingPath::Protector && !has_protector {
-                "This vault has no protector configured.".to_string()
             } else {
                 format!("Current chain height {} is below the required unlock height {}", spend.utxo_age_blocks,
                     match spend.path {
                         SpendingPath::Recovery    => policy.recovery_after,
-                        SpendingPath::Protector   => policy.protector_after.unwrap_or(0),
                         SpendingPath::Inheritance => policy.inheritance_after,
                         SpendingPath::FoundersNow => 0,
                     })
@@ -553,14 +481,6 @@ pub fn audit_spend(policy: &VaultPolicy, spend: &ProposedSpend) -> GovernanceAud
     if spend.path == SpendingPath::Recovery {
         add(&mut notes, "GOV-007", "Recovery path used", RuleSeverity::Info,
             "Recovery path selected. This is typically used when primary signing devices are unavailable.".to_string());
-    }
-
-    // Rule 9: Protector path used -- an independent party is spending,
-    // not a founder or heir. Flagged the same way Recovery is, since
-    // it's just as much a signal something is off with the normal flow.
-    if spend.path == SpendingPath::Protector {
-        add(&mut notes, "GOV-009", "Protector path used", RuleSeverity::Info,
-            "Protector rescue path selected. This is typically used when founders have gone silent or unresponsive.".to_string());
     }
 
     // Rule 8: Single signer on a multi-sig vault
@@ -884,17 +804,6 @@ mod tests {
             founder_quorum: 2, founder_key_count: 3,
             heir_quorum: 2,    heir_key_count: 2,
             recovery_after: 26_000, inheritance_after: 52_560,
-            protector_quorum: None, protector_key_count: None, protector_after: None,
-        }
-    }
-
-    /// Same as `policy()`, plus a protector configured between recovery
-    /// and inheritance -- the typical shape (see policy_compiler.rs's
-    /// DynastyPolicy.protector_after doc comment).
-    fn protector_policy() -> VaultPolicy {
-        VaultPolicy {
-            protector_quorum: Some(1), protector_key_count: Some(1), protector_after: Some(39_000),
-            ..policy()
         }
     }
 
@@ -910,7 +819,6 @@ mod tests {
             founder_quorum: 2, founder_key_count: 2,
             heir_quorum: 1,    heir_key_count: 1,
             recovery_after: 0, inheritance_after: 52_560,
-            protector_quorum: None, protector_key_count: None, protector_after: None,
         }
     }
 
@@ -939,30 +847,6 @@ mod tests {
         assert!(s.active_paths.contains(&SpendingPath::Inheritance));
         assert!(s.blocks_until_recovery.is_none());
         assert!(s.blocks_until_inheritance.is_none());
-    }
-
-    #[test]
-    fn protector_becomes_active_between_recovery_and_inheritance() {
-        // protector_policy() sets protector_after: 39_000, strictly
-        // between recovery_after (26_000) and inheritance_after (52_560).
-        let before = evaluate_vault_status(&protector_policy(), 30_000);
-        assert!(!before.active_paths.contains(&SpendingPath::Protector), "not yet unlocked");
-        assert_eq!(before.blocks_until_protector, Some(9_000));
-
-        let after = evaluate_vault_status(&protector_policy(), 40_000);
-        assert!(after.active_paths.contains(&SpendingPath::Protector));
-        assert!(!after.active_paths.contains(&SpendingPath::Inheritance), "inheritance still locked");
-        assert!(after.blocks_until_protector.is_none());
-    }
-
-    #[test]
-    fn a_vault_with_no_protector_configured_never_shows_it_active() {
-        for blocks in [0, 30_000, 40_000, 100_000] {
-            let s = evaluate_vault_status(&policy(), blocks);
-            assert!(!s.active_paths.contains(&SpendingPath::Protector),
-                "no protector_after set on this policy -- must never show as active (block {})", blocks);
-            assert!(s.blocks_until_protector.is_none());
-        }
     }
 
     #[test]
@@ -1027,72 +911,6 @@ mod tests {
             &gift_locker_policy(), SpendingPath::Inheritance, 60_000, &signers(&[0], 1),
         );
         assert!(unlocked.allowed);
-    }
-
-    #[test]
-    fn protector_spend_rejected_on_a_vault_with_no_protector_configured() {
-        let eval = evaluate_spend_proposal(
-            &policy(), // no protector fields set
-            SpendingPath::Protector,
-            100_000,
-            &signers(&[0], 1),
-        );
-        assert!(!eval.allowed, "no protector leaf exists to spend from");
-        assert!(!eval.timelock_satisfied);
-        assert!(eval.reason.contains("no protector configured"));
-    }
-
-    #[test]
-    fn protector_spend_rejected_before_its_own_timelock() {
-        let eval = evaluate_spend_proposal(
-            &protector_policy(), SpendingPath::Protector, 10_000, &signers(&[0], 1),
-        );
-        assert!(!eval.allowed);
-        assert!(!eval.timelock_satisfied);
-    }
-
-    #[test]
-    fn protector_spend_uses_protector_quorum_not_founder_quorum() {
-        // protector_policy() sets protector_quorum: 1, distinct from
-        // founder_quorum: 2 -- this is the exact bug class this fix
-        // closes: a protector spend must never be scored against the
-        // founders' own quorum.
-        let eval = evaluate_spend_proposal(
-            &protector_policy(), SpendingPath::Protector, 39_000, &signers(&[0], 1),
-        );
-        assert!(eval.allowed, "{:?}", eval.reason);
-        assert_eq!(eval.required_signers, 1);
-    }
-
-    #[test]
-    fn audit_approves_protector_spend_once_unlocked_and_quorum_met() {
-        let spend = ProposedSpend {
-            path: SpendingPath::Protector,
-            amount_sats: 100_000,
-            destination: "tb1p...".to_string(),
-            utxo_age_blocks: 39_000,
-            signer_statuses: signers(&[0], 1),
-            total_vault_sats: 1_000_000,
-        };
-        let audit = audit_spend(&protector_policy(), &spend);
-        assert!(audit.approved, "{:?}", audit.violations);
-        assert!(audit.notes.iter().any(|n| n.rule.id == "GOV-009"), "protector-path note expected");
-    }
-
-    #[test]
-    fn audit_rejects_protector_spend_on_a_vault_with_no_protector_configured() {
-        let spend = ProposedSpend {
-            path: SpendingPath::Protector,
-            amount_sats: 100_000,
-            destination: "tb1p...".to_string(),
-            utxo_age_blocks: 100_000, // far past any real timelock
-            signer_statuses: signers(&[0], 1),
-            total_vault_sats: 1_000_000,
-        };
-        let audit = audit_spend(&policy(), &spend);
-        assert!(!audit.approved, "no protector leaf exists to spend from");
-        assert!(audit.violations.iter().any(|v| v.rule.id == "GOV-001"),
-            "GOV-001 must flag the missing protector leaf, not just GOV-002's quorum check");
     }
 
     #[test]

@@ -292,25 +292,6 @@ function buildReminders(vaults: Vault[], tips: Record<string, number>): Reminder
       }
     }
 
-    if (v.my_role === 'protector' && v.protector_after) {
-      const blocks = v.protector_after - tip;
-      if (blocks > 0) {
-        const d = blocksToDays(blocks);
-        out.push({
-          id: `protector-${v.id}`,
-          severity: 'info',
-          role: 'protector',
-          vaultId: v.id,
-          vaultName: v.name,
-          title: `Protector path unlocks in ~${d} days`,
-          body:
-            'After this block height, the protector signature can unilaterally ' +
-            'trigger the protector spending path. Reserved for emergencies. ' +
-            'Compensation received for protector action is ordinary income.',
-          daysUntil: d,
-        });
-      }
-    }
   }
 
   // Annual review reminder, one per vault, fires in the final 60d of each year of age.

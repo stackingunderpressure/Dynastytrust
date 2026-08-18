@@ -196,7 +196,6 @@ const DEFAULT_STANDARD_CONFIG: StandardConfig = {
   plannedFounders: 2, founderQ: 2,
   plannedHeirs: 2, heirQ: 2,
   recoveryEnabled: true, recoveryAfter: 26_280, inheritanceAfter: 52_560,
-  protectorEnabled: false, protectorAfter: 39_000, protectorQ: 1, plannedProtectors: 1,
   consentEnabled: false, consentQ: 1, plannedConsenters: 1,
   backupEnabled: false, backupQ: 4, plannedBackups: 5,
   secondInheritanceEnabled: false, secondInheritanceAfter: 105_120, secondHeirQ: 1, plannedSecondHeirs: 1,
@@ -224,10 +223,6 @@ function templateToStandardConfig(t: VaultTemplate): StandardConfig {
     recoveryEnabled: !backupEnabled && c.recoveryAfter > 0,
     recoveryAfter: c.recoveryAfter > 0 ? c.recoveryAfter : 26_280,
     inheritanceAfter: c.inheritanceAfter,
-    protectorEnabled: !!c.protectorEnabled,
-    protectorAfter: c.protectorAfter ?? 39_000,
-    protectorQ: c.protectorQ ?? 1,
-    plannedProtectors: c.plannedProtectors ?? 1,
     consentEnabled: !!c.consentEnabled,
     consentQ: c.consentQ ?? 1,
     plannedConsenters: c.plannedConsenters ?? 1,
@@ -376,7 +371,6 @@ export default function VaultWizard() {
   // elsewhere is reflected here too.
   const [founderKeys, setFounderKeys] = useState<SelectedKey[]>([]);
   const [heirKeys, setHeirKeys] = useState<SelectedKey[]>([]);
-  const [protectorKeys, setProtectorKeys] = useState<SelectedKey[]>([]);
   const [consentKeys, setConsentKeys] = useState<SelectedKey[]>([]);
   const [backupKeys, setBackupKeys] = useState<SelectedKey[]>([]);
   const [secondHeirKeys, setSecondHeirKeys] = useState<SelectedKey[]>([]);
@@ -414,7 +408,6 @@ export default function VaultWizard() {
     const sk = toSelected(key);
     if (role === 'founder') setFounderKeys(p => [...p, sk]);
     else if (role === 'heir') setHeirKeys(p => [...p, sk]);
-    else if (role === 'protector') setProtectorKeys(p => [...p, sk]);
     else if (role === 'consent') setConsentKeys(p => [...p, sk]);
     else if (role === 'backup') setBackupKeys(p => [...p, sk]);
     else if (role === 'second_heir') setSecondHeirKeys(p => [...p, sk]);
@@ -445,7 +438,7 @@ export default function VaultWizard() {
   // so resume jumps directly to 'keys' and skips Configure entirely.
   //
   // Not every StandardConfig/BlocConfig field the wizard needs has a
-  // matching column -- "planned" counts for protector/consent/backup/second-heir
+  // matching column -- "planned" counts for consent/backup/second-heir
   // (and Bloc's plannedParents/plannedKids) exist only to tell the Keys step
   // how many slots to render and were never persisted server-side. Falling
   // back to the group's own quorum as the planned count is an honest floor --
@@ -493,10 +486,6 @@ export default function VaultWizard() {
             recoveryEnabled: v.recovery_after > 0,
             recoveryAfter: v.recovery_after > 0 ? v.recovery_after : DEFAULT_STANDARD_CONFIG.recoveryAfter,
             inheritanceAfter: v.inheritance_after > 0 ? v.inheritance_after : DEFAULT_STANDARD_CONFIG.inheritanceAfter,
-            protectorEnabled: v.protector_quorum != null,
-            protectorAfter: v.protector_after ?? DEFAULT_STANDARD_CONFIG.protectorAfter,
-            protectorQ: v.protector_quorum ?? DEFAULT_STANDARD_CONFIG.protectorQ,
-            plannedProtectors: v.protector_quorum ?? DEFAULT_STANDARD_CONFIG.plannedProtectors,
             consentEnabled: v.consent_quorum != null,
             consentQ: v.consent_quorum ?? DEFAULT_STANDARD_CONFIG.consentQ,
             plannedConsenters: v.consent_quorum ?? DEFAULT_STANDARD_CONFIG.plannedConsenters,
@@ -566,8 +555,6 @@ export default function VaultWizard() {
           inheritance_after: c.mode === 'inheritance' ? c.inheritanceAfter : 0,
           planned_founder_count: c.plannedFounders,
           planned_heir_count: c.mode === 'inheritance' ? c.plannedHeirs : 0,
-          protector_quorum: c.protectorEnabled ? c.protectorQ : null,
-          protector_after: c.protectorEnabled ? c.protectorAfter : null,
           consent_quorum: c.consentEnabled ? c.consentQ : null,
           backup_quorum: c.backupEnabled ? c.backupQ : null,
           second_heir_quorum: c.secondInheritanceEnabled ? c.secondHeirQ : null,
@@ -638,18 +625,17 @@ export default function VaultWizard() {
       const c = stdConfig;
       const foundersReady = founderKeys.length >= c.plannedFounders;
       const heirsReady = c.mode !== 'inheritance' || c.plannedHeirs === 0 || heirKeys.length >= c.plannedHeirs;
-      const protectorsReady = !c.protectorEnabled || protectorKeys.length >= c.plannedProtectors;
       const consentersReady = !c.consentEnabled || consentKeys.length >= c.plannedConsenters;
       const backupsReady = !c.backupEnabled || backupKeys.length >= c.plannedBackups;
       const secondHeirsReady = !c.secondInheritanceEnabled || secondHeirKeys.length >= c.plannedSecondHeirs;
-      return foundersReady && heirsReady && protectorsReady && consentersReady && backupsReady && secondHeirsReady;
+      return foundersReady && heirsReady && consentersReady && backupsReady && secondHeirsReady;
     }
     if (shape === 'leaves') {
       return leafDrafts.filter(l => l.enabled).every(l => (leafKeys[l.id]?.length ?? 0) >= l.plannedKeys);
     }
     const c = blocConfig;
     return parentKeys.length >= c.plannedParents && kidKeys.length >= c.plannedKids;
-  }, [shape, stdConfig, blocConfig, leafDrafts, leafKeys, founderKeys, heirKeys, protectorKeys, consentKeys, backupKeys, secondHeirKeys, parentKeys, kidKeys]);
+  }, [shape, stdConfig, blocConfig, leafDrafts, leafKeys, founderKeys, heirKeys, consentKeys, backupKeys, secondHeirKeys, parentKeys, kidKeys]);
 
   // Best-effort: the vault is already compiled and usable by the time this
   // runs, so a failed save here shouldn't surface as a compile error --
@@ -683,14 +669,13 @@ export default function VaultWizard() {
         const res = await api.vaults.compile(draftVault.id, {
           founder_keys: toDirect(founderKeys),
           heir_keys: toDirect(heirKeys),
-          protector_keys: stdConfig.protectorEnabled ? toDirect(protectorKeys) : [],
           consent_keys: stdConfig.consentEnabled ? toDirect(consentKeys) : [],
           backup_keys: stdConfig.backupEnabled ? toDirect(backupKeys) : [],
           second_heir_keys: stdConfig.secondInheritanceEnabled ? toDirect(secondHeirKeys) : [],
         });
         // Upgrade the descriptor to Nunchuk/Sparrow key-origin form,
         // same post-processing PolicyBuilder's save() already did.
-        const origins = buildKeyOrigins([...founderKeys, ...heirKeys, ...protectorKeys, ...consentKeys, ...backupKeys, ...secondHeirKeys]);
+        const origins = buildKeyOrigins([...founderKeys, ...heirKeys, ...consentKeys, ...backupKeys, ...secondHeirKeys]);
         const upgraded = res.vault.descriptor ? upgradeDescriptor(res.vault.descriptor, origins) : res.vault.descriptor;
         setCompiledVault({ ...res.vault, descriptor: upgraded });
         void saveGeneratedTrustDoc(res.vault.id, buildStandardTrustDoc({
@@ -836,7 +821,6 @@ export default function VaultWizard() {
           allKeys={allKeys}
           founderKeys={founderKeys} setFounderKeys={setFounderKeys}
           heirKeys={heirKeys} setHeirKeys={setHeirKeys}
-          protectorKeys={protectorKeys} setProtectorKeys={setProtectorKeys}
           consentKeys={consentKeys} setConsentKeys={setConsentKeys}
           backupKeys={backupKeys} setBackupKeys={setBackupKeys}
           secondHeirKeys={secondHeirKeys} setSecondHeirKeys={setSecondHeirKeys}
@@ -1046,11 +1030,10 @@ function ConfigureStep({
 // in easy to read and understand. No fluff. Or big words." Rebuilt as
 // three separate, numbered, always-visible sections matching that exact
 // mental model -- no config shape changed, no new fields, this is
-// presentation and wording only. "Recovery" (founders-after-a-delay) and
-// "protector" were never part of the operator's own three-part model, so
-// they move into a clearly-separate, still-optional section at the end
-// instead of sitting inside the inheritance block where they used to
-// confuse the heir-only path.
+// presentation and wording only. "Recovery" (founders-after-a-delay) was
+// never part of the operator's own three-part model, so it moves into a
+// clearly-separate, still-optional section at the end instead of sitting
+// inside the inheritance block where it used to confuse the heir-only path.
 function StandardConfigureFields({ config, setConfig }: { config: StandardConfig; setConfig: (fn: (c: StandardConfig) => StandardConfig) => void }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -1098,10 +1081,8 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
               ...c,
               backupEnabled: e.target.checked,
               // Mutually exclusive with recovery -- both occupy the same
-              // tree slot server-side; turning backup on turns recovery
-              // (and protector, which requires it) off.
+              // tree slot server-side; turning backup on turns recovery off.
               recoveryEnabled: e.target.checked ? false : c.recoveryEnabled,
-              protectorEnabled: e.target.checked ? false : c.protectorEnabled,
             }))}
           />
           <span style={{ fontSize: 13, color: colors.sub }}>Add a backup path</span>
@@ -1230,9 +1211,9 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
         </Card>
       )}
 
-      <details open={config.recoveryEnabled || config.protectorEnabled || config.consentEnabled}>
+      <details open={config.recoveryEnabled || config.consentEnabled}>
         <summary style={{ fontSize: 12, color: colors.muted, cursor: 'pointer' }}>
-          More options: recovery, protector + beneficiary consent
+          More options: recovery + beneficiary consent
         </summary>
         <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
           <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: config.backupEnabled ? 'not-allowed' : 'pointer' }}>
@@ -1240,14 +1221,7 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
               type="checkbox"
               checked={config.recoveryEnabled}
               disabled={config.backupEnabled}
-              onChange={e => setConfig(c => ({
-                ...c,
-                recoveryEnabled: e.target.checked,
-                // A protector branch requires a recovery branch --
-                // turning recovery off while a protector is configured
-                // would otherwise get rejected server-side.
-                protectorEnabled: e.target.checked ? c.protectorEnabled : false,
-              }))}
+              onChange={e => setConfig(c => ({ ...c, recoveryEnabled: e.target.checked }))}
             />
             <span style={{ fontSize: 13, color: config.backupEnabled ? colors.muted : colors.sub }}>
               Also let everyday signers spend after a delay, before the heir-only path opens
@@ -1256,20 +1230,6 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
           </label>
           {config.recoveryEnabled && (
             <TimelockField label="Recovery unlocks after" value={config.recoveryAfter} onChange={v => setConfig(c => ({ ...c, recoveryAfter: v }))} />
-          )}
-          <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: config.recoveryEnabled ? 'pointer' : 'not-allowed' }}>
-            <input
-              type="checkbox"
-              checked={config.protectorEnabled}
-              disabled={!config.recoveryEnabled}
-              onChange={e => setConfig(c => ({ ...c, protectorEnabled: e.target.checked }))}
-            />
-            <span style={{ fontSize: 13, color: config.recoveryEnabled ? colors.sub : colors.muted }}>
-              Add a protector (independent rescue path){!config.recoveryEnabled && ' -- requires the recovery option above'}
-            </span>
-          </label>
-          {config.protectorEnabled && (
-            <TimelockField label="Protector unlocks after" value={config.protectorAfter} onChange={v => setConfig(c => ({ ...c, protectorAfter: v }))} />
           )}
           <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
             <input type="checkbox" checked={config.consentEnabled} onChange={e => setConfig(c => ({ ...c, consentEnabled: e.target.checked }))} />
@@ -1654,7 +1614,7 @@ function TimelockField({ label, value, onChange, max }: { label: string; value: 
 function KeysStep({
   shape, stdConfig, blocConfig, leafDrafts, leafKeys, setLeafKeys, allKeys,
   founderKeys, setFounderKeys, heirKeys, setHeirKeys,
-  protectorKeys, setProtectorKeys, consentKeys, setConsentKeys,
+  consentKeys, setConsentKeys,
   backupKeys, setBackupKeys, secondHeirKeys, setSecondHeirKeys,
   parentKeys, setParentKeys, kidKeys, setKidKeys,
   network, onChangeNetwork, networkBusy, genRole, setGenRole, onGenerateKey, onImportXpub, onImportTapitKey,
@@ -1666,7 +1626,6 @@ function KeysStep({
   allKeys: LocalKey[];
   founderKeys: SelectedKey[]; setFounderKeys: (fn: (p: SelectedKey[]) => SelectedKey[]) => void;
   heirKeys: SelectedKey[]; setHeirKeys: (fn: (p: SelectedKey[]) => SelectedKey[]) => void;
-  protectorKeys: SelectedKey[]; setProtectorKeys: (fn: (p: SelectedKey[]) => SelectedKey[]) => void;
   consentKeys: SelectedKey[]; setConsentKeys: (fn: (p: SelectedKey[]) => SelectedKey[]) => void;
   backupKeys: SelectedKey[]; setBackupKeys: (fn: (p: SelectedKey[]) => SelectedKey[]) => void;
   secondHeirKeys: SelectedKey[]; setSecondHeirKeys: (fn: (p: SelectedKey[]) => SelectedKey[]) => void;
@@ -1685,7 +1644,7 @@ function KeysStep({
 }) {
   const enabledLeaves = leafDrafts.filter(l => l.enabled);
   const claimed = new Set([
-    ...founderKeys, ...heirKeys, ...protectorKeys, ...consentKeys, ...backupKeys, ...secondHeirKeys, ...parentKeys, ...kidKeys,
+    ...founderKeys, ...heirKeys, ...consentKeys, ...backupKeys, ...secondHeirKeys, ...parentKeys, ...kidKeys,
     ...enabledLeaves.flatMap(l => leafKeys[l.id] ?? []),
   ].map(k => k.keyId));
   const availableKeys = allKeys.filter(k => !claimed.has(k.keyId) && keyNetworkMatches(k.network, network));
@@ -1699,8 +1658,6 @@ function KeysStep({
     { id: 'founder', label: 'Signing keys', keys: founderKeys },
     ...(stdConfig.mode === 'inheritance' && stdConfig.plannedHeirs > 0
       ? [{ id: 'heir', label: 'Heir keys', keys: heirKeys }] : []),
-    ...(stdConfig.protectorEnabled
-      ? [{ id: 'protector', label: 'Protector keys', keys: protectorKeys }] : []),
     ...(stdConfig.consentEnabled
       ? [{ id: 'consent', label: 'Beneficiary-consent keys', keys: consentKeys }] : []),
     ...(stdConfig.backupEnabled
@@ -1821,13 +1778,6 @@ function KeysStep({
                 + `After that, ${stdConfig.heirQ} of ${stdConfig.plannedHeirs} heirs can spend on their own -- `
                 + `founders no longer have a say.`
                 + (standardReuseNotes.get('heir') ?? ''),
-            )}
-          {stdConfig.protectorEnabled &&
-            role(
-              'protector', 'Protector keys', stdConfig.plannedProtectors, protectorKeys, setProtectorKeys, colors.orange,
-              `Can rescue funds starting ${blocksToHuman(stdConfig.protectorAfter)} from funding, independent of `
-                + `the founders -- a safety net if trustees go quiet before inheritance kicks in.`
-                + (standardReuseNotes.get('protector') ?? ''),
             )}
           {stdConfig.consentEnabled &&
             role(

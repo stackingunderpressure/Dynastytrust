@@ -34,7 +34,6 @@ function rolesForVault(vault: Vault): RoleSlot[] {
   vault.founder_keys.forEach((_, i) => slots.push({ role: `founder_${i + 1}`, label: `Founder ${i + 1}` }));
   (vault.backup_keys ?? []).forEach((_, i) => slots.push({ role: `backup_${i + 1}`, label: `Backup ${i + 1}` }));
   vault.heir_keys.forEach((_, i) => slots.push({ role: `heir_${i + 1}`, label: `Heir ${i + 1}` }));
-  (vault.protector_keys ?? []).forEach((_, i) => slots.push({ role: `protector_${i + 1}`, label: `Protector ${i + 1}` }));
   (vault.second_heir_keys ?? []).forEach((_, i) => slots.push({ role: `second_heir_${i + 1}`, label: `Second heir ${i + 1}` }));
   return slots;
 }

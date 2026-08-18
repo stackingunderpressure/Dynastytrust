@@ -47,41 +47,40 @@ export const VAULT_MEMBERSHIP_REQUEST_KIND = 9578;
 /** The vault-membership role a signer's key appears under. Matches the
  *  leaf names the Fly.io compiler returns (compiler/src/main.rs's
  *  CompileResponse.leaf_scripts) and the roles vaults-compile.js already
- *  sorts founders/heirs/protectors/backup/consent keys into. Every one of
- *  a vault's five key slots (founder, heir, protector, backup, consent)
- *  can be a Tapit key -- 2026-08-11 fix: this used to be founder-only by
- *  construction (VaultMembershipSetup only ever looked at founder_keys),
- *  which silently refused to send a membership request to a Tapit key
- *  sitting in any other role. There is nothing role-specific about
- *  Tapit's receiving side -- vaultTrail.ts's role field is a bare string,
- *  never validated against a fixed set -- so the restriction was only
- *  ever on this sending side. */
-export type VaultMembershipRole = 'founder' | 'heir' | 'protector' | 'backup' | 'consent' | 'second_heir';
+ *  sorts founders/heirs/backup/consent keys into. Every one of a vault's
+ *  key slots (founder, heir, backup, consent) can be a Tapit key --
+ *  2026-08-11 fix: this used to be founder-only by construction
+ *  (VaultMembershipSetup only ever looked at founder_keys), which
+ *  silently refused to send a membership request to a Tapit key sitting
+ *  in any other role. There is nothing role-specific about Tapit's
+ *  receiving side -- vaultTrail.ts's role field is a bare string, never
+ *  validated against a fixed set -- so the restriction was only ever on
+ *  this sending side. */
+export type VaultMembershipRole = 'founder' | 'heir' | 'backup' | 'consent' | 'second_heir';
 
 /** The leaf names (compiler/src/main.rs's CompileResponse.leaf_scripts
  *  keys) a given role's key is a legitimate signer on. A founder signs
  *  both the immediate founders_now leaf AND the timelocked recovery leaf
  *  (recovery spends via the founders' own keys, just after a delay) --
- *  see policy_compiler.rs's MultileafOutput doc comment. Heirs and
- *  protectors each have exactly one leaf of their own. Backup keys are a
- *  SEPARATE key set from founders (never reused) that occupies the same
- *  tree slot recovery would otherwise use, mutually exclusive with it --
- *  the compiler's leaf_scripts map only ever has one of "recovery" or
- *  "backup" present for a given vault, never both, so listing "backup"
- *  under founder here would be wrong (founder keys are never IN the
- *  backup leaf) and is correctly kept as its own role instead. Consent
- *  keys are compiled directly INTO the founders_now leaf script itself
- *  (policy_compiler.rs ANDs the founder threshold with the consent
- *  threshold into one miniscript) -- there is no separate "consent" leaf
- *  to point at, so a consent key's real leaf is founders_now. Second-
- *  inheritance keys (2026-08-11) are an independent heir cohort with
- *  their own leaf, named "second_inheritance" in the compiler's
- *  leaf_scripts map -- see MultileafOutput's second_inheritance_leaf.
+ *  see policy_compiler.rs's MultileafOutput doc comment. Heirs have
+ *  exactly one leaf of their own. Backup keys are a SEPARATE key set from
+ *  founders (never reused) that occupies the same tree slot recovery
+ *  would otherwise use, mutually exclusive with it -- the compiler's
+ *  leaf_scripts map only ever has one of "recovery" or "backup" present
+ *  for a given vault, never both, so listing "backup" under founder here
+ *  would be wrong (founder keys are never IN the backup leaf) and is
+ *  correctly kept as its own role instead. Consent keys are compiled
+ *  directly INTO the founders_now leaf script itself (policy_compiler.rs
+ *  ANDs the founder threshold with the consent threshold into one
+ *  miniscript) -- there is no separate "consent" leaf to point at, so a
+ *  consent key's real leaf is founders_now. Second-inheritance keys
+ *  (2026-08-11) are an independent heir cohort with their own leaf, named
+ *  "second_inheritance" in the compiler's leaf_scripts map -- see
+ *  MultileafOutput's second_inheritance_leaf.
  */
 const LEAVES_FOR_ROLE: Record<VaultMembershipRole, readonly string[]> = {
   founder: ['founders_now', 'recovery'],
   heir: ['inheritance'],
-  protector: ['protector'],
   backup: ['backup'],
   consent: ['founders_now'],
   second_heir: ['second_inheritance'],
