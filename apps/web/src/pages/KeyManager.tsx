@@ -3,7 +3,7 @@ import {
   listAllKeys, generateTestKey, generateSoftwareKey, importXpub,
   updateKeyStatus, deleteKey, revealMnemonic, secureTestKey, removeKeyPassword, changeKeyPassword,
   exportKeyring, importKeyringJson, renameKey, parseXpubText,
-  DEFAULT_PERSONAS, type LocalKey, type Network,
+  type LocalKey, type Network,
 } from "../lib/keystore";
 import { useToast } from "../components/toast";
 import { useConfirm } from "../components/dialog";
@@ -32,58 +32,6 @@ const selectStyle: React.CSSProperties = {
   fontFamily: fonts.sans,
   boxSizing: "border-box",
 };
-
-function PersonaPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const [custom, setCustom] = useState("");
-  const [show, setShow] = useState(false);
-  const extras = value && !DEFAULT_PERSONAS.includes(value) ? [value] : [];
-  const all = [...DEFAULT_PERSONAS, ...extras];
-  return (
-    <div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
-        {all.map(p => (
-          <Button
-            key={p}
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              onChange(p);
-              setShow(false);
-            }}
-            style={{
-              padding: "5px 12px",
-              fontSize: 12,
-              borderColor: value === p ? colors.gold : colors.border,
-              color: value === p ? colors.gold : colors.sub,
-              background: value === p ? colors.gold + "18" : "transparent",
-            }}
-          >
-            {p}
-          </Button>
-        ))}
-        <Button variant="ghost" size="sm" style={{ padding: "5px 12px", fontSize: 12 }} onClick={() => setShow(s => !s)}>
-          + Custom
-        </Button>
-      </div>
-      {show && (
-        <div style={{ display: "flex", gap: 8 }}>
-          <Input style={{ flex: 1 }} placeholder="Custom persona" value={custom} onChange={e => setCustom(e.target.value)} />
-          <Button
-            variant="ghost"
-            onClick={() => {
-              if (custom.trim()) {
-                onChange(custom.trim());
-                setShow(false);
-              }
-            }}
-          >
-            Set
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
 
 function Modal({
   title,
@@ -509,7 +457,6 @@ function ChangePasswordModal({ keyData, onDone, onClose }: { keyData: LocalKey; 
 
 function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => void }) {
   const [label, setLabel] = useState("");
-  const [persona, setPersona] = useState(DEFAULT_PERSONAS[0]);
   const [network, setNetwork] = useState<Network>("testnet");
   const [xpub, setXpub] = useState("");
   const [path, setPath] = useState("m/48'/1'/0'/2'");
@@ -566,10 +513,14 @@ function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => v
       setErr("Fingerprint must be 8 hex characters, e.g. c8fe8d4e.");
       return;
     }
+    if (!label.trim()) {
+      setErr("Give this key a label.");
+      return;
+    }
     try {
       importXpub({
-        label: label.trim() || persona,
-        persona,
+        label: label.trim(),
+        persona: label.trim(),
         network,
         xpub: xpub.trim(),
         derivationPath: path.trim(),
@@ -586,11 +537,7 @@ function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => v
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <div>
           <Label>Label</Label>
-          <Input value={label} onChange={e => setLabel(e.target.value)} placeholder={persona} />
-        </div>
-        <div>
-          <Label>Persona</Label>
-          <PersonaPicker value={persona} onChange={setPersona} />
+          <Input value={label} onChange={e => setLabel(e.target.value)} placeholder="e.g. Founder 1, Heir 2, Backup..." required />
         </div>
         <div>
           <Label>Network</Label>
@@ -656,11 +603,13 @@ function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => v
 
 function EditModal({ keyData, onDone, onClose }: { keyData: LocalKey; onDone: () => void; onClose: () => void }) {
   const [label, setLabel] = useState(keyData.label);
-  const [persona, setPersona] = useState(keyData.persona);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    renameKey(keyData.keyId, label.trim() || keyData.label, persona);
+    const finalLabel = label.trim() || keyData.label;
+    // Persona tracks the label (see GenerateKeyModal's doc comment) so the
+    // grouping bucket a key shows under never drifts from its own name.
+    renameKey(keyData.keyId, finalLabel, finalLabel);
     onDone();
   }
 
@@ -670,10 +619,6 @@ function EditModal({ keyData, onDone, onClose }: { keyData: LocalKey; onDone: ()
         <div>
           <Label>Label</Label>
           <Input value={label} onChange={e => setLabel(e.target.value)} required autoFocus />
-        </div>
-        <div>
-          <Label>Persona</Label>
-          <PersonaPicker value={persona} onChange={setPersona} />
         </div>
         <div style={{ display: "flex", gap: 10 }}>
           <Button type="button" variant="ghost" onClick={onClose}>
