@@ -157,7 +157,7 @@ function bip32Fingerprint(pub: Uint8Array): string {
   return toHex(ripemd160(sha256(pub)).subarray(0, 4));
 }
 
-function networkVersions(network: Network) {
+export function networkVersions(network: Network) {
   return network === 'mainnet'
     ? { private: 0x0488_ade4, public: 0x0488_b21e }
     : { private: 0x0435_8394, public: 0x0435_87cf };
