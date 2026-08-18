@@ -24,6 +24,8 @@ import { XpubQrScanner } from '../components/XpubQrScanner';
 import {
   QuorumPicker, CountStepper, KeyPicker, SlotHint, CopyField, BackupFlow, KeyCreatedPrompt, FundingStep,
   BehaviorTimeline, type SpendLeg,
+  PasswordProtectFields, validatePasswordProtection, DEFAULT_PASSWORD_PROTECT_STATE,
+  type PasswordProtectState,
 } from '../components/vault-builder';
 import { keyLossLine, leafFloorWarningText, keyReuseNotes, buildStandardLegs, type KeyReuseRole } from '../lib/vault-education';
 
@@ -1886,8 +1888,8 @@ function InlineKeyCreate({
   onCancel: () => void;
 }) {
   const [tab, setTab] = useState<'generate' | 'import' | 'tapit'>('generate');
-  const [secure, setSecure] = useState(false);
-  const [password, setPassword] = useState('');
+  const [pw, setPw] = useState<PasswordProtectState>(DEFAULT_PASSWORD_PROTECT_STATE);
+  const [pwErr, setPwErr] = useState<string | null>(null);
   const [xpub, setXpub] = useState('');
   const [path, setPath] = useState("m/48'/1'/0'/2'");
   // The ONLY trustworthy source of the master fingerprint hardware-wallet
@@ -1940,15 +1942,15 @@ function InlineKeyCreate({
       </div>
       {tab === 'generate' ? (
         <>
-          <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, color: colors.sub }}>
-            <input type="checkbox" checked={secure} onChange={e => setSecure(e.target.checked)} />
-            Password-protect this key (recommended for real funds)
-          </label>
-          {secure && <Input type="password" placeholder="Password (min 8 characters)" value={password} onChange={e => setPassword(e.target.value)} />}
+          <PasswordProtectFields state={pw} onChange={next => { setPw(next); setPwErr(null); }} />
+          {pwErr && <div style={{ fontSize: 12, color: colors.red }}>{pwErr}</div>}
           <Button
             size="sm"
-            disabled={secure && password.length < 8}
-            onClick={() => onGenerate(secure ? 'secure' : 'test', secure ? password : undefined)}
+            onClick={() => {
+              const validationError = validatePasswordProtection(pw);
+              if (validationError) { setPwErr(validationError); return; }
+              onGenerate(pw.enabled ? 'secure' : 'test', pw.enabled ? pw.password : undefined);
+            }}
           >
             Generate {role} key
           </Button>

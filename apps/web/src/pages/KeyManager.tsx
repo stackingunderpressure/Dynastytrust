@@ -12,7 +12,12 @@ import { Button, Input, Label, Textarea } from "../components/ui";
 import { QrImage } from "../components/QrImage";
 import { XpubQrScanner } from "../components/XpubQrScanner";
 import { WalletLinkCard } from "../components/WalletLinkCard";
-import { BackupFlow } from "../components/vault-builder/BackupFlow";
+import { WordGrid } from "../components/vault-builder/BackupFlow";
+import {
+  BackupFlow, KeyCreatedPrompt,
+  PasswordProtectFields, validatePasswordProtection, DEFAULT_PASSWORD_PROTECT_STATE,
+  type PasswordProtectState,
+} from "../components/vault-builder";
 
 // Shared select styling (kept inline since the UI primitives only cover
 // inputs, textareas, labels, and buttons right now).
@@ -27,58 +32,6 @@ const selectStyle: React.CSSProperties = {
   fontFamily: fonts.sans,
   boxSizing: "border-box",
 };
-
-function WordGrid({ words }: { words: string[] }) {
-  const [vis, setVis] = useState(false);
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
-        <Button variant="ghost" size="sm" style={{ fontSize: 12, padding: "4px 10px" }} onClick={() => setVis(v => !v)}>
-          {vis ? "Hide" : "Reveal words"}
-        </Button>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 5 }}>
-        {words.map((w, i) => (
-          <div
-            key={i}
-            style={{
-              background: colors.inset,
-              border: `1px solid ${colors.border}`,
-              borderRadius: 6,
-              padding: "6px 10px",
-              display: "flex",
-              gap: 6,
-              alignItems: "center",
-            }}
-          >
-            <span style={{ fontSize: 10, color: colors.muted, minWidth: 16, flexShrink: 0 }}>{i + 1}</span>
-            <span
-              style={{
-                fontSize: 12,
-                fontFamily: fonts.mono,
-                color: vis ? colors.text : "transparent",
-                textShadow: vis ? "none" : `0 0 8px ${colors.muted}`,
-                userSelect: vis ? "text" : "none",
-              }}
-            >
-              {w}
-            </span>
-          </div>
-        ))}
-      </div>
-      {vis && (
-        <Button
-          variant="ghost"
-          size="sm"
-          style={{ width: "100%", marginTop: 10, fontSize: 12 }}
-          onClick={() => navigator.clipboard.writeText(words.join(" "))}
-        >
-          Copy all 24 words
-        </Button>
-      )}
-    </div>
-  );
-}
 
 function PersonaPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [custom, setCustom] = useState("");
@@ -186,110 +139,34 @@ function Modal({
   );
 }
 
-function QuickModal({ onDone, onClose }: { onClose: () => void; onDone: (key: LocalKey, mnemonic: string) => void }) {
+// The one key-generation flow. Label/persona/network + an optional
+// password -- password defaults on (this is the path for real funds),
+// uncheck it for an instant no-password test key. What used to be two
+// separate buttons/modals ("+ Quick key", no escape once you picked
+// wrong; "+ Secure key", no way to skip the password) is now one form;
+// backing up now vs. later is handled uniformly afterward by
+// KeyCreatedPrompt, not by which button you happened to click here.
+function GenerateKeyModal({ onDone, onClose }: { onClose: () => void; onDone: (key: LocalKey, mnemonic: string) => void }) {
   const [label, setLabel] = useState("");
   const [persona, setPersona] = useState(DEFAULT_PERSONAS[0]);
   const [network, setNetwork] = useState<Network>("testnet");
-  function submit(e: React.FormEvent) {
-    e.preventDefault();
-    const { key, mnemonic } = generateTestKey({ label: label.trim() || persona, network, persona });
-    onDone(key, mnemonic);
-  }
-  return (
-    <Modal title="Quick test key" onClose={onClose}>
-      <div style={{ padding: "10px 14px", background: colors.successBg, border: `1px solid ${colors.green}44`, borderRadius: radii.md, marginBottom: 18 }}>
-        <p style={{ fontSize: 13, color: colors.green, margin: 0 }}>
-          No password needed. Mnemonic stored in browser. Testnet only.
-        </p>
-      </div>
-      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <div>
-          <Label>Label</Label>
-          <Input value={label} onChange={e => setLabel(e.target.value)} placeholder={persona} />
-        </div>
-        <div>
-          <Label>Persona</Label>
-          <PersonaPicker value={persona} onChange={setPersona} />
-        </div>
-        <div>
-          <Label>Network</Label>
-          <select style={selectStyle} value={network} onChange={e => setNetwork(e.target.value as Network)}>
-            <option value="testnet">Testnet</option>
-            <option value="signet">Signet</option>
-            <option value="mainnet">Mainnet</option>
-          </select>
-        </div>
-        <div style={{ display: "flex", gap: 10 }}>
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" style={{ background: colors.green }}>
-            Generate instantly
-          </Button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-function TestKeyCreated({ keyData, mnemonic, onClose }: { keyData: LocalKey; mnemonic: string; onClose: () => void }) {
-  return (
-    <Modal title="Key created" onClose={onClose} wide>
-      <div style={{ padding: "10px 14px", background: colors.successBg, border: `1px solid ${colors.green}44`, borderRadius: radii.md, marginBottom: 16 }}>
-        <p style={{ fontSize: 13, color: colors.green, margin: 0 }}>
-          <strong>{keyData.label}</strong> created for <strong>{keyData.persona}</strong>. Recovery phrase below - tap
-          "Reveal words" to see it.
-        </p>
-      </div>
-      <WordGrid words={mnemonic.split(" ")} />
-      <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-        <Button variant="ghost" style={{ flex: 1 }} onClick={onClose}>
-          Done - back up later
-        </Button>
-        <Button style={{ flex: 1 }} onClick={onClose}>
-          Continue
-        </Button>
-      </div>
-    </Modal>
-  );
-}
-
-function SecureModal({ onDone, onClose }: { onClose: () => void; onDone: (key: LocalKey, mnemonic: string) => void }) {
-  const [label, setLabel] = useState("");
-  const [persona, setPersona] = useState(DEFAULT_PERSONAS[0]);
-  const [network, setNetwork] = useState<Network>("testnet");
-  const [passwordProtect, setPasswordProtect] = useState(true);
-  const [password, setPassword] = useState("");
-  const [confirm, setConfirm] = useState("");
+  const [pw, setPw] = useState<PasswordProtectState>(DEFAULT_PASSWORD_PROTECT_STATE);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!passwordProtect) {
-      setBusy(true);
-      setErr(null);
-      try {
-        const { key, mnemonic } = generateTestKey({ label: label.trim() || persona, network, persona });
-        onDone(key, mnemonic);
-      } catch (e) {
-        setErr(e instanceof Error ? e.message : "Failed");
-      } finally {
-        setBusy(false);
-      }
-      return;
-    }
-    if (password !== confirm) {
-      setErr("Passwords do not match");
-      return;
-    }
-    if (password.length < 8) {
-      setErr("Password must be at least 8 characters");
+    const validationError = validatePasswordProtection(pw);
+    if (validationError) {
+      setErr(validationError);
       return;
     }
     setBusy(true);
     setErr(null);
     try {
-      const { key, mnemonic } = await generateSoftwareKey({ label: label.trim() || persona, network, password, persona });
+      const { key, mnemonic } = pw.enabled
+        ? await generateSoftwareKey({ label: label.trim() || persona, network, password: pw.password, persona })
+        : generateTestKey({ label: label.trim() || persona, network, persona });
       onDone(key, mnemonic);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed");
@@ -297,10 +174,11 @@ function SecureModal({ onDone, onClose }: { onClose: () => void; onDone: (key: L
       setBusy(false);
     }
   }
+
   return (
     <Modal title="New key" onClose={onClose}>
       <p style={{ fontSize: 13, color: colors.muted, marginBottom: 20, lineHeight: 1.5 }}>
-        {passwordProtect
+        {pw.enabled
           ? "Mnemonic encrypted with your password. Use for real funds."
           : "No password. Mnemonic stored in plain text in this browser."}
       </p>
@@ -321,22 +199,7 @@ function SecureModal({ onDone, onClose }: { onClose: () => void; onDone: (key: L
             <option value="mainnet">Mainnet</option>
           </select>
         </div>
-        <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, color: colors.sub }}>
-          <input type="checkbox" checked={passwordProtect} onChange={e => setPasswordProtect(e.target.checked)} />
-          Password-protect this key (recommended for real funds)
-        </label>
-        {passwordProtect && (
-          <>
-            <div>
-              <Label>Encryption password</Label>
-              <Input type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={8} placeholder="Min 8 characters" />
-            </div>
-            <div>
-              <Label>Confirm password</Label>
-              <Input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} required />
-            </div>
-          </>
-        )}
+        <PasswordProtectFields state={pw} onChange={setPw} />
         {err && <p style={{ color: colors.red, fontSize: 13, margin: 0 }}>{err}</p>}
         <div style={{ display: "flex", gap: 10 }}>
           <Button type="button" variant="ghost" onClick={onClose}>
@@ -1029,10 +892,9 @@ function DetailModal({
 }
 
 type ModalState =
-  | { type: "quick" }
-  | { type: "secure" }
+  | { type: "generate" }
   | { type: "import" }
-  | { type: "test-created"; key: LocalKey; mnemonic: string }
+  | { type: "created"; key: LocalKey; mnemonic: string }
   | { type: "backup"; key: LocalKey; mnemonic: string }
   | { type: "reveal"; key: LocalKey }
   | { type: "detail"; key: LocalKey }
@@ -1132,15 +994,8 @@ export default function KeyManager() {
     <div style={{ fontFamily: fonts.sans }}>
       <WalletLinkCard />
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-        <Button style={{ background: colors.green, fontSize: 14 }} onClick={() => setModal({ type: "quick" })}>
-          + Quick key
-        </Button>
-        <Button
-          variant="ghost"
-          style={{ borderColor: colors.goldDim, color: colors.gold }}
-          onClick={() => setModal({ type: "secure" })}
-        >
-          + Secure key
+        <Button style={{ background: colors.green, fontSize: 14 }} onClick={() => setModal({ type: "generate" })}>
+          + New key
         </Button>
         <Button variant="ghost" onClick={() => setModal({ type: "import" })}>
           Import xpub
@@ -1232,15 +1087,12 @@ export default function KeyManager() {
           >
             {search
               ? "Try a different search term."
-              : "A key is one signer in a vault. Each person (founder, heir, protector) holds their own. Keys never leave this browser. Start with a test key to explore, or a secure (password-encrypted) key for real funds -- then compile a vault in the Policy Builder."}
+              : "A key is one signer in a vault. Each person (founder, heir, protector) holds their own. Keys never leave this browser. Generate one -- password-protect it now for real funds, or skip that for now and explore."}
           </p>
           {!search && (
             <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
-              <Button style={{ background: colors.green }} onClick={() => setModal({ type: "quick" })}>
-                Generate test key
-              </Button>
-              <Button variant="ghost" onClick={() => setModal({ type: "secure" })}>
-                Generate secure key
+              <Button style={{ background: colors.green }} onClick={() => setModal({ type: "generate" })}>
+                Generate a key
               </Button>
             </div>
           )}
@@ -1358,21 +1210,12 @@ export default function KeyManager() {
         </div>
       ))}
 
-      {modal?.type === "quick" && (
-        <QuickModal
+      {modal?.type === "generate" && (
+        <GenerateKeyModal
           onClose={() => setModal(null)}
           onDone={(key, mnemonic) => {
             reload();
-            setModal({ type: "test-created", key, mnemonic });
-          }}
-        />
-      )}
-      {modal?.type === "secure" && (
-        <SecureModal
-          onClose={() => setModal(null)}
-          onDone={(key, mnemonic) => {
-            reload();
-            setModal({ type: "backup", key, mnemonic });
+            setModal({ type: "created", key, mnemonic });
           }}
         />
       )}
@@ -1385,8 +1228,16 @@ export default function KeyManager() {
           }}
         />
       )}
-      {modal?.type === "test-created" && (
-        <TestKeyCreated keyData={modal.key} mnemonic={modal.mnemonic} onClose={() => setModal(null)} />
+      {modal?.type === "created" && (
+        <KeyCreatedPrompt
+          keyData={modal.key}
+          mnemonic={modal.mnemonic}
+          onBackupLater={() => {
+            reload();
+            setModal(null);
+          }}
+          onBackupNow={() => setModal({ type: "backup", key: modal.key, mnemonic: modal.mnemonic })}
+        />
       )}
       {modal?.type === "backup" && (
         <BackupFlow
