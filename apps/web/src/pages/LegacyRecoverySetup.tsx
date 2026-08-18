@@ -164,7 +164,14 @@ export default function LegacyRecoverySetup() {
 
       {roles.map(r => {
         const key = localKeys.find(k => k.keyId === assignment[r.role]);
-        const needsPassword = !!key?.encryptedMnemonic;
+        // A key can only be one mode or the other (generateTestKey never
+        // sets encryptedMnemonic; generateSoftwareKey always does;
+        // secureTestKey explicitly clears testMnemonic when it sets
+        // encryptedMnemonic) -- but check testMnemonic's presence first
+        // and treat it as definitive "no password needed", rather than
+        // trusting encryptedMnemonic's mere presence alone, as a defensive
+        // belt-and-suspenders guard against exactly this failure mode.
+        const needsPassword = !key?.testMnemonic && !!key?.encryptedMnemonic;
         const alreadySealed = existingShareRoles.has(r.role);
         return (
           <Card key={r.role}>
