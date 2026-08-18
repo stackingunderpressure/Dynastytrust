@@ -191,6 +191,15 @@ export default function LegacyRecoverySetup() {
         locks a recovery copy of the descriptor to each key above. You can reseal any time the
         descriptor changes; a reseal replaces every prior share, so keep everyone's keys current.
       </div>
+
+      <div style={{ fontSize: 13, color: colors.muted }}>
+        Recovery itself doesn't need DynastyTrust running -- it needs a key and{' '}
+        <a href="/dynastytrust-legacy-recovery-tool.html" target="_blank" rel="noopener noreferrer" style={{ color: colors.gold }}>
+          this standalone recovery tool
+        </a>{' '}
+        (opens offline, in any browser, with nothing else installed). Keep a copy of it alongside
+        every backup.
+      </div>
     </div>
   );
 }

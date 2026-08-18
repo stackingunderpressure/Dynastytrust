@@ -230,6 +230,20 @@ export async function splitLegacySecretHybrid(
   secret: Uint8Array,
   keyholderCount: number,
 ): Promise<HybridSplitResult> {
+  if (keyholderCount < 2) {
+    // The fallback path is "any TWO keyholders reconstruct it" -- with
+    // only one keyholder there is no second person to fall back to, so
+    // asking the underlying Shamir library for a (2, 1) split is a
+    // meaningless request it would otherwise reject with an opaque
+    // "shares must be at least 2" error. Fail clearly instead: the fast
+    // path (this one key + the on-chain share) is still fully available
+    // and is the only path such a vault ever needed.
+    throw new Error(
+      `splitLegacySecretHybrid: fallback path needs at least 2 keyholders, got ${keyholderCount}. ` +
+      `The fast path (one key + the on-chain share) works fine with a single keyholder -- ` +
+      `only the two-keyholder fallback path requires a second person.`,
+    );
+  }
   const onChainShare = crypto.getRandomValues(new Uint8Array(secret.length));
   const fastPathShare = xorBytes(secret, onChainShare);
   const fallbackShares = await splitLegacySecret(secret, keyholderCount, 2);

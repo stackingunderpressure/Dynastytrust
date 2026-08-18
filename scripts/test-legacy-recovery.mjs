@@ -103,4 +103,13 @@ await assert.rejects(
 const fastShareAloneXorZero = unlockShare(lockedFastPathShares[0], lockBytesByRole[0]);
 assert.notDeepEqual(fastShareAloneXorZero, secret, 'a fast-path share alone, without the on-chain pad, must not equal the secret');
 
+// ── Edge case: a vault with only one keyholder has no second person for
+// the fallback path -- this must fail with a clear message, not the
+// underlying Shamir library's opaque "shares must be at least 2" error. ──
+await assert.rejects(
+  () => splitLegacySecretHybrid(secret, 1),
+  /fallback path needs at least 2 keyholders/,
+  'a single-keyholder vault must fail clearly, not with the library\'s raw error',
+);
+
 console.log('legacy-recovery tests passed');
