@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   listAllKeys, generateTestKey, generateSoftwareKey, importXpub,
-  updateKeyStatus, deleteKey, revealMnemonic, secureTestKey, removeKeyPassword,
+  updateKeyStatus, deleteKey, revealMnemonic, secureTestKey, removeKeyPassword, changeKeyPassword,
   exportKeyring, importKeyringJson, renameKey, parseXpubText,
   DEFAULT_PERSONAS, type LocalKey, type Network,
 } from "../lib/keystore";
@@ -503,6 +503,113 @@ function SecureUpgradeModal({ keyData, onDone, onClose }: { keyData: LocalKey; o
   );
 }
 
+function RemovePasswordModal({ keyData, onDone, onClose }: { keyData: LocalKey; onDone: () => void; onClose: () => void }) {
+  const [pw, setPw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setErr(null);
+    try {
+      const mnemonic = await revealMnemonic(keyData.keyId, pw);
+      removeKeyPassword(keyData.keyId, mnemonic);
+      onDone();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title="Remove password" onClose={onClose}>
+      <p style={{ fontSize: 13, color: colors.muted, marginBottom: 20, lineHeight: 1.5 }}>
+        Enter the current password for <strong style={{ color: colors.text }}>{keyData.label}</strong> to
+        confirm. Afterward the recovery phrase is stored unencrypted in this browser and no password
+        will be asked for when signing with this key.
+      </p>
+      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div>
+          <Label>Current password</Label>
+          <Input type="password" value={pw} onChange={e => setPw(e.target.value)} required autoFocus />
+        </div>
+        {err && <p style={{ color: colors.red, fontSize: 13 }}>{err}</p>}
+        <div style={{ display: "flex", gap: 10 }}>
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={busy}>
+            {busy ? "Removing..." : "Remove password"}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function ChangePasswordModal({ keyData, onDone, onClose }: { keyData: LocalKey; onDone: () => void; onClose: () => void }) {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (next !== confirm) {
+      setErr("New passwords do not match");
+      return;
+    }
+    if (next.length < 8) {
+      setErr("New password must be at least 8 characters");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      await changeKeyPassword(keyData.keyId, current, next);
+      onDone();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title="Change password" onClose={onClose}>
+      <p style={{ fontSize: 13, color: colors.muted, marginBottom: 20, lineHeight: 1.5 }}>
+        Change the password for <strong style={{ color: colors.text }}>{keyData.label}</strong>.
+      </p>
+      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div>
+          <Label>Current password</Label>
+          <Input type="password" value={current} onChange={e => setCurrent(e.target.value)} required autoFocus />
+        </div>
+        <div>
+          <Label>New password</Label>
+          <Input type="password" value={next} onChange={e => setNext(e.target.value)} required minLength={8} placeholder="Min 8 characters" />
+        </div>
+        <div>
+          <Label>Confirm new password</Label>
+          <Input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} required />
+        </div>
+        {err && <p style={{ color: colors.red, fontSize: 13 }}>{err}</p>}
+        <div style={{ display: "flex", gap: 10 }}>
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={busy}>
+            {busy ? "Changing..." : "Change password"}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => void }) {
   const [label, setLabel] = useState("");
   const [persona, setPersona] = useState(DEFAULT_PERSONAS[0]);
@@ -687,6 +794,8 @@ function DetailModal({
   onClose,
   onReveal,
   onSecure,
+  onChangePassword,
+  onRemovePassword,
   onArchive,
   onDelete,
   onEdit,
@@ -695,6 +804,8 @@ function DetailModal({
   onClose: () => void;
   onReveal: () => void;
   onSecure: () => void;
+  onChangePassword: () => void;
+  onRemovePassword: () => void;
   onArchive: () => void;
   onDelete: () => void;
   onEdit: () => void;
@@ -858,6 +969,16 @@ function DetailModal({
             Add password
           </Button>
         )}
+        {k.origin === "software" && k.encryptedMnemonic && (
+          <>
+            <Button variant="ghost" style={{ fontSize: 13 }} onClick={onChangePassword}>
+              Change password
+            </Button>
+            <Button variant="ghost" style={{ fontSize: 13 }} onClick={onRemovePassword}>
+              Remove password
+            </Button>
+          </>
+        )}
         {k.status === "active" && (
           <Button variant="ghost" style={{ fontSize: 13 }} onClick={onArchive}>
             Archive
@@ -892,6 +1013,8 @@ type ModalState =
   | { type: "reveal"; key: LocalKey }
   | { type: "detail"; key: LocalKey }
   | { type: "upgrade"; key: LocalKey }
+  | { type: "change-password"; key: LocalKey }
+  | { type: "remove-password"; key: LocalKey }
   | { type: "edit"; key: LocalKey };
 
 export default function KeyManager() {
@@ -1277,6 +1400,8 @@ export default function KeyManager() {
           onClose={() => setModal(null)}
           onReveal={() => setModal({ type: "reveal", key: modal.key })}
           onSecure={() => setModal({ type: "upgrade", key: modal.key })}
+          onChangePassword={() => setModal({ type: "change-password", key: modal.key })}
+          onRemovePassword={() => setModal({ type: "remove-password", key: modal.key })}
           onArchive={() => handleArchive(modal.key.keyId)}
           onDelete={() => handleDelete(modal.key.keyId)}
           onEdit={() => setModal({ type: "edit", key: modal.key })}
@@ -1289,6 +1414,28 @@ export default function KeyManager() {
           onDone={() => {
             reload();
             setModal(null);
+          }}
+        />
+      )}
+      {modal?.type === "change-password" && (
+        <ChangePasswordModal
+          keyData={modal.key}
+          onClose={() => setModal(null)}
+          onDone={() => {
+            reload();
+            setModal(null);
+            toast.success("Password changed.");
+          }}
+        />
+      )}
+      {modal?.type === "remove-password" && (
+        <RemovePasswordModal
+          keyData={modal.key}
+          onClose={() => setModal(null)}
+          onDone={() => {
+            reload();
+            setModal(null);
+            toast.success("Password removed -- no password needed for this key anymore.");
           }}
         />
       )}

@@ -610,6 +610,26 @@ export function removeKeyPassword(keyId: string, mnemonic: string): LocalKey {
   return all[idx];
 }
 
+/**
+ * Change a secure key's password: decrypt with the current password,
+ * re-encrypt the same mnemonic with the new one. Verifies the current
+ * password itself (via decryptBlob) rather than trusting the caller --
+ * an easy vector to leave open on money-touching key material otherwise.
+ */
+export async function changeKeyPassword(keyId: string, currentPassword: string, newPassword: string): Promise<LocalKey> {
+  const key = getKey(keyId);
+  if (!key)                   throw new Error('Key not found');
+  if (!key.encryptedMnemonic) throw new Error('Not a password-protected key');
+
+  const mnemonic = await decryptBlob(key.encryptedMnemonic, currentPassword);
+  const encryptedMnemonic = await encryptText(mnemonic, newPassword);
+  const all = loadAll();
+  const idx = all.findIndex(k => k.keyId === keyId);
+  all[idx] = { ...all[idx], encryptedMnemonic };
+  saveAll(all);
+  return all[idx];
+}
+
 /** Mark a key as backed up after completing verify flow */
 export function markBackedUp(keyId: string): void {
   const all = loadAll();

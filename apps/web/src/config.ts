@@ -13,13 +13,14 @@ export interface NavLink {
 
 // Nav reframed around the user's journey, not the technical assembly line
 // (see docs/ux-coherence-redesign.md). Home = my vaults + what needs me;
-// Start = the guided intent-first front door; Learn = Sage. The technical
-// stations (Keys, Policy builder, Reminders) are still routed but are no
-// longer top-level navigation -- they are reached through the journey or
-// settings, so a newcomer never lands on a cryptography page.
+// Start = the guided intent-first front door; Learn = Sage; Keys = the key
+// manager, promoted to top-level nav on 2026-08-18 at the operator's
+// explicit request (previously reached only through the vault-build
+// journey). Policy builder and Reminders stay off top-level nav.
 export const NAV_LINKS: readonly NavLink[] = [
   { id: 'home', label: 'Home', icon: '🏦', path: '/vaults' },
   { id: 'start', label: 'Start a vault', icon: '✨', path: '/start' },
+  { id: 'keys', label: 'Keys', icon: '🔑', path: '/keys' },
   { id: 'learn', label: 'Learn', icon: '💬', path: '/assistant' },
 ] as const;
 
