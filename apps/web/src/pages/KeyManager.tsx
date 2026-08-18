@@ -139,16 +139,23 @@ function Modal({
   );
 }
 
-// The one key-generation flow. Label/persona/network + an optional
-// password -- password defaults on (this is the path for real funds),
-// uncheck it for an instant no-password test key. What used to be two
-// separate buttons/modals ("+ Quick key", no escape once you picked
-// wrong; "+ Secure key", no way to skip the password) is now one form;
-// backing up now vs. later is handled uniformly afterward by
-// KeyCreatedPrompt, not by which button you happened to click here.
+// The one key-generation flow. Label/network + an optional password --
+// password defaults on (this is the path for real funds), uncheck it for
+// an instant no-password test key. What used to be two separate buttons/
+// modals ("+ Quick key", no escape once you picked wrong; "+ Secure key",
+// no way to skip the password) is now one form; backing up now vs. later
+// is handled uniformly afterward by KeyCreatedPrompt, not by which button
+// you happened to click here.
+//
+// No persona picker (2026-08-18, operator: "let person name what they
+// want... it gains a label after the role is picked in a vault"): forcing
+// a role choice at generation time was backwards -- a key's real identity
+// is which vault role it ends up filling, decided later when it's picked
+// into a slot, not guessed up front. The label is free text; persona
+// (used only for Key Manager's own grouping/filtering) is just set to
+// whatever that label is, so there's no separate concept to expose here.
 function GenerateKeyModal({ onDone, onClose }: { onClose: () => void; onDone: (key: LocalKey, mnemonic: string) => void }) {
   const [label, setLabel] = useState("");
-  const [persona, setPersona] = useState(DEFAULT_PERSONAS[0]);
   const [network, setNetwork] = useState<Network>("testnet");
   const [pw, setPw] = useState<PasswordProtectState>(DEFAULT_PASSWORD_PROTECT_STATE);
   const [busy, setBusy] = useState(false);
@@ -164,9 +171,10 @@ function GenerateKeyModal({ onDone, onClose }: { onClose: () => void; onDone: (k
     setBusy(true);
     setErr(null);
     try {
+      const finalLabel = label.trim();
       const { key, mnemonic } = pw.enabled
-        ? await generateSoftwareKey({ label: label.trim() || persona, network, password: pw.password, persona })
-        : generateTestKey({ label: label.trim() || persona, network, persona });
+        ? await generateSoftwareKey({ label: finalLabel, network, password: pw.password, persona: finalLabel })
+        : generateTestKey({ label: finalLabel, network, persona: finalLabel });
       onDone(key, mnemonic);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed");
@@ -185,11 +193,13 @@ function GenerateKeyModal({ onDone, onClose }: { onClose: () => void; onDone: (k
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <div>
           <Label>Label</Label>
-          <Input value={label} onChange={e => setLabel(e.target.value)} placeholder={persona} />
-        </div>
-        <div>
-          <Label>Persona</Label>
-          <PersonaPicker value={persona} onChange={setPersona} />
+          <Input
+            value={label}
+            onChange={e => setLabel(e.target.value)}
+            placeholder="e.g. Founder 1, Heir 2, Backup..."
+            required
+            autoFocus
+          />
         </div>
         <div>
           <Label>Network</Label>
