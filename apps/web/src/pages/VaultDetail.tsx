@@ -880,7 +880,7 @@ function OverviewTab({
           padding: 16,
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, gap: 8 }}>
+        <div style={{ marginBottom: 8 }}>
           <span
             style={{
               fontSize: 11,
@@ -891,7 +891,8 @@ function OverviewTab({
           >
             DESCRIPTOR
           </span>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "flex-end", maxWidth: "100%" }}>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "flex-start", marginBottom: 8 }}>
             <Button
               variant="ghost"
               size="sm"
@@ -899,7 +900,7 @@ function OverviewTab({
               disabled={!vault.descriptor}
               onClick={() => vault.descriptor && copy(vault.descriptor, "desc")}
             >
-              {copied === "desc" ? "Copied" : "Copy"}
+              {copied === "desc" ? "Copied" : "Copy descriptor"}
             </Button>
             <Button
               variant="ghost"
@@ -928,7 +929,7 @@ function OverviewTab({
               disabled={!vault.descriptor}
               onClick={() => setShowDescriptorQr(v => !v)}
             >
-              {showDescriptorQr ? "Hide QR" : "Show QR"}
+              {showDescriptorQr ? "Hide QR" : "Show descriptor QR"}
             </Button>
             <Button
               variant="ghost"
@@ -937,7 +938,7 @@ function OverviewTab({
               disabled={!vault.descriptor}
               onClick={() => navigate(`/vaults/${vault.id}/legacy-recovery`)}
             >
-              Recovery
+              Legacy recovery setup
             </Button>
             <Button
               variant="ghost"
@@ -988,7 +989,6 @@ function OverviewTab({
             >
               Activity JSON
             </Button>
-          </div>
         </div>
         <div
           style={{
