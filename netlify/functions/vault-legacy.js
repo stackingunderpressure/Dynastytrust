@@ -21,7 +21,12 @@
  *   }
  *   Replaces any prior sealed bundle/shares/on-chain share for this vault
  *   wholesale -- a partial reseal would leave stale shares next to a
- *   fresh bundle, silently breaking recovery.
+ *   fresh bundle, silently breaking recovery. A reseal always carries a
+ *   brand new onchain_share_b64 (every seal generates a fresh random
+ *   secret), so any txid/published_at recorded against the PRIOR onchain
+ *   share is cleared here -- otherwise the UI would keep showing an old
+ *   transaction as "Published" next to a hex payload that no longer
+ *   matches what's actually sitting in that transaction's OP_RETURN.
  *
  * PATCH /api/vault-legacy?vault_id=<uuid>
  *   Owner only. Records on-chain publication of the (already-stored,
@@ -138,7 +143,7 @@ export async function handler(event) {
 
     const { error: onchainErr } = await supabase
       .from("vault_legacy_onchain_shares")
-      .upsert({ vault_id, onchain_share_b64 });
+      .upsert({ vault_id, onchain_share_b64, txid: null, published_at: null });
     if (onchainErr) return json(500, { error: onchainErr.message });
 
     const { error: deleteErr } = await supabase

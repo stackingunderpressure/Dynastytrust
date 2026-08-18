@@ -91,7 +91,6 @@ export default function LegacyRecoverySetup() {
       if (!res.ok) throw new Error('mempool.space lookup failed');
       const utxos = (await res.json()) as Array<{ txid: string; vout: number; value: number }>;
       setFetchedUtxos(utxos);
-      if (utxos.length === 0) toast.error('No UTXOs found yet at that address -- fund it first, then wait for a confirmation.');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Lookup failed');
     } finally {
@@ -210,9 +209,17 @@ export default function LegacyRecoverySetup() {
         roleKeys.push({ keyRole: r.role, mnemonic });
       }
       const bundleText = vaultBackupText(vault);
-      await sealVaultLegacyRecovery({ vaultId: vault.id, network, bundleText, roleKeys });
+      const { onchainShareB64: freshOnchainShareB64 } =
+        await sealVaultLegacyRecovery({ vaultId: vault.id, network, bundleText, roleKeys });
       toast.success('Legacy recovery sealed for every assigned key.');
       setExistingShareRoles(new Set(roles.map(r => r.role)));
+      // Every seal mints a brand new on-chain share, so any txid recorded
+      // against a PRIOR seal no longer matches what's shown below -- clear
+      // it here (the backend clears its own copy too) so the "publish"
+      // step re-opens instead of silently pointing at stale content.
+      setOnchainShareB64(freshOnchainShareB64);
+      setOnchainTxid(null);
+      setBuiltTx(null);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Sealing failed');
     } finally {
@@ -340,17 +347,20 @@ export default function LegacyRecoverySetup() {
       {onchainShareB64 && (
         <Card>
           <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 8 }}>
-            Publish the on-chain share
+            Optional: publish the on-chain share
           </div>
           <p style={{ fontSize: 14, color: colors.sub, lineHeight: 1.6, marginBottom: 12 }}>
-            This piece needs no key to read -- it's safe to publish anywhere. Putting it on the
-            Bitcoin blockchain gives it the same permanence as the vault itself, independent of
-            DynastyTrust staying online. DynastyTrust doesn't hold or move your funds, so
-            publishing has to happen from a wallet of your own: send a tiny, ordinary transaction
-            from coins that have no connection to this vault, with an added OP_RETURN output
-            carrying the hex below (Sparrow: New Transaction &gt; add an output &gt; OP_RETURN,
-            paste the hex). Using unrelated coins, in a separate transaction, keeps this vault's
-            own funding transaction looking completely ordinary.
+            Sealing above is already enough for recovery, as long as two of the keys you assigned
+            still exist decades from now. This extra step makes recovery possible with just ONE
+            surviving key plus this piece, published where nothing can take it down. There's no
+            deadline -- come back to it whenever. This piece needs no key to read, so it's safe to
+            publish anywhere: putting it on the Bitcoin blockchain gives it the same permanence as
+            the vault itself, independent of DynastyTrust staying online. DynastyTrust doesn't
+            hold or move your funds, so publishing always happens from a wallet of your own, using
+            coins that have no connection to this vault, in their own separate transaction --
+            that's what keeps this vault's own funding transaction looking completely ordinary.
+            Two ways to do that: paste the hex into any wallet's OP_RETURN field yourself (Sparrow:
+            New Transaction &gt; add an output &gt; OP_RETURN), or use the guided steps below.
           </p>
 
           <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
@@ -373,14 +383,17 @@ export default function LegacyRecoverySetup() {
           </div>
 
           {onchainTxid ? (
-            <div style={{ fontSize: 14, color: colors.text }}>
-              Published:{' '}
+            <div style={{ fontSize: 14, color: colors.text, lineHeight: 1.6 }}>
+              <div style={{ color: colors.gold, fontWeight: 600, marginBottom: 4 }}>Published.</div>
+              Nothing more to do here -- this piece is now permanent and needs no further action,
+              unless you reseal this vault later (a reseal mints a new share and you'd publish
+              again).{' '}
               <a
                 href={explorerTxUrl(vault.network, onchainTxid)}
                 target="_blank" rel="noopener noreferrer"
                 style={{ color: colors.gold, fontFamily: fonts.mono, fontSize: 13 }}
               >
-                {onchainTxid}
+                View transaction
               </a>
             </div>
           ) : (
@@ -404,17 +417,17 @@ export default function LegacyRecoverySetup() {
           {!onchainTxid && (
             <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${colors.border}` }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 6 }}>
-                Or publish it from here
+                Or publish it from here -- four short steps
               </div>
               <p style={{ fontSize: 13, color: colors.sub, lineHeight: 1.6, marginBottom: 12 }}>
-                Pick one of your local keys as the publisher. Send a small, unrelated amount to its
-                address below from any wallet you already have, wait for a confirmation, then paste
-                (or fetch) that UTXO here. This app builds and signs the OP_RETURN transaction with
-                that key and broadcasts it -- it never touches this vault's own keys or funds.
+                This app builds, signs, and broadcasts the OP_RETURN transaction for you, using a
+                key you choose and a small amount of unrelated funds you provide -- it never
+                touches this vault's own keys or funds. Follow the four steps below in order; each
+                one unlocks the next.
               </p>
 
               <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
-                Publisher key
+                Step 1 -- choose a local key to publish with
               </label>
               <select
                 value={publishKeyId}
@@ -449,7 +462,7 @@ export default function LegacyRecoverySetup() {
                   )}
 
                   <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
-                    Send a small amount to this address, then come back
+                    Step 2 -- send a small amount to this address from any wallet, then come back
                   </label>
                   <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
                     <input
@@ -471,16 +484,27 @@ export default function LegacyRecoverySetup() {
                     {fetchingUtxos ? 'Checking...' : 'Fetch UTXOs for this address'}
                   </Button>
 
+                  {fetchedUtxos && fetchedUtxos.length === 0 && (
+                    <div style={{ fontSize: 13, color: colors.sub, marginBottom: 12 }}>
+                      Nothing found yet at that address. Send it a small amount from any wallet,
+                      wait for at least one confirmation, then tap "Fetch UTXOs" again.
+                    </div>
+                  )}
                   {fetchedUtxos && fetchedUtxos.length > 0 && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+                      <div style={{ fontSize: 12, color: colors.sub }}>
+                        Found {fetchedUtxos.length} confirmed UTXO{fetchedUtxos.length === 1 ? '' : 's'} -- pick one:
+                      </div>
                       {fetchedUtxos.map(u => (
                         <button
                           key={`${u.txid}:${u.vout}`}
                           type="button"
                           onClick={() => selectFetchedUtxo(u)}
                           style={{
-                            textAlign: 'left', padding: '8px 10px', background: colors.input,
-                            border: `1px solid ${colors.border}`, borderRadius: radii.md,
+                            textAlign: 'left', padding: '8px 10px',
+                            background: utxoTxid === u.txid && utxoVout === String(u.vout) ? `${colors.gold}22` : colors.input,
+                            border: `1px solid ${utxoTxid === u.txid && utxoVout === String(u.vout) ? colors.gold : colors.border}`,
+                            borderRadius: radii.md,
                             color: colors.text, fontSize: 12, fontFamily: fonts.mono, cursor: 'pointer',
                           }}
                         >
@@ -490,6 +514,9 @@ export default function LegacyRecoverySetup() {
                     </div>
                   )}
 
+                  <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
+                    Step 3 -- confirm the UTXO details, then build and sign
+                  </label>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px', gap: 8, marginBottom: 8 }}>
                     <input
                       placeholder="UTXO txid"
@@ -544,8 +571,11 @@ export default function LegacyRecoverySetup() {
                     </Button>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <label style={{ display: 'block', fontSize: 12, color: colors.muted }}>
+                        Step 4 -- review and broadcast
+                      </label>
                       <div style={{ fontSize: 13, color: colors.sub }}>
-                        Fee: {builtTx.feeSats} sats. Change back to the same address: {builtTx.changeSats} sats.
+                        Signed and ready. Fee: {builtTx.feeSats} sats. Change back to the same address: {builtTx.changeSats} sats.
                         Transaction id (once broadcast): <span style={{ fontFamily: fonts.mono, color: colors.text }}>{builtTx.txid}</span>
                       </div>
                       <div style={{ display: 'flex', gap: 10 }}>

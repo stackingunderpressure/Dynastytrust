@@ -34,13 +34,20 @@ export interface RoleKeyMnemonic {
  * Callers are responsible for gathering each role's mnemonic first (see
  * keystore.ts's revealMnemonic) -- this function never touches
  * localStorage or prompts for a password itself.
+ *
+ * Returns the fresh onchain_share_b64 so the caller can show the "publish
+ * on-chain" step immediately, without a second round trip to fetch what
+ * was just uploaded. Every seal (first time or reseal) mints a brand new
+ * random secret, so any share/txid from a PRIOR seal is now stale -- the
+ * caller should also clear any previously-displayed publication txid,
+ * since the backend clears it too (see vault-legacy.js's POST handler).
  */
 export async function sealVaultLegacyRecovery(opts: {
   vaultId: string;
   network: Network;
   bundleText: string;
   roleKeys: RoleKeyMnemonic[];
-}): Promise<void> {
+}): Promise<{ onchainShareB64: string }> {
   if (opts.roleKeys.length === 0) {
     throw new Error('sealVaultLegacyRecovery: at least one role key is required');
   }
@@ -59,12 +66,14 @@ export async function sealVaultLegacyRecovery(opts: {
     };
   });
 
+  const onchainShareB64 = b64(onChainShare);
   await api.legacy.seal({
     vault_id: opts.vaultId,
     sealed_bundle: { nonce_b64: sealed.nonceB64, ciphertext_b64: sealed.ciphertextB64 },
-    onchain_share_b64: b64(onChainShare),
+    onchain_share_b64: onchainShareB64,
     shares,
   });
+  return { onchainShareB64 };
 }
 
 /** Maps a Vault's network field ('bitcoin'|'testnet'|'signet') to keystore.ts's Network type ('mainnet'|'testnet'|'signet'). */
