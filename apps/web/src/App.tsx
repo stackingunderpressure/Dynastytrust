@@ -9,6 +9,7 @@ import StartVault from './pages/StartVault';
 import VaultLayerGuide from './pages/VaultLayerGuide';
 import Dashboard from './pages/Dashboard';
 import VaultDetail from './pages/VaultDetail';
+import LegacyRecoverySetup from './pages/LegacyRecoverySetup';
 import ProposalDetail from './pages/ProposalDetail';
 import TapitCosignCallback from './pages/TapitCosignCallback';
 import InviteClaim from './pages/InviteClaim';
@@ -142,6 +143,18 @@ function AuthedApp() {
         }
       />
       <Route path="/vaults/:id" element={<VaultDetail />} />
+      <Route
+        path="/vaults/:id/legacy-recovery"
+        element={
+          <Layout activeNavId={activeNavId} onSignOut={() => { markIntentionalSignOut(); void supabase.auth.signOut(); }}>
+            <PageHeader
+              title="Long-horizon recovery"
+              sub="Seal a recovery copy of this vault's descriptor to each signer's own key -- so any one surviving key can recover it, decades from now, with nothing extra to back up."
+            />
+            <LegacyRecoverySetup />
+          </Layout>
+        }
+      />
       <Route path="/vaults/:vaultId/proposals/:proposalId" element={<ProposalDetail />} />
       <Route path="/tapit-cosign-callback" element={<TapitCosignCallback />} />
       <Route

@@ -139,10 +139,10 @@ export interface SealedBundle {
   ciphertextB64: string;
 }
 
-function b64(arr: Uint8Array): string {
+export function b64(arr: Uint8Array): string {
   return btoa(String.fromCharCode(...arr));
 }
-function unb64(s: string): Uint8Array {
+export function unb64(s: string): Uint8Array {
   return Uint8Array.from(atob(s), c => c.charCodeAt(0));
 }
 

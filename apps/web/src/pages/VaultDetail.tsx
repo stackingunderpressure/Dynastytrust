@@ -656,6 +656,7 @@ function OverviewTab({
 }) {
   const toast = useToast();
   const askPrompt = usePrompt();
+  const navigate = useNavigate();
   const isBloc = vault.bloc_policy != null;
 
   // Inheritance vaults get all three spending paths; plain vaults
@@ -928,6 +929,15 @@ function OverviewTab({
               onClick={() => setShowDescriptorQr(v => !v)}
             >
               {showDescriptorQr ? "Hide QR" : "Show QR"}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              style={{ padding: "3px 9px", fontSize: 11 }}
+              disabled={!vault.descriptor}
+              onClick={() => navigate(`/vaults/${vault.id}/legacy-recovery`)}
+            >
+              Long-horizon recovery
             </Button>
             <Button
               variant="ghost"
