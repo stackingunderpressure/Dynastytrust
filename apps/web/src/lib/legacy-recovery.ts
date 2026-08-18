@@ -169,10 +169,6 @@ export function legacyIdentityPubkeyFromMnemonic(mnemonic: string, network: Netw
 }
 
 /**
- * The identity child's PUBLIC key, computable from an account xpub alone
- * -- no mnemonic, no private key, ever. This is what the retrieval page
- * uses to look up a share from just an xpub.
- *
  * HDKey.fromExtendedKey() requires the caller to name the exact version
  * bytes it expects and throws "Version mismatch" otherwise -- it does
  * NOT sniff xpub-vs-tpub from the string itself. The retrieval page has
@@ -180,20 +176,33 @@ export function legacyIdentityPubkeyFromMnemonic(mnemonic: string, network: Netw
  * a person 20 years from now has an xpub, not necessarily a memory of
  * which network it was for), so this tries every version set this app
  * ever mints one of (mainnet, then testnet/signet, which share version
- * bytes -- see networkVersions) and uses whichever one actually parses.
+ * bytes -- see networkVersions) and returns whichever one actually
+ * parses, along with the resulting node.
  */
-export function legacyIdentityPubkeyFromXpub(xpub: string): Uint8Array {
-  const candidateVersions = [networkVersions('mainnet'), networkVersions('testnet')];
-  let account: HDKey | null = null;
-  for (const versions of candidateVersions) {
+function parseAnyNetworkXpub(xpub: string): { account: HDKey; network: Network } {
+  const candidates: Network[] = ['mainnet', 'testnet'];
+  for (const network of candidates) {
     try {
-      account = HDKey.fromExtendedKey(xpub, versions);
-      break;
+      return { account: HDKey.fromExtendedKey(xpub, networkVersions(network)), network };
     } catch {
       // Try the next version set.
     }
   }
-  if (!account) throw new Error('Not a recognized xpub/tpub (unknown version bytes)');
+  throw new Error('Not a recognized xpub/tpub (unknown version bytes)');
+}
+
+/** Which network (mainnet, or testnet/signet -- they share version bytes) an xpub string was encoded for. Used to pick the right bech32 hrp when displaying an address for this key. */
+export function detectXpubNetwork(xpub: string): Network {
+  return parseAnyNetworkXpub(xpub).network;
+}
+
+/**
+ * The identity child's PUBLIC key, computable from an account xpub alone
+ * -- no mnemonic, no private key, ever. This is what the retrieval page
+ * uses to look up a share from just an xpub.
+ */
+export function legacyIdentityPubkeyFromXpub(xpub: string): Uint8Array {
+  const { account } = parseAnyNetworkXpub(xpub);
   const child = account.deriveChild(1).deriveChild(0);
   if (!child.publicKey) throw new Error('legacy identity derivation produced no public key');
   return child.publicKey;
@@ -219,6 +228,28 @@ export function signLegacyUnlockMessage(
   const { privateKey } = deriveLegacyIdentityChild(mnemonic, network, derivationPath);
   const digest = bitcoinMessageDigest(legacyUnlockMessage(vaultId, keyRole));
   return secp256k1.sign(digest, privateKey).toCompactRawBytes();
+}
+
+/**
+ * Verifies a signature -- however it was produced, software key or real
+ * hardware wallet -- actually matches the identity pubkey it claims to,
+ * over the exact legacyUnlockMessage digest. The retrieval page calls
+ * this BEFORE attempting to unlock, so a wrong or garbled signature
+ * fails with a clear "that signature doesn't match this key" instead of
+ * a confusing decrypt/AEAD failure three steps later.
+ */
+export function verifyLegacyUnlockSignature(
+  signature: Uint8Array,
+  identityPubkey: Uint8Array,
+  vaultId: string,
+  keyRole: string,
+): boolean {
+  const digest = bitcoinMessageDigest(legacyUnlockMessage(vaultId, keyRole));
+  try {
+    return secp256k1.verify(signature, digest, identityPubkey);
+  } catch {
+    return false;
+  }
 }
 
 /**

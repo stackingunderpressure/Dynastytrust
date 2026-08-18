@@ -22,9 +22,11 @@ import {
   legacyUnlockMessage,
   bitcoinMessageDigest,
   signLegacyUnlockMessage,
+  verifyLegacyUnlockSignature,
   deriveLegacyLockBytesFromSignature,
   legacyIdentityPubkeyFromMnemonic,
   legacyIdentityPubkeyFromXpub,
+  detectXpubNetwork,
 } from '../apps/web/src/lib/legacy-recovery.ts';
 
 const network = 'testnet';
@@ -164,6 +166,23 @@ const accountXpub = HDKey.fromMasterSeed(seed).derive(testAccountPath).publicExt
 const identityFromMnemonic = legacyIdentityPubkeyFromMnemonic(founderSigMnemonic, network, testAccountPath);
 const identityFromXpub = legacyIdentityPubkeyFromXpub(accountXpub);
 assert.deepEqual(identityFromMnemonic, identityFromXpub, 'identity pubkey must be derivable identically from the mnemonic or from just the account xpub');
+
+// detectXpubNetwork must correctly identify a mainnet-encoded xpub (the
+// test above default-encodes as mainnet since it doesn't pass version
+// bytes to HDKey.fromMasterSeed) even though the mnemonic-side
+// derivation used testnet version bytes -- version bytes are pure
+// serialization metadata and must never affect the derived key itself.
+assert.equal(detectXpubNetwork(accountXpub), 'mainnet');
+
+// A real hardware wallet's signature comes back as BIP-137: a 1-byte
+// header prefixed to the 64-byte compact signature, base64-encoded --
+// not bare hex. Retrieval must verify a signature against the identity
+// pubkey it claims to match, and reject one that doesn't.
+assert.equal(verifyLegacyUnlockSignature(sigA, identityFromXpub, vaultId, 'founder_1'), true, 'a genuine signature by the matching key must verify');
+assert.equal(verifyLegacyUnlockSignature(sigA, identityFromXpub, vaultId, 'founder_2'), false, 'the same signature checked against the wrong keyRole tag must fail verification');
+const wrongMnemonic = generateMnemonic(wordlist);
+const wrongSig = signLegacyUnlockMessage(wrongMnemonic, network, testAccountPath, vaultId, 'founder_1');
+assert.equal(verifyLegacyUnlockSignature(wrongSig, identityFromXpub, vaultId, 'founder_1'), false, 'a signature from a DIFFERENT key must fail verification against this identity pubkey');
 
 // Full round trip: lock the SAME fast-path share used above with the
 // signature-derived lock instead of the mnemonic-derived one, and

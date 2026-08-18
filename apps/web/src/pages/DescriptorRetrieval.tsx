@@ -3,13 +3,16 @@ import { api } from '../lib/api';
 import { listAllKeys, revealMnemonic, type LocalKey } from '../lib/keystore';
 import {
   legacyIdentityPubkeyFromXpub,
+  detectXpubNetwork,
   legacyUnlockMessage,
   signLegacyUnlockMessage,
+  verifyLegacyUnlockSignature,
   deriveLegacyLockBytesFromSignature,
   recoverViaFastPath,
   unsealBundle,
   unb64,
 } from '../lib/legacy-recovery';
+import { p2wpkhAddressForPubkey } from '../lib/onchain-publish';
 import { colors, fonts, radii, space } from '../theme';
 import { Button, Card, Textarea } from '../components/ui';
 import { useToast } from '../components/toast';
@@ -40,6 +43,33 @@ function hexToBytes(hex: string): Uint8Array {
   for (let i = 0; i < out.length; i++) out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
   return out;
 }
+function base64ToBytes(b64: string): Uint8Array {
+  return Uint8Array.from(atob(b64.trim()), c => c.charCodeAt(0));
+}
+
+/**
+ * A real hardware wallet's "Sign Message" feature -- Coldcard, Sparrow,
+ * Electrum -- outputs BIP-137: base64, 65 bytes (a 1-byte recovery/
+ * compression header, then the 64-byte compact r||s signature), NOT
+ * bare hex. This accepts that real-world format, plus bare 64-byte hex
+ * or base64 (what "sign locally" below produces), rather than forcing
+ * the recovering keyholder to hand-edit whatever their wallet gave them.
+ * The header byte, when present, is discarded -- unlock only needs r||s;
+ * which pubkey signed is already established by the lookup above.
+ */
+function parseUnlockSignature(input: string): Uint8Array {
+  const trimmed = input.trim();
+  if (!trimmed) throw new Error('No signature provided');
+  let bytes: Uint8Array;
+  if (/^(0x)?[0-9a-fA-F]+$/.test(trimmed) && trimmed.replace(/^0x/, '').length % 2 === 0) {
+    bytes = hexToBytes(trimmed);
+  } else {
+    bytes = base64ToBytes(trimmed);
+  }
+  if (bytes.length === 65) return bytes.slice(1); // strip BIP-137 header byte
+  if (bytes.length === 64) return bytes;
+  throw new Error(`Signature is ${bytes.length} bytes -- expected 64 (raw) or 65 (BIP-137, with header byte)`);
+}
 
 interface LookupResult {
   vaultId: string;
@@ -48,6 +78,8 @@ interface LookupResult {
   lockedFastShareSigB64: string;
   onchainShareB64: string | null;
   sealedBundle: { nonce_b64: string; ciphertext_b64: string };
+  identityPubkey: Uint8Array;
+  identityAddress: string;
 }
 
 export default function DescriptorRetrieval() {
@@ -80,8 +112,10 @@ export default function DescriptorRetrieval() {
     setRecoveredBundle(null);
     setSignatureHex('');
     try {
-      const identityPubkeyHex = toHex(legacyIdentityPubkeyFromXpub(xpub));
-      const res = await api.legacy.lookup(identityPubkeyHex);
+      const identityPubkey = legacyIdentityPubkeyFromXpub(xpub);
+      const network = detectXpubNetwork(xpub);
+      const identityAddress = p2wpkhAddressForPubkey(toHex(identityPubkey), network === 'mainnet' ? 'bitcoin' : 'testnet');
+      const res = await api.legacy.lookup(toHex(identityPubkey));
       setResult({
         vaultId: res.vault_id,
         vaultName: res.vault_name,
@@ -89,6 +123,8 @@ export default function DescriptorRetrieval() {
         lockedFastShareSigB64: res.locked_fast_share_sig_b64,
         onchainShareB64: res.onchain_share_b64,
         sealedBundle: res.sealed_bundle,
+        identityPubkey,
+        identityAddress,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Lookup failed';
@@ -127,7 +163,11 @@ export default function DescriptorRetrieval() {
     }
     setUnlocking(true);
     try {
-      const signature = hexToBytes(signatureHex);
+      const signature = parseUnlockSignature(signatureHex);
+      if (!verifyLegacyUnlockSignature(signature, result.identityPubkey, result.vaultId, result.keyRole)) {
+        toast.error("That signature doesn't match this key. Make sure it signed the EXACT message above, at path .../1/0 under this same xpub's account, using the classic ECDSA message-signing method (not BIP-322 / Taproot signing).");
+        return;
+      }
       const lockBytes = deriveLegacyLockBytesFromSignature(signature, result.vaultId, result.keyRole);
       const secret = recoverViaFastPath(
         unb64(result.lockedFastShareSigB64), lockBytes, unb64(result.onchainShareB64),
@@ -195,10 +235,7 @@ export default function DescriptorRetrieval() {
           <p style={{ fontSize: 14, color: colors.sub, lineHeight: 1.6, marginBottom: 14 }}>
             This key is the <strong style={{ color: colors.text }}>{result.keyRole}</strong> on{' '}
             {result.vaultName ? <>the vault "<strong style={{ color: colors.text }}>{result.vaultName}</strong>"</> : 'a DynastyTrust vault'}.
-            Prove you hold this key by signing the exact message below -- any wallet's "Sign
-            Message" feature works, using the same account this xpub came from, at path{' '}
-            <code style={{ fontFamily: fonts.mono }}>.../1/0</code> (the standard "change,
-            index 0" slot every BIP32 wallet already knows how to reach).
+            Prove you hold this key by signing the exact message below.
           </p>
 
           <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
@@ -211,6 +248,36 @@ export default function DescriptorRetrieval() {
             </Button>
           </div>
 
+          <div
+            style={{
+              background: colors.input, border: `1px solid ${colors.border}`, borderRadius: radii.md,
+              padding: '12px 14px', marginBottom: 14,
+            }}
+          >
+            <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 6 }}>
+              With a hardware wallet
+            </div>
+            <p style={{ fontSize: 13, color: colors.sub, lineHeight: 1.6, marginBottom: 10 }}>
+              Use its "Sign Message" feature (Coldcard, Sparrow, Electrum, and most others support
+              this) against derivation path{' '}
+              <code style={{ fontFamily: fonts.mono, color: colors.text }}>&lt;this account&gt;/1/0</code>,
+              which is the same account this xpub came from. Some wallets let you type that path
+              directly (Sparrow's Tools &gt; Sign/Verify Message); others need the address instead:
+            </p>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              <Textarea mono readOnly value={result.identityAddress} rows={1} style={{ flex: 1 }} />
+              <Button variant="ghost" size="sm" onClick={() => copyText(result.identityAddress, 'Address')}>
+                Copy
+              </Button>
+            </div>
+            <p style={{ fontSize: 13, color: colors.red, lineHeight: 1.6 }}>
+              Important: use the CLASSIC message-signing method (plain ECDSA), not BIP-322 or a
+              Taproot-address signature -- those use a different signature scheme that won't match
+              what this was sealed with, even from the exact right key. If your wallet offers both,
+              pick the older/classic one.
+            </p>
+          </div>
+
           {matchingLocalKey && (
             <div style={{ marginBottom: 14 }}>
               <Button variant="ghost" onClick={handleSignLocally} disabled={signingLocally}>
@@ -220,13 +287,13 @@ export default function DescriptorRetrieval() {
           )}
 
           <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
-            Signature (hex)
+            Signature
           </label>
           <Textarea
             mono
             value={signatureHex}
             onChange={e => setSignatureHex(e.target.value)}
-            placeholder="Paste the signature your wallet produced, or sign locally above"
+            placeholder="Paste the signature your wallet produced (base64 or hex), or sign locally above"
             rows={2}
             style={{ marginBottom: 12 }}
           />
