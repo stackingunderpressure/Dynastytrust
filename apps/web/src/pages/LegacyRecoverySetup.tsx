@@ -3,10 +3,16 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { api, type Vault } from '../lib/api';
 import { listKeys, revealMnemonic, type LocalKey } from '../lib/keystore';
 import { sealVaultLegacyRecovery, vaultNetworkToKeystoreNetwork } from '../lib/legacy-seal';
+import { unb64 } from '../lib/legacy-recovery';
 import { vaultBackupText } from '../lib/descriptor-backup';
+import { explorerTxUrl } from '../config';
 import { colors, fonts, radii, space } from '../theme';
 import { Button, Card } from '../components/ui';
 import { useToast } from '../components/toast';
+
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
 // Long-horizon descriptor recovery ("Legacy Recovery" -- see
 // apps/web/src/lib/legacy-recovery.ts's header for the full mechanism).
@@ -41,6 +47,10 @@ export default function LegacyRecoverySetup() {
   const [loading, setLoading] = useState(true);
   const [sealing, setSealing] = useState(false);
   const [existingShareRoles, setExistingShareRoles] = useState<Set<string>>(new Set());
+  const [onchainShareB64, setOnchainShareB64] = useState<string | null>(null);
+  const [onchainTxid, setOnchainTxid] = useState<string | null>(null);
+  const [txidInput, setTxidInput] = useState('');
+  const [recordingTxid, setRecordingTxid] = useState(false);
 
   const [assignment, setAssignment] = useState<Record<string, string>>({}); // role -> keyId
   const [passwords, setPasswords] = useState<Record<string, string>>({}); // role -> password
@@ -60,6 +70,8 @@ export default function LegacyRecoverySetup() {
         try {
           const existing = await api.legacy.get(found.id);
           setExistingShareRoles(new Set(existing.shares.map(s => s.key_role)));
+          setOnchainShareB64(existing.onchain?.onchain_share_b64 ?? null);
+          setOnchainTxid(existing.onchain?.txid ?? null);
         } catch {
           // No prior seal yet -- fine, this is the first time.
         }
@@ -107,6 +119,34 @@ export default function LegacyRecoverySetup() {
       toast.error(e instanceof Error ? e.message : 'Sealing failed');
     } finally {
       setSealing(false);
+    }
+  }
+
+  async function handleRecordTxid() {
+    if (!vault) return;
+    const txid = txidInput.trim();
+    if (!/^[0-9a-fA-F]{64}$/.test(txid)) {
+      toast.error('That doesn\'t look like a txid -- expected 64 hex characters.');
+      return;
+    }
+    setRecordingTxid(true);
+    try {
+      await api.legacy.recordOnchainPublication(vault.id, txid);
+      setOnchainTxid(txid);
+      toast.success('Recorded. The on-chain share is now linked to this transaction.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to record txid');
+    } finally {
+      setRecordingTxid(false);
+    }
+  }
+
+  async function copyText(text: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(`${label} copied.`);
+    } catch {
+      toast.error('Copy failed -- select and copy manually.');
     }
   }
 
@@ -191,6 +231,72 @@ export default function LegacyRecoverySetup() {
         locks a recovery copy of the descriptor to each key above. You can reseal any time the
         descriptor changes; a reseal replaces every prior share, so keep everyone's keys current.
       </div>
+
+      {onchainShareB64 && (
+        <Card>
+          <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 8 }}>
+            Publish the on-chain share
+          </div>
+          <p style={{ fontSize: 14, color: colors.sub, lineHeight: 1.6, marginBottom: 12 }}>
+            This piece needs no key to read -- it's safe to publish anywhere. Putting it on the
+            Bitcoin blockchain gives it the same permanence as the vault itself, independent of
+            DynastyTrust staying online. DynastyTrust doesn't hold or move your funds, so
+            publishing has to happen from a wallet of your own: send a tiny, ordinary transaction
+            from coins that have no connection to this vault, with an added OP_RETURN output
+            carrying the hex below (Sparrow: New Transaction &gt; add an output &gt; OP_RETURN,
+            paste the hex). Using unrelated coins, in a separate transaction, keeps this vault's
+            own funding transaction looking completely ordinary.
+          </p>
+
+          <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
+            OP_RETURN payload (hex)
+          </label>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <input
+              readOnly
+              value={toHex(unb64(onchainShareB64))}
+              onFocus={e => e.currentTarget.select()}
+              style={{
+                flex: 1, padding: '10px 12px', background: colors.input,
+                border: `1px solid ${colors.border}`, borderRadius: radii.md,
+                color: colors.text, fontSize: 13, fontFamily: fonts.mono,
+              }}
+            />
+            <Button variant="ghost" size="sm" onClick={() => copyText(toHex(unb64(onchainShareB64)), 'Hex payload')}>
+              Copy
+            </Button>
+          </div>
+
+          {onchainTxid ? (
+            <div style={{ fontSize: 14, color: colors.text }}>
+              Published:{' '}
+              <a
+                href={explorerTxUrl(vault.network, onchainTxid)}
+                target="_blank" rel="noopener noreferrer"
+                style={{ color: colors.gold, fontFamily: fonts.mono, fontSize: 13 }}
+              >
+                {onchainTxid}
+              </a>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input
+                placeholder="Paste the txid here once you've broadcast it"
+                value={txidInput}
+                onChange={e => setTxidInput(e.target.value)}
+                style={{
+                  flex: 1, minWidth: 240, padding: '10px 12px', background: colors.input,
+                  border: `1px solid ${colors.border}`, borderRadius: radii.md,
+                  color: colors.text, fontSize: 14, fontFamily: fonts.mono,
+                }}
+              />
+              <Button variant="ghost" size="sm" onClick={handleRecordTxid} disabled={recordingTxid || !txidInput.trim()}>
+                {recordingTxid ? 'Recording...' : 'Record'}
+              </Button>
+            </div>
+          )}
+        </Card>
+      )}
 
       <div style={{ fontSize: 13, color: colors.muted }}>
         Recovery itself doesn't need DynastyTrust running -- it needs a key and{' '}
