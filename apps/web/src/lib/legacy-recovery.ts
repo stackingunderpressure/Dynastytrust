@@ -10,15 +10,28 @@
  * Legacy Recovery plan):
  *   1. A random 32-byte secret seals the recovery bundle (descriptor +
  *      policy) with AES-256-GCM.
- *   2. That secret is split via audited Shamir secret sharing into one
- *      share per long-horizon keyholder plus one unlocked on-chain share,
- *      threshold 2 -- any two pieces reconstruct it.
- *   3. Each keyholder's share is locked with a value derived from their
- *      OWN key at a fixed, dedicated, hardened path -- never a separately
- *      stored secret. Deliberately NOT a signature: raw BIP32 derivation +
- *      one hash + one XOR has zero room for cross-implementation drift the
- *      way signature nonce derivation could, which matters when "redo this
- *      in 30 years with different software" is a real requirement.
+ *   2. That secret is split TWO ways, sharing the same 32 bytes:
+ *        - the FAST PATH: one shared random pad published unlocked
+ *          on-chain, XORed against a single "fast share" value every
+ *          keyholder separately locks with their own key. Recovering with
+ *          ONE surviving keyholder's key plus the on-chain pad is a single
+ *          XOR -- no field arithmetic at all, the common case stays as
+ *          simple as this problem can possibly get.
+ *        - the FALLBACK PATH: a genuine (2, N)-threshold Shamir split of
+ *          the SAME secret across the N keyholders only (the on-chain pad
+ *          never participates in this layer). Any two keyholders'
+ *          fallback shares reconstruct the secret via real Shamir math,
+ *          without needing the on-chain pad at all -- kept as the
+ *          documented escape hatch for "the on-chain piece is somehow
+ *          gone, but two people survived," a rarer case that can afford
+ *          to cost more machinery.
+ *   3. Every share -- fast and fallback alike -- is locked with a value
+ *      derived from that keyholder's OWN key at a fixed, dedicated,
+ *      hardened path -- never a separately stored secret. Deliberately NOT
+ *      a signature: raw BIP32 derivation + one hash + one XOR has zero
+ *      room for cross-implementation drift the way signature nonce
+ *      derivation could, which matters when "redo this in 30 years with
+ *      different software" is a real requirement.
  *
  * Every primitive here is a published, permanent standard -- BIP32
  * derivation, SHA-256, XOR, Shamir secret sharing, AES-256-GCM -- not
@@ -185,4 +198,70 @@ export async function splitLegacySecret(
 
 export async function combineLegacySecret(shares: Uint8Array[]): Promise<Uint8Array> {
   return shamirCombine(shares);
+}
+
+// ── Hybrid split: fast XOR path (common case) + Shamir fallback path
+// (rare case). Both reconstruct the SAME secret; which one a recovering
+// keyholder uses depends only on what they have on hand. ──────────────────
+
+export interface HybridSplitResult {
+  /** Published unlocked -- no key needed to read it. Goes on-chain. */
+  onChainShare: Uint8Array;
+  /**
+   * `secret XOR onChainShare` -- identical raw value for every keyholder
+   * before locking. Each keyholder locks this same value with their own
+   * distinct lock bytes (see deriveLegacyLockBytes), so the LOCKED blobs
+   * differ per person even though the plaintext underneath is shared.
+   * That's safe: a locked blob alone reveals nothing without that one
+   * person's key, regardless of how many other people locked the same
+   * plaintext with their own different keys.
+   */
+  fastPathShare: Uint8Array;
+  /**
+   * One genuine (2, keyholderCount)-threshold Shamir share per keyholder,
+   * in keyholder order, from splitting `secret` alone -- the on-chain
+   * share never participates in this polynomial. Any two of these
+   * reconstruct the secret without the on-chain piece.
+   */
+  fallbackShares: Uint8Array[];
+}
+
+export async function splitLegacySecretHybrid(
+  secret: Uint8Array,
+  keyholderCount: number,
+): Promise<HybridSplitResult> {
+  const onChainShare = crypto.getRandomValues(new Uint8Array(secret.length));
+  const fastPathShare = xorBytes(secret, onChainShare);
+  const fallbackShares = await splitLegacySecret(secret, keyholderCount, 2);
+  return { onChainShare, fastPathShare, fallbackShares };
+}
+
+/**
+ * The common-case recovery: one surviving keyholder's key plus the
+ * published on-chain share. Pure XOR, synchronous, no field arithmetic.
+ */
+export function recoverViaFastPath(
+  lockedFastPathShare: Uint8Array,
+  lockBytes: Uint8Array,
+  onChainShare: Uint8Array,
+): Uint8Array {
+  const fastPathShare = unlockShare(lockedFastPathShare, lockBytes);
+  return xorBytes(fastPathShare, onChainShare);
+}
+
+/**
+ * The rare-case recovery: two surviving keyholders, on-chain share
+ * unavailable. Real (2, N) Shamir reconstruction over the two keyholders'
+ * fallback shares -- see combineLegacySecret / the module header for the
+ * underlying GF(2^8) math.
+ */
+export async function recoverViaFallbackPath(
+  lockedFallbackShareA: Uint8Array,
+  lockBytesA: Uint8Array,
+  lockedFallbackShareB: Uint8Array,
+  lockBytesB: Uint8Array,
+): Promise<Uint8Array> {
+  const shareA = unlockShare(lockedFallbackShareA, lockBytesA);
+  const shareB = unlockShare(lockedFallbackShareB, lockBytesB);
+  return combineLegacySecret([shareA, shareB]);
 }

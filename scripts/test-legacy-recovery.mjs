@@ -13,8 +13,10 @@ import {
   generateLegacySecret,
   sealBundle,
   unsealBundle,
-  splitLegacySecret,
   combineLegacySecret,
+  splitLegacySecretHybrid,
+  recoverViaFastPath,
+  recoverViaFallbackPath,
   legacyDerivationPath,
 } from '../apps/web/src/lib/legacy-recovery.ts';
 
@@ -54,47 +56,51 @@ for (const len of [16, 32, 33, 65]) {
   assert.deepEqual(unlocked, fakeShare, `unlockShare must invert lockShare at length ${len}`);
 }
 
-// ── Full end-to-end: seal a bundle, split the secret across 6 shares
-// (5 keyholders + 1 unlocked on-chain share), lock the 5 keyholder shares
-// to their own keys, then reconstruct from only 2 of the 6 -- simulating
-// "everyone else's key is gone, only two survived." ────────────────────────
+// ── Full end-to-end, hybrid split: seal a bundle, split the secret into
+// a fast XOR path (5 keyholders + 1 unlocked on-chain pad) AND a Shamir
+// fallback path (5 keyholders only), lock every keyholder share to its
+// own key, then exercise both recovery paths. ─────────────────────────────
 const bundleText = 'descriptor=tr(...); policy=or(thresh(2,pk(A),pk(B)),and(after(500000),pk(C)))';
 const secret = generateLegacySecret();
 assert.equal(secret.length, 32);
 
 const sealed = await sealBundle(bundleText, secret);
-const shares = await splitLegacySecret(secret, 6, 2);
-assert.equal(shares.length, 6);
-
 const roles = ['founder_1', 'founder_2', 'backup_1', 'heir_1', 'heir_2'];
 const mnemonics = [mnemonicFounder, mnemonicFounder, mnemonicBackup, mnemonicHeir, mnemonicHeir];
-const lockedKeyholderShares = roles.map((role, i) =>
-  lockShare(shares[i], deriveLegacyLockBytes(mnemonics[i], network, vaultId, role)),
-);
-const onChainShare = shares[5]; // unlocked by design -- no key needed to read it
+const lockBytesByRole = roles.map((role, i) => deriveLegacyLockBytes(mnemonics[i], network, vaultId, role));
 
-// Scenario: only heir_2's key survived, plus the on-chain share.
-const heir2Lock = deriveLegacyLockBytes(mnemonicHeir, network, vaultId, 'heir_2');
-const recoveredHeir2Share = unlockShare(lockedKeyholderShares[4], heir2Lock);
-const reconstructedSecret = await combineLegacySecret([recoveredHeir2Share, onChainShare]);
-assert.deepEqual(reconstructedSecret, secret, '2-of-6 (one surviving key + on-chain share) must reconstruct the exact secret');
+const { onChainShare, fastPathShare, fallbackShares } = await splitLegacySecretHybrid(secret, roles.length);
+assert.equal(fallbackShares.length, roles.length);
+assert.notDeepEqual(fastPathShare, secret, 'the fast-path share must not equal the secret before XORing with the on-chain pad');
 
-const recoveredBundle = await unsealBundle(sealed, reconstructedSecret);
+const lockedFastPathShares = lockBytesByRole.map(lock => lockShare(fastPathShare, lock));
+const lockedFallbackShares = fallbackShares.map((share, i) => lockShare(share, lockBytesByRole[i]));
+
+// ── Fast path: one surviving key (heir_2) + the on-chain pad. Pure XOR,
+// no Shamir call at all -- this is the common case. ────────────────────────
+const fastRecovered = recoverViaFastPath(lockedFastPathShares[4], lockBytesByRole[4], onChainShare);
+assert.deepEqual(fastRecovered, secret, 'fast path (one key + on-chain pad) must reconstruct the exact secret via XOR alone');
+
+const recoveredBundle = await unsealBundle(sealed, fastRecovered);
 assert.equal(recoveredBundle, bundleText, 'unsealed bundle must byte-match the original');
 
-// Scenario: two different keyholders survived, no on-chain share needed.
-const founder1Lock = deriveLegacyLockBytes(mnemonicFounder, network, vaultId, 'founder_1');
-const backup1Lock  = deriveLegacyLockBytes(mnemonicBackup, network, vaultId, 'backup_1');
-const recoveredFounder1 = unlockShare(lockedKeyholderShares[0], founder1Lock);
-const recoveredBackup1  = unlockShare(lockedKeyholderShares[2], backup1Lock);
-const reconstructedFromTwoKeyholders = await combineLegacySecret([recoveredFounder1, recoveredBackup1]);
-assert.deepEqual(reconstructedFromTwoKeyholders, secret, '2-of-6 (two surviving keyholders, no on-chain share) must also reconstruct the exact secret');
-
-// A single share alone must NOT reconstruct the secret (threshold enforced).
-await assert.rejects(
-  () => combineLegacySecret([onChainShare]),
-  undefined,
-  'a single share below the threshold must fail to reconstruct',
+// ── Fallback path: two different surviving keyholders (founder_1,
+// backup_1), on-chain pad never touched. Real Shamir reconstruction. ──────
+const fallbackRecovered = await recoverViaFallbackPath(
+  lockedFallbackShares[0], lockBytesByRole[0],
+  lockedFallbackShares[2], lockBytesByRole[2],
 );
+assert.deepEqual(fallbackRecovered, secret, 'fallback path (two keyholders, no on-chain pad) must also reconstruct the exact secret');
+
+// A single fallback share alone must NOT reconstruct the secret (threshold enforced).
+await assert.rejects(
+  () => combineLegacySecret([unlockShare(lockedFallbackShares[0], lockBytesByRole[0])]),
+  undefined,
+  'a single fallback share below the threshold must fail to reconstruct',
+);
+
+// A single fast-path share alone (no on-chain pad) must NOT reveal the secret.
+const fastShareAloneXorZero = unlockShare(lockedFastPathShares[0], lockBytesByRole[0]);
+assert.notDeepEqual(fastShareAloneXorZero, secret, 'a fast-path share alone, without the on-chain pad, must not equal the secret');
 
 console.log('legacy-recovery tests passed');
