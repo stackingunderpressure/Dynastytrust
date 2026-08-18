@@ -258,12 +258,26 @@ function SecureModal({ onDone, onClose }: { onClose: () => void; onDone: (key: L
   const [label, setLabel] = useState("");
   const [persona, setPersona] = useState(DEFAULT_PERSONAS[0]);
   const [network, setNetwork] = useState<Network>("testnet");
+  const [passwordProtect, setPasswordProtect] = useState(true);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!passwordProtect) {
+      setBusy(true);
+      setErr(null);
+      try {
+        const { key, mnemonic } = generateTestKey({ label: label.trim() || persona, network, persona });
+        onDone(key, mnemonic);
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "Failed");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     if (password !== confirm) {
       setErr("Passwords do not match");
       return;
@@ -284,9 +298,11 @@ function SecureModal({ onDone, onClose }: { onClose: () => void; onDone: (key: L
     }
   }
   return (
-    <Modal title="Secure key" onClose={onClose}>
+    <Modal title="New key" onClose={onClose}>
       <p style={{ fontSize: 13, color: colors.muted, marginBottom: 20, lineHeight: 1.5 }}>
-        Mnemonic encrypted with your password. Use for real funds.
+        {passwordProtect
+          ? "Mnemonic encrypted with your password. Use for real funds."
+          : "No password. Mnemonic stored in plain text in this browser."}
       </p>
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <div>
@@ -305,14 +321,22 @@ function SecureModal({ onDone, onClose }: { onClose: () => void; onDone: (key: L
             <option value="mainnet">Mainnet</option>
           </select>
         </div>
-        <div>
-          <Label>Encryption password</Label>
-          <Input type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={8} placeholder="Min 8 characters" />
-        </div>
-        <div>
-          <Label>Confirm password</Label>
-          <Input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} required />
-        </div>
+        <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, color: colors.sub }}>
+          <input type="checkbox" checked={passwordProtect} onChange={e => setPasswordProtect(e.target.checked)} />
+          Password-protect this key (recommended for real funds)
+        </label>
+        {passwordProtect && (
+          <>
+            <div>
+              <Label>Encryption password</Label>
+              <Input type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={8} placeholder="Min 8 characters" />
+            </div>
+            <div>
+              <Label>Confirm password</Label>
+              <Input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} required />
+            </div>
+          </>
+        )}
         {err && <p style={{ color: colors.red, fontSize: 13, margin: 0 }}>{err}</p>}
         <div style={{ display: "flex", gap: 10 }}>
           <Button type="button" variant="ghost" onClick={onClose}>
