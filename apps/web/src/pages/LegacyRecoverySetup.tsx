@@ -5,7 +5,8 @@ import { listKeys, revealMnemonic, type LocalKey } from '../lib/keystore';
 import { sealVaultLegacyRecovery, vaultNetworkToKeystoreNetwork } from '../lib/legacy-seal';
 import { unb64 } from '../lib/legacy-recovery';
 import { vaultBackupText } from '../lib/descriptor-backup';
-import { explorerTxUrl } from '../config';
+import { p2wpkhAddressForPubkey, buildAndSignPublishTx, type BuiltPublishTx } from '../lib/onchain-publish';
+import { explorerTxUrl, broadcastTxUrl, EXPLORER } from '../config';
 import { colors, fonts, radii, space } from '../theme';
 import { Button, Card } from '../components/ui';
 import { useToast } from '../components/toast';
@@ -55,10 +56,107 @@ export default function LegacyRecoverySetup() {
   const [assignment, setAssignment] = useState<Record<string, string>>({}); // role -> keyId
   const [passwords, setPasswords] = useState<Record<string, string>>({}); // role -> password
 
+  // In-app on-chain publication: fund one local key's own address (any
+  // wallet, any amount), paste the resulting UTXO back, and this builds +
+  // signs + broadcasts the OP_RETURN publish tx without leaving the app.
+  // Still an explicit, separate transaction from unrelated coins -- same
+  // privacy property as the manual/Sparrow path above, just automated.
+  const [publishKeyId, setPublishKeyId] = useState('');
+  const [publishPassword, setPublishPassword] = useState('');
+  const [utxoTxid, setUtxoTxid] = useState('');
+  const [utxoVout, setUtxoVout] = useState('0');
+  const [utxoValue, setUtxoValue] = useState('');
+  const [feeRate, setFeeRate] = useState('2');
+  const [fetchingUtxos, setFetchingUtxos] = useState(false);
+  const [fetchedUtxos, setFetchedUtxos] = useState<Array<{ txid: string; vout: number; value: number }> | null>(null);
+  const [building, setBuilding] = useState(false);
+  const [builtTx, setBuiltTx] = useState<BuiltPublishTx | null>(null);
+  const [broadcasting, setBroadcasting] = useState(false);
+
   const localKeys = useMemo(
     () => listKeys().filter((k): k is LocalKey => k.origin === 'software' && k.status === 'active'),
     [],
   );
+
+  const publishKey = localKeys.find(k => k.keyId === publishKeyId) ?? null;
+  const publishNeedsPassword = !!publishKey && !publishKey.testMnemonic && !!publishKey.encryptedMnemonic;
+  const publishAddress = publishKey ? p2wpkhAddressForPubkey(publishKey.pubkey, vault?.network ?? 'testnet') : null;
+
+  async function fetchUtxosForPublishAddress() {
+    if (!publishAddress || !vault) return;
+    setFetchingUtxos(true);
+    setFetchedUtxos(null);
+    try {
+      const res = await fetch(`${EXPLORER[vault.network].api}/address/${publishAddress}/utxo`);
+      if (!res.ok) throw new Error('mempool.space lookup failed');
+      const utxos = (await res.json()) as Array<{ txid: string; vout: number; value: number }>;
+      setFetchedUtxos(utxos);
+      if (utxos.length === 0) toast.error('No UTXOs found yet at that address -- fund it first, then wait for a confirmation.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Lookup failed');
+    } finally {
+      setFetchingUtxos(false);
+    }
+  }
+
+  function selectFetchedUtxo(u: { txid: string; vout: number; value: number }) {
+    setUtxoTxid(u.txid);
+    setUtxoVout(String(u.vout));
+    setUtxoValue(String(u.value));
+    setBuiltTx(null);
+  }
+
+  async function handleBuildPublishTx() {
+    if (!vault || !publishKey || !onchainShareB64) return;
+    const valueSats = parseInt(utxoValue, 10);
+    const vout = parseInt(utxoVout, 10);
+    const rate = parseFloat(feeRate);
+    if (!/^[0-9a-fA-F]{64}$/.test(utxoTxid.trim())) {
+      toast.error('UTXO txid should be 64 hex characters.');
+      return;
+    }
+    if (!Number.isFinite(vout) || vout < 0) { toast.error('Invalid vout.'); return; }
+    if (!Number.isFinite(valueSats) || valueSats <= 0) { toast.error('Invalid UTXO value (sats).'); return; }
+    if (!Number.isFinite(rate) || rate <= 0) { toast.error('Invalid fee rate.'); return; }
+    setBuilding(true);
+    try {
+      const mnemonic = await revealMnemonic(publishKey.keyId, publishNeedsPassword ? publishPassword : undefined);
+      const built = buildAndSignPublishTx({
+        mnemonic,
+        derivationPath: publishKey.derivationPath,
+        network: vault.network,
+        utxo: { txid: utxoTxid.trim(), vout, valueSats },
+        opReturnDataHex: toHex(unb64(onchainShareB64)),
+        feeRateSatsPerVb: rate,
+      });
+      setBuiltTx(built);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to build transaction');
+    } finally {
+      setBuilding(false);
+    }
+  }
+
+  async function handleBroadcastPublishTx() {
+    if (!vault || !builtTx) return;
+    setBroadcasting(true);
+    try {
+      const res = await fetch(broadcastTxUrl(vault.network), {
+        method: 'POST',
+        body: builtTx.hex,
+        headers: { 'Content-Type': 'text/plain' },
+      });
+      const txid = (await res.text()).trim();
+      if (!res.ok || txid.length !== 64) throw new Error('Broadcast failed: ' + txid.slice(0, 200));
+      await api.legacy.recordOnchainPublication(vault.id, txid);
+      setOnchainTxid(txid);
+      toast.success('Published and recorded.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Broadcast failed');
+    } finally {
+      setBroadcasting(false);
+    }
+  }
 
   useEffect(() => {
     (async () => {
@@ -300,6 +398,168 @@ export default function LegacyRecoverySetup() {
               <Button variant="ghost" size="sm" onClick={handleRecordTxid} disabled={recordingTxid || !txidInput.trim()}>
                 {recordingTxid ? 'Recording...' : 'Record'}
               </Button>
+            </div>
+          )}
+
+          {!onchainTxid && (
+            <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${colors.border}` }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 6 }}>
+                Or publish it from here
+              </div>
+              <p style={{ fontSize: 13, color: colors.sub, lineHeight: 1.6, marginBottom: 12 }}>
+                Pick one of your local keys as the publisher. Send a small, unrelated amount to its
+                address below from any wallet you already have, wait for a confirmation, then paste
+                (or fetch) that UTXO here. This app builds and signs the OP_RETURN transaction with
+                that key and broadcasts it -- it never touches this vault's own keys or funds.
+              </p>
+
+              <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
+                Publisher key
+              </label>
+              <select
+                value={publishKeyId}
+                onChange={e => { setPublishKeyId(e.target.value); setFetchedUtxos(null); setBuiltTx(null); }}
+                style={{
+                  width: '100%', padding: '10px 12px', background: colors.input,
+                  border: `1px solid ${colors.border}`, borderRadius: radii.md,
+                  color: colors.text, fontSize: 16, fontFamily: fonts.sans, marginBottom: 10,
+                }}
+              >
+                <option value="">Choose a local key...</option>
+                {localKeys.map(k => (
+                  <option key={k.keyId} value={k.keyId}>{k.label}</option>
+                ))}
+              </select>
+
+              {publishKey && publishAddress && (
+                <>
+                  {publishNeedsPassword && (
+                    <input
+                      type="password"
+                      placeholder="Password for this key"
+                      value={publishPassword}
+                      onChange={e => setPublishPassword(e.target.value)}
+                      style={{
+                        width: '100%', padding: '10px 12px', background: colors.input,
+                        border: `1px solid ${colors.border}`, borderRadius: radii.md,
+                        color: colors.text, fontSize: 16, fontFamily: fonts.sans,
+                        boxSizing: 'border-box', marginBottom: 10,
+                      }}
+                    />
+                  )}
+
+                  <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
+                    Send a small amount to this address, then come back
+                  </label>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                    <input
+                      readOnly
+                      value={publishAddress}
+                      onFocus={e => e.currentTarget.select()}
+                      style={{
+                        flex: 1, padding: '10px 12px', background: colors.input,
+                        border: `1px solid ${colors.border}`, borderRadius: radii.md,
+                        color: colors.text, fontSize: 13, fontFamily: fonts.mono,
+                      }}
+                    />
+                    <Button variant="ghost" size="sm" onClick={() => copyText(publishAddress, 'Address')}>
+                      Copy
+                    </Button>
+                  </div>
+
+                  <Button variant="ghost" size="sm" onClick={fetchUtxosForPublishAddress} disabled={fetchingUtxos} style={{ marginBottom: 10 }}>
+                    {fetchingUtxos ? 'Checking...' : 'Fetch UTXOs for this address'}
+                  </Button>
+
+                  {fetchedUtxos && fetchedUtxos.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+                      {fetchedUtxos.map(u => (
+                        <button
+                          key={`${u.txid}:${u.vout}`}
+                          type="button"
+                          onClick={() => selectFetchedUtxo(u)}
+                          style={{
+                            textAlign: 'left', padding: '8px 10px', background: colors.input,
+                            border: `1px solid ${colors.border}`, borderRadius: radii.md,
+                            color: colors.text, fontSize: 12, fontFamily: fonts.mono, cursor: 'pointer',
+                          }}
+                        >
+                          {u.value} sats -- {u.txid.slice(0, 16)}...:{u.vout}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px', gap: 8, marginBottom: 8 }}>
+                    <input
+                      placeholder="UTXO txid"
+                      value={utxoTxid}
+                      onChange={e => { setUtxoTxid(e.target.value); setBuiltTx(null); }}
+                      style={{
+                        padding: '10px 12px', background: colors.input,
+                        border: `1px solid ${colors.border}`, borderRadius: radii.md,
+                        color: colors.text, fontSize: 13, fontFamily: fonts.mono,
+                      }}
+                    />
+                    <input
+                      placeholder="vout"
+                      value={utxoVout}
+                      onChange={e => { setUtxoVout(e.target.value); setBuiltTx(null); }}
+                      style={{
+                        padding: '10px 12px', background: colors.input,
+                        border: `1px solid ${colors.border}`, borderRadius: radii.md,
+                        color: colors.text, fontSize: 13, fontFamily: fonts.mono,
+                      }}
+                    />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+                    <input
+                      placeholder="UTXO value (sats)"
+                      value={utxoValue}
+                      onChange={e => { setUtxoValue(e.target.value); setBuiltTx(null); }}
+                      style={{
+                        padding: '10px 12px', background: colors.input,
+                        border: `1px solid ${colors.border}`, borderRadius: radii.md,
+                        color: colors.text, fontSize: 13, fontFamily: fonts.mono,
+                      }}
+                    />
+                    <input
+                      placeholder="Fee rate (sat/vB)"
+                      value={feeRate}
+                      onChange={e => { setFeeRate(e.target.value); setBuiltTx(null); }}
+                      style={{
+                        padding: '10px 12px', background: colors.input,
+                        border: `1px solid ${colors.border}`, borderRadius: radii.md,
+                        color: colors.text, fontSize: 13, fontFamily: fonts.mono,
+                      }}
+                    />
+                  </div>
+
+                  {!builtTx ? (
+                    <Button
+                      onClick={handleBuildPublishTx}
+                      disabled={building || !utxoTxid.trim() || !utxoValue || (publishNeedsPassword && !publishPassword)}
+                    >
+                      {building ? 'Building...' : 'Build and sign'}
+                    </Button>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <div style={{ fontSize: 13, color: colors.sub }}>
+                        Fee: {builtTx.feeSats} sats. Change back to the same address: {builtTx.changeSats} sats.
+                        Transaction id (once broadcast): <span style={{ fontFamily: fonts.mono, color: colors.text }}>{builtTx.txid}</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 10 }}>
+                        <Button onClick={handleBroadcastPublishTx} disabled={broadcasting}>
+                          {broadcasting ? 'Broadcasting...' : 'Broadcast transaction'}
+                        </Button>
+                        <Button variant="ghost" onClick={() => setBuiltTx(null)}>
+                          Rebuild
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
         </Card>

@@ -8,7 +8,7 @@
   "scripts": {
     "build": "npm run build -ws --if-present",
     "dev": "npm run dev --workspace @dynastytrust/web",
-    "test": "node scripts/test-policy.mjs && node --experimental-strip-types --import ./scripts/register-ts-resolver.mjs scripts/test-legacy-recovery.mjs",
+    "test": "node scripts/test-policy.mjs && node --experimental-strip-types --import ./scripts/register-ts-resolver.mjs scripts/test-legacy-recovery.mjs && node --experimental-strip-types --import ./scripts/register-ts-resolver.mjs scripts/test-onchain-publish.mjs",
     "lint": "npm run lint --workspace @dynastytrust/web",
     "format": "npm run format --workspace @dynastytrust/web",
     "format:check": "npm run format:check --workspace @dynastytrust/web",

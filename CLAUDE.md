@@ -464,10 +464,21 @@ See `Stack` above for the layout.
   pure XOR) and fallback (two different keys' Shamir shares, real GF(2^8)
   math, for when the on-chain piece is unavailable). Covers the
   named-field ("standard") vault shape only so far -- see Open Gaps. The
-  setup page also shows the on-chain pad as a ready-to-embed OP_RETURN hex
-  payload and records the txid once the owner broadcasts it themselves --
-  the actual broadcast is deliberately still a human action in the
-  owner's own wallet, not something DynastyTrust automates.
+  setup page shows the on-chain pad as a ready-to-embed OP_RETURN hex
+  payload for publishing manually in any wallet, AND (2026-08-18) an
+  in-app path: `apps/web/src/lib/onchain-publish.ts` (P2WPKH address
+  derivation + OP_RETURN tx build + sign, via `@scure/btc-signer` --
+  same paulmillr trust family as `@scure/bip32`/`bip39` already
+  vendored here, not hand-rolled BIP143/bech32) builds and signs a
+  small transaction spending a UTXO the owner funded externally (any
+  wallet, pasted or fetched back via mempool.space's address/utxo
+  endpoint) from one of their own local keys, and broadcast is an
+  explicit button click through the same mempool.space push-tx pattern
+  `VaultDetail.tsx`'s send flow already uses. Still never touches vault
+  funds or vault keys -- the publisher key is any ordinary local
+  software key, unrelated to the vault's spending policy, matching the
+  "unrelated coins, separate transaction" privacy property this
+  mechanism depends on.
 
 **Open gaps (prioritized):**
 
