@@ -1,7 +1,7 @@
 import { useState, type CSSProperties } from 'react';
-import { startTapitFlow, WALLET_BASE_URL } from '../lib/wallet-signin';
+import { WALLET_BASE_URL } from '../lib/wallet-signin';
+import { TapitConnectModal } from './TapitConnectModal';
 import { Button } from './ui';
-import { useToast } from './toast';
 import { colors, fonts, radii, space } from '../theme';
 
 /**
@@ -9,26 +9,19 @@ import { colors, fonts, radii, space } from '../theme';
  * split (2026-08-18, operator request) because they were previously one
  * button doing two different things depending on whether the person
  * already had a wallet: someone who already has Tapit wants to prove key
- * control and link it (the real challenge/response flow below); someone
- * who doesn't has nothing to sign yet and just needs to go create one,
- * then come back. Bundling both into a single redirect meant a brand-new
- * user's very first Tapit visit carried a DynastyTrust sign-in challenge
- * that made no sense yet.
+ * control and link it; someone who doesn't has nothing to sign yet and
+ * just needs to go create one, then come back.
+ *
+ * "Link an existing wallet" opens TapitConnectModal (a QR + Nostr
+ * response_channel, operator request 2026-08-18: "send nostr message ...
+ * with separate button for new to tapit create an account") -- scanning
+ * it on a phone approves in a completely separate browser context, with
+ * no page-redirect round trip needed for THIS tab. The modal's own "open
+ * Tapit directly on this device" link is the same-device fallback (the
+ * old full-page redirect, still exactly the flow it always was).
  */
 export function WalletLinkCard() {
-  const toast = useToast();
-  const [busy, setBusy] = useState(false);
-
-  async function link() {
-    setBusy(true);
-    try {
-      await startTapitFlow('link');
-      // Success navigates to the wallet; only reached on a thrown error.
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not start linking');
-      setBusy(false);
-    }
-  }
+  const [connecting, setConnecting] = useState(false);
 
   function createAccount() {
     // New tab, not a redirect: creating a wallet has no callback path back
@@ -48,13 +41,20 @@ export function WalletLinkCard() {
         leaves the wallet.
       </p>
       <div style={{ display: 'flex', gap: space[2], marginTop: space[3], flexWrap: 'wrap' }}>
-        <Button variant="primary" size="sm" disabled={busy} onClick={() => void link()}>
+        <Button variant="primary" size="sm" onClick={() => setConnecting(true)}>
           Link an existing wallet
         </Button>
         <Button variant="ghost" size="sm" onClick={createAccount}>
           New to Tapit? Create an account
         </Button>
       </div>
+      {connecting && (
+        <TapitConnectModal
+          mode="link"
+          onClose={() => setConnecting(false)}
+          onDone={() => setConnecting(false)}
+        />
+      )}
     </div>
   );
 }

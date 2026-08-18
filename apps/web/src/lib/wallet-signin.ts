@@ -19,6 +19,7 @@
  * This only proves key control and logs in. No keys are touched.
  */
 
+import { schnorr } from '@noble/curves/secp256k1';
 import { supabase } from './supabase';
 
 const API = '/api';
@@ -80,6 +81,73 @@ export async function startTapitFlow(mode: TapitMode): Promise<void> {
     challenge: payload.challenge,
   });
   window.location.href = `${WALLET_SIGN_URL}?req=${req}`;
+}
+
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+export interface TapitConnectRequest {
+  /** Same URL startTapitFlow would navigate to -- render as a QR, or as a
+   *  plain link for same-device use. Scanning it on a phone opens Tapit's
+   *  existing /sign route unchanged; the only new behavior lives in how
+   *  approval gets delivered back (see response_channel below). */
+  requestUrl: string;
+  /** This request's ephemeral reply keypair (tapit-nostr-cosign.ts's same
+   *  one-request-only pattern). Keep replyPrivateKey in memory only for as
+   *  long as this one connect attempt is open -- never persisted, never
+   *  reused across requests -- and pass it to
+   *  tapit-signin-response-channel.ts's subscribeSignInResponses to
+   *  decrypt whatever comes back. */
+  replyPrivateKey: string;
+  replyPublicKey: string;
+}
+
+/**
+ * Builds a sign-in/link request that can be delivered WITHOUT a full-page
+ * redirect: the wallet answers by publishing the signed grant over Nostr
+ * to this request's ephemeral reply key (tapit-wallet's
+ * signInResponseChannel.ts, mirroring the psbt-cosign response_channel
+ * pattern already proven for Cut B3) instead of navigating back to a
+ * callback URL. Lets this tab stay open on a QR while a DIFFERENT device
+ * (the phone with Tapit on it) does the approving -- a URL redirect could
+ * never do that, since scanning a QR opens a new browser context, not
+ * this tab. Same challenge-minting and request shape as startTapitFlow;
+ * this only adds response_channel and returns the URL instead of
+ * navigating to it.
+ */
+export async function startTapitConnectRequest(mode: TapitMode): Promise<TapitConnectRequest> {
+  const res = await fetch(`${API}/wallet-signin-challenge`, { method: 'POST' });
+  const text = await res.text();
+  let payload: { challenge?: unknown; error?: string };
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    throw new Error('Could not start Tapit sign-in (server returned non-JSON)');
+  }
+  if (!res.ok || !payload.challenge) {
+    throw new Error(payload.error ?? 'Could not start Tapit sign-in');
+  }
+  const replyPriv = crypto.getRandomValues(new Uint8Array(32));
+  const replyPrivateKey = toHex(replyPriv);
+  const replyPublicKey = toHex(schnorr.getPublicKey(replyPriv));
+
+  // Still a real callback URL (used only if the person taps "open Tapit
+  // directly" instead of scanning) -- same /keys landing RequireAuth
+  // already handles for the redirect path.
+  const callback = `${window.location.origin}/keys?tapit_mode=${mode}`;
+  const req = b64urlEncode({
+    intent: 'sign-in',
+    origin: 'DynastyTrust',
+    callback,
+    challenge: payload.challenge,
+    response_channel: { kind: 'nostr', requester_pubkey: replyPublicKey },
+  });
+  return {
+    requestUrl: `${WALLET_SIGN_URL}?req=${req}`,
+    replyPrivateKey,
+    replyPublicKey,
+  };
 }
 
 export interface TapitCallback {
