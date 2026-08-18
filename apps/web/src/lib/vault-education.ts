@@ -178,7 +178,6 @@ export interface VaultLayer {
   tradeoffs: string[];
   illustration: { title: string; lines: string[] };
   howToCraft?: string;
-  builderShape: 'standard' | 'leaves';
 }
 
 // Four fixed pages, not a template gallery -- the front door teaches the
@@ -211,7 +210,6 @@ export const VAULT_LAYERS: VaultLayer[] = [
         quorumTradeoffLine(1, 3),
       ],
     },
-    builderShape: 'standard',
   },
   {
     id: 'backup',
@@ -235,7 +233,6 @@ export const VAULT_LAYERS: VaultLayer[] = [
         'With a recovery path instead: the same everyday signers get a second chance to act, once the wait you set has passed.',
       ],
     },
-    builderShape: 'standard',
   },
   {
     id: 'inheritance',
@@ -257,7 +254,6 @@ export const VAULT_LAYERS: VaultLayer[] = [
         'After the wait finishes: your heirs can move funds on their own -- your everyday signers no longer have a say, even if they are still around.',
       ],
     },
-    builderShape: 'standard',
   },
   {
     id: 'backstop',
@@ -283,8 +279,7 @@ export const VAULT_LAYERS: VaultLayer[] = [
       ],
     },
     howToCraft:
-      'This is the one page whose builder starts from "Build your own" -- decay ladders and self-refreshing paths only '
-      + 'exist there, since they need more than a fixed founders/heirs shape can express.',
-    builderShape: 'leaves',
+      'Decay ladders and self-refreshing paths live under "More: crafty or specialty paths" in the builder\'s shape '
+      + 'tabs -- they need more than a fixed founders/heirs shape can express.',
   },
 ];
