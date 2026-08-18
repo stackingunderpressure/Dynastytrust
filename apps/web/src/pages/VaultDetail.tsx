@@ -891,11 +891,11 @@ function OverviewTab({
           >
             DESCRIPTOR
           </span>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "flex-end" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "flex-end", maxWidth: "100%" }}>
             <Button
               variant="ghost"
               size="sm"
-              style={{ padding: "3px 9px", fontSize: 11 }}
+              style={{ padding: "3px 9px", fontSize: 11, whiteSpace: "normal" }}
               disabled={!vault.descriptor}
               onClick={() => vault.descriptor && copy(vault.descriptor, "desc")}
             >
@@ -904,7 +904,7 @@ function OverviewTab({
             <Button
               variant="ghost"
               size="sm"
-              style={{ padding: "3px 9px", fontSize: 11 }}
+              style={{ padding: "3px 9px", fontSize: 11, whiteSpace: "normal" }}
               onClick={() => downloadVault(vault)}
             >
               Download backup
@@ -912,7 +912,7 @@ function OverviewTab({
             <Button
               variant="ghost"
               size="sm"
-              style={{ padding: "3px 9px", fontSize: 11 }}
+              style={{ padding: "3px 9px", fontSize: 11, whiteSpace: "normal" }}
               disabled={vault.status !== "compiled"}
               onClick={async () => {
                 const url = await api.pdfUrl(vault.id);
@@ -924,7 +924,7 @@ function OverviewTab({
             <Button
               variant="ghost"
               size="sm"
-              style={{ padding: "3px 9px", fontSize: 11 }}
+              style={{ padding: "3px 9px", fontSize: 11, whiteSpace: "normal" }}
               disabled={!vault.descriptor}
               onClick={() => setShowDescriptorQr(v => !v)}
             >
@@ -933,16 +933,16 @@ function OverviewTab({
             <Button
               variant="ghost"
               size="sm"
-              style={{ padding: "3px 9px", fontSize: 11 }}
+              style={{ padding: "3px 9px", fontSize: 11, whiteSpace: "normal" }}
               disabled={!vault.descriptor}
               onClick={() => navigate(`/vaults/${vault.id}/legacy-recovery`)}
             >
-              Long-horizon recovery
+              Recovery
             </Button>
             <Button
               variant="ghost"
               size="sm"
-              style={{ padding: "3px 9px", fontSize: 11 }}
+              style={{ padding: "3px 9px", fontSize: 11, whiteSpace: "normal" }}
               onClick={async () => {
                 const url = await api.auditPdfUrl(vault.id);
                 window.open(url, "_blank");
@@ -953,7 +953,7 @@ function OverviewTab({
             <Button
               variant="ghost"
               size="sm"
-              style={{ padding: "3px 9px", fontSize: 11 }}
+              style={{ padding: "3px 9px", fontSize: 11, whiteSpace: "normal" }}
               onClick={async () => {
                 // Default to last completed tax year. The server
                 // accepts any year between 2020 and 2099.
@@ -980,7 +980,7 @@ function OverviewTab({
             <Button
               variant="ghost"
               size="sm"
-              style={{ padding: "3px 9px", fontSize: 11 }}
+              style={{ padding: "3px 9px", fontSize: 11, whiteSpace: "normal" }}
               onClick={async () => {
                 const url = await api.activityExportUrl(vault.id);
                 window.open(url, "_blank");
