@@ -463,10 +463,11 @@ See `Stack` above for the layout.
   paths sharing one secret: fast (one key + an on-chain-published pad,
   pure XOR) and fallback (two different keys' Shamir shares, real GF(2^8)
   math, for when the on-chain piece is unavailable). Covers the
-  named-field ("standard") vault shape only so far -- see Open Gaps.
-  Publishing the on-chain pad itself is a deliberate, separate, not-yet-built
-  step (it moves real sats and needs explicit human confirmation each time,
-  not something to automate).
+  named-field ("standard") vault shape only so far -- see Open Gaps. The
+  setup page also shows the on-chain pad as a ready-to-embed OP_RETURN hex
+  payload and records the txid once the owner broadcasts it themselves --
+  the actual broadcast is deliberately still a human action in the
+  owner's own wallet, not something DynastyTrust automates.
 
 **Open gaps (prioritized):**
 
@@ -496,10 +497,14 @@ See `Stack` above for the layout.
    sealing UI. The crypto core (`legacy-recovery.ts`) doesn't care about
    vault shape at all; this is purely a missing role-enumeration branch in
    the setup page.
-7. **Legacy Recovery: on-chain publication of the pad.** The on-chain share
-   is generated and stored (fast-path recovery already works today), but
-   nothing funds a transaction or embeds it in an OP_RETURN yet -- that's a
-   deliberate, separate, human-confirmed step, not automated.
+7. ~~Legacy Recovery: on-chain publication of the pad.~~ **Closed
+   2026-08-18.** `LegacyRecoverySetup.tsx` now shows the on-chain share as
+   an OP_RETURN-ready hex payload with instructions for embedding it via
+   any wallet, and records the resulting txid once the owner broadcasts it
+   themselves. Deliberately still not auto-broadcast -- DynastyTrust
+   doesn't custody funds or manage a user's unrelated UTXOs, so the actual
+   send stays a human action in their own wallet, same boundary every
+   other send flow here respects.
 
 **Next roadmap (captured 2026-04-18, post audit-fix push):**
 
