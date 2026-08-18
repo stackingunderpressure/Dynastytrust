@@ -206,7 +206,8 @@ export default function LegacyRecoverySetup() {
       for (const r of roles) {
         const keyId = assignment[r.role];
         const mnemonic = await revealMnemonic(keyId, passwords[r.role]);
-        roleKeys.push({ keyRole: r.role, mnemonic });
+        const derivationPath = localKeys.find(k => k.keyId === keyId)?.derivationPath || undefined;
+        roleKeys.push({ keyRole: r.role, mnemonic, derivationPath });
       }
       const bundleText = vaultBackupText(vault);
       const { onchainShareB64: freshOnchainShareB64 } =

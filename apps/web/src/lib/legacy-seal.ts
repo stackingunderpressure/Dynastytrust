@@ -11,16 +11,33 @@ import {
   sealBundle,
   splitLegacySecretHybrid,
   deriveLegacyLockBytes,
+  deriveLegacyLockBytesFromSignature,
+  signLegacyUnlockMessage,
+  legacyIdentityPubkeyFromMnemonic,
   lockShare,
   b64,
 } from './legacy-recovery';
 import type { Network } from './keystore';
 import { api } from './api';
 
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 export interface RoleKeyMnemonic {
   /** Stable role id, e.g. "founder_1", "heir_2", "backup_1". */
   keyRole: string;
   mnemonic: string;
+  /**
+   * This key's account-level BIP32 path (LocalKey.derivationPath), e.g.
+   * "m/86'/1'/0'". Used to derive the signature-locked share's identity
+   * child (see legacy-recovery.ts's LEGACY_IDENTITY_PATH) -- the same
+   * path a hardware wallet would need to reproduce the identical
+   * signature later. Optional so callers without a real xpub-bearing key
+   * (e.g. a bare in-memory test key) can still seal the mnemonic-only
+   * lock; such a share simply gets no signature-based unlock option.
+   */
+  derivationPath?: string;
 }
 
 /**
@@ -59,10 +76,25 @@ export async function sealVaultLegacyRecovery(opts: {
 
   const shares = opts.roleKeys.map((rk, i) => {
     const lockBytes = deriveLegacyLockBytes(rk.mnemonic, opts.network, opts.vaultId, rk.keyRole);
-    return {
+    const base = {
       key_role: rk.keyRole,
       locked_fast_share_b64: b64(lockShare(fastPathShare, lockBytes)),
       locked_fallback_share_b64: b64(lockShare(fallbackShares[i], lockBytes)),
+    };
+    // Additionally lock the SAME fast-path share with a value derived
+    // from a deterministic signature instead of a raw key derivation --
+    // the hardware-wallet-compatible unlock path (see legacy-recovery.ts's
+    // signLegacyUnlockMessage). Only possible when this key carries a
+    // real account-level derivationPath; skip it rather than fail the
+    // whole seal for a key that doesn't have one.
+    if (!rk.derivationPath) return base;
+    const identityPubkeyHex = toHex(legacyIdentityPubkeyFromMnemonic(rk.mnemonic, opts.network, rk.derivationPath));
+    const signature = signLegacyUnlockMessage(rk.mnemonic, opts.network, rk.derivationPath, opts.vaultId, rk.keyRole);
+    const sigLockBytes = deriveLegacyLockBytesFromSignature(signature, opts.vaultId, rk.keyRole);
+    return {
+      ...base,
+      identity_pubkey_hex: identityPubkeyHex,
+      locked_fast_share_sig_b64: b64(lockShare(fastPathShare, sigLockBytes)),
     };
   });
 

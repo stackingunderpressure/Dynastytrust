@@ -10,6 +10,7 @@ import VaultLayerGuide from './pages/VaultLayerGuide';
 import Dashboard from './pages/Dashboard';
 import VaultDetail from './pages/VaultDetail';
 import LegacyRecoverySetup from './pages/LegacyRecoverySetup';
+import DescriptorRetrieval from './pages/DescriptorRetrieval';
 import ProposalDetail from './pages/ProposalDetail';
 import TapitCosignCallback from './pages/TapitCosignCallback';
 import InviteClaim from './pages/InviteClaim';
@@ -152,6 +153,18 @@ function AuthedApp() {
               sub="Seal a recovery copy of this vault's descriptor to each signer's own key -- so any one surviving key can recover it, decades from now, with nothing extra to back up."
             />
             <LegacyRecoverySetup />
+          </Layout>
+        }
+      />
+      <Route
+        path="/recover-descriptor"
+        element={
+          <Layout activeNavId={activeNavId} onSignOut={() => { markIntentionalSignOut(); void supabase.auth.signOut(); }}>
+            <PageHeader
+              title="Find a hidden recovery share"
+              sub="Have an xpub but don't remember which vault it belongs to? Check here, and unlock it with a signature -- no mnemonic, no private key, ever."
+            />
+            <DescriptorRetrieval />
           </Layout>
         }
       />

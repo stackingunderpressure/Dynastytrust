@@ -83,7 +83,7 @@ export async function handler(event) {
       supabase.from("vault_legacy_bundles").select("nonce_b64, ciphertext_b64, updated_at")
         .eq("vault_id", vaultId).maybeSingle(),
       supabase.from("vault_legacy_shares")
-        .select("key_role, locked_fast_share_b64, locked_fallback_share_b64")
+        .select("key_role, locked_fast_share_b64, locked_fallback_share_b64, identity_pubkey_hex, locked_fast_share_sig_b64")
         .eq("vault_id", vaultId),
       supabase.from("vault_legacy_onchain_shares")
         .select("onchain_share_b64, txid, published_at")
@@ -157,6 +157,12 @@ export async function handler(event) {
       key_role: s.key_role,
       locked_fast_share_b64: s.locked_fast_share_b64,
       locked_fallback_share_b64: s.locked_fallback_share_b64,
+      // Optional: only present for a key sealed with a known
+      // derivationPath (see legacy-seal.ts). identity_pubkey_hex is
+      // public by construction (a non-hardened xpub child) -- it is the
+      // lookup key legacy-lookup.js searches by.
+      identity_pubkey_hex: s.identity_pubkey_hex ?? null,
+      locked_fast_share_sig_b64: s.locked_fast_share_sig_b64 ?? null,
     }));
     const { error: insertErr } = await supabase.from("vault_legacy_shares").insert(rows);
     if (insertErr) return json(500, { error: insertErr.message });

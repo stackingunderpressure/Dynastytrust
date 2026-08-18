@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { Link } from "react-router-dom";
 import {
   listAllKeys, generateTestKey, generateSoftwareKey, importXpub,
   updateKeyStatus, deleteKey, revealMnemonic, secureTestKey, removeKeyPassword, changeKeyPassword,
@@ -948,6 +949,14 @@ export default function KeyManager() {
   return (
     <div style={{ fontFamily: fonts.sans }}>
       <WalletLinkCard />
+      <div style={{ marginBottom: 16 }}>
+        <Link
+          to="/recover-descriptor"
+          style={{ color: colors.muted, fontSize: 13, textDecoration: "underline" }}
+        >
+          Found a key but not sure which vault it belongs to? Check for a hidden recovery share
+        </Link>
+      </div>
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
         <Button style={{ background: colors.green, fontSize: 14 }} onClick={() => setModal({ type: "generate" })}>
           + New key

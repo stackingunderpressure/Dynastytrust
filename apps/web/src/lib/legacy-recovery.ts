@@ -44,6 +44,7 @@
 import { HDKey } from '@scure/bip32';
 import { mnemonicToSeedSync } from '@scure/bip39';
 import { sha256 } from '@noble/hashes/sha256';
+import { secp256k1 } from '@noble/curves/secp256k1';
 import { split as shamirSplit, combine as shamirCombine } from 'shamir-secret-sharing';
 import { networkVersions, type Network } from './keystore';
 
@@ -87,6 +88,155 @@ export function deriveLegacyLockBytes(
   const input = new Uint8Array(child.privateKey.length + tag.length);
   input.set(child.privateKey, 0);
   input.set(tag, child.privateKey.length);
+  return sha256(input);
+}
+
+// ── Signature-locked shares -- the hardware-wallet-compatible sibling of
+// deriveLegacyLockBytes above. That function needs the raw mnemonic
+// (fine for the vault-scoped setup flow, where the owner already reveals
+// each key's mnemonic once to seal), but a hardware wallet never exports
+// its private key at all -- it only ever produces signatures. This gives
+// every keyholder a SECOND way to unlock the exact same fast-path share:
+// prove key ownership with a signature instead of a raw derivation.
+//
+// The reserved child path is `<account path>/1/0` -- the standard BIP32
+// "change, index 0" slot under whatever account-level path a key already
+// uses (the same `derivationPath` stored on every LocalKey). Deliberately
+// NOT a new hardened purpose field: because this step is non-hardened,
+// its PUBLIC key is derivable from the account xpub alone (no private
+// key needed), which is exactly what lets someone who only has an xpub
+// -- not the key itself -- ask "is there a share hidden for this xpub?"
+// without that lookup ever risking anything: an xpub can prove nothing
+// about the corresponding private key, and a signature never exposes it
+// either (that is the entire point of a signature scheme). The vault's
+// own spend key already permanently occupies index /0/0 (see
+// keystore.ts's deriveAccount), so /1/0 is guaranteed unused by anything
+// else this app does with the same account.
+export const LEGACY_IDENTITY_PATH = '1/0';
+
+const LEGACY_SIG_TAG_PREFIX = 'dynastytrust-legacy-sig-v1';
+
+/** The fixed, domain-separated text a keyholder signs to unlock their signature-locked share. Plain ASCII on purpose -- this has to survive being retyped by hand decades from now. */
+export function legacyUnlockMessage(vaultId: string, keyRole: string): string {
+  return `DynastyTrust Legacy Recovery Unlock v1\nvault: ${vaultId}\nrole: ${keyRole}`;
+}
+
+/**
+ * The classic Bitcoin Signed Message digest ("\x18Bitcoin Signed
+ * Message:\n" + varint(len) + message, double-SHA256) -- the same format
+ * Sparrow/Electrum/Coldcard/every hardware wallet's "Sign Message"
+ * feature already produces. Using this exact digest means a real
+ * hardware wallet can, in principle, sign legacyUnlockMessage() directly
+ * with its own UI; nothing here is DynastyTrust-specific.
+ */
+export function bitcoinMessageDigest(message: string): Uint8Array {
+  const magic = new TextEncoder().encode('\x18Bitcoin Signed Message:\n');
+  const msgBytes = new TextEncoder().encode(message);
+  // Bitcoin's varint: single byte for lengths under 0xfd, which every
+  // legacyUnlockMessage() text is (well under 253 bytes for any
+  // realistic vaultId/keyRole).
+  if (msgBytes.length >= 0xfd) {
+    throw new Error(`bitcoinMessageDigest: message too long for single-byte varint (${msgBytes.length} bytes)`);
+  }
+  const payload = new Uint8Array(magic.length + 1 + msgBytes.length);
+  payload.set(magic, 0);
+  payload[magic.length] = msgBytes.length;
+  payload.set(msgBytes, magic.length + 1);
+  return sha256(sha256(payload));
+}
+
+/**
+ * Derives the identity keypair at `<derivationPath>/1/0` from a raw
+ * mnemonic. Used at seal time (the owner already has the mnemonic in
+ * hand to seal) to produce the deterministic signature that locks the
+ * signature-based share -- see signLegacyUnlockMessage below. A real
+ * hardware wallet reproduces the same signature later using only its own
+ * held key, never this function.
+ */
+function deriveLegacyIdentityChild(mnemonic: string, network: Network, derivationPath: string) {
+  const seed = mnemonicToSeedSync(mnemonic);
+  const root = HDKey.fromMasterSeed(seed, networkVersions(network));
+  const child = root.derive(derivationPath).deriveChild(1).deriveChild(0);
+  if (!child.privateKey || !child.publicKey) {
+    throw new Error('legacy identity derivation produced no keypair');
+  }
+  return { privateKey: child.privateKey, publicKey: child.publicKey };
+}
+
+/** The identity child's public key, derived from the mnemonic side at seal time -- byte-identical to legacyIdentityPubkeyFromXpub(thatKey'sXpub) by construction, since both derive the same non-hardened /1/0 child. Stored (safely -- it's public) alongside a sealed share so the retrieval page can find it later from just an xpub. */
+export function legacyIdentityPubkeyFromMnemonic(mnemonic: string, network: Network, derivationPath: string): Uint8Array {
+  return deriveLegacyIdentityChild(mnemonic, network, derivationPath).publicKey;
+}
+
+/**
+ * The identity child's PUBLIC key, computable from an account xpub alone
+ * -- no mnemonic, no private key, ever. This is what the retrieval page
+ * uses to look up a share from just an xpub.
+ *
+ * HDKey.fromExtendedKey() requires the caller to name the exact version
+ * bytes it expects and throws "Version mismatch" otherwise -- it does
+ * NOT sniff xpub-vs-tpub from the string itself. The retrieval page has
+ * no separate "which network" field (asking for one defeats the point:
+ * a person 20 years from now has an xpub, not necessarily a memory of
+ * which network it was for), so this tries every version set this app
+ * ever mints one of (mainnet, then testnet/signet, which share version
+ * bytes -- see networkVersions) and uses whichever one actually parses.
+ */
+export function legacyIdentityPubkeyFromXpub(xpub: string): Uint8Array {
+  const candidateVersions = [networkVersions('mainnet'), networkVersions('testnet')];
+  let account: HDKey | null = null;
+  for (const versions of candidateVersions) {
+    try {
+      account = HDKey.fromExtendedKey(xpub, versions);
+      break;
+    } catch {
+      // Try the next version set.
+    }
+  }
+  if (!account) throw new Error('Not a recognized xpub/tpub (unknown version bytes)');
+  const child = account.deriveChild(1).deriveChild(0);
+  if (!child.publicKey) throw new Error('legacy identity derivation produced no public key');
+  return child.publicKey;
+}
+
+/**
+ * Signs legacyUnlockMessage(vaultId, keyRole) with the mnemonic's
+ * identity child key, using ordinary deterministic ECDSA (RFC 6979 --
+ * @noble/curves' default, no random nonce). Determinism is the whole
+ * point: the same key signing the same message always produces the same
+ * signature, so the signature itself can serve as a reproducible unlock
+ * value -- unlike a BIP340 Schnorr signature, whose reference behavior
+ * mixes in fresh randomness by default and would produce a DIFFERENT
+ * signature (and so a different lock value) on every attempt.
+ */
+export function signLegacyUnlockMessage(
+  mnemonic: string,
+  network: Network,
+  derivationPath: string,
+  vaultId: string,
+  keyRole: string,
+): Uint8Array {
+  const { privateKey } = deriveLegacyIdentityChild(mnemonic, network, derivationPath);
+  const digest = bitcoinMessageDigest(legacyUnlockMessage(vaultId, keyRole));
+  return secp256k1.sign(digest, privateKey).toCompactRawBytes();
+}
+
+/**
+ * Derives the 32-byte value that locks/unlocks the SIGNATURE-based copy
+ * of a keyholder's fast-path share -- the sibling of deriveLegacyLockBytes
+ * above, keyed off a signature instead of a raw key derivation. Same
+ * domain separation reasoning (vaultId + keyRole), distinct tag so this
+ * scheme's lock values never collide with the mnemonic-based scheme's.
+ */
+export function deriveLegacyLockBytesFromSignature(
+  signature: Uint8Array,
+  vaultId: string,
+  keyRole: string,
+): Uint8Array {
+  const tag = new TextEncoder().encode(`${LEGACY_SIG_TAG_PREFIX}:${vaultId}:${keyRole}`);
+  const input = new Uint8Array(signature.length + tag.length);
+  input.set(signature, 0);
+  input.set(tag, signature.length);
   return sha256(input);
 }
 

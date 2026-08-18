@@ -1063,7 +1063,13 @@ export const api = {
         ok: true;
         sealed: boolean;
         bundle: { nonce_b64: string; ciphertext_b64: string; updated_at: string } | null;
-        shares: { key_role: string; locked_fast_share_b64: string; locked_fallback_share_b64: string }[];
+        shares: {
+          key_role: string;
+          locked_fast_share_b64: string;
+          locked_fallback_share_b64: string;
+          identity_pubkey_hex: string | null;
+          locked_fast_share_sig_b64: string | null;
+        }[];
         onchain: { onchain_share_b64: string; txid: string | null; published_at: string | null } | null;
       }>(`/vault-legacy?vault_id=${vault_id}`),
 
@@ -1071,7 +1077,13 @@ export const api = {
       vault_id: string;
       sealed_bundle: { nonce_b64: string; ciphertext_b64: string };
       onchain_share_b64: string;
-      shares: { key_role: string; locked_fast_share_b64: string; locked_fallback_share_b64: string }[];
+      shares: {
+        key_role: string;
+        locked_fast_share_b64: string;
+        locked_fallback_share_b64: string;
+        identity_pubkey_hex?: string;
+        locked_fast_share_sig_b64?: string;
+      }[];
     }) =>
       req<{ ok: true }>(`/vault-legacy`, { method: 'POST', body: JSON.stringify(body) }),
 
@@ -1080,6 +1092,20 @@ export const api = {
         method: 'PATCH',
         body: JSON.stringify({ txid }),
       }),
+
+    // "Here is my xpub, is there a share hidden for it?" -- see
+    // legacy-lookup.js's header. Deliberately not vault-scoped: the
+    // caller may not know, or remember, which vault this key belongs to.
+    lookup: (identity_pubkey_hex: string) =>
+      req<{
+        ok: true;
+        vault_id: string;
+        vault_name: string | null;
+        key_role: string;
+        locked_fast_share_sig_b64: string;
+        onchain_share_b64: string | null;
+        sealed_bundle: { nonce_b64: string; ciphertext_b64: string };
+      }>(`/legacy-lookup?identity_pubkey_hex=${identity_pubkey_hex}`),
   },
 
   distributionWallets: {

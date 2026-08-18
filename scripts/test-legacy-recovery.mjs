@@ -4,8 +4,9 @@
 // apps/web/src/lib/legacy-recovery.ts directly via Node's native TS
 // type-stripping -- no build step, no mocks, the exact code the app ships.
 import assert from 'node:assert/strict';
-import { generateMnemonic } from '@scure/bip39';
+import { generateMnemonic, mnemonicToSeedSync } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english';
+import { HDKey } from '@scure/bip32';
 import {
   deriveLegacyLockBytes,
   lockShare,
@@ -18,6 +19,12 @@ import {
   recoverViaFastPath,
   recoverViaFallbackPath,
   legacyDerivationPath,
+  legacyUnlockMessage,
+  bitcoinMessageDigest,
+  signLegacyUnlockMessage,
+  deriveLegacyLockBytesFromSignature,
+  legacyIdentityPubkeyFromMnemonic,
+  legacyIdentityPubkeyFromXpub,
 } from '../apps/web/src/lib/legacy-recovery.ts';
 
 const network = 'testnet';
@@ -111,5 +118,60 @@ await assert.rejects(
   /fallback path needs at least 2 keyholders/,
   'a single-keyholder vault must fail clearly, not with the library\'s raw error',
 );
+
+// ── Signature-based lock (hardware-wallet-compatible sibling) ─────────────
+// The whole point of this scheme is that a hardware wallet can reproduce
+// the SAME lock value later using only a signature, never a raw key
+// export. Proves: (1) determinism -- same key+message always signs
+// identically, no random nonce; (2) the account xpub alone -- no
+// mnemonic -- derives the identical identity pubkey the mnemonic side
+// derives, which is what makes "look it up by xpub" possible at all;
+// (3) full round trip through lock/unlock and bundle sealing, same as
+// the mnemonic-based scheme above.
+const testAccountPath = "m/86'/1'/0'";
+const founderSigMnemonic = generateMnemonic(wordlist);
+
+const sigA = signLegacyUnlockMessage(founderSigMnemonic, network, testAccountPath, vaultId, 'founder_1');
+const sigB = signLegacyUnlockMessage(founderSigMnemonic, network, testAccountPath, vaultId, 'founder_1');
+assert.deepEqual(sigA, sigB, 'signing the same message with the same key must be deterministic (RFC 6979), not vary run to run');
+assert.equal(sigA.length, 64, 'compact ECDSA signature must be 64 bytes (r || s)');
+
+// A different vaultId or keyRole changes the signed message, so the
+// signature -- and so the derived lock bytes -- must differ too.
+const sigDifferentVault = signLegacyUnlockMessage(founderSigMnemonic, network, testAccountPath, 'vault-test-002', 'founder_1');
+assert.notDeepEqual(sigA, sigDifferentVault, 'signing for a different vault must produce a different signature');
+assert.notEqual(legacyUnlockMessage(vaultId, 'founder_1'), legacyUnlockMessage('vault-test-002', 'founder_1'));
+
+const sigLockA = deriveLegacyLockBytesFromSignature(sigA, vaultId, 'founder_1');
+const sigLockB = deriveLegacyLockBytesFromSignature(sigB, vaultId, 'founder_1');
+assert.deepEqual(sigLockA, sigLockB, 'identical signatures must derive identical lock bytes');
+assert.equal(sigLockA.length, 32);
+assert.notDeepEqual(sigLockA, deriveLegacyLockBytesFromSignature(sigA, vaultId, 'founder_2'), 'different keyRole tag must change the lock bytes even from the same signature');
+
+// bitcoinMessageDigest must be a plain function of the message text, not
+// of anything else -- same message, same digest.
+assert.deepEqual(
+  bitcoinMessageDigest(legacyUnlockMessage(vaultId, 'founder_1')),
+  bitcoinMessageDigest(legacyUnlockMessage(vaultId, 'founder_1')),
+);
+
+// The identity pubkey derived from the mnemonic must byte-match the one
+// derivable from JUST that account's xpub -- no private key involved on
+// the xpub side at all. This is the actual claim the retrieval page
+// depends on: "give me an xpub, I can find what a signature would unlock."
+const seed = mnemonicToSeedSync(founderSigMnemonic);
+const accountXpub = HDKey.fromMasterSeed(seed).derive(testAccountPath).publicExtendedKey;
+const identityFromMnemonic = legacyIdentityPubkeyFromMnemonic(founderSigMnemonic, network, testAccountPath);
+const identityFromXpub = legacyIdentityPubkeyFromXpub(accountXpub);
+assert.deepEqual(identityFromMnemonic, identityFromXpub, 'identity pubkey must be derivable identically from the mnemonic or from just the account xpub');
+
+// Full round trip: lock the SAME fast-path share used above with the
+// signature-derived lock instead of the mnemonic-derived one, and
+// recover the same secret via the fast path.
+const lockedFastShareSig = lockShare(fastPathShare, sigLockA);
+const sigRecovered = recoverViaFastPath(lockedFastShareSig, sigLockA, onChainShare);
+assert.deepEqual(sigRecovered, secret, 'signature-locked fast-path share + on-chain pad must reconstruct the exact same secret');
+const sigRecoveredBundle = await unsealBundle(sealed, sigRecovered);
+assert.equal(sigRecoveredBundle, bundleText, 'bundle recovered via the signature-based lock must byte-match the original');
 
 console.log('legacy-recovery tests passed');
