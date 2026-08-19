@@ -42,6 +42,24 @@ export const WALLET_BASE_URL = WALLET_SIGN_URL.replace(/\/sign\/?$/, '') || WALL
 
 export type TapitMode = 'signin' | 'link';
 
+/** Shared by every flow below -- mints a fresh, server-persisted,
+ *  single-use challenge. Extracted so startTapitPubkeyConnectRequest
+ *  doesn't duplicate this fetch-and-validate logic a third time. */
+async function mintSignInChallenge(): Promise<unknown> {
+  const res = await fetch(`${API}/wallet-signin-challenge`, { method: 'POST' });
+  const text = await res.text();
+  let payload: { challenge?: unknown; error?: string };
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    throw new Error('Could not start Tapit sign-in (server returned non-JSON)');
+  }
+  if (!res.ok || !payload.challenge) {
+    throw new Error(payload.error ?? 'Could not start Tapit sign-in');
+  }
+  return payload.challenge;
+}
+
 // Challenge + attestation payloads are pure ASCII (hex, ISO timestamps, a
 // domain), so plain btoa/atob are safe -- no escape()/unescape() needed.
 // Exported for lib/tapit-cosign.ts to reuse the identical encoding the
@@ -59,26 +77,17 @@ export function b64Decode<T>(s: string): T {
  * challenge, packages it for the wallet, and navigates there.
  */
 export async function startTapitFlow(mode: TapitMode): Promise<void> {
-  const res = await fetch(`${API}/wallet-signin-challenge`, { method: 'POST' });
-  const text = await res.text();
-  let payload: { challenge?: unknown; error?: string };
-  try {
-    payload = JSON.parse(text);
-  } catch {
-    throw new Error('Could not start Tapit sign-in (server returned non-JSON)');
-  }
-  if (!res.ok || !payload.challenge) {
-    throw new Error(payload.error ?? 'Could not start Tapit sign-in');
-  }
+  const challenge = await mintSignInChallenge();
   // Land on /keys so RequireAuth's callback handler runs (the public Landing
   // at "/" would not). tapit_mode rides along; the wallet preserves it and
   // appends ?grant=.
   const callback = `${window.location.origin}/keys?tapit_mode=${mode}`;
   const req = b64urlEncode({
+    v: 1,
     intent: 'sign-in',
     origin: 'DynastyTrust',
     callback,
-    challenge: payload.challenge,
+    challenge,
   });
   window.location.href = `${WALLET_SIGN_URL}?req=${req}`;
 }
@@ -117,17 +126,7 @@ export interface TapitConnectRequest {
  * navigating to it.
  */
 export async function startTapitConnectRequest(mode: TapitMode): Promise<TapitConnectRequest> {
-  const res = await fetch(`${API}/wallet-signin-challenge`, { method: 'POST' });
-  const text = await res.text();
-  let payload: { challenge?: unknown; error?: string };
-  try {
-    payload = JSON.parse(text);
-  } catch {
-    throw new Error('Could not start Tapit sign-in (server returned non-JSON)');
-  }
-  if (!res.ok || !payload.challenge) {
-    throw new Error(payload.error ?? 'Could not start Tapit sign-in');
-  }
+  const challenge = await mintSignInChallenge();
   const replyPriv = crypto.getRandomValues(new Uint8Array(32));
   const replyPrivateKey = toHex(replyPriv);
   const replyPublicKey = toHex(schnorr.getPublicKey(replyPriv));
@@ -137,16 +136,64 @@ export async function startTapitConnectRequest(mode: TapitMode): Promise<TapitCo
   // already handles for the redirect path.
   const callback = `${window.location.origin}/keys?tapit_mode=${mode}`;
   const req = b64urlEncode({
+    v: 1,
     intent: 'sign-in',
     origin: 'DynastyTrust',
     callback,
-    challenge: payload.challenge,
+    challenge,
     response_channel: { kind: 'nostr', requester_pubkey: replyPublicKey },
   });
   return {
     requestUrl: `${WALLET_SIGN_URL}?req=${req}`,
     replyPrivateKey,
     replyPublicKey,
+  };
+}
+
+/**
+ * Connect by pasting the OTHER end's known Tapit pubkey directly,
+ * skipping the QR/URL entirely. Operator, 2026-08-19: the QR + "open
+ * Tapit directly" fallback both either need a second device or trigger
+ * tapit-wallet's own full-page reload (which re-locks an already-open
+ * wallet, indistinguishable from onboarding to someone who didn't expect
+ * it). This delivers the EXACT SAME sign-in challenge as a Nostr event
+ * addressed to the pasted pubkey instead -- tapit-wallet's signInChannel.ts
+ * picks it up in its own, already-open Inbox and routes to the same /sign
+ * review screen via in-app navigation, no page reload, no re-lock.
+ * Response delivery is unchanged: the caller still listens with
+ * subscribeSignInResponses(replyPrivateKey, replyPublicKey, ...), the
+ * same as startTapitConnectRequest's QR path.
+ */
+export async function startTapitPubkeyConnectRequest(
+  mode: TapitMode,
+  recipientXOnlyPubkey: string,
+): Promise<TapitConnectRequest & { delivered: boolean }> {
+  const challenge = await mintSignInChallenge();
+  const replyPriv = crypto.getRandomValues(new Uint8Array(32));
+  const replyPrivateKey = toHex(replyPriv);
+  const replyPublicKey = toHex(schnorr.getPublicKey(replyPriv));
+  const callback = `${window.location.origin}/keys?tapit_mode=${mode}`;
+
+  const { sendSignInRequestOverNostr } = await import('./tapit-signin-request-delivery');
+  const { delivered } = await sendSignInRequestOverNostr({
+    mode,
+    challenge,
+    callback,
+    replyPublicKey,
+    recipientXOnlyPubkey,
+  });
+
+  return {
+    // No QR/link is shown for this path, but TapitConnectRequest's shape
+    // is kept so the caller can reuse the exact same waiting-state UI;
+    // the URL is still valid as a manual fallback if delivery never lands.
+    requestUrl: `${WALLET_SIGN_URL}?req=${b64urlEncode({
+      v: 1, intent: 'sign-in', origin: 'DynastyTrust', callback, challenge,
+      response_channel: { kind: 'nostr', requester_pubkey: replyPublicKey },
+    })}`,
+    replyPrivateKey,
+    replyPublicKey,
+    delivered,
   };
 }
 

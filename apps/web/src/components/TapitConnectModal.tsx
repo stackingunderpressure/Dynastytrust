@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  startTapitConnectRequest, completeTapitCallback,
+  startTapitConnectRequest, startTapitPubkeyConnectRequest, completeTapitCallback,
   type TapitMode,
 } from '../lib/wallet-signin';
 import { subscribeSignInResponses } from '../lib/tapit-signin-response-channel';
 import { Modal } from './ui/Modal';
-import { Button } from './ui';
+import { Button, Input } from './ui';
 import { QrImage } from './QrImage';
 import { useToast } from './toast';
 import { colors, fonts, space } from '../theme';
+
+const XONLY_PUBKEY_RE = /^[0-9a-f]{64}$/i;
 
 // Scan-to-connect: the QR encodes the exact same request URL
 // startTapitFlow would otherwise redirect this tab to (tapit-wallet's
@@ -24,6 +26,22 @@ import { colors, fonts, space } from '../theme';
 // same-device use (desktop testing, or no camera handy) -- same URL, no
 // scanning, and completeTapitCallback closes the loop identically either
 // way once RequireAuth or this modal receives a grant.
+//
+// 2026-08-19 addition (operator: "every time it sends me to the tap
+// wallet it's a completely new login screen even though the browser is
+// logged in just fine... they're not PWAs on a home screen... I wanted a
+// different way for DynastyTrust to join... a place to put the 64 digit
+// public key from Tapit into there and then it can do all of the Nostr
+// messaging back and forth after that"). "Open Tapit directly" is a
+// full-page reload of tapit-wallet's own site, which re-triggers its
+// local unlock gate on an already-open wallet -- indistinguishable from
+// onboarding to someone who wasn't expecting it, and the QR needs a
+// second device or a camera. Pasting the pubkey below delivers the exact
+// same challenge directly over Nostr instead (startTapitPubkeyConnectRequest);
+// tapit-wallet picks it up in its own already-open Inbox and never
+// reloads the page at all. Runs ALONGSIDE the QR listener above, not
+// instead of it -- both are just different delivery paths for the same
+// challenge-response; whichever the person actually completes wins.
 export function TapitConnectModal({ mode, onClose, onDone }: { mode: TapitMode; onClose: () => void; onDone: () => void }) {
   const toast = useToast();
   const [state, setState] = useState<
@@ -33,6 +51,24 @@ export function TapitConnectModal({ mode, onClose, onDone }: { mode: TapitMode; 
     | { kind: 'connecting' }
   >({ kind: 'loading' });
   const cleanupRef = useRef<(() => void) | null>(null);
+  const pubkeyCleanupRef = useRef<(() => void) | null>(null);
+
+  const [pubkeyInput, setPubkeyInput] = useState('');
+  const [sendingPubkey, setSendingPubkey] = useState(false);
+  const [pubkeySent, setPubkeySent] = useState(false);
+
+  function finishWithGrant(grant: unknown) {
+    setState({ kind: 'connecting' });
+    void (async () => {
+      try {
+        const result = await completeTapitCallback({ mode, grant });
+        toast.success(result.mode === 'link' ? 'Tapit wallet linked.' : 'Signed in with your Tapit wallet.');
+        onDone();
+      } catch (e) {
+        setState({ kind: 'error', message: e instanceof Error ? e.message : 'Could not complete sign-in' });
+      }
+    })();
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -43,16 +79,8 @@ export function TapitConnectModal({ mode, onClose, onDone }: { mode: TapitMode; 
         const { subscription, transport } = subscribeSignInResponses(
           replyPrivateKey,
           replyPublicKey,
-          async response => {
-            if (cancelled) return;
-            setState({ kind: 'connecting' });
-            try {
-              const result = await completeTapitCallback({ mode, grant: response.grant });
-              toast.success(result.mode === 'link' ? 'Tapit wallet linked.' : 'Signed in with your Tapit wallet.');
-              onDone();
-            } catch (e) {
-              if (!cancelled) setState({ kind: 'error', message: e instanceof Error ? e.message : 'Could not complete sign-in' });
-            }
+          response => {
+            if (!cancelled) finishWithGrant(response.grant);
           },
         );
         cleanupRef.current = () => {
@@ -67,9 +95,39 @@ export function TapitConnectModal({ mode, onClose, onDone }: { mode: TapitMode; 
     return () => {
       cancelled = true;
       cleanupRef.current?.();
+      pubkeyCleanupRef.current?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
+
+  async function handlePubkeyConnect() {
+    const clean = pubkeyInput.trim().toLowerCase();
+    if (!XONLY_PUBKEY_RE.test(clean)) {
+      toast.error("That doesn't look like a Tapit public key -- expected 64 hex characters.");
+      return;
+    }
+    setSendingPubkey(true);
+    try {
+      const { replyPrivateKey, replyPublicKey, delivered } = await startTapitPubkeyConnectRequest(mode, clean);
+      const { subscription, transport } = subscribeSignInResponses(
+        replyPrivateKey,
+        replyPublicKey,
+        response => finishWithGrant(response.grant),
+      );
+      pubkeyCleanupRef.current = () => {
+        subscription.close();
+        transport.close();
+      };
+      setPubkeySent(true);
+      if (!delivered) {
+        toast.error("Couldn't reach a relay just now -- the request is queued and will retry automatically. Keep this open.");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not send request');
+    } finally {
+      setSendingPubkey(false);
+    }
+  }
 
   return (
     <Modal title="Connect Tapit wallet" onClose={onClose}>
@@ -102,6 +160,38 @@ export function TapitConnectModal({ mode, onClose, onDone }: { mode: TapitMode; 
             >
               Or open Tapit directly on this device
             </a>
+          </div>
+
+          <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${colors.border}` }}>
+            <p style={{ fontSize: 12, color: colors.muted, marginBottom: 8, textAlign: 'center' }}>
+              Wallet already open on this device? Skip the QR -- paste its public key instead.
+            </p>
+            {pubkeySent ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: colors.gold }} />
+                <span style={{ fontSize: 12, color: colors.muted }}>
+                  Sent -- check your Tapit wallet's Inbox to approve.
+                </span>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Input
+                  mono
+                  value={pubkeyInput}
+                  onChange={e => setPubkeyInput(e.target.value)}
+                  placeholder="Tapit public key (64 hex characters)"
+                  style={{ flex: 1 }}
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handlePubkeyConnect}
+                  disabled={sendingPubkey || !pubkeyInput.trim()}
+                >
+                  {sendingPubkey ? 'Sending...' : 'Send'}
+                </Button>
+              </div>
+            )}
           </div>
         </>
       )}
