@@ -265,9 +265,6 @@ struct CompileRequest {
     heir_keys: Vec<String>,    heir_quorum: usize,
     recovery_after: u32,       inheritance_after: u32,
     #[serde(default = "default_addr_type")] address_type: String,
-    #[serde(default)] protector_keys: Vec<String>,
-    #[serde(default)] protector_quorum: Option<usize>,
-    #[serde(default)] protector_after: Option<u32>,
     #[serde(default)] consent_keys: Vec<String>,
     #[serde(default)] consent_quorum: Option<usize>,
     /// "Anytime, harder" fallback (2026-08-08) -- an untimelocked branch
@@ -292,7 +289,7 @@ struct CompileResponse {
     miniscript_policy: String, descriptor: String, address: String,
     /// Hex-encoded tapscript leaf bytes for a tr_multileaf vault, keyed by
     /// role ("founders_now", "recovery" OR "backup" -- mutually exclusive,
-    /// "inheritance", "protector") -- present only for the roles the
+    /// "inheritance") -- present only for the roles the
     /// policy actually compiled a leaf for.
     /// None for non-multileaf address types. This is what a vault-membership
     /// attestation (DynastyTrust -> Tapit Cut C3) names per signer so the
@@ -312,7 +309,6 @@ async fn compile(
     let network  = parse_network(&req.network).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
     let founders = parse_pubkeys(&req.founder_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
     let heirs    = parse_pubkeys(&req.heir_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
-    let protectors = parse_pubkeys(&req.protector_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
     let consenters = parse_pubkeys(&req.consent_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
     let backups = parse_pubkeys(&req.backup_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
     let second_heirs = parse_pubkeys(&req.second_heir_keys).map_err(|e| api_err(StatusCode::BAD_REQUEST, e))?;
@@ -321,9 +317,6 @@ async fn compile(
         recovery_quorum: req.recovery_quorum,
         heir_keys: heirs,       heir_quorum: req.heir_quorum,
         recovery_after: req.recovery_after, inheritance_after: req.inheritance_after,
-        protector_keys: protectors,
-        protector_quorum: req.protector_quorum,
-        protector_after: req.protector_after,
         consent_keys: consenters,
         consent_quorum: req.consent_quorum,
         backup_keys: backups,
@@ -357,9 +350,6 @@ async fn compile(
             }
             if let Some(l) = &out.inheritance_leaf {
                 m.insert("inheritance".to_string(), hex::encode(l.as_bytes()));
-            }
-            if let Some(l) = &out.protector_leaf {
-                m.insert("protector".to_string(), hex::encode(l.as_bytes()));
             }
             if let Some(l) = &out.second_inheritance_leaf {
                 m.insert("second_inheritance".to_string(), hex::encode(l.as_bytes()));
@@ -584,9 +574,6 @@ struct PsbtBinaryRequest {
     #[serde(default)] consent_keys:   Vec<String>,
     #[serde(default)] consent_quorum: Option<usize>,
     #[serde(default)] recovery_quorum: Option<usize>,
-    #[serde(default)] protector_keys: Vec<String>,
-    #[serde(default)] protector_quorum: Option<usize>,
-    #[serde(default)] protector_after: Option<u32>,
     #[serde(default)] backup_keys: Vec<String>,
     #[serde(default)] backup_quorum: Option<usize>,
     // Second, independent inheritance leaf (2026-08-11) -- see
@@ -597,7 +584,7 @@ struct PsbtBinaryRequest {
     // Which leaf the caller intends to spend via. Needed so we can
     // set tx.lock_time for CLTV-gated paths; founders_now and backup
     // both leave lock_time at 0. Values: "founders_now" | "recovery" |
-    // "inheritance" | "protector" | "backup" | "second_inheritance".
+    // "inheritance" | "backup" | "second_inheritance".
     #[serde(default)] path: Option<String>,
     // Fallback raw witness script (if policy params not provided)
     witness_script_hex: Option<String>,
@@ -609,7 +596,7 @@ struct PsbtBinaryRequest {
     // Generic leaf-list vault (toggle-a-leaf builder), additive alongside
     // every named field above. When present, this is authoritative over
     // the named fields, and `path` is looked up as a leaf id in this list
-    // instead of the fixed founders_now/recovery/inheritance/protector/
+    // instead of the fixed founders_now/recovery/inheritance/
     // backup/second_inheritance switch. Reuses `consent_keys`/
     // `consent_quorum` above -- consent gates the primary leaf the same
     // way in both shapes, no separate field needed.
@@ -688,7 +675,7 @@ async fn psbt_binary(
     // tx.lock_time or the spending inputs' nSequence needs setting --
     // CLTV and CSV are two different transaction fields, never
     // interchangeable. Named (legacy): founders_now leaves lock_time at
-    // 0; recovery/inheritance/protector set it to the stored absolute
+    // 0; recovery/inheritance set it to the stored absolute
     // block height. Both shapes require current-tip + relative-offset
     // already baked into any absolute height by the time it reaches here.
     //
@@ -727,11 +714,10 @@ async fn psbt_binary(
         match (
             parse_pubkeys(fk),
             parse_pubkeys(hk),
-            parse_pubkeys(&req.protector_keys),
             parse_pubkeys(&req.consent_keys),
             parse_pubkeys(&req.backup_keys),
         ) {
-            (Ok(founders), Ok(heirs), Ok(protectors), Ok(consenters), Ok(backups)) => {
+            (Ok(founders), Ok(heirs), Ok(consenters), Ok(backups)) => {
                 match parse_pubkeys(&req.second_heir_keys) {
                     Ok(second_heirs) => {
                         let pol = DynastyPolicy {
@@ -739,9 +725,6 @@ async fn psbt_binary(
                             recovery_quorum: req.recovery_quorum,
                             heir_keys: heirs,       heir_quorum: hq,
                             recovery_after: ra,     inheritance_after: ia,
-                            protector_keys: protectors,
-                            protector_quorum: req.protector_quorum,
-                            protector_after: req.protector_after,
                             consent_keys: consenters,
                             consent_quorum: req.consent_quorum,
                             backup_keys: backups,
@@ -787,7 +770,7 @@ async fn psbt_binary(
             }
         } else {
             const VALID_PATHS: &[&str] = &[
-                "founders_now", "recovery", "inheritance", "protector", "backup", "second_inheritance",
+                "founders_now", "recovery", "inheritance", "backup", "second_inheritance",
             ];
             if !VALID_PATHS.contains(&intended_path) {
                 return Err(api_err(StatusCode::BAD_REQUEST, format!("Unknown path: {intended_path}")));
@@ -795,7 +778,6 @@ async fn psbt_binary(
             let locktime_height: Option<u32> = match intended_path {
                 "recovery" => req.recovery_after,
                 "inheritance" => req.inheritance_after,
-                "protector" => req.protector_after,
                 "second_inheritance" => req.second_inheritance_after,
                 _ => None,
             };
@@ -811,7 +793,6 @@ async fn psbt_binary(
             let leaf = full_output.as_ref().and_then(|out| match intended_path {
                 "recovery" | "backup" => out.recovery_leaf.clone(),
                 "inheritance" => out.inheritance_leaf.clone(),
-                "protector" => out.protector_leaf.clone(),
                 "second_inheritance" => out.second_inheritance_leaf.clone(),
                 _ => Some(out.founder_leaf.clone()),
             });
@@ -883,7 +864,6 @@ async fn psbt_binary(
                 std::iter::once(&out.founder_leaf)
                     .chain(out.recovery_leaf.as_ref())
                     .chain(out.inheritance_leaf.as_ref())
-                    .chain(out.protector_leaf.as_ref())
                     .chain(out.second_inheritance_leaf.as_ref())
                     .collect()
             };
@@ -1509,9 +1489,6 @@ mod psbt_binary_tests {
             heir_quorum: 1,
             recovery_after: 100_000,
             inheritance_after: 200_000,
-            protector_keys: vec![],
-            protector_quorum: None,
-            protector_after: None,
             consent_keys: vec![],
             consent_quorum: None,
             backup_keys: vec![],
@@ -1576,9 +1553,6 @@ mod psbt_binary_tests {
             consent_keys: vec![],
             consent_quorum: None,
             recovery_quorum: None,
-            protector_keys: vec![],
-            protector_quorum: None,
-            protector_after: None,
             backup_keys: policy.backup_keys.iter().map(|k| k.to_string()).collect(),
             backup_quorum: policy.backup_quorum,
             second_heir_keys: policy.second_heir_keys.iter().map(|k| k.to_string()).collect(),
@@ -1643,9 +1617,6 @@ mod psbt_binary_tests {
             consent_keys: vec![],
             consent_quorum: None,
             recovery_quorum: None,
-            protector_keys: vec![],
-            protector_quorum: None,
-            protector_after: None,
             backup_keys: policy.backup_keys.iter().map(|k| k.to_string()).collect(),
             backup_quorum: policy.backup_quorum,
             second_heir_keys: policy.second_heir_keys.iter().map(|k| k.to_string()).collect(),
@@ -1701,9 +1672,6 @@ mod psbt_binary_tests {
             consent_keys: vec![],
             consent_quorum: None,
             recovery_quorum: None,
-            protector_keys: vec![],
-            protector_quorum: None,
-            protector_after: None,
             backup_keys: vec![],
             backup_quorum: None,
             second_heir_keys: vec![],
@@ -1847,9 +1815,6 @@ mod psbt_binary_tests {
             recovery_after: policy.recovery_after,
             inheritance_after: policy.inheritance_after,
             address_type: "tr_multileaf".into(),
-            protector_keys: vec![],
-            protector_quorum: None,
-            protector_after: None,
             consent_keys: vec![],
             consent_quorum: None,
             backup_keys: policy.backup_keys.iter().map(|k| k.to_string()).collect(),
@@ -1897,9 +1862,6 @@ mod psbt_binary_tests {
             recovery_after: 0,
             inheritance_after: 0,
             address_type: "tr_multileaf".into(),
-            protector_keys: vec![],
-            protector_quorum: None,
-            protector_after: None,
             consent_keys: vec![],
             consent_quorum: None,
             backup_keys: policy.backup_keys.iter().map(|k| k.to_string()).collect(),
@@ -1955,9 +1917,6 @@ mod psbt_binary_tests {
             recovery_after: policy.recovery_after,
             inheritance_after: policy.inheritance_after,
             address_type: "tr_multileaf".into(),
-            protector_keys: vec![],
-            protector_quorum: None,
-            protector_after: None,
             consent_keys: vec![],
             consent_quorum: None,
             backup_keys: vec![],
@@ -1981,8 +1940,6 @@ mod psbt_binary_tests {
         let recovery_psbt = build_psbt("recovery", vec![]).await;
         let (recovery_leaf, _) = recovery_psbt.inputs[0].tap_scripts.values().next().unwrap();
         assert_eq!(leaf_scripts["recovery"], hex::encode(recovery_leaf.as_bytes()));
-
-        assert!(!leaf_scripts.contains_key("protector"), "sample_policy has no protector configured");
     }
 
     #[tokio::test]
@@ -2170,9 +2127,6 @@ mod psbt_binary_tests {
             consent_keys: vec![],
             consent_quorum: None,
             recovery_quorum: None,
-            protector_keys: vec![],
-            protector_quorum: None,
-            protector_after: None,
             backup_keys: vec![],
             backup_quorum: None,
             second_heir_keys: vec![],
@@ -2375,9 +2329,6 @@ mod validate_address_tests {
             heir_quorum: 1,
             recovery_after: 0,
             inheritance_after: 0,
-            protector_keys: vec![],
-            protector_quorum: None,
-            protector_after: None,
             consent_keys: vec![],
             consent_quorum: None,
             backup_keys: vec![],

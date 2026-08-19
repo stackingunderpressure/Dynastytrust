@@ -1051,7 +1051,7 @@ export default function KeyManager() {
           >
             {search
               ? "Try a different search term."
-              : "A key is one signer in a vault. Each person (founder, heir, protector) holds their own. Keys never leave this browser. Generate one -- password-protect it now for real funds, or skip that for now and explore."}
+              : "A key is one signer in a vault. Each person (founder, heir) holds their own. Keys never leave this browser. Generate one -- password-protect it now for real funds, or skip that for now and explore."}
           </p>
           {!search && (
             <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>

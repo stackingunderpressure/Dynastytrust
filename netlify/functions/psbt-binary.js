@@ -53,8 +53,6 @@ function leafSignerCounts(vault, path) {
       return { quorum: vault.recovery_quorum ?? vault.founder_quorum, total: (vault.founder_keys || []).length };
     case 'inheritance':
       return { quorum: vault.heir_quorum, total: (vault.heir_keys || []).length };
-    case 'protector':
-      return { quorum: vault.protector_quorum, total: (vault.protector_keys || []).length };
     case 'backup':
       return { quorum: vault.backup_quorum, total: (vault.backup_keys || []).length };
     case 'second_inheritance':
@@ -67,16 +65,15 @@ function leafSignerCounts(vault, path) {
 
 // Number of leaves in this vault's taproot tree -- determines the taptree
 // merkle path length baked into every input's control block. Not every
-// vault has all four: a "Gift Locker" shape has no recovery/backup leaf,
+// vault has all three: a "Gift Locker" shape has no recovery/backup leaf,
 // a "founders + backup only" shape (Tapit Circle) has no inheritance leaf
-// at all, and protector is always optional. Count only what's actually
-// configured rather than assuming the old fixed 3-leaf shape.
+// at all. Count only what's actually configured rather than assuming the
+// old fixed 3-leaf shape.
 function leafCountForTree(vault) {
   let n = 1; // founders_now is always present
   if (vault.recovery_after > 0) n += 1;
   else if ((vault.backup_keys || []).length > 0 && vault.backup_quorum != null) n += 1;
   if ((vault.heir_keys || []).length > 0) n += 1;
-  if (vault.protector_quorum != null && vault.protector_after != null) n += 1;
   if ((vault.second_heir_keys || []).length > 0 && vault.second_heir_quorum != null
       && vault.second_inheritance_after != null) n += 1;
   return n;
@@ -193,7 +190,7 @@ export async function handler(event) {
   // authoritative over its own named-field request fields.
   const isLeafList = Array.isArray(vault.leaves) && vault.leaves.length > 0;
 
-  let founderPubkeys, heirPubkeys, consentPubkeys, protectorPubkeys, backupPubkeys, secondHeirPubkeys;
+  let founderPubkeys, heirPubkeys, consentPubkeys, backupPubkeys, secondHeirPubkeys;
   let leafListWire;
   try {
     if (isLeafList) {
@@ -205,13 +202,12 @@ export async function handler(event) {
         unlock: leaf.unlock,
         decay: leaf.decay ?? null,
       }));
-      founderPubkeys = heirPubkeys = protectorPubkeys = backupPubkeys = secondHeirPubkeys = [];
+      founderPubkeys = heirPubkeys = backupPubkeys = secondHeirPubkeys = [];
       consentPubkeys = (vault.consent_keys || []).map(toPubkeyHex);
     } else {
       founderPubkeys = (vault.founder_keys || []).map(toPubkeyHex);
       heirPubkeys = (vault.heir_keys || []).map(toPubkeyHex);
       consentPubkeys = (vault.consent_keys || []).map(toPubkeyHex);
-      protectorPubkeys = (vault.protector_keys || []).map(toPubkeyHex);
       backupPubkeys = (vault.backup_keys || []).map(toPubkeyHex);
       secondHeirPubkeys = (vault.second_heir_keys || []).map(toPubkeyHex);
     }
@@ -453,13 +449,6 @@ export async function handler(event) {
               inheritance_after: vault.inheritance_after,
               ...(consentPubkeys.length > 0 && vault.consent_quorum != null
                 ? { consent_keys: consentPubkeys, consent_quorum: vault.consent_quorum }
-                : {}),
-              ...(protectorPubkeys.length > 0 && vault.protector_quorum != null && vault.protector_after != null
-                ? {
-                    protector_keys: protectorPubkeys,
-                    protector_quorum: vault.protector_quorum,
-                    protector_after: vault.protector_after,
-                  }
                 : {}),
               ...(backupPubkeys.length > 0 && vault.backup_quorum != null
                 ? { backup_keys: backupPubkeys, backup_quorum: vault.backup_quorum }

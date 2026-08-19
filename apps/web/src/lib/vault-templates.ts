@@ -33,10 +33,6 @@ export type VaultTemplate = {
     heirQ: number;
     recoveryAfter: number;
     inheritanceAfter: number;
-    protectorEnabled?: boolean;
-    protectorAfter?: number;
-    protectorQ?: number;
-    plannedProtectors?: number;
     consentEnabled?: boolean;
     consentQ?: number;
     plannedConsenters?: number;
@@ -94,10 +90,6 @@ export interface StandardConfig {
   recoveryEnabled: boolean;
   recoveryAfter: number;
   inheritanceAfter: number;
-  protectorEnabled: boolean;
-  protectorAfter: number;
-  protectorQ: number;
-  plannedProtectors: number;
   consentEnabled: boolean;
   consentQ: number;
   plannedConsenters: number;
@@ -307,9 +299,9 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
         title: 'Two trustees collude to steal',
         trigger: "Two of three trustees decide to take the funds for themselves.",
         outcome:
-          "They can spend on Path 1 (quorum met). This template has no protector or beneficiary consent to block them.",
+          "They can spend on Path 1 (quorum met). This template has no beneficiary consent to block them.",
         actions: [
-          "For significant estates, use the Generational Trust template instead -- it adds a protector path and optional beneficiary consent.",
+          "For significant estates, use the Generational Trust template instead -- it adds a beneficiary-consent gate on every normal spend.",
           "At minimum, pick three trustees who don't all trust each other and who don't share a social circle.",
         ],
         severity: 'danger',
@@ -354,9 +346,9 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
   {
     id: 'generational-trust',
     title: 'Generational Trust',
-    tagline: '3-of-5 . protector . consent . 1yr / 3yr',
+    tagline: '3-of-5 . consent . 1yr / 3yr',
     useCase:
-      'Institutional-grade: 5 independent trustees (3 needed), a protector who can rescue funds at 9 months, successors take over at 3 years. Every day-to-day spend also requires one beneficiary signature so the family has veto power without custody burden.',
+      'Institutional-grade: 5 independent trustees (3 needed), successors take over at 3 years. Every day-to-day spend also requires one beneficiary signature so the family has veto power without custody burden. Want an independent overseer watching the trustees? Give them one of the 5 trustee keys instead of a separate role -- a co-signer keeps trustees honest without a whole extra path.',
     config: {
       mode: 'inheritance',
       plannedFounders: 5,
@@ -365,10 +357,6 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
       heirQ: 2,
       recoveryAfter: 52_560, // ~1 year
       inheritanceAfter: 157_680, // ~3 years
-      protectorEnabled: true,
-      protectorAfter: 39_420, // ~9 months
-      protectorQ: 1,
-      plannedProtectors: 1,
       consentEnabled: true,
       consentQ: 1,
       plannedConsenters: 1,
@@ -378,10 +366,9 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
         title: 'Beneficiary refuses to cosign a spend',
         trigger: "A trustee proposes a distribution; the beneficiary does not add their signature.",
         outcome:
-          "Path 1 is frozen -- the consent gate blocks it. Trustees must wait for recovery (1yr) or protector (9mo) to unlock an alternate path.",
+          "Path 1 is frozen -- the consent gate blocks it. Trustees must wait for recovery (1yr) to unlock an alternate path.",
         actions: [
           "Talk to the beneficiary, understand the objection, amend the proposal.",
-          "If the beneficiary is incapacitated or missing, the protector can rescue funds at 9 months.",
           "If nothing is resolved, recovery at 1 year lets trustees spend without consent.",
         ],
         severity: 'warn',
@@ -390,25 +377,13 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
         title: 'Trustees try to collude and steal',
         trigger: "3 trustees agree to take funds for themselves.",
         outcome:
-          "Path 1 is blocked by beneficiary consent. They must wait for recovery (1yr) or try the protector path (9mo, but the protector holds that key).",
+          "Path 1 is blocked by beneficiary consent. They must wait for recovery (1yr).",
         actions: [
           "The beneficiary refuses to cosign -- the consent gate is doing its job.",
-          "Alert the protector; at 9 months they sweep funds to a new vault.",
           "File any off-chain legal action; Bitcoin has already bought you time.",
+          "For next time: seat an independent overseer as one of the 5 trustee keys so 3-of-5 collusion needs their buy-in too.",
         ],
         severity: 'danger',
-      },
-      {
-        title: 'Protector steps in at 9 months',
-        trigger: "Trustees have gone rogue or are unreachable; 9 months have elapsed.",
-        outcome:
-          "The protector path unlocks. The protector alone can move funds to a fresh vault with new trustees.",
-        actions: [
-          "Protector compiles a replacement vault first (new trustees, same heirs).",
-          "Open the original vault, use the protector path to sweep to the new address.",
-          "Record the reason in the audit trail for the attorney review.",
-        ],
-        severity: 'info',
       },
       {
         title: 'Trustee dies',
@@ -422,7 +397,7 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
       },
       {
         title: 'All silent for 3 years',
-        trigger: "No trustee, protector, or beneficiary activity for 3 years.",
+        trigger: "No trustee or beneficiary activity for 3 years.",
         outcome:
           "Inheritance path unlocks. Successor heirs (2 of 3) take over.",
         actions: [
@@ -433,11 +408,11 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
     ],
     trustDoc: {
       purpose:
-        "Institutional-grade multi-generational Bitcoin trust. Five independent trustees manage day-to-day distributions (3 signatures required), with a beneficiary-consent gate on every normal spend. An independent protector supervises the trustees and can rescue funds after 9 months if they act in bad faith. After 3 years of trustee silence, the heir quorum inherits.",
+        "Institutional-grade multi-generational Bitcoin trust. Five independent trustees manage day-to-day distributions (3 signatures required), with a beneficiary-consent gate on every normal spend. After 3 years of trustee silence, the heir quorum inherits.",
       distribution_rules:
-        "Every day-to-day distribution requires the trustee quorum (3-of-5) AND at least one beneficiary signature (consent gate). If a beneficiary refuses to cosign, normal spends are frozen -- trustees may only fall back to the recovery path (1 year) or the protector path (9 months) if the protector intervenes. All proposals must cite a rule and include a memo for the audit trail.",
+        "Every day-to-day distribution requires the trustee quorum (3-of-5) AND at least one beneficiary signature (consent gate). If a beneficiary refuses to cosign, normal spends are frozen -- trustees may only fall back to the recovery path (1 year). All proposals must cite a rule and include a memo for the audit trail.",
       succession_notes:
-        "Trustees must hold quarterly video calls to confirm keys are accessible and to rotate any departing member. The protector's sole duty is to monitor for abuse and step in at the 9-month mark if trustees act in bad faith -- the protector should maintain a standby replacement vault so a sweep can happen quickly. After 3 years with no activity, the heir successors will inherit via the on-chain timelock.",
+        "Trustees must hold quarterly video calls to confirm keys are accessible and to rotate any departing member. If an independent overseer is wanted, seat them as one of the 5 trustee keys rather than a separate role -- their signature is then required for any 3-of-5 quorum. After 3 years with no activity, the heir successors will inherit via the on-chain timelock.",
       rules: [
         {
           id: 'scheduled',
@@ -857,8 +832,8 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
 
   // // -- Test-mode templates -------------------------------------
   // Same shapes, timelocks measured in blocks (hours-to-a-day on
-  // signet at 10-min blocks) so a full recovery / inheritance /
-  // protector cycle can be demonstrated without waiting months.
+  // signet at 10-min blocks) so a full recovery / inheritance
+  // cycle can be demonstrated without waiting months.
   // Mark vault names with `[TEST]` so they're visually distinct
   // from production vaults. Recompile the equivalent production
   // template once you're ready to put real value in.
@@ -904,9 +879,9 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
   {
     id: 'test-generational-trust',
     title: '[TEST] Generational Trust',
-    tagline: '3-of-5 . protector . consent . 15 / 45 / 8',
+    tagline: '3-of-5 . consent . 15 / 45',
     useCase:
-      'Sandbox for the Generational Trust shape with its protector and beneficiary-consent gate. Protector unlocks at ~8 blocks, recovery at ~15 blocks, inheritance at ~45 blocks. Walk the full drama -- beneficiary refuses, protector steps in -- in one afternoon.',
+      'Sandbox for the Generational Trust shape with its beneficiary-consent gate. Recovery unlocks at ~15 blocks, inheritance at ~45 blocks. Walk the full drama -- beneficiary refuses, recovery opens, successors inherit -- in one afternoon.',
     config: {
       mode: 'inheritance',
       plannedFounders: 5,
@@ -915,10 +890,6 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
       heirQ: 2,
       recoveryAfter: 15,
       inheritanceAfter: 45,
-      protectorEnabled: true,
-      protectorAfter: 8,
-      protectorQ: 1,
-      plannedProtectors: 1,
       consentEnabled: true,
       consentQ: 1,
       plannedConsenters: 1,
@@ -926,24 +897,24 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
     scenarios: [
       {
         title: 'Full governance dry-run',
-        trigger: 'Walk the trust + beneficiary + protector + successor flows in one sitting.',
+        trigger: 'Walk the trust + beneficiary + successor flows in one sitting.',
         outcome:
-          'Enough window to test: beneficiary cosigns Path 1, beneficiary refuses, protector opens at 8 blocks and sweeps, successors inherit at 45 blocks.',
+          'Enough window to test: beneficiary cosigns Path 1, beneficiary refuses, recovery opens at 15 blocks, successors inherit at 45 blocks.',
         actions: [
           'Fund, file a request, approve via trustee quorum + beneficiary consent.',
           'File another request; have the beneficiary refuse; confirm Path 1 is frozen.',
-          'Wait for protector window; sweep to a replacement vault.',
+          'Wait for the recovery window; spend without consent.',
           'Then recompile the production Generational Trust with the intended multi-year timelocks.',
         ],
         severity: 'info',
       },
     ],
     trustDoc: {
-      purpose: 'Signet test sandbox for the Generational Trust shape with protector + consent.',
+      purpose: 'Signet test sandbox for the Generational Trust shape with consent.',
       distribution_rules:
         'Test distributions only. Each role should exercise its path at least once.',
       succession_notes:
-        'Test vault. Rotate out after all four paths have signed + broadcast.',
+        'Test vault. Rotate out after every path has signed + broadcast.',
     },
     testMode: true,
   },

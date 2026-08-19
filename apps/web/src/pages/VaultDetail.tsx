@@ -297,7 +297,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
 
   const myMemberNeedsKey =
     !!myMember &&
-    ["founder", "heir", "protector"].includes(myMember.role) &&
+    ["founder", "heir"].includes(myMember.role) &&
     !(myMember.xpub && myMember.fingerprint && myMember.pubkey && myMember.derivation_path);
 
   // Live proposal + signature updates for the current vault.
@@ -758,18 +758,6 @@ function OverviewTab({
           title: "Inheritance - " + blocksToLabel(blocksFromNow(vault.inheritance_after)),
           body: `${vault.heir_quorum} of ${vault.heir_keys.length} successor signatures after ${blocksFromNow(vault.inheritance_after).toLocaleString()} blocks. Triggered only if the trustees are unreachable for the full window.`,
         },
-        ...(vault.protector_keys.length > 0 &&
-        vault.protector_quorum != null &&
-        vault.protector_after != null
-          ? [
-              {
-                num: 4,
-                color: colors.blue,
-                title: "Protector - " + blocksToLabel(blocksFromNow(vault.protector_after)),
-                body: `${vault.protector_quorum} of ${vault.protector_keys.length} protector signatures after ${blocksFromNow(vault.protector_after).toLocaleString()} blocks. An independent watchdog who can rescue funds if trustees go rogue before inheritance triggers.`,
-              },
-            ]
-          : []),
       ];
 
   // Draft vaults have no address yet and no timelocks to countdown
@@ -1258,13 +1246,11 @@ function SendTab({ vault, balance, onDone, prefill }: {
   // leafSignerCounts/leafCountForTree only know how to size these five).
   const hasRecovery = vault.recovery_after > 0;
   const hasInheritance = vault.heir_keys.length > 0 && vault.inheritance_after > 0;
-  const hasProtector =
-    vault.protector_keys.length > 0 && vault.protector_quorum != null && vault.protector_after != null;
   const hasBackup = vault.backup_keys.length > 0 && vault.backup_quorum != null;
   const hasSecondInheritance =
     vault.second_heir_keys.length > 0 && vault.second_heir_quorum != null && vault.second_inheritance_after != null;
   const [standardPath, setStandardPath] = useState<
-    "founders_now" | "recovery" | "inheritance" | "protector" | "backup" | "second_inheritance"
+    "founders_now" | "recovery" | "inheritance" | "backup" | "second_inheritance"
   >("founders_now");
 
   const confirmedSats = balance?.confirmed_sats ?? 0;
@@ -1457,7 +1443,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
         // needed" instead of "0 of 1") -- this used to always pull
         // founder_keys/founder_quorum no matter which of the vault's
         // leaves standardPath actually selected, so every non-founders
-        // path (recovery, inheritance, protector, backup,
+        // path (recovery, inheritance, backup,
         // second_inheritance) showed the wrong signer set and the wrong
         // required-signature count, even though the PSBT itself (built
         // server-side via api.psbt.generate's own path param) was
@@ -1475,10 +1461,6 @@ function SendTab({ vault, balance, onDone, prefill }: {
           case "inheritance":
             vault.heir_keys.forEach(addKey);
             requiredSignatures = vault.heir_quorum;
-            break;
-          case "protector":
-            vault.protector_keys.forEach(addKey);
-            requiredSignatures = vault.protector_quorum ?? 0;
             break;
           case "backup":
             vault.backup_keys.forEach(addKey);
@@ -2251,7 +2233,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
         </div>
       )}
 
-      {!bp && (hasRecovery || hasInheritance || hasProtector || hasBackup || hasSecondInheritance) && (
+      {!bp && (hasRecovery || hasInheritance || hasBackup || hasSecondInheritance) && (
         <div>
           <Label>Spend path</Label>
           <select
@@ -2270,11 +2252,6 @@ function SendTab({ vault, balance, onDone, prefill }: {
             {hasInheritance && (
               <option value="inheritance">
                 Inheritance ({vault.heir_quorum} of {vault.heir_keys.length} heirs) -- after timelock
-              </option>
-            )}
-            {hasProtector && (
-              <option value="protector">
-                Protector ({vault.protector_quorum} of {vault.protector_keys.length}) -- after inactivity timelock
               </option>
             )}
             {hasBackup && (
@@ -2769,7 +2746,7 @@ function MembersTab({ vault }: { vault: Vault }) {
   // match. Owner-only path stays exempt -- an owner always has founder
   // standing even before their key is on file.
   const compiledPubkeys = new Set([
-    ...vault.founder_keys, ...vault.heir_keys, ...vault.protector_keys,
+    ...vault.founder_keys, ...vault.heir_keys,
     ...vault.backup_keys, ...vault.consent_keys, ...vault.second_heir_keys,
   ]);
   const staleMembers = members.filter(
@@ -2852,7 +2829,6 @@ function MembersTab({ vault }: { vault: Vault }) {
           vaultName={vault.name}
           founderKeys={vault.founder_keys}
           heirKeys={vault.heir_keys}
-          protectorKeys={vault.protector_keys}
           backupKeys={vault.backup_keys}
           consentKeys={vault.consent_keys}
           secondHeirKeys={vault.second_heir_keys}
@@ -3446,7 +3422,6 @@ function InviteModal({
             >
               <option value="founder">Trustee (can sign immediately)</option>
               <option value="heir">Successor trustee (inheritance path)</option>
-              <option value="protector">Protector (can intervene if trustees go rogue)</option>
               <option value="beneficiary">Beneficiary (receives distributions, files requests)</option>
               <option value="viewer">Observer (read-only)</option>
             </select>
@@ -4101,18 +4076,15 @@ function RotateVaultModal({
   const [name, setName] = useState(`${vault.name} v2`);
   const [recoveryOffset, setRecoveryOffset] = useState<number | null>(null);
   const [inheritanceOffset, setInheritanceOffset] = useState<number | null>(null);
-  const [protectorOffset, setProtectorOffset] = useState<number | null>(null);
 
   useEffect(() => {
     if (tip == null) return;
     if (recoveryOffset == null) setRecoveryOffset(offsetFromAbs(vault.recovery_after));
     if (inheritanceOffset == null) setInheritanceOffset(offsetFromAbs(vault.inheritance_after));
-    if (protectorOffset == null) setProtectorOffset(offsetFromAbs(vault.protector_after));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tip]);
 
   const hasInheritance = vault.inheritance_after > 0 || vault.recovery_after > 0;
-  const hasProtector = (vault.protector_after ?? 0) > 0;
 
   async function rotate() {
     setBusy(true);
@@ -4123,7 +4095,6 @@ function RotateVaultModal({
           name: name.trim() || undefined,
           recovery_after: hasInheritance ? (recoveryOffset ?? 0) : 0,
           inheritance_after: hasInheritance ? (inheritanceOffset ?? 0) : 0,
-          protector_after: hasProtector ? (protectorOffset ?? 0) : 0,
         },
       });
       toast.success("Successor draft created. Compile when ready.");
@@ -4201,21 +4172,6 @@ function RotateVaultModal({
               </div>
             </>
           )}
-          {hasProtector && (
-            <div>
-              <Label>Protector timelock (blocks from compile)</Label>
-              <Input
-                type="number"
-                min={0}
-                value={protectorOffset ?? 0}
-                onChange={e => setProtectorOffset(parseInt(e.target.value) || 0)}
-              />
-              <div style={{ fontSize: 11, color: colors.muted, marginTop: 3 }}>
-                ~{blocksToLabel(protectorOffset ?? 0)} at 10-min blocks
-              </div>
-            </div>
-          )}
-
           <div
             style={{
               padding: "10px 12px",
@@ -4669,7 +4625,6 @@ function ActionGuide({
   const isTrustee = role === "owner" || role === "founder";
   const isBeneficiary = role === "beneficiary";
   const isHeir = role === "heir";
-  const isProtector = role === "protector";
 
   const now = Date.now();
   const overdueStipends = stipends.filter(
@@ -4687,7 +4642,6 @@ function ActionGuide({
   const approachingDays = 60 * 24 * 6; // ~60 days in blocks
   const recoveryLeft = blocksLeftToUnlock(vault.recovery_after);
   const inheritanceLeft = blocksLeftToUnlock(vault.inheritance_after);
-  const protectorLeft = blocksLeftToUnlock(vault.protector_after);
 
   const items: ActionItem[] = [];
 
@@ -4790,20 +4744,6 @@ function ActionGuide({
     });
   }
 
-  if (isProtector && protectorLeft != null && protectorLeft > 0) {
-    items.push({
-      key: "protector-countdown",
-      label: `Protector path unlocks in ${blocksToLabel(protectorLeft)}`,
-      detail:
-        protectorLeft <= approachingDays
-          ? "Your window is approaching. Prepare a replacement vault so you can sweep quickly if trustees go dark."
-          : "Watch the activity log for anything unusual. You'll gain spend authority when this clock expires.",
-      cta: "Activity log",
-      severity: protectorLeft <= approachingDays ? "warn" : "info",
-      onClick: () => onOpenTab("activity"),
-    });
-  }
-
   if (items.length === 0) return null;
 
   return (
@@ -4870,7 +4810,7 @@ function ActionGuide({
 // Per-role plain-English context that pairs with the global
 // VaultPhaseCard. Tells each member what THEIR role can do at the
 // current phase + what to expect, so beneficiaries don't pester
-// trustees for spends that aren't allowed and protectors know
+// trustees for spends that aren't allowed and successors know
 // exactly when their power activates.
 function rolePhaseHint(
   vault: Vault,
@@ -4879,7 +4819,6 @@ function rolePhaseHint(
   const role = (vault as Vault & { my_role?: string }).my_role;
   const t = tip ?? 0;
   const recoveryOpen = vault.recovery_after > 0 && t >= vault.recovery_after;
-  const protectorOpen = (vault.protector_after ?? 0) > 0 && t >= (vault.protector_after ?? 0);
   const inheritanceOpen = vault.inheritance_after > 0 && t >= vault.inheritance_after;
 
   const lines: string[] = [];
@@ -4909,15 +4848,6 @@ function rolePhaseHint(
       const blocksLeft = vault.inheritance_after - t;
       lines.push(`Your inheritance path unlocks in ${blocksToLabel(blocksLeft)} (block ${vault.inheritance_after.toLocaleString()}).`);
       lines.push("Until then, only the trustees can spend. Keep your seed backed up.");
-    }
-  } else if (role === "protector") {
-    if (protectorOpen) {
-      lines.push("Your protector path is OPEN. Sweep funds to a fresh vault if trustees have gone rogue.");
-      cta = "Build a replacement vault first, then sweep.";
-    } else if ((vault.protector_after ?? 0) > 0 && tip != null) {
-      const blocksLeft = (vault.protector_after ?? 0) - t;
-      lines.push(`Your rescue path unlocks in ${blocksToLabel(blocksLeft)} (block ${(vault.protector_after ?? 0).toLocaleString()}).`);
-      lines.push("Watch the activity log. Step in only if trustees act in bad faith.");
     }
   } else if (role === "beneficiary") {
     if (vault.consent_quorum) {
@@ -4967,18 +4897,12 @@ function computePhase(vault: Vault, tip: number | null): VaultPhase {
 
   const inheritance = vault.inheritance_after ?? 0;
   const recovery = vault.recovery_after ?? 0;
-  const protector = vault.protector_after ?? 0;
 
   if (inheritance > 0 && tip >= inheritance) {
     label = "Inheritance triggered";
     description = `After block ${inheritance.toLocaleString()}, heirs can spend without the trustees.`;
     accent = colors.green;
     paths.push(`Heirs (Path 3) - ${vault.heir_quorum} of ${vault.heir_keys.length}`);
-  } else if (protector > 0 && tip >= protector) {
-    label = "Protector window open";
-    description = `After block ${protector.toLocaleString()}, the protector can rescue funds to a fresh vault.`;
-    accent = colors.blue;
-    paths.push(`Protector (Path 4) - ${vault.protector_quorum} of ${vault.protector_keys.length}`);
   } else if (recovery > 0 && tip >= recovery) {
     label = "Recovery window open";
     description =
@@ -4993,7 +4917,6 @@ function computePhase(vault: Vault, tip: number | null): VaultPhase {
   // tells a forward-looking story, not just the current state.
   const upcoming: { name: string; block: number }[] = [];
   if (recovery > tip) upcoming.push({ name: "Recovery", block: recovery });
-  if (protector > tip && vault.protector_keys.length > 0) upcoming.push({ name: "Protector", block: protector });
   if (inheritance > tip) upcoming.push({ name: "Inheritance", block: inheritance });
   if (upcoming.length > 0) {
     const next = upcoming.sort((a, b) => a.block - b.block)[0];
@@ -5118,8 +5041,8 @@ function VaultPhaseCard({ vault }: { vault: Vault }) {
 // (resolved to the signer's name where a vault_members row matches
 // that pubkey), and each leaf's own lock state -- so a reader can see
 // the shape instead of inferring it from a paragraph. Supersedes the
-// old TimelockCountdown, which only ever showed two of up to five
-// possible leaves (never Backup, Protector, or Second inheritance).
+// old TimelockCountdown, which only ever showed two of up to four
+// possible leaves (never Backup or Second inheritance).
 //
 // Each leaf's status is reported independently rather than picking one
 // "current phase" -- Bitcoin's OR-of-branches doesn't collapse to a
@@ -5186,18 +5109,6 @@ function buildVaultLeaves(vault: Vault, tip: number | null): VaultLeaf[] {
       keyPubkeys: vault.backup_keys,
       absHeight: null,
       status: "active",
-    });
-  }
-
-  if (vault.protector_keys.length > 0 && vault.protector_quorum != null && vault.protector_after != null) {
-    leaves.push({
-      id: "protector",
-      label: "Protector -- Path 4",
-      color: colors.blue,
-      quorum: vault.protector_quorum,
-      keyPubkeys: vault.protector_keys,
-      absHeight: vault.protector_after,
-      status: vaultLeafStatus(vault.protector_after, tip),
     });
   }
 
@@ -5312,7 +5223,6 @@ function VaultStructureTree({ vault }: { vault: Vault }) {
   const allPubkeysKey = [
     ...vault.founder_keys,
     ...vault.backup_keys,
-    ...vault.protector_keys,
     ...vault.heir_keys,
     ...vault.second_heir_keys,
   ].join(",");
@@ -5332,8 +5242,8 @@ function VaultStructureTree({ vault }: { vault: Vault }) {
   // key the vault's own creator brought) reads "Owner", every other
   // founder key reads "Trustee". Every other leaf (recovery reuses the
   // same founder_keys array, so it inherits the same defaults; heir/
-  // protector/backup/second-heir keep no positional default at all --
-  // those role names were never the confusing part). Only a fallback:
+  // backup/second-heir keep no positional default at all -- those
+  // role names were never the confusing part). Only a fallback:
   // an explicit key_labels entry always wins, including "you could
   // label them all founders if you wanted" -- nothing here forces
   // Owner/Trustee on anyone.

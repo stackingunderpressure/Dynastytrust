@@ -1,6 +1,6 @@
 // Diagnostic: confirm whether miniscript's `after()` emits CLTV
 // (absolute height) or CSV (relative). DynastyTrust's policy
-// compiler uses `after()` for recovery / inheritance / protector
+// compiler uses `after()` for recovery / inheritance
 // branches with small block counts (26_280 = ~6mo). If that ends
 // up as CLTV, every vault on mainnet/testnet/signet has the
 // timelock paths already unlocked because those heights are long

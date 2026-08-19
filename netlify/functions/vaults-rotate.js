@@ -6,7 +6,6 @@
  *     name?: string,
  *     recovery_after?: number,
  *     inheritance_after?: number,
- *     protector_after?: number,
  *     founder_quorum?: number,
  *     heir_quorum?: number,
  *     recovery_quorum?: number | null,
@@ -75,7 +74,6 @@ export async function handler(event) {
   // compile pipeline converts relative -> absolute.
   const recoveryAfter    = overrides.recovery_after    ?? 0;
   const inheritanceAfter = overrides.inheritance_after ?? 0;
-  const protectorAfter   = overrides.protector_after   ?? 0;
 
   const newRow = {
     user_id: u.userId,
@@ -93,9 +91,6 @@ export async function handler(event) {
     // absolute at the caller's current tip.
     recovery_after: recoveryAfter,
     inheritance_after: inheritanceAfter,
-    protector_keys: [],
-    protector_quorum: src.protector_quorum,
-    protector_after: protectorAfter || null,
     consent_keys: [],
     consent_quorum: src.consent_quorum,
     founder_keys: [],

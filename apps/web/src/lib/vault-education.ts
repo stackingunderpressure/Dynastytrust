@@ -101,7 +101,7 @@ export function keyReuseNotes(roles: KeyReuseRole[]): Map<string, string> {
 // ── Standard-shape BehaviorTimeline parity ─────────────────────────────
 
 // Converts a standard-shape config (founders/backup/recovery/heirs/
-// protector/second-inheritance) into the same SpendLeg[] shape
+// second-inheritance) into the same SpendLeg[] shape
 // BehaviorTimeline already consumes for Bloc and the leaf-list builder --
 // the timeline component itself needs zero changes, it just gets a new
 // caller. Consent is deliberately NOT its own leg here: it's a modifier
@@ -154,17 +154,6 @@ export function buildStandardLegs(config: StandardConfig): SpendLeg[] {
     });
   }
 
-  if (config.protectorEnabled) {
-    legs.push({
-      label: 'Protector',
-      who: `${config.protectorQ} of ${config.plannedProtectors}`,
-      afterBlocks: config.protectorAfter,
-      requiredSigners: config.protectorQ,
-      meaning: `From ${blocksToHuman(config.protectorAfter)} after funding, an independent protector can step in and rescue the funds.`,
-      weak: config.protectorQ === 1,
-    });
-  }
-
   if (config.secondInheritanceEnabled) {
     legs.push({
       label: 'Second inheritance',
@@ -189,7 +178,6 @@ export interface VaultLayer {
   tradeoffs: string[];
   illustration: { title: string; lines: string[] };
   howToCraft?: string;
-  builderShape: 'standard' | 'leaves';
 }
 
 // Four fixed pages, not a template gallery -- the front door teaches the
@@ -222,7 +210,6 @@ export const VAULT_LAYERS: VaultLayer[] = [
         quorumTradeoffLine(1, 3),
       ],
     },
-    builderShape: 'standard',
   },
   {
     id: 'backup',
@@ -246,7 +233,6 @@ export const VAULT_LAYERS: VaultLayer[] = [
         'With a recovery path instead: the same everyday signers get a second chance to act, once the wait you set has passed.',
       ],
     },
-    builderShape: 'standard',
   },
   {
     id: 'inheritance',
@@ -268,7 +254,6 @@ export const VAULT_LAYERS: VaultLayer[] = [
         'After the wait finishes: your heirs can move funds on their own -- your everyday signers no longer have a say, even if they are still around.',
       ],
     },
-    builderShape: 'standard',
   },
   {
     id: 'backstop',
@@ -294,8 +279,7 @@ export const VAULT_LAYERS: VaultLayer[] = [
       ],
     },
     howToCraft:
-      'This is the one page whose builder starts from "Build your own" -- decay ladders and self-refreshing paths only '
-      + 'exist there, since they need more than a fixed founders/heirs shape can express.',
-    builderShape: 'leaves',
+      'Decay ladders and self-refreshing paths live under "More: crafty or specialty paths" in the builder\'s shape '
+      + 'tabs -- they need more than a fixed founders/heirs shape can express.',
   },
 ];

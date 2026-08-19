@@ -13,7 +13,7 @@ pub const MIN_RECOVERY_BLOCKS: u32 = 26_000;
 /// comfortably under BIP68's 65,535-block protocol ceiling. CLAUDE.md's
 /// "absolute timelocks, not relative" rule is scoped to leaves holding a
 /// fixed deadline that must NOT reset regardless of activity (recovery,
-/// inheritance, protector) -- BIP68's cap really is too short for those.
+/// inheritance) -- BIP68's cap really is too short for those.
 /// This is the documented, deliberate exception for a different job: a
 /// short, self-refreshing leaf where resetting the clock on every spend
 /// is the entire point (e.g. "3-of-3 normally, drops to 2-of-3 if the
@@ -39,25 +39,20 @@ pub struct DynastyPolicy {
     pub recovery_after: u32,
     pub inheritance_after: u32,
 
-    /// Optional protector branch -- an independent party (often a
-    /// trust lawyer) who can spend after their own timelock.
-    /// Typically set BETWEEN recovery_after and inheritance_after
-    /// so: trustees recover first, then protector can rescue
-    /// funds if trustees failed, then finally successor trustees
-    /// take over for true incapacitation. All three fields must
-    /// be set together.
-    #[serde(default)]
-    pub protector_keys: Vec<PublicKey>,
-    #[serde(default)]
-    pub protector_quorum: Option<usize>,
-    #[serde(default)]
-    pub protector_after: Option<u32>,
-
     /// Optional beneficiary-consent gate on Path 1 (founders-now).
     /// When set, every "normal" spend needs both the trustee quorum
-    /// AND a beneficiary quorum to sign. Recovery / inheritance /
-    /// protector paths are unaffected -- those exist precisely to
+    /// AND a beneficiary quorum to sign. Recovery / inheritance
+    /// paths are unaffected -- those exist precisely to
     /// rescue funds when a beneficiary won't or can't cosign.
+    /// A "protector" role, if one is wanted, is just another key added
+    /// directly to founder_keys -- no separate field: an independent
+    /// party who should count as a trustee-equivalent signer needs no
+    /// mechanism beyond the one founder_keys already provides
+    /// (2026-08-19, operator: "I only like it as an added key to a
+    /// quorum... just like trustee... prolly not use much so don't need
+    /// it" -- retiring the standalone protector leaf this repo carried
+    /// briefly, which gave an independent party its OWN timelocked
+    /// spending path rather than folding them into the existing one).
     #[serde(default)]
     pub consent_keys: Vec<PublicKey>,
     #[serde(default)]
@@ -111,7 +106,6 @@ impl DynastyPolicy {
         self.heir_keys.is_empty()
             && self.recovery_after == 0
             && self.inheritance_after == 0
-            && self.protector_keys.is_empty()
             && self.backup_keys.is_empty()
             && self.second_heir_keys.is_empty()
     }
@@ -128,12 +122,6 @@ impl DynastyPolicy {
     /// occupies this same tree slot.
     pub fn has_recovery(&self) -> bool {
         self.recovery_after > 0
-    }
-
-    pub fn has_protector(&self) -> bool {
-        !self.protector_keys.is_empty()
-            && self.protector_quorum.is_some()
-            && self.protector_after.is_some()
     }
 
     pub fn has_consent(&self) -> bool {
@@ -215,12 +203,8 @@ pub enum PolicyError {
     InheritanceTooSoon,
     #[error("inheritance_after must be > 0 when heir_keys is set")]
     InheritanceRequiresDelay,
-    #[error("a protector branch requires a recovery or backup branch; protector sits between founders and inheritance")]
-    ProtectorRequiresRecovery,
     #[error("recovery_after and backup_keys are mutually exclusive -- both occupy the same tree slot; pick one")]
     BackupConflictsWithRecovery,
-    #[error("a protector branch requires an inheritance leaf (heir_keys set); protector sits between them")]
-    ProtectorRequiresInheritance,
     #[error("a second inheritance branch requires the primary inheritance leaf (heir_keys set); it is an additional heir path, not a replacement")]
     SecondInheritanceRequiresInheritance,
     #[error("second_inheritance_after must be > 0 when second_heir_keys is set")]
@@ -331,7 +315,7 @@ pub fn compile_dynasty_policy_tr(
 /// Every leaf the tree can contain is exposed here (2026-08-06 fix) --
 /// previously only `founder_leaf` was, which meant the PSBT builder could
 /// only ever attach the founders-now leaf's control block, regardless of
-/// which path (`recovery` / `inheritance` / `protector`) the caller
+/// which path (`recovery` / `inheritance`) the caller
 /// actually intended to spend via. That silently mismatched `tap_scripts`
 /// against `tx.lock_time` for every non-founders spend: an heir signing
 /// an inheritance-path transaction would find their key absent from the
@@ -369,8 +353,6 @@ pub struct MultileafOutput {
     /// `has_backup() && !wants_inheritance()`) has NEITHER a middle leaf
     /// gap nor this one -- exactly two leaves total, founders + backup.
     pub inheritance_leaf: Option<bitcoin::ScriptBuf>,
-    /// Present only when `policy.has_protector()`.
-    pub protector_leaf: Option<bitcoin::ScriptBuf>,
     /// Present only when `policy.has_second_inheritance()` -- the
     /// independent second heir cohort's leaf.
     pub second_inheritance_leaf: Option<bitcoin::ScriptBuf>,
@@ -461,7 +443,6 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
             founder_leaf,
             recovery_leaf: None,
             inheritance_leaf: None,
-            protector_leaf: None,
             second_inheritance_leaf: None,
             descriptor,
             miniscript_policy: founder_thresh,
@@ -474,9 +455,7 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
         // "Founders + backup only" -- the Tapit Circle shape. Exactly
         // two leaves, no inheritance leg at all: a phone-verified circle
         // for the easy case, the owner's own harder key set for
-        // "I need to move it myself right now." verify() already
-        // rejects has_protector() here (protector needs an inheritance
-        // leaf to sit next to), so this never has a protector to place.
+        // "I need to move it myself right now."
         let backups: Vec<String> = policy
             .backup_keys
             .iter()
@@ -503,7 +482,6 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
             founder_leaf,
             recovery_leaf: Some(ms_backup.encode()),
             inheritance_leaf: None,
-            protector_leaf: None,
             second_inheritance_leaf: None,
             descriptor,
             miniscript_policy,
@@ -551,9 +529,7 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
         // "Gift Locker" shape: founders-now OR a single beneficiary
         // path that unlocks after a specified time -- exactly two
         // leaves, no founders-after-a-delay (or backup) path in between.
-        // `verify()` already rejects has_protector() here, so this is
-        // never reached with a protector branch to also place. When a
-        // second inheritance leaf is also configured, it takes the
+        // When a second inheritance leaf is also configured, it takes the
         // third leaf slot alongside inheritance (same depth-2/depth-2
         // pairing the "standard 3-leaf" shape below uses for
         // recovery+inheritance, just applied to the two heir leaves
@@ -585,7 +561,6 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
                 founder_leaf,
                 recovery_leaf: None,
                 inheritance_leaf: Some(ms_inheritance.encode()),
-                protector_leaf: None,
                 second_inheritance_leaf: Some(ms_second_inheritance.encode()),
                 descriptor,
                 miniscript_policy,
@@ -615,7 +590,6 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
             founder_leaf,
             recovery_leaf: None,
             inheritance_leaf: Some(ms_inheritance.encode()),
-            protector_leaf: None,
             second_inheritance_leaf: None,
             descriptor,
             miniscript_policy,
@@ -643,105 +617,9 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
     };
     let ms_recovery = compile_leaf(&recovery_branch)?;
 
-    if policy.has_protector() {
-        let protectors: Vec<String> = policy
-            .protector_keys
-            .iter()
-            .map(|k| format!("pk({k})"))
-            .collect();
-        let protector_branch = format!(
-            "and(after({}),thresh({},{}))",
-            policy.protector_after.unwrap(),
-            policy.protector_quorum.unwrap(),
-            protectors.join(","),
-        );
-        let ms_protector = compile_leaf(&protector_branch)?;
-
-        if let Some((second_inheritance_branch, ms_second_inheritance)) = &second_inheritance {
-            // Full 5-leaf tree: founder(d1) / recovery(d2) /
-            // inheritance(d3) / {protector, second_inheritance}(d4,d4).
-            // Same right-comb construction the 4-leaf protector case
-            // uses, extended one level deeper to fit the fifth leaf --
-            // depths 1+2+3+4+4 sum to 1 (0.5+0.25+0.125+0.0625+0.0625).
-            let builder = TaprootBuilder::new()
-                .add_leaf(1, founder_leaf.clone())
-                .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?
-                .add_leaf(2, ms_recovery.encode())
-                .map_err(|e| PolicyError::Descriptor(format!("leaf recovery: {e:?}")))?
-                .add_leaf(3, ms_inheritance.encode())
-                .map_err(|e| PolicyError::Descriptor(format!("leaf inheritance: {e:?}")))?
-                .add_leaf(4, ms_protector.encode())
-                .map_err(|e| PolicyError::Descriptor(format!("leaf protector: {e:?}")))?
-                .add_leaf(4, ms_second_inheritance.encode())
-                .map_err(|e| PolicyError::Descriptor(format!("leaf second inheritance: {e:?}")))?;
-            let tap_tree = TapTree::try_from(builder.clone())
-                .map_err(|e| PolicyError::Descriptor(format!("tap_tree: {e:?}")))?;
-            let spend_info = builder
-                .finalize(&secp, internal_key)
-                .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
-            let descriptor = format!(
-                "tr({},{{{},{{{},{{{},{{{},{}}}}}}}}})",
-                internal_key, ms_founder, ms_recovery, ms_inheritance, ms_protector, ms_second_inheritance
-            );
-            let miniscript_policy = format!(
-                "or({},or({},or({},or({},{}))))",
-                founder_thresh, recovery_branch, inheritance_branch, protector_branch, second_inheritance_branch
-            );
-            return Ok(MultileafOutput {
-                spend_info,
-                tap_tree,
-                founder_leaf,
-                recovery_leaf: Some(ms_recovery.encode()),
-                inheritance_leaf: Some(ms_inheritance.encode()),
-                protector_leaf: Some(ms_protector.encode()),
-                second_inheritance_leaf: Some(ms_second_inheritance.encode()),
-                descriptor,
-                miniscript_policy,
-                leaf_scripts: Vec::new(),
-                leaf_unlocks: Vec::new(),
-            });
-        }
-
-        let builder = TaprootBuilder::new()
-            .add_leaf(1, founder_leaf.clone())
-            .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?
-            .add_leaf(2, ms_recovery.encode())
-            .map_err(|e| PolicyError::Descriptor(format!("leaf recovery: {e:?}")))?
-            .add_leaf(3, ms_inheritance.encode())
-            .map_err(|e| PolicyError::Descriptor(format!("leaf inheritance: {e:?}")))?
-            .add_leaf(3, ms_protector.encode())
-            .map_err(|e| PolicyError::Descriptor(format!("leaf protector: {e:?}")))?;
-        let tap_tree = TapTree::try_from(builder.clone())
-            .map_err(|e| PolicyError::Descriptor(format!("tap_tree: {e:?}")))?;
-        let spend_info = builder
-            .finalize(&secp, internal_key)
-            .map_err(|e| PolicyError::Descriptor(format!("finalize: {e:?}")))?;
-        let descriptor = format!(
-            "tr({},{{{},{{{},{{{},{}}}}}}})",
-            internal_key, ms_founder, ms_recovery, ms_inheritance, ms_protector
-        );
-        let miniscript_policy = format!(
-            "or({},or({},or({},{})))",
-            founder_thresh, recovery_branch, inheritance_branch, protector_branch
-        );
-        Ok(MultileafOutput {
-            spend_info,
-            tap_tree,
-            founder_leaf,
-            recovery_leaf: Some(ms_recovery.encode()),
-            inheritance_leaf: Some(ms_inheritance.encode()),
-            protector_leaf: Some(ms_protector.encode()),
-            second_inheritance_leaf: None,
-            descriptor,
-            miniscript_policy,
-            leaf_scripts: Vec::new(),
-            leaf_unlocks: Vec::new(),
-        })
-    } else if let Some((second_inheritance_branch, ms_second_inheritance)) = &second_inheritance {
-        // 4-leaf tree, no protector: founder(d1) / recovery(d2) /
-        // {inheritance, second_inheritance}(d3,d3) -- the exact same
-        // shape the protector-4-leaf case uses, with second_inheritance
-        // occupying the slot protector would.
+    if let Some((second_inheritance_branch, ms_second_inheritance)) = &second_inheritance {
+        // 4-leaf tree: founder(d1) / recovery(d2) /
+        // {inheritance, second_inheritance}(d3,d3).
         let builder = TaprootBuilder::new()
             .add_leaf(1, founder_leaf.clone())
             .map_err(|e| PolicyError::Descriptor(format!("leaf founders: {e:?}")))?
@@ -770,7 +648,6 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
             founder_leaf,
             recovery_leaf: Some(ms_recovery.encode()),
             inheritance_leaf: Some(ms_inheritance.encode()),
-            protector_leaf: None,
             second_inheritance_leaf: Some(ms_second_inheritance.encode()),
             descriptor,
             miniscript_policy,
@@ -804,7 +681,6 @@ pub fn build_multileaf(policy: &DynastyPolicy) -> Result<MultileafOutput, Policy
             founder_leaf,
             recovery_leaf: Some(ms_recovery.encode()),
             inheritance_leaf: Some(ms_inheritance.encode()),
-            protector_leaf: None,
             second_inheritance_leaf: None,
             descriptor,
             miniscript_policy,
@@ -1591,7 +1467,6 @@ pub fn build_leaf_multileaf(policy: &LeafPolicy) -> Result<MultileafOutput, Poli
         founder_leaf,
         recovery_leaf: None,
         inheritance_leaf: None,
-        protector_leaf: None,
         second_inheritance_leaf: None,
         descriptor,
         miniscript_policy: nest_or(&policy_strs),
@@ -1674,27 +1549,10 @@ fn build_policy_string(policy: &DynastyPolicy) -> String {
         format!("and(after({}),{})", policy.recovery_after, recovery_thresh)
     };
 
-    let base = format!(
+    format!(
         "or({},or({},{}))",
         founder_thresh, recovery_branch, inheritance_branch
-    );
-
-    if policy.has_protector() {
-        let protectors: Vec<String> = policy
-            .protector_keys
-            .iter()
-            .map(|k| format!("pk({k})"))
-            .collect();
-        let protector_branch = format!(
-            "and(after({}),thresh({},{}))",
-            policy.protector_after.unwrap(),
-            policy.protector_quorum.unwrap(),
-            protectors.join(",")
-        );
-        format!("or({},{})", base, protector_branch)
-    } else {
-        base
-    }
+    )
 }
 
 fn verify(policy: &DynastyPolicy) -> Result<(), PolicyError> {
@@ -1704,13 +1562,6 @@ fn verify(policy: &DynastyPolicy) -> Result<(), PolicyError> {
 
     if let Some(rq) = policy.recovery_quorum {
         if rq == 0 || rq > policy.founder_keys.len() {
-            return Err(PolicyError::InvalidQuorum);
-        }
-    }
-
-    if policy.has_protector() {
-        let pq = policy.protector_quorum.unwrap();
-        if pq == 0 || pq > policy.protector_keys.len() {
             return Err(PolicyError::InvalidQuorum);
         }
     }
@@ -1753,12 +1604,7 @@ fn verify(policy: &DynastyPolicy) -> Result<(), PolicyError> {
     // for "I need to move it myself right now," no third leaf at all.
     // heir_quorum/inheritance_after are irrelevant here (ignored, not
     // validated) since there's no inheritance leaf to apply them to.
-    // Protector doesn't fit this shape either -- it structurally sits
-    // between the middle leaf and inheritance, which doesn't exist.
     if !policy.wants_inheritance() && policy.has_backup() {
-        if policy.has_protector() {
-            return Err(PolicyError::ProtectorRequiresInheritance);
-        }
         if policy.has_second_inheritance() {
             return Err(PolicyError::SecondInheritanceRequiresInheritance);
         }
@@ -1771,10 +1617,6 @@ fn verify(policy: &DynastyPolicy) -> Result<(), PolicyError> {
 
     if policy.heir_quorum == 0 || policy.heir_quorum > policy.heir_keys.len() {
         return Err(PolicyError::InvalidQuorum);
-    }
-
-    if policy.has_protector() && !policy.has_middle_leaf() {
-        return Err(PolicyError::ProtectorRequiresRecovery);
     }
 
     if policy.has_recovery() {
@@ -1982,9 +1824,6 @@ mod multileaf_leaf_exposure_tests {
             pk("025cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc"),
         ]
     }
-    fn protectors() -> Vec<PublicKey> {
-        vec![pk("03acd484e2f0c7f65309ad178a9f559abde09796974c57e714c35f110dfc27ccbe")]
-    }
 
     fn base_policy() -> DynastyPolicy {
         DynastyPolicy {
@@ -1995,9 +1834,6 @@ mod multileaf_leaf_exposure_tests {
             heir_quorum: 2,
             recovery_after: 100_000,
             inheritance_after: 200_000,
-            protector_keys: vec![],
-            protector_quorum: None,
-            protector_after: None,
             consent_keys: vec![],
             consent_quorum: None,
             backup_keys: vec![],
@@ -2019,28 +1855,13 @@ mod multileaf_leaf_exposure_tests {
         let out = build_multileaf(&p).unwrap();
         assert!(out.recovery_leaf.is_none());
         assert!(out.inheritance_leaf.is_none());
-        assert!(out.protector_leaf.is_none());
     }
 
     #[test]
-    fn non_plain_policy_without_protector_exposes_recovery_and_inheritance() {
+    fn non_plain_policy_exposes_recovery_and_inheritance() {
         let out = build_multileaf(&base_policy()).unwrap();
         assert!(out.recovery_leaf.is_some(), "recovery leaf must be exposed");
         assert!(out.inheritance_leaf.is_some(), "inheritance leaf must be exposed");
-        assert!(out.protector_leaf.is_none(), "no protector configured");
-    }
-
-    #[test]
-    fn policy_with_protector_exposes_all_four_leaves() {
-        let mut p = base_policy();
-        p.protector_keys = protectors();
-        p.protector_quorum = Some(1);
-        p.protector_after = Some(150_000);
-        assert!(p.has_protector());
-        let out = build_multileaf(&p).unwrap();
-        assert!(out.recovery_leaf.is_some());
-        assert!(out.inheritance_leaf.is_some());
-        assert!(out.protector_leaf.is_some());
     }
 
     // The critical regression check: each exposed leaf must actually be
@@ -2050,10 +1871,7 @@ mod multileaf_leaf_exposure_tests {
     // entry for whichever path the caller intends to spend via.
     #[test]
     fn every_exposed_leaf_has_a_valid_control_block_against_the_same_tree() {
-        let mut p = base_policy();
-        p.protector_keys = protectors();
-        p.protector_quorum = Some(1);
-        p.protector_after = Some(150_000);
+        let p = base_policy();
         let out = build_multileaf(&p).unwrap();
 
         let script_ver = |s: &bitcoin::ScriptBuf| (s.clone(), bitcoin::taproot::LeafVersion::TapScript);
@@ -2072,12 +1890,6 @@ mod multileaf_leaf_exposure_tests {
                 .control_block(&script_ver(out.inheritance_leaf.as_ref().unwrap()))
                 .is_some(),
             "inheritance_leaf control block"
-        );
-        assert!(
-            out.spend_info
-                .control_block(&script_ver(out.protector_leaf.as_ref().unwrap()))
-                .is_some(),
-            "protector_leaf control block"
         );
     }
 }
@@ -2111,9 +1923,6 @@ mod backup_leaf_tests {
             pk("03fff97bd5755eeea420453a14355235d382f6472f8568a18b2f057a1460297556"),
         ]
     }
-    fn protectors() -> Vec<PublicKey> {
-        vec![pk("03acd484e2f0c7f65309ad178a9f559abde09796974c57e714c35f110dfc27ccbe")]
-    }
 
     fn backup_policy() -> DynastyPolicy {
         DynastyPolicy {
@@ -2124,9 +1933,6 @@ mod backup_leaf_tests {
             heir_quorum: 1,
             recovery_after: 0,
             inheritance_after: 200_000,
-            protector_keys: vec![],
-            protector_quorum: None,
-            protector_after: None,
             consent_keys: vec![],
             consent_quorum: None,
             backup_keys: backups(),
@@ -2227,39 +2033,7 @@ mod backup_leaf_tests {
         );
     }
 
-    #[test]
-    fn protector_can_sit_alongside_backup_in_the_same_tree_slot_arrangement() {
-        let mut p = backup_policy();
-        p.protector_keys = protectors();
-        p.protector_quorum = Some(1);
-        p.protector_after = Some(150_000);
-        assert!(p.has_protector());
-        let out = build_multileaf(&p).unwrap();
-        let script_ver = |s: &bitcoin::ScriptBuf| (s.clone(), bitcoin::taproot::LeafVersion::TapScript);
-        assert!(out.recovery_leaf.is_some());
-        assert!(out.inheritance_leaf.is_some());
-        assert!(out.protector_leaf.is_some());
-        assert!(
-            out.spend_info
-                .control_block(&script_ver(out.protector_leaf.as_ref().unwrap()))
-                .is_some(),
-            "protector must still get a valid control block with backup in the middle slot"
-        );
-    }
 
-    #[test]
-    fn protector_without_recovery_or_backup_is_still_rejected() {
-        let mut p = backup_policy();
-        p.backup_keys = vec![];
-        p.backup_quorum = None;
-        p.protector_keys = protectors();
-        p.protector_quorum = Some(1);
-        p.protector_after = Some(150_000);
-        match build_multileaf(&p) {
-            Err(PolicyError::ProtectorRequiresRecovery) => {}
-            other => panic!("expected ProtectorRequiresRecovery, got {other:?}"),
-        }
-    }
 
     // "Founders + backup only" -- the actual Tapit Circle shape: a
     // phone-verified circle for the easy case, the owner's own harder
@@ -2286,7 +2060,6 @@ mod backup_leaf_tests {
         let out = build_multileaf(&founders_and_backup_only_policy()).unwrap();
         assert!(out.recovery_leaf.is_some(), "backup occupies the recovery slot");
         assert!(out.inheritance_leaf.is_none(), "no third leaf at all in this shape");
-        assert!(out.protector_leaf.is_none());
     }
 
     #[test]
@@ -2309,17 +2082,6 @@ mod backup_leaf_tests {
         assert_eq!(out.descriptor.matches('}').count(), 1);
     }
 
-    #[test]
-    fn protector_is_rejected_on_a_backup_only_shape_with_no_inheritance() {
-        let mut p = founders_and_backup_only_policy();
-        p.protector_keys = protectors();
-        p.protector_quorum = Some(1);
-        p.protector_after = Some(150_000);
-        match build_multileaf(&p) {
-            Err(PolicyError::ProtectorRequiresInheritance) => {}
-            other => panic!("expected ProtectorRequiresInheritance, got {other:?}"),
-        }
-    }
 
     #[test]
     fn compiles_end_to_end_through_the_real_tr_multileaf_path() {
@@ -2366,9 +2128,6 @@ mod gift_locker_tests {
             heir_quorum: 1,
             recovery_after: 0,
             inheritance_after: 800_000,
-            protector_keys: vec![],
-            protector_quorum: None,
-            protector_after: None,
             consent_keys: vec![],
             consent_quorum: None,
             backup_keys: vec![],
@@ -2391,7 +2150,6 @@ mod gift_locker_tests {
         let out = build_multileaf(&gift_locker_policy()).unwrap();
         assert!(out.recovery_leaf.is_none(), "no separate recovery leaf in this shape");
         assert!(out.inheritance_leaf.is_some());
-        assert!(out.protector_leaf.is_none());
     }
 
     #[test]
@@ -2431,15 +2189,6 @@ mod gift_locker_tests {
         assert!(compiled.miniscript_policy.starts_with("or("));
     }
 
-    #[test]
-    fn protector_without_recovery_is_rejected() {
-        let mut p = gift_locker_policy();
-        p.protector_keys = vec![pk("03acd484e2f0c7f65309ad178a9f559abde09796974c57e714c35f110dfc27ccbe")];
-        p.protector_quorum = Some(1);
-        p.protector_after = Some(400_000);
-        let err = build_multileaf(&p).unwrap_err();
-        assert!(matches!(err, PolicyError::ProtectorRequiresRecovery));
-    }
 
     #[test]
     fn zero_inheritance_delay_with_no_recovery_is_rejected() {
@@ -2463,9 +2212,9 @@ mod gift_locker_tests {
 
 // Second, independent inheritance leaf (2026-08-11) -- a distinct heir
 // cohort with its own key set, quorum, and absolute timelock alongside
-// the primary inheritance leaf. Covers all four tree shapes it can
-// attach to: Gift Locker (3 leaves), standard no-protector (4 leaves),
-// protector (5 leaves), and the validation gates.
+// the primary inheritance leaf. Covers both tree shapes it can attach
+// to: Gift Locker (3 leaves), standard (4 leaves), and the validation
+// gates.
 #[cfg(test)]
 mod second_inheritance_tests {
     use super::*;
@@ -2489,9 +2238,6 @@ mod second_inheritance_tests {
             pk("02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9"),
         ]
     }
-    fn protectors() -> Vec<PublicKey> {
-        vec![pk("03acd484e2f0c7f65309ad178a9f559abde09796974c57e714c35f110dfc27ccbe")]
-    }
 
     fn standard_policy() -> DynastyPolicy {
         DynastyPolicy {
@@ -2502,9 +2248,6 @@ mod second_inheritance_tests {
             heir_quorum: 1,
             recovery_after: 100_000,
             inheritance_after: 200_000,
-            protector_keys: vec![],
-            protector_quorum: None,
-            protector_after: None,
             consent_keys: vec![],
             consent_quorum: None,
             backup_keys: vec![],
@@ -2524,9 +2267,6 @@ mod second_inheritance_tests {
         if let Some(l) = &out.inheritance_leaf {
             assert!(out.spend_info.control_block(&script_ver(l)).is_some(), "inheritance_leaf");
         }
-        if let Some(l) = &out.protector_leaf {
-            assert!(out.spend_info.control_block(&script_ver(l)).is_some(), "protector_leaf");
-        }
         if let Some(l) = &out.second_inheritance_leaf {
             assert!(out.spend_info.control_block(&script_ver(l)).is_some(), "second_inheritance_leaf");
         }
@@ -2545,7 +2285,6 @@ mod second_inheritance_tests {
         let out = build_multileaf(&standard_policy()).unwrap();
         assert!(out.recovery_leaf.is_some());
         assert!(out.inheritance_leaf.is_some());
-        assert!(out.protector_leaf.is_none());
         assert!(out.second_inheritance_leaf.is_some());
         all_control_blocks_valid(&out);
     }
@@ -2564,19 +2303,6 @@ mod second_inheritance_tests {
         all_control_blocks_valid(&out);
     }
 
-    #[test]
-    fn protector_shape_with_second_inheritance_exposes_five_leaves() {
-        let mut p = standard_policy();
-        p.protector_keys = protectors();
-        p.protector_quorum = Some(1);
-        p.protector_after = Some(150_000);
-        let out = build_multileaf(&p).unwrap();
-        assert!(out.recovery_leaf.is_some());
-        assert!(out.inheritance_leaf.is_some());
-        assert!(out.protector_leaf.is_some());
-        assert!(out.second_inheritance_leaf.is_some());
-        all_control_blocks_valid(&out);
-    }
 
     #[test]
     fn gift_locker_shape_with_second_inheritance_exposes_three_leaves() {
@@ -2736,9 +2462,6 @@ mod leaf_policy_tests {
             heir_quorum: 0,
             recovery_after: 0,
             inheritance_after: 0,
-            protector_keys: vec![],
-            protector_quorum: None,
-            protector_after: None,
             consent_keys: vec![],
             consent_quorum: None,
             backup_keys: vec![],
@@ -2782,9 +2505,6 @@ mod leaf_policy_tests {
             heir_quorum: 2,
             recovery_after: 100_000,
             inheritance_after: 200_000,
-            protector_keys: vec![],
-            protector_quorum: None,
-            protector_after: None,
             consent_keys: vec![],
             consent_quorum: None,
             backup_keys: vec![],
@@ -3198,9 +2918,6 @@ mod leaf_policy_tests {
     fn backups() -> Vec<PublicKey> {
         vec![pk("03acd484e2f0c7f65309ad178a9f559abde09796974c57e714c35f110dfc27ccbe")]
     }
-    fn protectors() -> Vec<PublicKey> {
-        vec![pk("02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9")]
-    }
     fn second_heirs() -> Vec<PublicKey> {
         vec![pk("03fff97bd5755eeea420453a14355235d382f6472f8568a18b2f057a1460297556")]
     }
@@ -3215,9 +2932,6 @@ mod leaf_policy_tests {
             heir_quorum: 0,
             recovery_after: 0,
             inheritance_after: 0,
-            protector_keys: vec![],
-            protector_quorum: None,
-            protector_after: None,
             consent_keys: vec![],
             consent_quorum: None,
             backup_keys: backups(),
@@ -3272,9 +2986,6 @@ mod leaf_policy_tests {
             heir_quorum: 2,
             recovery_after: 0,
             inheritance_after: 200_000,
-            protector_keys: vec![],
-            protector_quorum: None,
-            protector_after: None,
             consent_keys: vec![],
             consent_quorum: None,
             backup_keys: vec![],
@@ -3328,9 +3039,6 @@ mod leaf_policy_tests {
             heir_quorum: 2,
             recovery_after: 0,
             inheritance_after: 200_000,
-            protector_keys: vec![],
-            protector_quorum: None,
-            protector_after: None,
             consent_keys: vec![],
             consent_quorum: None,
             backup_keys: vec![],
@@ -3386,177 +3094,7 @@ mod leaf_policy_tests {
         assert_eq!(new_out.spend_info.output_key(), old_out.spend_info.output_key());
     }
 
-    #[test]
-    fn protector_shape_produces_byte_identical_leaves_to_the_named_branch_path() {
-        let old = DynastyPolicy {
-            founder_keys: founders(),
-            founder_quorum: 2,
-            recovery_quorum: None,
-            heir_keys: heirs(),
-            heir_quorum: 2,
-            recovery_after: 100_000,
-            inheritance_after: 200_000,
-            protector_keys: protectors(),
-            protector_quorum: Some(1),
-            protector_after: Some(150_000),
-            consent_keys: vec![],
-            consent_quorum: None,
-            backup_keys: vec![],
-            backup_quorum: None,
-            second_heir_keys: vec![],
-            second_heir_quorum: None,
-            second_inheritance_after: None,
-        };
-        let old_out = build_multileaf(&old).unwrap();
 
-        let new_policy = LeafPolicy {
-            leaves: vec![
-                Leaf {
-                    id: "primary".into(),
-                    label: "Founders".into(),
-                    keys: founders(),
-                    quorum: 2,
-                    unlock: Unlock::Immediate,
-                    decay: None,
-                },
-                Leaf {
-                    id: "recovery".into(),
-                    label: "Recovery".into(),
-                    keys: founders(),
-                    quorum: 2,
-                    unlock: Unlock::After { blocks: 100_000 },
-                    decay: None,
-                },
-                Leaf {
-                    id: "inheritance".into(),
-                    label: "Inheritance".into(),
-                    keys: heirs(),
-                    quorum: 2,
-                    unlock: Unlock::After { blocks: 200_000 },
-                    decay: None,
-                },
-                Leaf {
-                    id: "protector".into(),
-                    label: "Protector".into(),
-                    keys: protectors(),
-                    quorum: 1,
-                    unlock: Unlock::After { blocks: 150_000 },
-                    decay: None,
-                },
-            ],
-            consent_keys: vec![],
-            consent_quorum: None,
-        };
-        let new_out = build_leaf_multileaf(&new_policy).unwrap();
-
-        assert_eq!(new_out.founder_leaf, old_out.founder_leaf);
-        assert_eq!(
-            new_out.leaf_scripts.iter().find(|(id, _)| id == "recovery").map(|(_, s)| s.clone()),
-            old_out.recovery_leaf,
-        );
-        assert_eq!(
-            new_out.leaf_scripts.iter().find(|(id, _)| id == "inheritance").map(|(_, s)| s.clone()),
-            old_out.inheritance_leaf,
-        );
-        assert_eq!(
-            new_out.leaf_scripts.iter().find(|(id, _)| id == "protector").map(|(_, s)| s.clone()),
-            old_out.protector_leaf,
-        );
-        assert_eq!(new_out.descriptor, old_out.descriptor);
-        assert_eq!(new_out.spend_info.output_key(), old_out.spend_info.output_key());
-    }
-
-    #[test]
-    fn protector_with_second_inheritance_produces_byte_identical_leaves_to_the_named_branch_path() {
-        let old = DynastyPolicy {
-            founder_keys: founders(),
-            founder_quorum: 2,
-            recovery_quorum: None,
-            heir_keys: heirs(),
-            heir_quorum: 2,
-            recovery_after: 100_000,
-            inheritance_after: 200_000,
-            protector_keys: protectors(),
-            protector_quorum: Some(1),
-            protector_after: Some(150_000),
-            consent_keys: vec![],
-            consent_quorum: None,
-            backup_keys: vec![],
-            backup_quorum: None,
-            second_heir_keys: second_heirs(),
-            second_heir_quorum: Some(1),
-            second_inheritance_after: Some(300_000),
-        };
-        let old_out = build_multileaf(&old).unwrap();
-
-        let new_policy = LeafPolicy {
-            leaves: vec![
-                Leaf {
-                    id: "primary".into(),
-                    label: "Founders".into(),
-                    keys: founders(),
-                    quorum: 2,
-                    unlock: Unlock::Immediate,
-                    decay: None,
-                },
-                Leaf {
-                    id: "recovery".into(),
-                    label: "Recovery".into(),
-                    keys: founders(),
-                    quorum: 2,
-                    unlock: Unlock::After { blocks: 100_000 },
-                    decay: None,
-                },
-                Leaf {
-                    id: "inheritance".into(),
-                    label: "Inheritance".into(),
-                    keys: heirs(),
-                    quorum: 2,
-                    unlock: Unlock::After { blocks: 200_000 },
-                    decay: None,
-                },
-                Leaf {
-                    id: "protector".into(),
-                    label: "Protector".into(),
-                    keys: protectors(),
-                    quorum: 1,
-                    unlock: Unlock::After { blocks: 150_000 },
-                    decay: None,
-                },
-                Leaf {
-                    id: "second_inheritance".into(),
-                    label: "Second inheritance".into(),
-                    keys: second_heirs(),
-                    quorum: 1,
-                    unlock: Unlock::After { blocks: 300_000 },
-                    decay: None,
-                },
-            ],
-            consent_keys: vec![],
-            consent_quorum: None,
-        };
-        let new_out = build_leaf_multileaf(&new_policy).unwrap();
-
-        assert_eq!(new_out.founder_leaf, old_out.founder_leaf);
-        assert_eq!(
-            new_out.leaf_scripts.iter().find(|(id, _)| id == "recovery").map(|(_, s)| s.clone()),
-            old_out.recovery_leaf,
-        );
-        assert_eq!(
-            new_out.leaf_scripts.iter().find(|(id, _)| id == "inheritance").map(|(_, s)| s.clone()),
-            old_out.inheritance_leaf,
-        );
-        assert_eq!(
-            new_out.leaf_scripts.iter().find(|(id, _)| id == "protector").map(|(_, s)| s.clone()),
-            old_out.protector_leaf,
-        );
-        assert_eq!(
-            new_out.leaf_scripts.iter().find(|(id, _)| id == "second_inheritance").map(|(_, s)| s.clone()),
-            old_out.second_inheritance_leaf,
-        );
-        assert_eq!(new_out.descriptor, old_out.descriptor);
-        assert_eq!(new_out.spend_info.output_key(), old_out.spend_info.output_key());
-    }
 
     #[test]
     fn second_inheritance_without_protector_produces_byte_identical_leaves_to_the_named_branch_path() {
@@ -3568,9 +3106,6 @@ mod leaf_policy_tests {
             heir_quorum: 2,
             recovery_after: 100_000,
             inheritance_after: 200_000,
-            protector_keys: vec![],
-            protector_quorum: None,
-            protector_after: None,
             consent_keys: vec![],
             consent_quorum: None,
             backup_keys: vec![],

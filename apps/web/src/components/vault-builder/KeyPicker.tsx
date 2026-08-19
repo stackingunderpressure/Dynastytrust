@@ -25,7 +25,7 @@ export const selectStyle: CSSProperties = {
 // its parent/kid roles). The role-initial badge is now derived from
 // `role` generically instead of a hardcoded founder/heir ('F'/'H') check,
 // so it reads correctly for every role this app has (founder, heir,
-// protector, consent, parent, kid).
+// consent, parent, kid).
 export function KeyPicker({
   selected,
   available,

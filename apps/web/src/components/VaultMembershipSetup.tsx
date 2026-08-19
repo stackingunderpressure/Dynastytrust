@@ -28,11 +28,11 @@ import { NostrRelaySettings } from './NostrRelaySettings';
  *
  * 2026-08-11 fix: this used to only ever look at founder_keys and always
  * send role: 'founder' -- a Tapit key sitting in any other role (heir,
- * protector, backup, consent) silently got no way to request membership
- * at all. Tapit's own receiving side (vaultTrail.ts) never restricted
- * role to a fixed set in the first place, so the restriction was purely
- * an artifact of this component's own construction, not anything the
- * protocol needed. Now scans all five of a vault's key arrays and sends
+ * backup, consent) silently got no way to request membership at all.
+ * Tapit's own receiving side (vaultTrail.ts) never restricted role to a
+ * fixed set in the first place, so the restriction was purely an
+ * artifact of this component's own construction, not anything the
+ * protocol needed. Now scans every one of a vault's key arrays and sends
  * each Tapit-origin key found the correct role for whichever array it's
  * actually in.
  *
@@ -54,7 +54,6 @@ import { NostrRelaySettings } from './NostrRelaySettings';
 const ROLE_LABELS: Record<VaultMembershipRole, string> = {
   founder: 'Founder',
   heir: 'Heir',
-  protector: 'Protector',
   backup: 'Backup',
   consent: 'Consent',
   second_heir: 'Second heir',
@@ -93,7 +92,6 @@ export function VaultMembershipSetup({
   vaultName,
   founderKeys,
   heirKeys,
-  protectorKeys,
   backupKeys,
   consentKeys,
   secondHeirKeys,
@@ -106,7 +104,6 @@ export function VaultMembershipSetup({
   vaultName: string;
   founderKeys: string[];
   heirKeys: string[];
-  protectorKeys: string[];
   backupKeys: string[];
   consentKeys: string[];
   secondHeirKeys: string[];
@@ -241,7 +238,6 @@ export function VaultMembershipSetup({
   const roleArrays: [VaultMembershipRole, string[]][] = [
     ['founder', founderKeys],
     ['heir', heirKeys],
-    ['protector', protectorKeys],
     ['backup', backupKeys],
     ['consent', consentKeys],
     ['second_heir', secondHeirKeys],

@@ -65,11 +65,6 @@ export interface Vault {
   inheritance_after: number;
   founder_keys: string[];
   heir_keys: string[];
-  /** Protector branch: optional fourth path in the Taproot tree.
-   *  Empty = not configured. */
-  protector_keys: string[];
-  protector_quorum: number | null;
-  protector_after: number | null;
   /** Beneficiary-consent gate on Path 1. Every normal spend requires
    *  trustees AND this many beneficiary signatures. The timelocked
    *  paths ignore consent -- they exist to rescue funds when a
@@ -119,8 +114,8 @@ export interface Vault {
    *  not a separate type column, is the discriminator (023_bloc_vaults.sql). */
   bloc_policy: BlocPolicy | null;
   /** Hex-encoded tapscript leaf bytes per role ("founders_now",
-   *  "recovery" OR "backup" -- mutually exclusive, "inheritance",
-   *  "protector"), populated by the compiler
+   *  "recovery" OR "backup" -- mutually exclusive, "inheritance"),
+   *  populated by the compiler
    *  for a tr_multileaf vault only (026_leaf_scripts.sql). This is the
    *  source data for minting a vault-membership attestation (Cut C3,
    *  circle-membership-delivery.ts) -- what proves to a Tapit circle
@@ -542,9 +537,6 @@ export const api = {
       inheritance_after?: number;
       founder_keys?: string[];
       heir_keys?: string[];
-      protector_keys?: string[];
-      protector_quorum?: number | null;
-      protector_after?: number | null;
       consent_keys?: string[];
       consent_quorum?: number | null;
       /** TOS version the user accepted. Server writes a
@@ -613,8 +605,6 @@ export const api = {
       recovery_quorum?: number | null;
       recovery_after?: number;
       inheritance_after?: number;
-      protector_quorum?: number | null;
-      protector_after?: number | null;
       consent_quorum?: number | null;
       backup_quorum?: number | null;
       second_heir_quorum?: number | null;
@@ -633,7 +623,6 @@ export const api = {
     compile: (vault_id: string, direct_keys?: {
       founder_keys?: { pubkey: string; xpub: string; fingerprint: string; derivation_path: string }[];
       heir_keys?: { pubkey: string; xpub: string; fingerprint: string; derivation_path: string }[];
-      protector_keys?: { pubkey: string; xpub: string; fingerprint: string; derivation_path: string }[];
       consent_keys?: { pubkey: string; xpub: string; fingerprint: string; derivation_path: string }[];
       backup_keys?: { pubkey: string; xpub: string; fingerprint: string; derivation_path: string }[];
       second_heir_keys?: { pubkey: string; xpub: string; fingerprint: string; derivation_path: string }[];
@@ -696,7 +685,6 @@ export const api = {
         name?: string;
         recovery_after?: number;
         inheritance_after?: number;
-        protector_after?: number;
         founder_quorum?: number;
         heir_quorum?: number;
         recovery_quorum?: number | null;
@@ -785,9 +773,6 @@ export const api = {
     heir_quorum: number;
     recovery_after: number;
     inheritance_after: number;
-    protector_keys?: string[];
-    protector_quorum?: number | null;
-    protector_after?: number | null;
     consent_keys?: string[];
     consent_quorum?: number | null;
     save?: boolean;
@@ -803,7 +788,6 @@ export const api = {
     absolute_timelocks?: {
       recovery_after: number;
       inheritance_after: number;
-      protector_after: number;
       tip_height: number;
     };
   }>('/compile', {
@@ -1406,13 +1390,10 @@ export const api = {
             recovery_quorum: number | null;
             recovery_after: number;
             inheritance_after: number;
-            protector_quorum: number | null;
-            protector_after: number | null;
             consent_quorum: number | null;
             trust_doc: TrustDoc;
             founder_count: number;
             heir_count: number;
-            protector_count: number;
             consent_count: number;
             planned_founder_count: number | null;
             planned_heir_count: number | null;

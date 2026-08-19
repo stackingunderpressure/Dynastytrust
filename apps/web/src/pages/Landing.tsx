@@ -226,7 +226,7 @@ function Pillars() {
     },
     {
       title: 'Role-aware governance',
-      body: 'Trustees see the signing queue. Beneficiaries see their distributions and timelock countdowns. Protectors see what they need to act on. Successors see time-to-inheritance. One vault, five views -- the same way a real trust works.',
+      body: 'Trustees see the signing queue. Beneficiaries see their distributions and timelock countdowns. Successors see time-to-inheritance. One vault, several views -- the same way a real trust works.',
     },
     {
       title: 'Built for exit',
