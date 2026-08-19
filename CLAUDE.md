@@ -516,6 +516,34 @@ See `Stack` above for the layout.
    doesn't custody funds or manage a user's unrelated UTXOs, so the actual
    send stays a human action in their own wallet, same boundary every
    other send flow here respects.
+8. **PDF / audit / tax exports don't know about the custom leaf-list vault
+   shape.** Confirmed by grep, not yet fixed: `netlify/functions/
+   vault-pdf.js`, `vault-audit-pdf.js`, and `vault-tax-summary.js` all read
+   `vault.founder_keys` / `vault.heir_keys` / `vault.founder_quorum` /
+   `vault.heir_quorum` directly and have no branch for the generic
+   `vault.leaves` array at all. For any vault built through the custom
+   leaf-list builder (`compile-leaves.js`) -- including the new Revocable
+   living trust shape below -- every one of these documents currently
+   renders wrong or empty numbers ("0 of 0 founder signatures required")
+   instead of failing loudly. That is a legal/compliance document that
+   looks legitimate and lies. Flagged honestly rather than fixed silently
+   or left unmentioned; needs its own pass reading `vault.leaves`
+   generically before any generic-shape vault, including a living trust,
+   should be handed to a lawyer or filed for tax purposes.
+9. **Vault-membership circle invites don't work at all for the custom
+   leaf-list vault shape.** `apps/web/src/lib/circle-membership-delivery.ts`
+   and `apps/web/src/lib/tapit-circle-members.ts` are hard-wired to the
+   named-field vault shape (`founder_keys` / `heir_keys` / a `leaf_scripts`
+   map keyed by fixed names like "recovery"/"inheritance"). `compile-
+   leaves.js` (the generic leaf-list compiler) doesn't even populate
+   `leaf_scripts` in its `select`/`update` statements, unlike `vaults-
+   compile.js`. Net effect: a vault built with the custom leaf-list
+   builder -- including the new Revocable living trust shape -- cannot
+   have circle members invited to it over Tapit's encrypted-messaging
+   pipeline at all right now. Needs `compile-leaves.js` to emit
+   `leaf_scripts` (or an equivalent generic form) and both membership
+   files updated to read the `leaves` array before this works for any
+   custom-shape vault.
 
 **Next roadmap (captured 2026-04-18, post audit-fix push):**
 
@@ -551,6 +579,47 @@ on descriptor compile + single-source tree builder. Next phase is the trust
    is higher in the trust layer.
 
 **Recently closed:**
+
+- **Revocable living trust shape + trust-wording toggle + trust-doc
+  generation for the custom leaf-list builder (2026-08-19).** Operator
+  asked, after the custom leaf-list builder shipped, whether the "heart of
+  the trust part" -- lawyer docs, the judicial-system side, membership
+  invites over encrypted messaging -- had kept pace with it. Grounding
+  confirmed two real gaps (now items 8 and 9 in Open gaps above, left
+  open and documented rather than fixed silently or ignored per the
+  operator's explicit instruction to "be honest about where we haven't
+  found where we go"). Also built what the operator asked for as the
+  positive half of that same request, both options rather than picking
+  one: (1) a new "Revocable living trust" entry in `VaultWizard.tsx`'s
+  `LEAF_SHAPE_TABS` -- the most common US estate-planning trust, mapped
+  onto three existing leaf primitives with trust-terminology labels:
+  Grantor(s) (immediate), Successor Trustee incapacity backstop (the
+  existing `older()` self-refreshing pattern, with copy that says plainly
+  this is a proxy for a real incapacity determination, not the same
+  thing, and that a real determination should be handled by a deliberate
+  `vaults-rotate.js` handoff rather than waiting out the on-chain clock),
+  and Successor Trustee distributing to Beneficiaries (a longer `after()`
+  leaf). (2) A separate, complementary "Use trust wording" checkbox
+  (`applyTrustLabels` in `VaultWizard.tsx`) that relabels whichever paths
+  an operator has already hand-built with the same Grantor / Successor
+  Trustee / Beneficiary terms, based on each path's own timing (immediate
+  -> Grantor, "if untouched" -> incapacity backstop, longest `after()` ->
+  distribution to Beneficiaries) rather than which shape tab was used --
+  reversible, since toggling it off restores the labels captured right
+  before it was turned on. (3) The actual missing connection: the
+  leaf-list compile path in `VaultWizard.tsx`'s `runCompile` had a
+  comment explaining why it left the generated trust doc blank ("no
+  template to draw from the way Standard/Bloc do") -- that comment was
+  wrong, there was a template to write, it just hadn't been written yet.
+  `apps/web/src/lib/trust-doc.ts` gained `buildLeavesTrustDoc`, generating
+  real purpose/distribution-rules/succession-notes prose from each path's
+  actual mechanics (quorum, key count, immediate/after/older timing, decay
+  ladder), the same way `buildStandardTrustDoc`/`buildBlocTrustDoc` already
+  do for the other two shapes -- wired into the same `saveGeneratedTrustDoc`
+  call every other vault shape already uses, so every vault built through
+  the custom builder, living-trust-shaped or not, now gets a real starting
+  trust doc instead of a permanently blank one. All four gates run before
+  commit.
 
 - **Legacy Recovery: stale-seal detection (2026-08-20).** Operator, thinking
   through a 20-year-out edge case: a vault gets recompiled (same leaf shape,

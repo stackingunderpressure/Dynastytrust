@@ -14,7 +14,7 @@ import { keyNetworkMatches } from '../lib/network';
 import { blocksToHuman, TIMELOCK_PRESETS } from '../lib/blocks';
 import { approxWallclockDate, blocksUntilDate } from '../lib/chain';
 import { type StandardConfig, type BlocConfig } from '../lib/vault-templates';
-import { buildStandardTrustDoc, buildBlocTrustDoc } from '../lib/trust-doc';
+import { buildStandardTrustDoc, buildBlocTrustDoc, buildLeavesTrustDoc } from '../lib/trust-doc';
 import type { LeafSpec, LeafUnlock } from '../lib/api';
 import { colors, radii } from '../theme';
 import { Button, Input, Card, Field } from '../components/ui';
@@ -210,7 +210,44 @@ const LEAF_SHAPE_TABS: LeafShapeTab[] = [
       { ...defaultSecondaryLeaf('Ultimate recovery'), plannedKeys: 1, quorum: 1, unlockType: 'after', afterBlocks: 1_051_200 },
     ],
   },
+  {
+    id: 'revocable-living-trust',
+    title: 'Revocable living trust',
+    why: 'The most common estate-planning trust used in US courts, mapped onto this vault. The Grantor(s) can spend at any time -- no waiting, and "revocable" means they can change or unwind the whole arrangement whenever they want by simply building a new vault. If the Grantor(s) go quiet for a stretch, a Successor Trustee path opens as an incapacity backstop -- but going quiet on-chain is only ever a stand-in for a real incapacity determination (a doctor\'s letter, whatever process the actual trust document names), not the same thing. Treat it as a safety net, and hand off deliberately -- rotating the vault to the Successor Trustee\'s own keys -- the moment a real determination is made, rather than waiting out the on-chain clock. A third path lets the Successor Trustee distribute to the Beneficiaries after a much longer wait with no activity at all -- again a backstop for "everyone with day-to-day keys is provably gone," not a substitute for administering the trust properly once a death certificate exists. Turn on "Use trust wording" below to also relabel any paths you hand-build with these same terms.',
+    group: 'main',
+    build: () => [
+      { ...defaultPrimaryLeaf(), label: 'Grantor(s)' },
+      { ...defaultSecondaryLeaf('Successor Trustee (incapacity backstop)'), unlockType: 'older', olderBlocks: MAX_RELATIVE_BLOCKS },
+      { ...defaultSecondaryLeaf('Successor Trustee distributes to Beneficiaries'), unlockType: 'after', afterBlocks: 157_680 },
+    ],
+  },
 ];
+
+// Complementary to the shape tabs above: relabels whatever paths the
+// operator has already built with formal trust terminology (Grantor /
+// Successor Trustee / Beneficiary), independent of which shape got them
+// there or whether the Revocable living trust tab was ever used. Ordering
+// and timing based, not shape-aware -- every "right away" path reads as a
+// Grantor, an "if untouched" path reads as an incapacity backstop, and
+// "after a fixed date" paths read as Successor Trustee paths, with the
+// longest wait specifically named as the distribution to Beneficiaries.
+function applyTrustLabels(leaves: LeafDraft[]): LeafDraft[] {
+  const immediate = leaves.filter(l => l.unlockType === 'immediate');
+  const older = leaves.filter(l => l.unlockType === 'older');
+  const after = leaves.filter(l => l.unlockType === 'after').slice().sort((a, b) => a.afterBlocks - b.afterBlocks);
+
+  const labelFor = new Map<string, string>();
+  immediate.forEach((l, i) => labelFor.set(l.id, immediate.length > 1 ? `Grantor(s), path ${i + 1}` : 'Grantor(s)'));
+  older.forEach((l, i) => labelFor.set(l.id, older.length > 1 ? `Successor Trustee (if quiet for a while), path ${i + 1}` : 'Successor Trustee (if quiet for a while)'));
+  after.forEach((l, i) => {
+    const isLast = i === after.length - 1;
+    labelFor.set(l.id, isLast
+      ? 'Successor Trustee distributes to Beneficiaries'
+      : after.length > 2 ? `Successor Trustee (recovery, path ${i + 1})` : 'Successor Trustee (recovery)');
+  });
+
+  return leaves.map(l => (labelFor.has(l.id) ? { ...l, label: labelFor.get(l.id)! } : l));
+}
 
 const DEFAULT_STANDARD_CONFIG: StandardConfig = {
   mode: 'inheritance',
@@ -672,12 +709,14 @@ export default function VaultWizard() {
         const origins = buildKeyOrigins(allLeafKeys);
         const upgraded = res.vault.descriptor ? upgradeDescriptor(res.vault.descriptor, origins) : res.vault.descriptor;
         setCompiledVault({ ...res.vault, descriptor: upgraded });
-        // Trust-doc auto-generation for an arbitrary, operator-shaped
-        // path list has no template to draw from the way the standard
-        // and Bloc shapes do (buildStandardTrustDoc/buildBlocTrustDoc) --
-        // left blank for the owner to fill in from the Trust tab, same
-        // as saveGeneratedTrustDoc's own no-op path for a vault that
-        // already has content.
+        void saveGeneratedTrustDoc(res.vault.id, buildLeavesTrustDoc({
+          vaultName: name,
+          leaves: enabled.map(l => ({
+            label: l.label, plannedKeys: l.plannedKeys, quorum: l.quorum, unlockType: l.unlockType,
+            afterBlocks: l.afterBlocks, olderBlocks: l.olderBlocks,
+            decayEnabled: l.decayEnabled, decayFloorQ: l.decayFloorQ,
+          })),
+        }));
       } else {
         const res = await api.vaults.compileBloc({
           vault_id: draftVault.id,
@@ -1296,6 +1335,12 @@ function LeavesConfigureFields({
   dirty: boolean; setDirty: (b: boolean) => void;
 }) {
   const [pendingTab, setPendingTab] = useState<string | null>(null);
+  // Reversible: switching this on snapshots the labels as they stood so
+  // switching back off restores them. A path added after turning it on
+  // has no snapshot entry and just keeps whatever label it was given --
+  // an honest, minor limitation rather than something worth over-engineering.
+  const [trustLabeled, setTrustLabeled] = useState(false);
+  const [preTrustLabels, setPreTrustLabels] = useState<Record<string, string> | null>(null);
   const secondaries = leafDrafts.slice(1);
   const activeTabInfo = LEAF_SHAPE_TABS.find(t => t.id === activeTab);
   const hasImmediate = leafDrafts.some(l => l.enabled && l.unlockType === 'immediate');
@@ -1308,6 +1353,22 @@ function LeavesConfigureFields({
     setActiveTab(tab.id);
     setDirty(false);
     setPendingTab(null);
+    setTrustLabeled(tab.id === 'revocable-living-trust');
+    setPreTrustLabels(null);
+  }
+
+  function toggleTrustLabels(next: boolean) {
+    if (next) {
+      const snapshot: Record<string, string> = {};
+      leafDrafts.forEach(l => { snapshot[l.id] = l.label; });
+      setPreTrustLabels(snapshot);
+      setLeafDrafts(list => applyTrustLabels(list));
+    } else if (preTrustLabels) {
+      setLeafDrafts(list => list.map(l => (preTrustLabels[l.id] != null ? { ...l, label: preTrustLabels[l.id] } : l)));
+      setPreTrustLabels(null);
+    }
+    setTrustLabeled(next);
+    setDirty(true);
   }
 
   function updateLeaf(id: string, fn: (l: LeafDraft) => LeafDraft) {
@@ -1366,6 +1427,29 @@ function LeavesConfigureFields({
             </div>
           </div>
         )}
+      </Card>
+
+      <Card>
+        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={trustLabeled}
+            onChange={e => toggleTrustLabels(e.target.checked)}
+            style={{ width: 18, height: 18, marginTop: 2, flexShrink: 0 }}
+          />
+          <span>
+            <span style={{ fontSize: 14, fontWeight: 600, color: colors.text, display: 'block' }}>
+              Use trust wording (Grantor / Successor Trustee / Beneficiary)
+            </span>
+            <span style={{ fontSize: 12, color: colors.sub, lineHeight: 1.5, display: 'block', marginTop: 4 }}>
+              Relabels the paths below with formal trust terminology, no matter which shape you started
+              from -- a right-away path reads as the Grantor(s), an "if untouched" path reads as an
+              incapacity backstop, and the longest "after a fixed date" path reads as the Successor
+              Trustee distributing to Beneficiaries. Turning this off restores the labels you had before.
+              Rename any individual path below at any time regardless of this setting.
+            </span>
+          </span>
+        </label>
       </Card>
 
       {hasImmediate ? null : (
