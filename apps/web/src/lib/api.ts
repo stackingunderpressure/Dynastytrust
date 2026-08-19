@@ -1559,6 +1559,16 @@ export const api = {
       }),
   },
 
+  /** The Tapit wallet bound to the current account, if any -- read side of
+   *  wallet-link.js's POST binding (2026-08-19, operator: "not showing back
+   *  up in dynasty and frankly no where for it to be"). */
+  walletLink: {
+    get: () =>
+      req<{ ok: true; pubkey: string | null; bound_at: string | null }>(`/wallet-link`),
+    unlink: () =>
+      req<{ ok: true }>(`/wallet-link`, { method: 'DELETE' }),
+  },
+
   attestations: {
     list: (vault_id: string, type?: AttestationType) => {
       const qs = type ? `&type=${type}` : '';
