@@ -27,6 +27,9 @@
 
 import {
   deriveLegacyLockBytes,
+  deriveLegacyLockBytesFromSignature,
+  legacyUnlockMessage,
+  parseUnlockSignature,
   recoverViaFastPath,
   recoverViaFallbackPath,
   unsealBundle,
@@ -77,6 +80,39 @@ async function runFastPath(): Promise<void> {
   }
 }
 
+async function runFastPathSignature(): Promise<void> {
+  try {
+    const vaultId = ($('fs-vault-id') as HTMLInputElement).value.trim();
+    const keyRole = ($('fs-key-role') as HTMLInputElement).value.trim();
+    const signatureRaw = ($('fs-signature') as HTMLTextAreaElement).value.trim();
+    const lockedFastShare = unb64(($('fs-locked-share') as HTMLTextAreaElement).value.trim());
+    const onChainShare = unb64(($('fs-onchain-share') as HTMLTextAreaElement).value.trim());
+    const nonceB64 = ($('fs-nonce') as HTMLInputElement).value.trim();
+    const ciphertextB64 = ($('fs-ciphertext') as HTMLTextAreaElement).value.trim();
+
+    if (!vaultId || !keyRole || !signatureRaw || !nonceB64 || !ciphertextB64) {
+      showResult('Fill in every field above before recovering.', true);
+      return;
+    }
+
+    const signature = parseUnlockSignature(signatureRaw);
+    const lockBytes = deriveLegacyLockBytesFromSignature(signature, vaultId, keyRole);
+    const secret = recoverViaFastPath(lockedFastShare, lockBytes, onChainShare);
+    const sealed: SealedBundle = { version: 1, nonceB64, ciphertextB64 };
+    const bundle = await unsealBundle(sealed, secret);
+    showResult(bundle, false);
+  } catch (e) {
+    showResult(`Recovery failed: ${e instanceof Error ? e.message : String(e)}`, true);
+  }
+}
+
+function updateFastPathSignatureMessage(): void {
+  const vaultId = ($('fs-vault-id') as HTMLInputElement).value.trim();
+  const keyRole = ($('fs-key-role') as HTMLInputElement).value.trim();
+  ($('fs-message') as HTMLTextAreaElement).value =
+    vaultId && keyRole ? legacyUnlockMessage(vaultId, keyRole) : '(fill in the vault ID and role above)';
+}
+
 async function runFallbackPath(): Promise<void> {
   try {
     const mnemonicA = ($('fb-mnemonic-a') as HTMLTextAreaElement).value.trim();
@@ -110,16 +146,23 @@ async function runFallbackPath(): Promise<void> {
   }
 }
 
-function switchTab(which: 'fast' | 'fallback'): void {
+function switchTab(which: 'fast' | 'fast-sig' | 'fallback'): void {
   $('panel-fast').style.display = which === 'fast' ? 'block' : 'none';
+  $('panel-fast-sig').style.display = which === 'fast-sig' ? 'block' : 'none';
   $('panel-fallback').style.display = which === 'fallback' ? 'block' : 'none';
   $('tab-fast').setAttribute('aria-selected', String(which === 'fast'));
+  $('tab-fast-sig').setAttribute('aria-selected', String(which === 'fast-sig'));
   $('tab-fallback').setAttribute('aria-selected', String(which === 'fallback'));
 }
 
 window.addEventListener('DOMContentLoaded', () => {
   $('tab-fast').addEventListener('click', () => switchTab('fast'));
+  $('tab-fast-sig').addEventListener('click', () => switchTab('fast-sig'));
   $('tab-fallback').addEventListener('click', () => switchTab('fallback'));
   $('fp-run').addEventListener('click', () => { void runFastPath(); });
+  $('fs-run').addEventListener('click', () => { void runFastPathSignature(); });
   $('fb-run').addEventListener('click', () => { void runFallbackPath(); });
+  $('fs-vault-id').addEventListener('input', updateFastPathSignatureMessage);
+  $('fs-key-role').addEventListener('input', updateFastPathSignatureMessage);
+  updateFastPathSignatureMessage();
 });

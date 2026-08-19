@@ -4,7 +4,7 @@ import { api, type Vault } from '../lib/api';
 import { listKeys, revealMnemonic, type LocalKey } from '../lib/keystore';
 import { sealVaultLegacyRecovery, vaultNetworkToKeystoreNetwork } from '../lib/legacy-seal';
 import { unb64 } from '../lib/legacy-recovery';
-import { vaultBackupText } from '../lib/descriptor-backup';
+import { vaultBackupText, downloadLegacyRecoveryPackage } from '../lib/descriptor-backup';
 import { p2wpkhAddressForPubkey, buildAndSignPublishTx, type BuiltPublishTx } from '../lib/onchain-publish';
 import { explorerTxUrl, broadcastTxUrl, EXPLORER } from '../config';
 import { colors, fonts, radii, space } from '../theme';
@@ -29,6 +29,8 @@ interface RoleSlot {
   label: string;      // e.g. "Founder 1"
 }
 
+type LegacyShare = Awaited<ReturnType<typeof api.legacy.get>>['shares'][number];
+
 function rolesForVault(vault: Vault): RoleSlot[] {
   const slots: RoleSlot[] = [];
   vault.founder_keys.forEach((_, i) => slots.push({ role: `founder_${i + 1}`, label: `Founder ${i + 1}` }));
@@ -47,6 +49,11 @@ export default function LegacyRecoverySetup() {
   const [loading, setLoading] = useState(true);
   const [sealing, setSealing] = useState(false);
   const [existingShareRoles, setExistingShareRoles] = useState<Set<string>>(new Set());
+  // Full per-role share content + the sealed bundle -- kept around (not
+  // just the role-name Set above) so "Download recovery package" can
+  // build a self-contained takeaway file without a second round trip.
+  const [shares, setShares] = useState<LegacyShare[]>([]);
+  const [bundle, setBundle] = useState<{ nonce_b64: string; ciphertext_b64: string } | null>(null);
   const [onchainShareB64, setOnchainShareB64] = useState<string | null>(null);
   const [onchainTxid, setOnchainTxid] = useState<string | null>(null);
   const [txidInput, setTxidInput] = useState('');
@@ -156,22 +163,26 @@ export default function LegacyRecoverySetup() {
     }
   }
 
+  async function refreshLegacyState(vaultId: string) {
+    try {
+      const existing = await api.legacy.get(vaultId);
+      setExistingShareRoles(new Set(existing.shares.map(s => s.key_role)));
+      setShares(existing.shares);
+      setBundle(existing.bundle ? { nonce_b64: existing.bundle.nonce_b64, ciphertext_b64: existing.bundle.ciphertext_b64 } : null);
+      setOnchainShareB64(existing.onchain?.onchain_share_b64 ?? null);
+      setOnchainTxid(existing.onchain?.txid ?? null);
+    } catch {
+      // No prior seal yet -- fine, this is the first time.
+    }
+  }
+
   useEffect(() => {
     (async () => {
       if (!id) return;
       const { vaults } = await api.vaults.list(true);
       const found = vaults.find(v => v.id === id) ?? null;
       setVault(found);
-      if (found) {
-        try {
-          const existing = await api.legacy.get(found.id);
-          setExistingShareRoles(new Set(existing.shares.map(s => s.key_role)));
-          setOnchainShareB64(existing.onchain?.onchain_share_b64 ?? null);
-          setOnchainTxid(existing.onchain?.txid ?? null);
-        } catch {
-          // No prior seal yet -- fine, this is the first time.
-        }
-      }
+      if (found) await refreshLegacyState(found.id);
       setLoading(false);
     })();
   }, [id]);
@@ -209,16 +220,15 @@ export default function LegacyRecoverySetup() {
         roleKeys.push({ keyRole: r.role, mnemonic, derivationPath });
       }
       const bundleText = vaultBackupText(vault);
-      const { onchainShareB64: freshOnchainShareB64 } =
-        await sealVaultLegacyRecovery({ vaultId: vault.id, network, bundleText, roleKeys });
+      await sealVaultLegacyRecovery({ vaultId: vault.id, network, bundleText, roleKeys });
       toast.success('Legacy recovery sealed for every assigned key.');
-      setExistingShareRoles(new Set(roles.map(r => r.role)));
-      // Every seal mints a brand new on-chain share, so any txid recorded
-      // against a PRIOR seal no longer matches what's shown below -- clear
-      // it here (the backend clears its own copy too) so the "publish"
-      // step re-opens instead of silently pointing at stale content.
-      setOnchainShareB64(freshOnchainShareB64);
-      setOnchainTxid(null);
+      // Every seal mints a brand new secret/shares, so pull the fresh copy
+      // back down rather than hand-patching state -- this is also what
+      // populates `shares`/`bundle` for the "Download recovery package"
+      // buttons below, and clears any stale txid from a prior seal (the
+      // backend clears its own copy too), so the "publish" step re-opens
+      // instead of silently pointing at stale content.
+      await refreshLegacyState(vault.id);
       setBuiltTx(null);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Sealing failed');
@@ -259,8 +269,12 @@ export default function LegacyRecoverySetup() {
     <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: space[3] }}>
       <p style={{ fontSize: 16, fontWeight: 450, color: colors.text, lineHeight: 1.6 }}>
         Each key below gets its own sealed copy of this vault's descriptor -- locked so only that
-        exact key can ever open it, decades from now, with nothing extra to back up. Pick which of
-        your local keys plays each role, confirm the password on any secure key, and seal.
+        exact key can ever open it, decades from now. Pick which of your local keys plays each
+        role, confirm the password on any secure key, and seal. Once a key is sealed, download its
+        own recovery package below and hand it to whoever holds that key -- it's a small text
+        file with everything needed to recover this vault's descriptor later, on their own, with
+        no DynastyTrust account and no vault ID to remember. It's safe to store anywhere: without
+        that key's own seed phrase, the file alone opens nothing.
       </p>
 
       {roles.length === 0 && (
@@ -278,6 +292,7 @@ export default function LegacyRecoverySetup() {
         // belt-and-suspenders guard against exactly this failure mode.
         const needsPassword = !key?.testMnemonic && !!key?.encryptedMnemonic;
         const alreadySealed = existingShareRoles.has(r.role);
+        const roleShare = shares.find(s => s.key_role === r.role);
         return (
           <Card key={r.role}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: space[2] }}>
@@ -287,6 +302,36 @@ export default function LegacyRecoverySetup() {
                   <div style={{ fontSize: 12, color: colors.gold, fontWeight: 600 }}>Sealed</div>
                 )}
               </div>
+              {alreadySealed && roleShare && bundle && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => downloadLegacyRecoveryPackage({
+                      vaultId: vault.id,
+                      vaultName: vault.name,
+                      network: vault.network,
+                      keyRole: r.role,
+                      roleLabel: r.label,
+                      lockedFastShareB64: roleShare.locked_fast_share_b64,
+                      lockedFallbackShareB64: roleShare.locked_fallback_share_b64,
+                      identityPubkeyHex: roleShare.identity_pubkey_hex,
+                      lockedFastShareSigB64: roleShare.locked_fast_share_sig_b64,
+                      bundle: { nonceB64: bundle.nonce_b64, ciphertextB64: bundle.ciphertext_b64 },
+                      onchain: onchainShareB64 ? { onchainShareB64, txid: onchainTxid } : null,
+                    })}
+                    style={{ alignSelf: 'flex-start' }}
+                  >
+                    Download recovery package for {r.label}
+                  </Button>
+                  <div style={{ fontSize: 12, color: colors.sub }}>
+                    Hand this file to whoever holds the {r.label.toLowerCase()} key -- it has
+                    everything they need to recover this vault's descriptor themselves, with no
+                    DynastyTrust account and nothing to remember, other than their own seed phrase.
+                    {!onchainShareB64 && ' Redownload once the on-chain share below is published, for the fastest recovery path.'}
+                  </div>
+                </div>
+              )}
               <select
                 value={assignment[r.role] ?? ''}
                 onChange={e => setAssignment(a => ({ ...a, [r.role]: e.target.value }))}
