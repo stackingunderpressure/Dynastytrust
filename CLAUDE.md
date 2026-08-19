@@ -552,6 +552,47 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Legacy Recovery: stale-seal detection (2026-08-20).** Operator, thinking
+  through a 20-year-out edge case: a vault gets recompiled (same leaf shape,
+  different actual keys) after its Legacy Recovery bundle was already sealed
+  and an on-chain pad already published -- "I'm not sure how to label that or
+  make sure the person in the future doesn't get confused." Grounding
+  confirmed the gap was real: `vaults-compile.js`/`compile-leaves.js` never
+  touched `vault_legacy_*` at all, despite `vault_legacy_recovery.sql`'s own
+  comment claiming the bundle gets "overwritten whenever the vault
+  recompiles." The crypto itself already fails safely -- a stale locked
+  share or on-chain pad only ever reconstructs the secret for the bundle it
+  was sealed alongside, so recovering against a re-sealed vault just fails
+  to decrypt (an honest error), never a silently wrong descriptor -- but
+  nothing told the owner it had happened, and nothing told a future finder
+  which vault-version a package belonged to. `legacy-recovery.ts` gained
+  `descriptorFingerprint` (8 bytes of SHA-256 as 16 hex chars, unit-tested
+  in `test-legacy-recovery.mjs`) -- a label, not a security mechanism.
+  `legacy-seal.ts`'s `sealVaultLegacyRecovery` now takes the vault's raw
+  `descriptor` and hashes it at seal time; `vault-legacy.js`'s POST stores
+  it as `vault_legacy_bundles.sealed_descriptor_hash`
+  (`20260820120000_legacy_recovery_descriptor_fingerprint.sql`, nullable --
+  a bundle sealed before this migration has no retroactive fingerprint,
+  treated as "unknown version," never "current") and its GET returns it.
+  `LegacyRecoverySetup.tsx` recomputes the vault's CURRENT fingerprint on
+  every load and shows a red "this vault's descriptor has changed since
+  Legacy Recovery was last sealed -- reseal now" banner when it no longer
+  matches the sealed one, plus a small mono line showing the sealed
+  version/date next to the roles for a normal, matching seal.
+  `descriptor-backup.ts`'s `LegacyRecoveryPackageLike` gained
+  `descriptorFingerprint`/`sealedAt`, stamped near the top of every
+  downloaded recovery package with an explicit note: this package still
+  correctly recovers the version it was sealed for, but may not be the
+  vault's current one, so compare the stamp against DynastyTrust's live
+  page if it's still reachable. The standalone offline tool
+  (`tools/legacy-recovery/`) was deliberately NOT changed -- the fingerprint
+  is plain informational text for the human reading the package, not a
+  field the recovery tool consumes -- but it was rebuilt
+  (`node tools/legacy-recovery/build.mjs`) per standing instruction since
+  `legacy-recovery.ts` changed. All four gates green; `legacy-recovery`
+  test suite extended with round-trip + collision checks for the new
+  fingerprint function.
+
 - **Standalone protector leaf/timelock/quorum retired (2026-08-19).**
   Operator: "I don't like the protector path. I only like it as an added
   key to a quorum so as to keep a leaf honest not a leaf all of its own"

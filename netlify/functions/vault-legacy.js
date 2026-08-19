@@ -16,9 +16,18 @@
  *   body: {
  *     vault_id,
  *     sealed_bundle: { nonce_b64, ciphertext_b64 },
+ *     descriptor_hash,
  *     onchain_share_b64,
  *     shares: [{ key_role, locked_fast_share_b64, locked_fallback_share_b64 }]
  *   }
+ *   descriptor_hash: descriptorFingerprint(vault.descriptor) at seal time
+ *   (see legacy-recovery.ts) -- stored so LegacyRecoverySetup.tsx can later
+ *   detect a recompile that left this seal stale (2026-08-20; the crypto
+ *   already fails safely on a stale seal -- decryption just fails -- this
+ *   is purely so the owner gets a warning instead of silence). Optional
+ *   for backward compatibility with any caller predating this field; a
+ *   seal without it stores null, which the setup page treats as "unknown
+ *   version," never as "matches the current descriptor."
  *   Replaces any prior sealed bundle/shares/on-chain share for this vault
  *   wholesale -- a partial reseal would leave stale shares next to a
  *   fresh bundle, silently breaking recovery. A reseal always carries a
@@ -80,7 +89,7 @@ export async function handler(event) {
     }
 
     const [bundleRes, sharesRes, onchainRes] = await Promise.all([
-      supabase.from("vault_legacy_bundles").select("nonce_b64, ciphertext_b64, updated_at")
+      supabase.from("vault_legacy_bundles").select("nonce_b64, ciphertext_b64, updated_at, sealed_descriptor_hash")
         .eq("vault_id", vaultId).maybeSingle(),
       supabase.from("vault_legacy_shares")
         .select("key_role, locked_fast_share_b64, locked_fallback_share_b64, identity_pubkey_hex, locked_fast_share_sig_b64")
@@ -110,7 +119,7 @@ export async function handler(event) {
       return json(400, { error: "Invalid JSON body" });
     }
 
-    const { vault_id, sealed_bundle, onchain_share_b64, shares } = body;
+    const { vault_id, sealed_bundle, descriptor_hash, onchain_share_b64, shares } = body;
 
     if (!vault_id) return json(400, { error: "Missing: vault_id" });
     if (!sealed_bundle?.nonce_b64 || !sealed_bundle?.ciphertext_b64) {
@@ -138,7 +147,12 @@ export async function handler(event) {
     // delete-then-insert, never a partial patch.
     const { error: bundleErr } = await supabase
       .from("vault_legacy_bundles")
-      .upsert({ vault_id, nonce_b64: sealed_bundle.nonce_b64, ciphertext_b64: sealed_bundle.ciphertext_b64 });
+      .upsert({
+        vault_id,
+        nonce_b64: sealed_bundle.nonce_b64,
+        ciphertext_b64: sealed_bundle.ciphertext_b64,
+        sealed_descriptor_hash: descriptor_hash ?? null,
+      });
     if (bundleErr) return json(500, { error: bundleErr.message });
 
     const { error: onchainErr } = await supabase

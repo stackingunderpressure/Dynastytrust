@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { api, type Vault } from '../lib/api';
 import { listKeys, revealMnemonic, type LocalKey } from '../lib/keystore';
 import { sealVaultLegacyRecovery, vaultNetworkToKeystoreNetwork } from '../lib/legacy-seal';
-import { unb64 } from '../lib/legacy-recovery';
+import { unb64, descriptorFingerprint } from '../lib/legacy-recovery';
 import { vaultBackupText, downloadLegacyRecoveryPackage } from '../lib/descriptor-backup';
 import { p2wpkhAddressForPubkey, buildAndSignPublishTx, type BuiltPublishTx } from '../lib/onchain-publish';
 import { explorerTxUrl, broadcastTxUrl, EXPLORER } from '../config';
@@ -54,6 +54,13 @@ export default function LegacyRecoverySetup() {
   // build a self-contained takeaway file without a second round trip.
   const [shares, setShares] = useState<LegacyShare[]>([]);
   const [bundle, setBundle] = useState<{ nonce_b64: string; ciphertext_b64: string } | null>(null);
+  // Sealed-at label + the descriptor fingerprint this bundle was sealed
+  // against (2026-08-20) -- null hash means either no seal yet, or a
+  // seal predating this field. Compared against the vault's CURRENT
+  // descriptor fingerprint below to warn on a stale seal after a
+  // recompile; also stamped into the downloadable recovery package.
+  const [bundleSealedAt, setBundleSealedAt] = useState<string | null>(null);
+  const [sealedDescriptorHash, setSealedDescriptorHash] = useState<string | null>(null);
   const [onchainShareB64, setOnchainShareB64] = useState<string | null>(null);
   const [onchainTxid, setOnchainTxid] = useState<string | null>(null);
   const [txidInput, setTxidInput] = useState('');
@@ -83,6 +90,17 @@ export default function LegacyRecoverySetup() {
     () => listKeys().filter((k): k is LocalKey => k.origin === 'software' && k.status === 'active'),
     [],
   );
+
+  // The vault's CURRENT descriptor fingerprint, recomputed on every load
+  // -- compared against sealedDescriptorHash below to catch a recompile
+  // that left a prior seal stale. Hook must run unconditionally (before
+  // the loading/not-found early returns), hence the null-safe guard.
+  const currentDescriptorHash = useMemo(
+    () => (vault?.descriptor ? descriptorFingerprint(vault.descriptor) : null),
+    [vault?.descriptor],
+  );
+  const legacyStale =
+    !!bundle && !!sealedDescriptorHash && !!currentDescriptorHash && sealedDescriptorHash !== currentDescriptorHash;
 
   const publishKey = localKeys.find(k => k.keyId === publishKeyId) ?? null;
   const publishNeedsPassword = !!publishKey && !publishKey.testMnemonic && !!publishKey.encryptedMnemonic;
@@ -169,6 +187,8 @@ export default function LegacyRecoverySetup() {
       setExistingShareRoles(new Set(existing.shares.map(s => s.key_role)));
       setShares(existing.shares);
       setBundle(existing.bundle ? { nonce_b64: existing.bundle.nonce_b64, ciphertext_b64: existing.bundle.ciphertext_b64 } : null);
+      setBundleSealedAt(existing.bundle?.updated_at ?? null);
+      setSealedDescriptorHash(existing.bundle?.sealed_descriptor_hash ?? null);
       setOnchainShareB64(existing.onchain?.onchain_share_b64 ?? null);
       setOnchainTxid(existing.onchain?.txid ?? null);
     } catch {
@@ -203,7 +223,7 @@ export default function LegacyRecoverySetup() {
   const roles = rolesForVault(vault);
 
   async function handleSeal() {
-    if (!vault) return;
+    if (!vault || !vault.descriptor) return;
     const missing = roles.filter(r => !assignment[r.role]);
     if (missing.length > 0) {
       toast.error(`Assign a key for: ${missing.map(r => r.label).join(', ')}`);
@@ -220,7 +240,7 @@ export default function LegacyRecoverySetup() {
         roleKeys.push({ keyRole: r.role, mnemonic, derivationPath });
       }
       const bundleText = vaultBackupText(vault);
-      await sealVaultLegacyRecovery({ vaultId: vault.id, network, bundleText, roleKeys });
+      await sealVaultLegacyRecovery({ vaultId: vault.id, network, bundleText, descriptor: vault.descriptor, roleKeys });
       toast.success('Legacy recovery sealed for every assigned key.');
       // Every seal mints a brand new secret/shares, so pull the fresh copy
       // back down rather than hand-patching state -- this is also what
@@ -277,6 +297,33 @@ export default function LegacyRecoverySetup() {
         that key's own seed phrase, the file alone opens nothing.
       </p>
 
+      {legacyStale && (
+        <div style={{
+          border: `1px solid ${colors.red}`, borderRadius: radii.md,
+          background: `${colors.red}15`, padding: '14px 16px',
+        }}>
+          <p style={{ fontSize: 14, fontWeight: 600, color: colors.red, margin: 0 }}>
+            This vault&apos;s descriptor has changed since Legacy Recovery was last sealed.
+          </p>
+          <p style={{ fontSize: 13, color: colors.text, marginTop: 6, lineHeight: 1.6 }}>
+            The sealed data below (and any on-chain pad already published) still correctly recovers
+            the OLD descriptor -- it never hands back a wrong one -- but it no longer matches this
+            vault&apos;s current keys. Reseal now so every downloaded package and the on-chain pad
+            reflect the current version. If a pad was already published for the old version, it
+            stays permanently on-chain and simply becomes historical -- publishing a fresh one after
+            reseal is the only way to keep the fast recovery path current.
+          </p>
+        </div>
+      )}
+
+      {bundle && (
+        <p style={{ fontSize: 12, color: colors.sub, fontFamily: fonts.mono }}>
+          Sealed descriptor version: {sealedDescriptorHash ?? '(unknown -- sealed before this label existed)'}
+          {bundleSealedAt ? ` -- sealed ${new Date(bundleSealedAt).toLocaleDateString()}` : ''}
+          {currentDescriptorHash && !legacyStale ? ' -- matches this vault\'s current descriptor' : ''}
+        </p>
+      )}
+
       {roles.length === 0 && (
         <Card><p style={{ color: colors.muted }}>This vault has no named roles to seal yet.</p></Card>
       )}
@@ -319,6 +366,8 @@ export default function LegacyRecoverySetup() {
                       lockedFastShareSigB64: roleShare.locked_fast_share_sig_b64,
                       bundle: { nonceB64: bundle.nonce_b64, ciphertextB64: bundle.ciphertext_b64 },
                       onchain: onchainShareB64 ? { onchainShareB64, txid: onchainTxid } : null,
+                      descriptorFingerprint: sealedDescriptorHash,
+                      sealedAt: bundleSealedAt,
                     })}
                     style={{ alignSelf: 'flex-start' }}
                   >

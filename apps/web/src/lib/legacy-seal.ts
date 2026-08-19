@@ -16,6 +16,7 @@ import {
   legacyIdentityPubkeyFromMnemonic,
   lockShare,
   b64,
+  descriptorFingerprint,
 } from './legacy-recovery';
 import type { Network } from './keystore';
 import { api } from './api';
@@ -58,11 +59,18 @@ export interface RoleKeyMnemonic {
  * random secret, so any share/txid from a PRIOR seal is now stale -- the
  * caller should also clear any previously-displayed publication txid,
  * since the backend clears it too (see vault-legacy.js's POST handler).
+ *
+ * `descriptor` (2026-08-20) is the vault's CURRENT raw descriptor,
+ * separate from `bundleText` (the whole formatted backup document) --
+ * hashed via descriptorFingerprint and stored alongside the bundle so a
+ * later recompile that leaves this seal stale can be detected and
+ * warned about instead of silently trusted.
  */
 export async function sealVaultLegacyRecovery(opts: {
   vaultId: string;
   network: Network;
   bundleText: string;
+  descriptor: string;
   roleKeys: RoleKeyMnemonic[];
 }): Promise<{ onchainShareB64: string }> {
   if (opts.roleKeys.length === 0) {
@@ -102,6 +110,7 @@ export async function sealVaultLegacyRecovery(opts: {
   await api.legacy.seal({
     vault_id: opts.vaultId,
     sealed_bundle: { nonce_b64: sealed.nonceB64, ciphertext_b64: sealed.ciphertextB64 },
+    descriptor_hash: descriptorFingerprint(opts.descriptor),
     onchain_share_b64: onchainShareB64,
     shares,
   });

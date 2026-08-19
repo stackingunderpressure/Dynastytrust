@@ -1,0 +1,34 @@
+-- ============================================================
+-- legacy_recovery_descriptor_fingerprint.sql
+--
+-- Closes a real staleness gap in Legacy Recovery (see
+-- vault_legacy_recovery.sql's own header). A vault can be
+-- recompiled in place (same vault_id, new keys/descriptor) any
+-- time after its recovery data was sealed -- vaults-compile.js
+-- and compile-leaves.js never touch these tables, so a prior
+-- seal (and any already-published on-chain pad) silently keeps
+-- describing the OLD descriptor with no warning anywhere.
+--
+-- The crypto itself already fails safely here -- a stale
+-- on-chain share or locked share only ever reconstructs the
+-- secret for the bundle it was sealed alongside, so recovering
+-- against a re-sealed vault just fails to decrypt (an honest
+-- error), never a silently wrong descriptor. What was missing is
+-- telling anyone that happened: the operator gets no warning to
+-- reseal, and a future finder holding a package has no way to
+-- know which vault-version it belongs to.
+--
+-- sealed_descriptor_hash: a short (16 hex char / 8 byte SHA-256
+-- prefix, see legacy-recovery.ts's descriptorFingerprint) stamp
+-- of the vault's descriptor AT THE MOMENT it was sealed.
+-- LegacyRecoverySetup.tsx compares it against the vault's
+-- CURRENT descriptor fingerprint to show a stale-seal warning,
+-- and descriptor-backup.ts stamps it into the downloadable
+-- recovery package text so a future finder can see which
+-- version they're holding. Nullable: a bundle sealed before this
+-- migration has no retroactive fingerprint to backfill --
+-- treated as "unknown version," not silently "current."
+-- ============================================================
+
+alter table vault_legacy_bundles
+  add column if not exists sealed_descriptor_hash text;
