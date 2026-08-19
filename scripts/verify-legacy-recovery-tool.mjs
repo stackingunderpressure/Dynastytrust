@@ -10,7 +10,8 @@ import { generateMnemonic } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english';
 import {
   generateLegacySecret, sealBundle, splitLegacySecretHybrid,
-  deriveLegacyLockBytes, lockShare, b64,
+  deriveLegacyLockBytes, deriveLegacyLockBytesFromSignature, signLegacyUnlockMessage,
+  lockShare, b64,
 } from '../apps/web/src/lib/legacy-recovery.ts';
 
 const network = 'testnet';
@@ -18,9 +19,12 @@ const vaultId = 'verify-vault-001';
 const roleA = 'founder_1';
 const roleB = 'backup_1';
 const roleFast = 'heir_2';
+const roleSig = 'heir_3';
+const derivationPathSig = "m/86'/1'/0'";
 const mnemonicA = generateMnemonic(wordlist);
 const mnemonicB = generateMnemonic(wordlist);
 const mnemonicFast = generateMnemonic(wordlist);
+const mnemonicSig = generateMnemonic(wordlist);
 const bundleText = 'descriptor=tr(TEST_VERIFY_PAYLOAD); policy=or(thresh(2,pk(A),pk(B)),and(after(500000),pk(C)))';
 
 const secret = generateLegacySecret();
@@ -32,6 +36,13 @@ const lockFast = deriveLegacyLockBytes(mnemonicFast, network, vaultId, roleFast)
 const lockedFastShare = lockShare(fastPathShare, lockFast);
 const lockedFallbackA = lockShare(fallbackShares[0], lockA);
 const lockedFallbackB = lockShare(fallbackShares[1], lockB);
+
+// Signature-locked fast share: same fastPathShare, locked with a value
+// derived from a deterministic signature over legacyUnlockMessage instead
+// of a raw mnemonic derivation -- the hardware-wallet-compatible path.
+const signature = signLegacyUnlockMessage(mnemonicSig, network, derivationPathSig, vaultId, roleSig);
+const lockSig = deriveLegacyLockBytesFromSignature(signature, vaultId, roleSig);
+const lockedFastShareSig = lockShare(fastPathShare, lockSig);
 
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
 const page = await browser.newPage();
@@ -55,6 +66,25 @@ if (fastResult !== bundleText) {
   process.exit(1);
 }
 console.log('standalone tool fast-path recovery verified: byte-identical match');
+
+// ── Fast path, signature-based (hardware-wallet-compatible) ──────────────
+await page.click('#tab-fast-sig');
+await page.fill('#fs-vault-id', vaultId);
+await page.fill('#fs-key-role', roleSig);
+await page.fill('#fs-signature', b64(signature));
+await page.fill('#fs-locked-share', b64(lockedFastShareSig));
+await page.fill('#fs-onchain-share', b64(onChainShare));
+await page.fill('#fs-nonce', sealed.nonceB64);
+await page.fill('#fs-ciphertext', sealed.ciphertextB64);
+await page.click('#fs-run');
+await page.waitForTimeout(300);
+const fastSigResult = await page.inputValue('#result');
+if (fastSigResult !== bundleText) {
+  console.error('SIGNATURE FAST PATH MISMATCH'); console.error('expected:', bundleText); console.error('got:     ', fastSigResult);
+  await browser.close();
+  process.exit(1);
+}
+console.log('standalone tool signature-based fast-path recovery verified: byte-identical match');
 
 // ── Fallback path (two different keyholders, on-chain pad unused) ────────
 await page.click('#tab-fallback');

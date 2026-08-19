@@ -53,7 +53,8 @@
   </div>
 
   <div class="tabs" role="tablist">
-    <div class="tab" id="tab-fast" role="tab" aria-selected="true">Fast path (one key + on-chain share)</div>
+    <div class="tab" id="tab-fast" role="tab" aria-selected="true">Fast path (seed phrase)</div>
+    <div class="tab" id="tab-fast-sig" role="tab" aria-selected="false">Fast path (signature)</div>
     <div class="tab" id="tab-fallback" role="tab" aria-selected="false">Fallback path (two keys)</div>
   </div>
 
@@ -85,6 +86,43 @@
       <textarea id="fp-ciphertext"></textarea>
     </fieldset>
     <button class="run" id="fp-run">Recover</button>
+  </div>
+
+  <div id="panel-fast-sig" style="display:none">
+    <div class="warning">
+      For a key that only ever lives on a hardware wallet -- no seed phrase ever typed into any
+      screen. Sign the exact message below with your hardware wallet's own "Sign Message" feature
+      (Coldcard, Sparrow, Electrum, and most others support this), using the CLASSIC message-signing
+      method (plain ECDSA) -- not BIP-322 or a Taproot-address signature, those use a different
+      scheme and will not match. Sign against derivation path <code>&lt;your account&gt;/1/0</code>
+      under the same account this vault's backup file names for your role.
+    </div>
+    <fieldset>
+      <legend>This vault and role</legend>
+      <label for="fs-vault-id">Vault ID</label>
+      <input id="fs-vault-id" placeholder="from your recovery package">
+      <label for="fs-key-role">Your key's role</label>
+      <input id="fs-key-role" placeholder="e.g. heir_2 -- from your recovery package">
+      <label for="fs-message">Message to sign (updates as you fill in the fields above)</label>
+      <textarea id="fs-message" readonly></textarea>
+    </fieldset>
+    <fieldset>
+      <legend>Your signature</legend>
+      <label for="fs-signature">Signature (base64 or hex, from your hardware wallet)</label>
+      <textarea id="fs-signature" placeholder="paste the signature your wallet produced"></textarea>
+    </fieldset>
+    <fieldset>
+      <legend>From your recovery package</legend>
+      <label for="fs-locked-share">Your signature-locked share (base64)</label>
+      <textarea id="fs-locked-share"></textarea>
+      <label for="fs-onchain-share">On-chain share (base64 -- from the package, or looked up on-chain)</label>
+      <textarea id="fs-onchain-share"></textarea>
+      <label for="fs-nonce">Sealed bundle nonce (base64)</label>
+      <input id="fs-nonce">
+      <label for="fs-ciphertext">Sealed bundle ciphertext (base64)</label>
+      <textarea id="fs-ciphertext"></textarea>
+    </fieldset>
+    <button class="run" id="fs-run">Recover</button>
   </div>
 
   <div id="panel-fallback" style="display:none">

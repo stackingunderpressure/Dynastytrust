@@ -252,6 +252,46 @@ export function verifyLegacyUnlockSignature(
   }
 }
 
+function hexToBytesStrict(hex: string): Uint8Array {
+  const clean = hex.trim().replace(/^0x/, '');
+  if (!/^[0-9a-fA-F]+$/.test(clean) || clean.length % 2 !== 0) {
+    throw new Error('Not valid hex');
+  }
+  const out = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+
+/**
+ * A real hardware wallet's "Sign Message" feature -- Coldcard, Sparrow,
+ * Electrum -- outputs BIP-137: base64, 65 bytes (a 1-byte recovery/
+ * compression header, then the 64-byte compact r||s signature), NOT bare
+ * hex. This accepts that real-world format, plus bare 64-byte hex or
+ * base64 (what a deterministic software signature produces), rather than
+ * forcing the recovering keyholder to hand-edit whatever their wallet
+ * gave them. The header byte, when present, is discarded -- unlock only
+ * needs r||s; which pubkey signed is established by the caller (a
+ * lookup, or an assumed match), not by this function.
+ *
+ * Shared by DescriptorRetrieval.tsx (the online, app-hosted signature
+ * unlock page) and the standalone offline recovery tool's signature-based
+ * Fast Path -- one implementation of this parsing, not two that could
+ * drift apart on which signature formats they accept.
+ */
+export function parseUnlockSignature(input: string): Uint8Array {
+  const trimmed = input.trim();
+  if (!trimmed) throw new Error('No signature provided');
+  let bytes: Uint8Array;
+  if (/^(0x)?[0-9a-fA-F]+$/.test(trimmed) && trimmed.replace(/^0x/, '').length % 2 === 0) {
+    bytes = hexToBytesStrict(trimmed);
+  } else {
+    bytes = Uint8Array.from(atob(trimmed), c => c.charCodeAt(0));
+  }
+  if (bytes.length === 65) return bytes.slice(1); // strip BIP-137 header byte
+  if (bytes.length === 64) return bytes;
+  throw new Error(`Signature is ${bytes.length} bytes -- expected 64 (raw) or 65 (BIP-137, with header byte)`);
+}
+
 /**
  * Derives the 32-byte value that locks/unlocks the SIGNATURE-based copy
  * of a keyholder's fast-path share -- the sibling of deriveLegacyLockBytes

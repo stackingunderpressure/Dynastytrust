@@ -53,7 +53,8 @@
   </div>
 
   <div class="tabs" role="tablist">
-    <div class="tab" id="tab-fast" role="tab" aria-selected="true">Fast path (one key + on-chain share)</div>
+    <div class="tab" id="tab-fast" role="tab" aria-selected="true">Fast path (seed phrase)</div>
+    <div class="tab" id="tab-fast-sig" role="tab" aria-selected="false">Fast path (signature)</div>
     <div class="tab" id="tab-fallback" role="tab" aria-selected="false">Fallback path (two keys)</div>
   </div>
 
@@ -85,6 +86,43 @@
       <textarea id="fp-ciphertext"></textarea>
     </fieldset>
     <button class="run" id="fp-run">Recover</button>
+  </div>
+
+  <div id="panel-fast-sig" style="display:none">
+    <div class="warning">
+      For a key that only ever lives on a hardware wallet -- no seed phrase ever typed into any
+      screen. Sign the exact message below with your hardware wallet's own "Sign Message" feature
+      (Coldcard, Sparrow, Electrum, and most others support this), using the CLASSIC message-signing
+      method (plain ECDSA) -- not BIP-322 or a Taproot-address signature, those use a different
+      scheme and will not match. Sign against derivation path <code>&lt;your account&gt;/1/0</code>
+      under the same account this vault's backup file names for your role.
+    </div>
+    <fieldset>
+      <legend>This vault and role</legend>
+      <label for="fs-vault-id">Vault ID</label>
+      <input id="fs-vault-id" placeholder="from your recovery package">
+      <label for="fs-key-role">Your key's role</label>
+      <input id="fs-key-role" placeholder="e.g. heir_2 -- from your recovery package">
+      <label for="fs-message">Message to sign (updates as you fill in the fields above)</label>
+      <textarea id="fs-message" readonly></textarea>
+    </fieldset>
+    <fieldset>
+      <legend>Your signature</legend>
+      <label for="fs-signature">Signature (base64 or hex, from your hardware wallet)</label>
+      <textarea id="fs-signature" placeholder="paste the signature your wallet produced"></textarea>
+    </fieldset>
+    <fieldset>
+      <legend>From your recovery package</legend>
+      <label for="fs-locked-share">Your signature-locked share (base64)</label>
+      <textarea id="fs-locked-share"></textarea>
+      <label for="fs-onchain-share">On-chain share (base64 -- from the package, or looked up on-chain)</label>
+      <textarea id="fs-onchain-share"></textarea>
+      <label for="fs-nonce">Sealed bundle nonce (base64)</label>
+      <input id="fs-nonce">
+      <label for="fs-ciphertext">Sealed bundle ciphertext (base64)</label>
+      <textarea id="fs-ciphertext"></textarea>
+    </fieldset>
+    <button class="run" id="fs-run">Recover</button>
   </div>
 
   <div id="panel-fallback" style="display:none">
@@ -6030,6 +6068,41 @@ zoo`.split("\n");
     input.set(tag, child.privateKey.length);
     return sha2562(input);
   }
+  var LEGACY_SIG_TAG_PREFIX = "dynastytrust-legacy-sig-v1";
+  function legacyUnlockMessage(vaultId, keyRole) {
+    return `DynastyTrust Legacy Recovery Unlock v1
+vault: ${vaultId}
+role: ${keyRole}`;
+  }
+  function hexToBytesStrict(hex) {
+    const clean2 = hex.trim().replace(/^0x/, "");
+    if (!/^[0-9a-fA-F]+$/.test(clean2) || clean2.length % 2 !== 0) {
+      throw new Error("Not valid hex");
+    }
+    const out = new Uint8Array(clean2.length / 2);
+    for (let i = 0; i < out.length; i++) out[i] = parseInt(clean2.slice(i * 2, i * 2 + 2), 16);
+    return out;
+  }
+  function parseUnlockSignature(input) {
+    const trimmed = input.trim();
+    if (!trimmed) throw new Error("No signature provided");
+    let bytes;
+    if (/^(0x)?[0-9a-fA-F]+$/.test(trimmed) && trimmed.replace(/^0x/, "").length % 2 === 0) {
+      bytes = hexToBytesStrict(trimmed);
+    } else {
+      bytes = Uint8Array.from(atob(trimmed), (c) => c.charCodeAt(0));
+    }
+    if (bytes.length === 65) return bytes.slice(1);
+    if (bytes.length === 64) return bytes;
+    throw new Error(`Signature is ${bytes.length} bytes -- expected 64 (raw) or 65 (BIP-137, with header byte)`);
+  }
+  function deriveLegacyLockBytesFromSignature(signature, vaultId, keyRole) {
+    const tag = new TextEncoder().encode(`${LEGACY_SIG_TAG_PREFIX}:${vaultId}:${keyRole}`);
+    const input = new Uint8Array(signature.length + tag.length);
+    input.set(signature, 0);
+    input.set(tag, signature.length);
+    return sha2562(input);
+  }
   function expandKeystream(lockBytes, length) {
     const out = new Uint8Array(length);
     let filled = 0;
@@ -6123,6 +6196,34 @@ zoo`.split("\n");
       showResult(`Recovery failed: ${e instanceof Error ? e.message : String(e)}`, true);
     }
   }
+  async function runFastPathSignature() {
+    try {
+      const vaultId = $("fs-vault-id").value.trim();
+      const keyRole = $("fs-key-role").value.trim();
+      const signatureRaw = $("fs-signature").value.trim();
+      const lockedFastShare = unb64($("fs-locked-share").value.trim());
+      const onChainShare = unb64($("fs-onchain-share").value.trim());
+      const nonceB64 = $("fs-nonce").value.trim();
+      const ciphertextB64 = $("fs-ciphertext").value.trim();
+      if (!vaultId || !keyRole || !signatureRaw || !nonceB64 || !ciphertextB64) {
+        showResult("Fill in every field above before recovering.", true);
+        return;
+      }
+      const signature = parseUnlockSignature(signatureRaw);
+      const lockBytes = deriveLegacyLockBytesFromSignature(signature, vaultId, keyRole);
+      const secret = recoverViaFastPath(lockedFastShare, lockBytes, onChainShare);
+      const sealed = { version: 1, nonceB64, ciphertextB64 };
+      const bundle = await unsealBundle(sealed, secret);
+      showResult(bundle, false);
+    } catch (e) {
+      showResult(`Recovery failed: ${e instanceof Error ? e.message : String(e)}`, true);
+    }
+  }
+  function updateFastPathSignatureMessage() {
+    const vaultId = $("fs-vault-id").value.trim();
+    const keyRole = $("fs-key-role").value.trim();
+    $("fs-message").value = vaultId && keyRole ? legacyUnlockMessage(vaultId, keyRole) : "(fill in the vault ID and role above)";
+  }
   async function runFallbackPath() {
     try {
       const mnemonicA = $("fb-mnemonic-a").value.trim();
@@ -6153,19 +6254,28 @@ zoo`.split("\n");
   }
   function switchTab(which) {
     $("panel-fast").style.display = which === "fast" ? "block" : "none";
+    $("panel-fast-sig").style.display = which === "fast-sig" ? "block" : "none";
     $("panel-fallback").style.display = which === "fallback" ? "block" : "none";
     $("tab-fast").setAttribute("aria-selected", String(which === "fast"));
+    $("tab-fast-sig").setAttribute("aria-selected", String(which === "fast-sig"));
     $("tab-fallback").setAttribute("aria-selected", String(which === "fallback"));
   }
   window.addEventListener("DOMContentLoaded", () => {
     $("tab-fast").addEventListener("click", () => switchTab("fast"));
+    $("tab-fast-sig").addEventListener("click", () => switchTab("fast-sig"));
     $("tab-fallback").addEventListener("click", () => switchTab("fallback"));
     $("fp-run").addEventListener("click", () => {
       void runFastPath();
     });
+    $("fs-run").addEventListener("click", () => {
+      void runFastPathSignature();
+    });
     $("fb-run").addEventListener("click", () => {
       void runFallbackPath();
     });
+    $("fs-vault-id").addEventListener("input", updateFastPathSignatureMessage);
+    $("fs-key-role").addEventListener("input", updateFastPathSignatureMessage);
+    updateFastPathSignatureMessage();
   });
 })();
 /*! Bundled license information:
