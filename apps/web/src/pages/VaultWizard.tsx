@@ -1486,7 +1486,14 @@ function LeavesConfigureFields({
 
       <Button
         variant="ghost"
-        onClick={() => { setLeafDrafts(list => [...list, defaultSecondaryLeaf(`Path ${list.length}`)]); setDirty(true); }}
+        // list.length is the count BEFORE this new leaf is appended, but
+        // the primary leaf already occupies position 1 (LeafCard's step={1}
+        // below) -- so the Nth leaf added here lands at step N+1, not step
+        // N. Naming it `Path ${list.length}` put the new leaf's own label
+        // one step behind the numbered badge it actually renders under
+        // (badge 2 read "Path 1", badge 3 read "Path 2", ...). +1 aligns
+        // the default label with the position it's actually shown at.
+        onClick={() => { setLeafDrafts(list => [...list, defaultSecondaryLeaf(`Path ${list.length + 1}`)]); setDirty(true); }}
         style={{ alignSelf: 'flex-start' }}
       >
         + Add another path
