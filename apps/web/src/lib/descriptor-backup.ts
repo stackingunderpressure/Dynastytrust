@@ -183,6 +183,18 @@ export interface LegacyRecoveryPackageLike {
   lockedFastShareSigB64: string | null;
   bundle: { nonceB64: string; ciphertextB64: string };
   onchain: { onchainShareB64: string; txid: string | null } | null;
+  /**
+   * descriptorFingerprint(descriptor) (legacy-recovery.ts) AT THE MOMENT
+   * this package was sealed, plus when. Null/null for a package sealed
+   * before this field existed (2026-08-20). Purely a label -- if this
+   * vault is ever recompiled (new keys, same shape) after sealing, this
+   * package still recovers the OLD descriptor correctly; the fingerprint
+   * just lets whoever opens this file, possibly decades from now with no
+   * DynastyTrust left to ask, see which version of the vault they're
+   * holding a key to before assuming it still matches anything live.
+   */
+  descriptorFingerprint: string | null;
+  sealedAt: string | null;
 }
 
 export function legacyRecoveryPackageText(p: LegacyRecoveryPackageLike): string {
@@ -192,6 +204,19 @@ export function legacyRecoveryPackageText(p: LegacyRecoveryPackageLike): string 
     `# This key's role: ${p.roleLabel}`,
     `# Network: ${p.network}`,
     `# Generated: ${new Date().toISOString()}`,
+    `# Descriptor version this package was sealed for: ${p.descriptorFingerprint ?? '(unknown -- sealed before this label existed)'}`,
+    `# Sealed on: ${p.sealedAt ?? '(unknown)'}`,
+    ``,
+    `# IMPORTANT -- if this vault is ever recompiled after this package was`,
+    `# sealed (a key rotation, a new leaf -- anything that changes the`,
+    `# vault's descriptor), THIS package still correctly recovers the`,
+    `# descriptor version stamped above, never a wrong one -- but it may no`,
+    `# longer be the vault's CURRENT descriptor. If DynastyTrust is still`,
+    `# reachable, compare the version stamp above against this vault's`,
+    `# Legacy Recovery page before trusting a recovered descriptor to`,
+    `# reflect where funds actually are today. If it isn't reachable, treat`,
+    `# a recovered descriptor as "definitely valid for this version, not`,
+    `# guaranteed to be the vault's most recent one."`,
     ``,
     `# WHAT THIS IS`,
     `# A sealed, permanent copy of this vault's descriptor, locked so`,

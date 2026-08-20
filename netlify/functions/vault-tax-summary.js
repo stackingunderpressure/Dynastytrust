@@ -220,13 +220,30 @@ async function buildSummaryPdf(data) {
   keyValue('Status', vault.status);
   keyValue('Address', vault.address, { valueMono: true });
   keyValue('Created', fmtDate(vault.created_at));
-  keyValue('Founder quorum', `${vault.founder_quorum} of ${(vault.founder_keys || []).length}`);
-  if (vault.heir_keys?.length) {
-    keyValue('Heir quorum', `${vault.heir_quorum} of ${vault.heir_keys.length}`);
+  // A custom leaf-list vault (including the Revocable living trust
+  // template) has no founder_quorum/heir_quorum/recovery_after at all --
+  // those columns sit at their defaults for this shape. Reading them
+  // directly used to print "undefined of 0" here. Read vault.leaves
+  // (LeafSpec[]) generically instead when present.
+  if (Array.isArray(vault.leaves) && vault.leaves.length > 0) {
+    for (const leaf of vault.leaves) {
+      const name = leaf.label || leaf.id;
+      const unlock = leaf.unlock || {};
+      const timing = unlock.type === 'immediate' ? 'available now'
+        : unlock.type === 'after' ? `after block ${(unlock.blocks || 0).toLocaleString()}`
+        : unlock.type === 'older' ? `if untouched for ${(unlock.blocks || 0).toLocaleString()} blocks`
+        : '-';
+      keyValue(`${name} quorum`, `${leaf.quorum} of ${(leaf.keys || []).length} -- ${timing}`);
+    }
+  } else {
+    keyValue('Founder quorum', `${vault.founder_quorum} of ${(vault.founder_keys || []).length}`);
+    if (vault.heir_keys?.length) {
+      keyValue('Heir quorum', `${vault.heir_quorum} of ${vault.heir_keys.length}`);
+    }
+    if (vault.recovery_after) keyValue('Recovery at block', (vault.recovery_after).toLocaleString());
+    if (vault.inheritance_after) keyValue('Inheritance at block', (vault.inheritance_after).toLocaleString());
+    if (vault.consent_quorum != null) keyValue('Consent quorum', `${vault.consent_quorum} of ${(vault.consent_keys || []).length}`);
   }
-  if (vault.recovery_after) keyValue('Recovery at block', (vault.recovery_after).toLocaleString());
-  if (vault.inheritance_after) keyValue('Inheritance at block', (vault.inheritance_after).toLocaleString());
-  if (vault.consent_quorum != null) keyValue('Consent quorum', `${vault.consent_quorum} of ${(vault.consent_keys || []).length}`);
   y -= 6;
 
   // -- Member roster --------------------------------------------------

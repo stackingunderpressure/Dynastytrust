@@ -372,6 +372,33 @@ export function generateLegacySecret(): Uint8Array {
   return crypto.getRandomValues(new Uint8Array(32));
 }
 
+/**
+ * Short, stable stamp of a vault's descriptor -- 8 bytes of SHA-256 as
+ * 16 hex chars, long enough to be a real fingerprint, short enough to
+ * eyeball-compare on a phone or in a printed backup. NOT a security
+ * mechanism (recovery already fails safely on a mismatched secret --
+ * see legacy-seal.ts's header) -- purely a label so a person can tell
+ * WHICH version of a vault a sealed bundle or downloaded package
+ * belongs to, decades later, without needing DynastyTrust itself to
+ * still be running to check.
+ *
+ * 2026-08-20 (operator, thinking through a 20-year-out edge case: a
+ * vault gets recompiled -- same shape, different keys -- after its
+ * Legacy Recovery bundle was already sealed and an on-chain pad
+ * already published; nothing told the owner the sealed data was now
+ * stale, and nothing told a future finder which version they held).
+ * Computed fresh from the vault's CURRENT descriptor at seal time and
+ * stored alongside the bundle (vault_legacy_bundles.sealed_descriptor_hash);
+ * LegacyRecoverySetup.tsx recomputes it from the vault's live
+ * descriptor on every load and compares the two to warn on a stale
+ * seal, and descriptor-backup.ts stamps the sealed-at value into the
+ * downloadable package text.
+ */
+export function descriptorFingerprint(descriptor: string): string {
+  const hash = sha256(new TextEncoder().encode(descriptor));
+  return Array.from(hash.slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 // crypto.subtle's typings want an ArrayBuffer-backed BufferSource; bytes
 // arriving from @noble/hashes / the Shamir library are typed generically
 // (Uint8Array<ArrayBufferLike>). The assertion below is accurate to

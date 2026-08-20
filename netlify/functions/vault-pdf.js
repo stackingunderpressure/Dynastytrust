@@ -94,6 +94,55 @@ function drawRect(page, x, y, w, h, color, opacity = 1) {
   page.drawRectangle({ x, y, width: w, height: h, color, opacity });
 }
 
+// A generic leaf-list ("custom builder") vault -- including the new
+// Revocable living trust template -- has no founder_keys/heir_keys/
+// founder_quorum/heir_quorum at all; those columns sit at their jsonb/
+// int defaults ([], null) for this shape. Every section below that used
+// to read those columns directly rendered "0 of 0 signatures required"
+// for a vault built this way -- a legal document that looked legitimate
+// and lied. isLeafShape branches every such section to read
+// vault.leaves (LeafSpec[]) generically instead.
+function isLeafShapeVault(vault) {
+  return Array.isArray(vault.leaves) && vault.leaves.length > 0;
+}
+
+function leafTiming(unlock) {
+  if (!unlock) return { when: 'Unknown', detail: '—' };
+  if (unlock.type === 'immediate') return { when: 'Available Now', detail: 'Available now' };
+  if (unlock.type === 'after') {
+    return {
+      when: `After ${blocksToLabel(unlock.blocks)}`,
+      detail: `${(unlock.blocks || 0).toLocaleString()} blocks (${blocksToLabel(unlock.blocks)}) -- a fixed calendar date`,
+    };
+  }
+  if (unlock.type === 'older') {
+    return {
+      when: `If Untouched For ${blocksToLabel(unlock.blocks)}`,
+      detail: `${(unlock.blocks || 0).toLocaleString()} blocks if untouched (${blocksToLabel(unlock.blocks)}) -- resets on any spend`,
+    };
+  }
+  return { when: 'Unknown', detail: '—' };
+}
+
+function leafPathCards(leaves) {
+  const colorFor = (unlock) => {
+    if (unlock?.type === 'immediate') return GOLD;
+    if (unlock?.type === 'older') return rgb(0.769, 0.588, 0.322);
+    return GREEN;
+  };
+  return leaves.map((leaf, i) => {
+    const { when } = leafTiming(leaf.unlock);
+    const decayNote = leaf.decay
+      ? ` The number of signers required steps down by 1 every ${blocksToLabel(leaf.decay.step_blocks)}, to a floor of ${leaf.decay.floor_quorum}.`
+      : '';
+    return {
+      title: `PATH ${i + 1} -- ${leaf.label || leaf.id} (${when})`,
+      color: colorFor(leaf.unlock),
+      body: `${leaf.quorum} of ${(leaf.keys || []).length} signature${leaf.quorum === 1 ? '' : 's'} required.${decayNote}`,
+    };
+  });
+}
+
 // ── PDF Builder ───────────────────────────────────────────────────────────────
 async function buildVaultPDF(vault) {
   const pdfDoc = await PDFDocument.create();
@@ -194,38 +243,45 @@ async function buildVaultPDF(vault) {
   y -= 24;
 
   // ── Section: Policy Overview ───────────────────────────────────────────────
+  const isLeafShape = isLeafShapeVault(vault);
+
+  // Three spending paths as cards -- or, for a custom leaf-list vault
+  // (isLeafShape), however many paths the owner actually built, read
+  // straight from vault.leaves instead of the fixed founder/recovery/heir
+  // shape below.
+  const paths = isLeafShape
+    ? leafPathCards(vault.leaves)
+    : [
+        {
+          title: 'PATH 1 — Founders (Available Now)',
+          color: GOLD,
+          body: `${vault.founder_quorum || 2} of ${(vault.founder_keys || []).length} founder signatures required. ` +
+                `Founders can spend at any time for normal trust operations, rebalancing, or distributions.`,
+        },
+        {
+          title: `PATH 2 — Founder Recovery (After ${blocksToLabel(vault.recovery_after)})`,
+          color: rgb(0.322, 0.580, 0.769),
+          body: `After ${(vault.recovery_after || 0).toLocaleString()} blocks (~${blocksToLabel(vault.recovery_after)}), ` +
+                `founders can spend using a recovery path. Useful if primary signing devices are lost or unavailable.`,
+        },
+        {
+          title: `PATH 3 — Heir Inheritance (After ${blocksToLabel(vault.inheritance_after)})`,
+          color: GREEN,
+          body: `After ${(vault.inheritance_after || 0).toLocaleString()} blocks (~${blocksToLabel(vault.inheritance_after)}), ` +
+                `${vault.heir_quorum || 2} of ${(vault.heir_keys || []).length} heir signatures can spend. ` +
+                `This is the dynasty inheritance path.`,
+        },
+      ];
+
   p1.drawText('VAULT POLICY', { x: M, y, size: 8, font: bold, color: GOLD });
   y -= 18;
 
   p1.drawText(
-    'This vault is governed by a Miniscript policy encoding three spending paths. ' +
+    `This vault is governed by a Miniscript policy encoding ${paths.length} spending path${paths.length === 1 ? '' : 's'}. ` +
     'All spending requires valid signatures from hardware devices — no private keys are stored online.',
     { x: M, y, size: 10, font: regular, color: TEXT_DIM, maxWidth: W - M * 2, lineHeight: 16 }
   );
   y -= 44;
-
-  // Three spending paths as cards
-  const paths = [
-    {
-      title: 'PATH 1 — Founders (Available Now)',
-      color: GOLD,
-      body: `${vault.founder_quorum || 2} of ${(vault.founder_keys || []).length} founder signatures required. ` +
-            `Founders can spend at any time for normal trust operations, rebalancing, or distributions.`,
-    },
-    {
-      title: `PATH 2 — Founder Recovery (After ${blocksToLabel(vault.recovery_after)})`,
-      color: rgb(0.322, 0.580, 0.769),
-      body: `After ${(vault.recovery_after || 0).toLocaleString()} blocks (~${blocksToLabel(vault.recovery_after)}), ` +
-            `founders can spend using a recovery path. Useful if primary signing devices are lost or unavailable.`,
-    },
-    {
-      title: `PATH 3 — Heir Inheritance (After ${blocksToLabel(vault.inheritance_after)})`,
-      color: GREEN,
-      body: `After ${(vault.inheritance_after || 0).toLocaleString()} blocks (~${blocksToLabel(vault.inheritance_after)}), ` +
-            `${vault.heir_quorum || 2} of ${(vault.heir_keys || []).length} heir signatures can spend. ` +
-            `This is the dynasty inheritance path.`,
-    },
-  ];
 
   for (const path of paths) {
     drawRect(p1, M, y - 52, W - M * 2, 62, SURFACE);
@@ -247,16 +303,28 @@ async function buildVaultPDF(vault) {
   p1.drawText('KEY CONFIGURATION', { x: M, y, size: 8, font: bold, color: GOLD });
   y -= 18;
 
-  const configRows = [
-    ['Founder Keys', `${(vault.founder_keys || []).length} keys`],
-    ['Founder Quorum', `${vault.founder_quorum} of ${(vault.founder_keys || []).length} required`],
-    ['Heir Keys', `${(vault.heir_keys || []).length} keys`],
-    ['Heir Quorum', `${vault.heir_quorum} of ${(vault.heir_keys || []).length} required`],
-    ['Recovery Timelock', `${(vault.recovery_after || 0).toLocaleString()} blocks (${blocksToLabel(vault.recovery_after)})`],
-    ['Inheritance Timelock', `${(vault.inheritance_after || 0).toLocaleString()} blocks (${blocksToLabel(vault.inheritance_after)})`],
-    ['Address Type', (vault.address_type || 'tr').toUpperCase()],
-    ['Network', vault.network === 'bitcoin' ? 'Bitcoin Mainnet' : 'Testnet'],
-  ];
+  const configRows = isLeafShape
+    ? vault.leaves.flatMap(leaf => {
+        const name = leaf.label || leaf.id;
+        return [
+          [`${name} Keys`, `${(leaf.keys || []).length} keys`],
+          [`${name} Quorum`, `${leaf.quorum} of ${(leaf.keys || []).length} required`],
+          [`${name} Timing`, leafTiming(leaf.unlock).detail],
+        ];
+      }).concat([
+        ['Address Type', (vault.address_type || 'tr').toUpperCase()],
+        ['Network', vault.network === 'bitcoin' ? 'Bitcoin Mainnet' : 'Testnet'],
+      ])
+    : [
+        ['Founder Keys', `${(vault.founder_keys || []).length} keys`],
+        ['Founder Quorum', `${vault.founder_quorum} of ${(vault.founder_keys || []).length} required`],
+        ['Heir Keys', `${(vault.heir_keys || []).length} keys`],
+        ['Heir Quorum', `${vault.heir_quorum} of ${(vault.heir_keys || []).length} required`],
+        ['Recovery Timelock', `${(vault.recovery_after || 0).toLocaleString()} blocks (${blocksToLabel(vault.recovery_after)})`],
+        ['Inheritance Timelock', `${(vault.inheritance_after || 0).toLocaleString()} blocks (${blocksToLabel(vault.inheritance_after)})`],
+        ['Address Type', (vault.address_type || 'tr').toUpperCase()],
+        ['Network', vault.network === 'bitcoin' ? 'Bitcoin Mainnet' : 'Testnet'],
+      ];
 
   for (let i = 0; i < configRows.length; i++) {
     const [label, value] = configRows[i];
@@ -309,37 +377,60 @@ async function buildVaultPDF(vault) {
   drawHRule(p2, y);
   y -= 20;
 
-  // ── Founder Public Keys ────────────────────────────────────────────────────
-  p2.drawText('FOUNDER PUBLIC KEYS', { x: M, y, size: 8, font: bold, color: GOLD });
-  y -= 16;
+  // ── Public Keys ─────────────────────────────────────────────────────────────
+  // isLeafShape: one section per path, however many the owner actually
+  // built, instead of the fixed Founder/Heir pair below.
+  if (isLeafShape) {
+    for (const leaf of vault.leaves) {
+      const name = leaf.label || leaf.id;
+      p2.drawText(`${name.toUpperCase()} PUBLIC KEYS`, { x: M, y, size: 8, font: bold, color: GOLD });
+      y -= 16;
+      for (let i = 0; i < (leaf.keys || []).length; i++) {
+        if (y < 60) break; // don't draw off the bottom of the page
+        const k = leaf.keys[i];
+        p2.drawText(`${name} ${i + 1}`, { x: M, y, size: 8, font: bold, color: TEXT_DIM });
+        drawRect(p2, M, y - 18, W - M * 2, 22, SURFACE);
+        p2.drawText(k || '—', { x: M + 8, y: y - 12, size: 7.5, font: mono, color: TEXT, maxWidth: W - M * 2 - 16 });
+        y -= 32;
+      }
+      y -= 4;
+      drawHRule(p2, y);
+      y -= 20;
+      if (y < 60) break;
+    }
+  } else {
+    // ── Founder Public Keys ──────────────────────────────────────────────────
+    p2.drawText('FOUNDER PUBLIC KEYS', { x: M, y, size: 8, font: bold, color: GOLD });
+    y -= 16;
 
-  for (let i = 0; i < (vault.founder_keys || []).length; i++) {
-    const k = vault.founder_keys[i];
-    p2.drawText(`Founder ${i + 1}`, { x: M, y, size: 8, font: bold, color: TEXT_DIM });
-    drawRect(p2, M, y - 18, W - M * 2, 22, SURFACE);
-    p2.drawText(k || '—', { x: M + 8, y: y - 12, size: 7.5, font: mono, color: TEXT, maxWidth: W - M * 2 - 16 });
-    y -= 32;
+    for (let i = 0; i < (vault.founder_keys || []).length; i++) {
+      const k = vault.founder_keys[i];
+      p2.drawText(`Founder ${i + 1}`, { x: M, y, size: 8, font: bold, color: TEXT_DIM });
+      drawRect(p2, M, y - 18, W - M * 2, 22, SURFACE);
+      p2.drawText(k || '—', { x: M + 8, y: y - 12, size: 7.5, font: mono, color: TEXT, maxWidth: W - M * 2 - 16 });
+      y -= 32;
+    }
+
+    y -= 4;
+    drawHRule(p2, y);
+    y -= 20;
+
+    // ── Heir Public Keys ──────────────────────────────────────────────────────
+    p2.drawText('HEIR PUBLIC KEYS', { x: M, y, size: 8, font: bold, color: GOLD });
+    y -= 16;
+
+    for (let i = 0; i < (vault.heir_keys || []).length; i++) {
+      const k = vault.heir_keys[i];
+      p2.drawText(`Heir ${i + 1}`, { x: M, y, size: 8, font: bold, color: TEXT_DIM });
+      drawRect(p2, M, y - 18, W - M * 2, 22, SURFACE);
+      p2.drawText(k || '—', { x: M + 8, y: y - 12, size: 7.5, font: mono, color: TEXT, maxWidth: W - M * 2 - 16 });
+      y -= 32;
+    }
+
+    y -= 4;
+    drawHRule(p2, y);
+    y -= 20;
   }
-
-  y -= 4;
-  drawHRule(p2, y);
-  y -= 20;
-
-  // ── Heir Public Keys ───────────────────────────────────────────────────────
-  p2.drawText('HEIR PUBLIC KEYS', { x: M, y, size: 8, font: bold, color: GOLD });
-  y -= 16;
-
-  for (let i = 0; i < (vault.heir_keys || []).length; i++) {
-    const k = vault.heir_keys[i];
-    p2.drawText(`Heir ${i + 1}`, { x: M, y, size: 8, font: bold, color: TEXT_DIM });
-    drawRect(p2, M, y - 18, W - M * 2, 22, SURFACE);
-    p2.drawText(k || '—', { x: M + 8, y: y - 12, size: 7.5, font: mono, color: TEXT, maxWidth: W - M * 2 - 16 });
-    y -= 32;
-  }
-
-  y -= 4;
-  drawHRule(p2, y);
-  y -= 20;
 
   // ── Signing Instructions ───────────────────────────────────────────────────
   p2.drawText('HOW TO SPEND FROM THIS VAULT', { x: M, y, size: 8, font: bold, color: GOLD });
@@ -349,7 +440,13 @@ async function buildVaultPDF(vault) {
     ['1. Import the descriptor', 'Open Sparrow Wallet → File → Import Wallet → Output Descriptor. Paste the descriptor above. This creates a watch-only wallet showing the vault balance.'],
     ['2. Connect your hardware device', 'Connect your Coldcard, Trezor, or Ledger to Sparrow. The device holds the private key corresponding to your public key above.'],
     ['3. Build the transaction', 'In Sparrow, go to Send. Enter the destination address and amount. Click Create Transaction. Sparrow builds an unsigned PSBT.'],
-    ['4. Sign with required devices', `This vault requires ${vault.founder_quorum || 2} of ${(vault.founder_keys || []).length} founder signatures. Each signer must sign the PSBT on their hardware device.`],
+    ['4. Sign with required devices', (() => {
+      if (!isLeafShape) return `This vault requires ${vault.founder_quorum || 2} of ${(vault.founder_keys || []).length} founder signatures. Each signer must sign the PSBT on their hardware device.`;
+      const immediate = vault.leaves.find(l => l.unlock?.type === 'immediate');
+      return immediate
+        ? `This vault's "${immediate.label || immediate.id}" path requires ${immediate.quorum} of ${(immediate.keys || []).length} signatures for everyday spending. Each signer must sign the PSBT on their hardware device.`
+        : 'Check which path this spend uses on the Trust tab, then gather the required signers for that path -- each must sign the PSBT on their hardware device.';
+    })()],
     ['5. Broadcast', 'Once enough signatures are collected, Sparrow will allow you to broadcast the transaction to the Bitcoin network.'],
   ];
 

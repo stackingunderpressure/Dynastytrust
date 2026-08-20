@@ -1046,7 +1046,16 @@ export const api = {
       req<{
         ok: true;
         sealed: boolean;
-        bundle: { nonce_b64: string; ciphertext_b64: string; updated_at: string } | null;
+        bundle: {
+          nonce_b64: string;
+          ciphertext_b64: string;
+          updated_at: string;
+          /** descriptorFingerprint(descriptor) at seal time, or null for a
+           *  bundle sealed before this field existed (2026-08-20). Compare
+           *  against the vault's current descriptor's own fingerprint to
+           *  detect a recompile that left this seal stale. */
+          sealed_descriptor_hash: string | null;
+        } | null;
         shares: {
           key_role: string;
           locked_fast_share_b64: string;
@@ -1060,6 +1069,8 @@ export const api = {
     seal: (body: {
       vault_id: string;
       sealed_bundle: { nonce_b64: string; ciphertext_b64: string };
+      /** descriptorFingerprint(vault.descriptor) -- see legacy-recovery.ts. */
+      descriptor_hash: string;
       onchain_share_b64: string;
       shares: {
         key_role: string;

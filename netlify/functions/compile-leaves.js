@@ -166,9 +166,18 @@ export async function handler(event) {
       leaves: wireLeaves,
       address_type: "tr_multileaf",
       status: "compiled",
+      // Per-leaf tapscript bytes, keyed by leaf id (compiler/src/main.rs's
+      // compile_leaves handler). Was never persisted here -- the column
+      // (026_leaf_scripts.sql) has existed since the named-field path
+      // started writing it, but this handler never read compiled.leaf_scripts
+      // off the compiler response at all, so every leaf-list vault compiled
+      // to date has `leaf_scripts: null`, which is what silently breaks
+      // Tapit circle-membership invites for this vault shape (see
+      // circle-membership-delivery.ts / VaultMembershipSetup.tsx).
+      leaf_scripts: compiled.leaf_scripts ?? null,
     })
     .eq("id", vaultId)
-    .select("id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, status, leaves, consent_keys, consent_quorum")
+    .select("id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, status, leaves, leaf_scripts, consent_keys, consent_quorum")
     .single();
   if (saveErr) return json(500, { error: saveErr.message });
 

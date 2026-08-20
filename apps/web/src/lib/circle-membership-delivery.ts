@@ -55,8 +55,16 @@ export const VAULT_MEMBERSHIP_REQUEST_KIND = 9578;
  *  in any other role. There is nothing role-specific about Tapit's
  *  receiving side -- vaultTrail.ts's role field is a bare string, never
  *  validated against a fixed set -- so the restriction was only ever on
- *  this sending side. */
-export type VaultMembershipRole = 'founder' | 'heir' | 'backup' | 'consent' | 'second_heir';
+ *  this sending side.
+ *
+ *  2026-08-19 widened again for the generic leaf-list ("custom builder")
+ *  vault shape: that shape has no fixed role vocabulary at all, only
+ *  whatever leaf ids the owner named when building it. `(string & {})`
+ *  keeps autocomplete/literal-checking for the five named-field roles
+ *  above while still accepting an arbitrary leaf id as a valid role --
+ *  see `leafScriptsForRole`'s fallback branch below for how an unknown
+ *  role is resolved. */
+export type VaultMembershipRole = 'founder' | 'heir' | 'backup' | 'consent' | 'second_heir' | (string & {});
 
 /** The leaf names (compiler/src/main.rs's CompileResponse.leaf_scripts
  *  keys) a given role's key is a legitimate signer on. A founder signs
@@ -143,15 +151,30 @@ export interface SendVaultMembershipResult {
  * named leaf isn't present -- e.g. a vault with no recovery timelock
  * configured has no "recovery" entry, and a founder's membership is still
  * valid for founders_now alone.
+ *
+ * A generic leaf-list vault has no entry in LEAVES_FOR_ROLE at all --
+ * there, `role` IS the leaf's own id (VaultMembershipSetup.tsx's
+ * leaf-list branch passes `leaf.id` as the role for exactly this
+ * reason), and compile-leaves.js's leaf_scripts map is already keyed by
+ * leaf id directly, so the fallback below looks it up with no extra
+ * indirection. A key that legitimately sits in more than one leaf (the
+ * key-reuse pattern policy_compiler.rs's find_key_reuse already
+ * recognizes) simply gets one membership grant per leaf it's actually
+ * in, driven by the vault's real structure rather than a fixed mapping.
  */
 export function leafScriptsForRole(
   leafScripts: Record<string, string> | null,
   role: VaultMembershipRole,
 ): string[] {
   if (!leafScripts) return [];
-  return LEAVES_FOR_ROLE[role]
-    .map(name => leafScripts[name])
-    .filter((hex): hex is string => typeof hex === 'string' && hex.length > 0);
+  const namedRoleLeaves = LEAVES_FOR_ROLE[role as keyof typeof LEAVES_FOR_ROLE];
+  if (namedRoleLeaves) {
+    return namedRoleLeaves
+      .map(name => leafScripts[name])
+      .filter((hex): hex is string => typeof hex === 'string' && hex.length > 0);
+  }
+  const hex = leafScripts[role];
+  return typeof hex === 'string' && hex.length > 0 ? [hex] : [];
 }
 
 /**

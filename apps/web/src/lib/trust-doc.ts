@@ -161,6 +161,77 @@ export function standardConfigFromCompiledVault(
   };
 }
 
+// The generic leaf-list ("custom builder") vault has no fixed shape to
+// hang a hand-written narrative on the way Standard/Bloc do -- but every
+// path it CAN have (immediate / after a fixed date / if untouched for a
+// while, each with its own quorum and optional step-down) is fully
+// mechanical, so a real trust doc can still be generated from it, same
+// as the other two. This was the actual gap: VaultWizard.tsx's leaf-list
+// compile branch had a comment explaining why it left the doc blank
+// ("no template to draw from") -- there was a template, it just hadn't
+// been written yet.
+export interface LeafDocInput {
+  label: string;
+  plannedKeys: number;
+  quorum: number;
+  unlockType: 'immediate' | 'after' | 'older';
+  afterBlocks: number;
+  olderBlocks: number;
+  decayEnabled: boolean;
+  decayFloorQ: number;
+}
+
+export function buildLeavesTrustDoc(opts: {
+  vaultName: string;
+  leaves: LeafDocInput[];
+}): TrustDoc {
+  const { vaultName, leaves } = opts;
+  const immediate = leaves.filter(l => l.unlockType === 'immediate');
+
+  const purpose = immediate.length > 0
+    ? `${vaultName} is a custom-built Bitcoin vault with ${leaves.length} spending path${leaves.length === 1 ? '' : 's'}. Day to day, ${immediate.map(l => `${l.quorum} of ${l.plannedKeys} "${l.label}" key${l.plannedKeys === 1 ? '' : 's'}`).join(' or ')} can spend at any time, no waiting.`
+    : `${vaultName} is a custom-built Bitcoin vault with ${leaves.length} spending path${leaves.length === 1 ? '' : 's'}, each opening only under a specific condition -- see below. No path here can spend without waiting first; confirm that is actually intended.`;
+
+  const rules: string[] = leaves.map(l => {
+    if (l.unlockType === 'immediate') {
+      return `"${l.label}": ${l.quorum} of ${l.plannedKeys} key${l.plannedKeys === 1 ? '' : 's'} can spend at any time, no waiting.`;
+    }
+    if (l.unlockType === 'after') {
+      const decay = l.decayEnabled ? ` The number of signers required steps down the longer it waits, down to a floor of ${l.decayFloorQ}.` : '';
+      return `"${l.label}": ${l.quorum} of ${l.plannedKeys} key${l.plannedKeys === 1 ? '' : 's'} can spend after ${when(l.afterBlocks)} -- a fixed calendar date that does not move regardless of activity.${decay}`;
+    }
+    const decay = l.decayEnabled ? ` The number of signers required steps down the longer it stays untouched, down to a floor of ${l.decayFloorQ}.` : '';
+    return `"${l.label}": ${l.quorum} of ${l.plannedKeys} key${l.plannedKeys === 1 ? '' : 's'} can spend if the vault sits completely untouched for about ${blocksToHuman(l.olderBlocks)} -- any normal spend from any path resets this clock back to the start.${decay}`;
+  });
+  rules.push(
+    'Add any real financial policy below -- spending caps, required approvals, what the funds are actually for -- as free text or as enforced per-proposal rules.',
+  );
+
+  const successionParts: string[] = [];
+  const laterPaths = leaves.filter(l => l.unlockType !== 'immediate');
+  if (immediate.length === 0) {
+    successionParts.push('No path here can spend without waiting for a timelock -- confirm that is actually intended before funding this vault.');
+  }
+  if (laterPaths.length === 0) {
+    successionParts.push(
+      'No fallback or succession path exists on this vault -- if every day-to-day key becomes unavailable, funds are stranded. Pair this with a separate recovery or inheritance path if that risk matters.',
+    );
+  } else {
+    successionParts.push(
+      `Beyond day-to-day use, ${laterPaths.length} more path${laterPaths.length === 1 ? '' : 's'} exist for when things go wrong or enough time passes: ${laterPaths.map(l => `"${l.label}"`).join(', ')}. Name who actually holds each of those keys, and how they should be reached, below.`,
+    );
+  }
+  successionParts.push(
+    'Any path timed "if untouched for a while" is a proxy for a real-world determination (incapacity, going silent), not the same thing as one -- the moment an actual determination is made through the process this trust document names, hand off deliberately by rotating the vault to the responsible party\'s own keys rather than waiting out the on-chain clock.',
+  );
+
+  return {
+    purpose,
+    distribution_rules: rules.join('\n\n'),
+    succession_notes: successionParts.join(' '),
+  };
+}
+
 export function buildBlocTrustDoc(opts: {
   vaultName: string;
   config: BlocConfig;

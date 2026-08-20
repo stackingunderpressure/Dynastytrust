@@ -27,6 +27,7 @@ import {
   legacyIdentityPubkeyFromMnemonic,
   legacyIdentityPubkeyFromXpub,
   detectXpubNetwork,
+  descriptorFingerprint,
 } from '../apps/web/src/lib/legacy-recovery.ts';
 
 const network = 'testnet';
@@ -192,5 +193,18 @@ const sigRecovered = recoverViaFastPath(lockedFastShareSig, sigLockA, onChainSha
 assert.deepEqual(sigRecovered, secret, 'signature-locked fast-path share + on-chain pad must reconstruct the exact same secret');
 const sigRecoveredBundle = await unsealBundle(sealed, sigRecovered);
 assert.equal(sigRecoveredBundle, bundleText, 'bundle recovered via the signature-based lock must byte-match the original');
+
+// ── descriptorFingerprint: stale-seal detection label ─────────────────────
+// (2026-08-20, operator thinking through a 20-year-out edge case: a vault
+// recompiles -- same shape, different keys -- after Legacy Recovery was
+// already sealed and an on-chain pad already published. The crypto itself
+// already fails safely there; this label is purely so a stale seal can be
+// detected and warned about instead of silently trusted.)
+const descA = 'tr([abc12345/86h/1h/0h]xpub_placeholder_A/0/0)';
+const descB = 'tr([def67890/86h/1h/0h]xpub_placeholder_B/0/0)';
+assert.equal(descriptorFingerprint(descA), descriptorFingerprint(descA), 'same descriptor must always fingerprint identically');
+assert.notEqual(descriptorFingerprint(descA), descriptorFingerprint(descB), 'different descriptors must fingerprint differently');
+assert.equal(descriptorFingerprint(descA).length, 16, 'fingerprint is 8 bytes of SHA-256 as hex (16 chars)');
+assert.match(descriptorFingerprint(descA), /^[0-9a-f]{16}$/, 'fingerprint must be lowercase hex');
 
 console.log('legacy-recovery tests passed');

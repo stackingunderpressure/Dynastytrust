@@ -50,6 +50,19 @@ import { NostrRelaySettings } from './NostrRelaySettings';
  * publish back accepted/declined (vaultMembershipAckChannel.ts, Tapit
  * repo) -- turning "I clicked send" into a real, durable, two-way
  * confirmed roster.
+ *
+ * 2026-08-19 fix: this whole card was hard-wired to the named-field
+ * vault shape's five fixed key arrays -- a vault built through the
+ * custom leaf-list builder (any `leaves` shape, including the new
+ * Revocable living trust template) passed empty arrays for every one of
+ * them and got no circle-membership UI at all, silently. `leaves` is
+ * now an optional sixth prop; when present, `roleArrays` is built from
+ * each leaf's own `id`/`keys` instead of the five named arrays, and
+ * each leaf's own `label` (e.g. "Grantor(s)") stands in for
+ * ROLE_LABELS wherever a role isn't one of the five fixed ones.
+ * leafScriptsForRole (circle-membership-delivery.ts) already resolves
+ * an unrecognized role as a literal leaf id against leaf_scripts, so no
+ * change was needed there beyond that fallback.
  */
 const ROLE_LABELS: Record<VaultMembershipRole, string> = {
   founder: 'Founder',
@@ -95,6 +108,7 @@ export function VaultMembershipSetup({
   backupKeys,
   consentKeys,
   secondHeirKeys,
+  leaves,
   leafScripts,
   keyLabels,
   isOwner,
@@ -107,6 +121,10 @@ export function VaultMembershipSetup({
   backupKeys: string[];
   consentKeys: string[];
   secondHeirKeys: string[];
+  /** Present only for the generic leaf-list ("custom builder") vault
+   *  shape -- when set (and non-empty), this drives roleArrays instead
+   *  of the five named-field arrays above, one "role" per leaf id. */
+  leaves?: { id: string; label: string; keys: string[] }[] | null;
   leafScripts: Record<string, string> | null;
   /** Custom per-key display labels (041_vault_key_labels.sql) -- see
    *  VaultStructureTree's identical mechanism in VaultDetail.tsx. Shown
@@ -124,6 +142,11 @@ export function VaultMembershipSetup({
   const [grants, setGrants] = useState<VaultMembershipGrant[]>([]);
   const grantsRef = useRef<VaultMembershipGrant[]>([]);
   grantsRef.current = grants;
+
+  const isLeafShape = !!leaves && leaves.length > 0;
+  const leafLabelById = new Map((leaves ?? []).map(l => [l.id, l.label]));
+  const roleLabel = (role: VaultMembershipRole): string =>
+    ROLE_LABELS[role as keyof typeof ROLE_LABELS] ?? leafLabelById.get(role) ?? role;
 
   const [localKeyLabels, setLocalKeyLabels] = useState(keyLabels);
   const [editingPubkey, setEditingPubkey] = useState<string | null>(null);
@@ -194,7 +217,7 @@ export function VaultMembershipSetup({
       void api.vaultMembershipGrants.updateStatus(grant.id, ack.decision).then(res => {
         setGrants(prev => prev.map(g => (g.id === res.grant.id ? res.grant : g)));
         toast[ack.decision === 'accepted' ? 'success' : 'error'](
-          `${grant.recipient_label} ${ack.decision} the ${ROLE_LABELS[grant.role as VaultMembershipRole] ?? grant.role} membership for ${vaultName}`,
+          `${grant.recipient_label} ${ack.decision} the ${roleLabel(grant.role)} membership for ${vaultName}`,
         );
       });
     });
@@ -222,7 +245,7 @@ export function VaultMembershipSetup({
       void api.vaultMembershipGrants.updateStatus(grant.id, 'left').then(res => {
         setGrants(prev => prev.map(g => (g.id === res.grant.id ? res.grant : g)));
         toast.info(
-          `${grant.recipient_label} left the ${ROLE_LABELS[grant.role as VaultMembershipRole] ?? grant.role} membership for ${vaultName} -- their key is still valid on-chain until this vault is recompiled.`,
+          `${grant.recipient_label} left the ${roleLabel(grant.role)} membership for ${vaultName} -- their key is still valid on-chain until this vault is recompiled.`,
         );
       });
     });
@@ -233,15 +256,17 @@ export function VaultMembershipSetup({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [acceptedKeysSignature]);
 
-  const { circleMembers, barePubkeys } = getTapitCircleMembers(founderKeys);
+  const { circleMembers, barePubkeys } = getTapitCircleMembers(isLeafShape ? (leaves ?? []).flatMap(l => l.keys) : founderKeys);
 
-  const roleArrays: [VaultMembershipRole, string[]][] = [
-    ['founder', founderKeys],
-    ['heir', heirKeys],
-    ['backup', backupKeys],
-    ['consent', consentKeys],
-    ['second_heir', secondHeirKeys],
-  ];
+  const roleArrays: [VaultMembershipRole, string[]][] = isLeafShape
+    ? (leaves ?? []).map(l => [l.id, l.keys] as [VaultMembershipRole, string[]])
+    : [
+        ['founder', founderKeys],
+        ['heir', heirKeys],
+        ['backup', backupKeys],
+        ['consent', consentKeys],
+        ['second_heir', secondHeirKeys],
+      ];
 
   // Any bare (Tapit-shaped) pubkey across every role, whether or not a
   // matching local key was found for it -- feeds the "circle exists but
@@ -290,7 +315,7 @@ export function VaultMembershipSetup({
       </div>
       <div>
         {orphanedGrants.map(g => g.recipient_label).join(', ')} {orphanedGrants.length === 1 ? 'was' : 'were'} granted
-        the {orphanedGrants.map(g => ROLE_LABELS[g.role as VaultMembershipRole] ?? g.role).join(', ')} role, but that
+        the {orphanedGrants.map(g => roleLabel(g.role)).join(', ')} role, but that
         key no longer appears there -- the vault was likely recompiled with a different key set since. Recheck whether
         {orphanedGrants.length === 1 ? ' this person' : ' these people'} should still hold that role.
       </div>
@@ -320,7 +345,7 @@ export function VaultMembershipSetup({
         </div>
         {barePubkeys.length > 0 && (
           <p style={{ fontSize: 12, color: colors.sub, margin: 0 }}>
-            This vault has {barePubkeys.length} founder key{barePubkeys.length === 1 ? '' : 's'} that
+            This vault has {barePubkeys.length} key{barePubkeys.length === 1 ? '' : 's'} that
             look like they came from Tapit (no extended public key attached), but none of them match a
             Tapit-origin key in this browser's Key Manager right now. If you added that key on a different
             device or browser, add it here too before you can send membership to that person --{' '}
@@ -366,7 +391,7 @@ export function VaultMembershipSetup({
     if (!ready || !vaultDescriptor) return;
     const roleLeaves = leafScriptsForRole(leafScripts, role);
     if (roleLeaves.length === 0) {
-      toast.error(`No leaf scripts on file for the ${ROLE_LABELS[role].toLowerCase()} role -- recompile to refresh them.`);
+      toast.error(`No leaf scripts on file for the ${roleLabel(role).toLowerCase()} role -- recompile to refresh them.`);
       return;
     }
     setBusyKeyId(keyId);
@@ -432,7 +457,7 @@ export function VaultMembershipSetup({
         {members.map(({ key: k, role }) => {
           const g = grants.find(x => x.role === role && x.key_id === k.keyId) ?? null;
           const pk = k.pubkey.toLowerCase();
-          const roleDisplayLabel = customLabelFor(pk) ?? positionalDefault(pk) ?? ROLE_LABELS[role];
+          const roleDisplayLabel = customLabelFor(pk) ?? positionalDefault(pk) ?? roleLabel(role);
           const editingThis = editingPubkey === pk;
           return (
             <div key={k.keyId} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>

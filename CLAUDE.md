@@ -516,6 +516,49 @@ See `Stack` above for the layout.
    doesn't custody funds or manage a user's unrelated UTXOs, so the actual
    send stays a human action in their own wallet, same boundary every
    other send flow here respects.
+8. ~~PDF / audit / tax exports don't know about the custom leaf-list vault
+   shape.~~ **Closed 2026-08-19.** `vault-pdf.js`, `vault-audit-pdf.js`,
+   and `vault-tax-summary.js` all now branch on `Array.isArray(vault.leaves)
+   && vault.leaves.length > 0` and read the generic `LeafSpec[]` shape --
+   per-path quorum/key-count/timing rows -- instead of assuming
+   `founder_keys`/`heir_keys`/`founder_quorum`/`heir_quorum` unconditionally.
+   `vault-pdf.js` additionally regenerates its "VAULT POLICY" path cards,
+   the "KEY CONFIGURATION" rows, page 2's public-key listing (one section
+   per path instead of the fixed Founder/Heir pair), and the signing-
+   instructions copy from the real leaf list. Named-field and Bloc vaults
+   are byte-for-byte unchanged -- this only adds the missing branch, no
+   existing rendering path was touched. One honest residual: the client
+   PDF's per-path key listing on page 2 stops drawing (with a page break)
+   if it runs off the bottom rather than flowing onto a third page --
+   pre-existing behavior for the founder/heir path too, not new here, but
+   worth knowing for a vault with a very large number of paths and keys.
+9. ~~Vault-membership circle invites don't work at all for the custom
+   leaf-list vault shape.~~ **Closed 2026-08-19.** Three real, connected
+   fixes, not one: (1) `compile-leaves.js` never read `leaf_scripts` off
+   the Fly.io compiler's response at all, despite `compile_leaves` (Rust,
+   `compiler/src/main.rs`) already returning it keyed by leaf id and
+   already being unit-tested to do so (`compiles_a_valid_leaf_list_and_
+   returns_leaf_scripts_by_id`) -- so `vaults.leaf_scripts` sat `null` for
+   every leaf-list vault ever compiled. Now persisted on compile, same as
+   `vaults-compile.js` already does for the named-field shape. (2)
+   `circle-membership-delivery.ts`'s `VaultMembershipRole` type and
+   `leafScriptsForRole` were hard-wired to the five named-field roles;
+   widened (`(string & {})`) with a fallback that treats an unrecognized
+   role as a literal leaf id and looks it up in `leaf_scripts` directly --
+   exactly what a leaf-list vault's "role" actually is, no fixed mapping
+   needed since compile-leaves.js's leaf_scripts is already keyed by leaf
+   id. (3) `VaultMembershipSetup.tsx` gained an optional `leaves` prop;
+   when present it builds its roleArrays from each leaf's own `id`/`keys`
+   instead of the five fixed arrays, and every role label falls back to
+   the leaf's own `label` (e.g. "Grantor(s)") instead of the fixed
+   `ROLE_LABELS` map. `tapit-circle-members.ts` needed no change at all --
+   it was already role-agnostic, taking any key array. `VaultDetail.tsx`
+   now passes `vault.leaves` through. A key that legitimately sits in more
+   than one leaf (the key-reuse pattern `find_key_reuse` already
+   recognizes) gets one membership grant per leaf it's actually in, which
+   is arguably more correct than the named-field path's fixed
+   founder-signs-two-leaves mapping. Works for any custom-shape vault,
+   including the new Revocable living trust template.
 
 **Next roadmap (captured 2026-04-18, post audit-fix push):**
 
@@ -551,6 +594,101 @@ on descriptor compile + single-source tree builder. Next phase is the trust
    is higher in the trust layer.
 
 **Recently closed:**
+
+- **PDF/audit/tax exports + Tapit circle-membership invites for the
+  custom leaf-list vault shape (2026-08-19).** Direct follow-up to the
+  Revocable living trust entry below -- items 8 and 9 in Open gaps above
+  were left open in that same session per the operator's instruction to
+  "keep a list of the things we need to work on" rather than fixed
+  silently; this pass closes both. Full detail lives in the strikethrough
+  entries for items 8 and 9 above, not repeated here. Net effect: a
+  custom leaf-list vault (living-trust-shaped or otherwise) now gets
+  correct legal/tax documents instead of "0 of 0 signatures required,"
+  and its Tapit circle members can actually be invited over the
+  encrypted-messaging pipeline, matching what already worked for the
+  named-field and Bloc vault shapes. All four gates green.
+
+- **Revocable living trust shape + trust-wording toggle + trust-doc
+  generation for the custom leaf-list builder (2026-08-19).** Operator
+  asked, after the custom leaf-list builder shipped, whether the "heart of
+  the trust part" -- lawyer docs, the judicial-system side, membership
+  invites over encrypted messaging -- had kept pace with it. Grounding
+  confirmed two real gaps (now items 8 and 9 in Open gaps above, left
+  open and documented rather than fixed silently or ignored per the
+  operator's explicit instruction to "be honest about where we haven't
+  found where we go"). Also built what the operator asked for as the
+  positive half of that same request, both options rather than picking
+  one: (1) a new "Revocable living trust" entry in `VaultWizard.tsx`'s
+  `LEAF_SHAPE_TABS` -- the most common US estate-planning trust, mapped
+  onto three existing leaf primitives with trust-terminology labels:
+  Grantor(s) (immediate), Successor Trustee incapacity backstop (the
+  existing `older()` self-refreshing pattern, with copy that says plainly
+  this is a proxy for a real incapacity determination, not the same
+  thing, and that a real determination should be handled by a deliberate
+  `vaults-rotate.js` handoff rather than waiting out the on-chain clock),
+  and Successor Trustee distributing to Beneficiaries (a longer `after()`
+  leaf). (2) A separate, complementary "Use trust wording" checkbox
+  (`applyTrustLabels` in `VaultWizard.tsx`) that relabels whichever paths
+  an operator has already hand-built with the same Grantor / Successor
+  Trustee / Beneficiary terms, based on each path's own timing (immediate
+  -> Grantor, "if untouched" -> incapacity backstop, longest `after()` ->
+  distribution to Beneficiaries) rather than which shape tab was used --
+  reversible, since toggling it off restores the labels captured right
+  before it was turned on. (3) The actual missing connection: the
+  leaf-list compile path in `VaultWizard.tsx`'s `runCompile` had a
+  comment explaining why it left the generated trust doc blank ("no
+  template to draw from the way Standard/Bloc do") -- that comment was
+  wrong, there was a template to write, it just hadn't been written yet.
+  `apps/web/src/lib/trust-doc.ts` gained `buildLeavesTrustDoc`, generating
+  real purpose/distribution-rules/succession-notes prose from each path's
+  actual mechanics (quorum, key count, immediate/after/older timing, decay
+  ladder), the same way `buildStandardTrustDoc`/`buildBlocTrustDoc` already
+  do for the other two shapes -- wired into the same `saveGeneratedTrustDoc`
+  call every other vault shape already uses, so every vault built through
+  the custom builder, living-trust-shaped or not, now gets a real starting
+  trust doc instead of a permanently blank one. All four gates run before
+  commit.
+
+- **Legacy Recovery: stale-seal detection (2026-08-20).** Operator, thinking
+  through a 20-year-out edge case: a vault gets recompiled (same leaf shape,
+  different actual keys) after its Legacy Recovery bundle was already sealed
+  and an on-chain pad already published -- "I'm not sure how to label that or
+  make sure the person in the future doesn't get confused." Grounding
+  confirmed the gap was real: `vaults-compile.js`/`compile-leaves.js` never
+  touched `vault_legacy_*` at all, despite `vault_legacy_recovery.sql`'s own
+  comment claiming the bundle gets "overwritten whenever the vault
+  recompiles." The crypto itself already fails safely -- a stale locked
+  share or on-chain pad only ever reconstructs the secret for the bundle it
+  was sealed alongside, so recovering against a re-sealed vault just fails
+  to decrypt (an honest error), never a silently wrong descriptor -- but
+  nothing told the owner it had happened, and nothing told a future finder
+  which vault-version a package belonged to. `legacy-recovery.ts` gained
+  `descriptorFingerprint` (8 bytes of SHA-256 as 16 hex chars, unit-tested
+  in `test-legacy-recovery.mjs`) -- a label, not a security mechanism.
+  `legacy-seal.ts`'s `sealVaultLegacyRecovery` now takes the vault's raw
+  `descriptor` and hashes it at seal time; `vault-legacy.js`'s POST stores
+  it as `vault_legacy_bundles.sealed_descriptor_hash`
+  (`20260820120000_legacy_recovery_descriptor_fingerprint.sql`, nullable --
+  a bundle sealed before this migration has no retroactive fingerprint,
+  treated as "unknown version," never "current") and its GET returns it.
+  `LegacyRecoverySetup.tsx` recomputes the vault's CURRENT fingerprint on
+  every load and shows a red "this vault's descriptor has changed since
+  Legacy Recovery was last sealed -- reseal now" banner when it no longer
+  matches the sealed one, plus a small mono line showing the sealed
+  version/date next to the roles for a normal, matching seal.
+  `descriptor-backup.ts`'s `LegacyRecoveryPackageLike` gained
+  `descriptorFingerprint`/`sealedAt`, stamped near the top of every
+  downloaded recovery package with an explicit note: this package still
+  correctly recovers the version it was sealed for, but may not be the
+  vault's current one, so compare the stamp against DynastyTrust's live
+  page if it's still reachable. The standalone offline tool
+  (`tools/legacy-recovery/`) was deliberately NOT changed -- the fingerprint
+  is plain informational text for the human reading the package, not a
+  field the recovery tool consumes -- but it was rebuilt
+  (`node tools/legacy-recovery/build.mjs`) per standing instruction since
+  `legacy-recovery.ts` changed. All four gates green; `legacy-recovery`
+  test suite extended with round-trip + collision checks for the new
+  fingerprint function.
 
 - **Standalone protector leaf/timelock/quorum retired (2026-08-19).**
   Operator: "I don't like the protector path. I only like it as an added
