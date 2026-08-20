@@ -516,34 +516,49 @@ See `Stack` above for the layout.
    doesn't custody funds or manage a user's unrelated UTXOs, so the actual
    send stays a human action in their own wallet, same boundary every
    other send flow here respects.
-8. **PDF / audit / tax exports don't know about the custom leaf-list vault
-   shape.** Confirmed by grep, not yet fixed: `netlify/functions/
-   vault-pdf.js`, `vault-audit-pdf.js`, and `vault-tax-summary.js` all read
-   `vault.founder_keys` / `vault.heir_keys` / `vault.founder_quorum` /
-   `vault.heir_quorum` directly and have no branch for the generic
-   `vault.leaves` array at all. For any vault built through the custom
-   leaf-list builder (`compile-leaves.js`) -- including the new Revocable
-   living trust shape below -- every one of these documents currently
-   renders wrong or empty numbers ("0 of 0 founder signatures required")
-   instead of failing loudly. That is a legal/compliance document that
-   looks legitimate and lies. Flagged honestly rather than fixed silently
-   or left unmentioned; needs its own pass reading `vault.leaves`
-   generically before any generic-shape vault, including a living trust,
-   should be handed to a lawyer or filed for tax purposes.
-9. **Vault-membership circle invites don't work at all for the custom
-   leaf-list vault shape.** `apps/web/src/lib/circle-membership-delivery.ts`
-   and `apps/web/src/lib/tapit-circle-members.ts` are hard-wired to the
-   named-field vault shape (`founder_keys` / `heir_keys` / a `leaf_scripts`
-   map keyed by fixed names like "recovery"/"inheritance"). `compile-
-   leaves.js` (the generic leaf-list compiler) doesn't even populate
-   `leaf_scripts` in its `select`/`update` statements, unlike `vaults-
-   compile.js`. Net effect: a vault built with the custom leaf-list
-   builder -- including the new Revocable living trust shape -- cannot
-   have circle members invited to it over Tapit's encrypted-messaging
-   pipeline at all right now. Needs `compile-leaves.js` to emit
-   `leaf_scripts` (or an equivalent generic form) and both membership
-   files updated to read the `leaves` array before this works for any
-   custom-shape vault.
+8. ~~PDF / audit / tax exports don't know about the custom leaf-list vault
+   shape.~~ **Closed 2026-08-19.** `vault-pdf.js`, `vault-audit-pdf.js`,
+   and `vault-tax-summary.js` all now branch on `Array.isArray(vault.leaves)
+   && vault.leaves.length > 0` and read the generic `LeafSpec[]` shape --
+   per-path quorum/key-count/timing rows -- instead of assuming
+   `founder_keys`/`heir_keys`/`founder_quorum`/`heir_quorum` unconditionally.
+   `vault-pdf.js` additionally regenerates its "VAULT POLICY" path cards,
+   the "KEY CONFIGURATION" rows, page 2's public-key listing (one section
+   per path instead of the fixed Founder/Heir pair), and the signing-
+   instructions copy from the real leaf list. Named-field and Bloc vaults
+   are byte-for-byte unchanged -- this only adds the missing branch, no
+   existing rendering path was touched. One honest residual: the client
+   PDF's per-path key listing on page 2 stops drawing (with a page break)
+   if it runs off the bottom rather than flowing onto a third page --
+   pre-existing behavior for the founder/heir path too, not new here, but
+   worth knowing for a vault with a very large number of paths and keys.
+9. ~~Vault-membership circle invites don't work at all for the custom
+   leaf-list vault shape.~~ **Closed 2026-08-19.** Three real, connected
+   fixes, not one: (1) `compile-leaves.js` never read `leaf_scripts` off
+   the Fly.io compiler's response at all, despite `compile_leaves` (Rust,
+   `compiler/src/main.rs`) already returning it keyed by leaf id and
+   already being unit-tested to do so (`compiles_a_valid_leaf_list_and_
+   returns_leaf_scripts_by_id`) -- so `vaults.leaf_scripts` sat `null` for
+   every leaf-list vault ever compiled. Now persisted on compile, same as
+   `vaults-compile.js` already does for the named-field shape. (2)
+   `circle-membership-delivery.ts`'s `VaultMembershipRole` type and
+   `leafScriptsForRole` were hard-wired to the five named-field roles;
+   widened (`(string & {})`) with a fallback that treats an unrecognized
+   role as a literal leaf id and looks it up in `leaf_scripts` directly --
+   exactly what a leaf-list vault's "role" actually is, no fixed mapping
+   needed since compile-leaves.js's leaf_scripts is already keyed by leaf
+   id. (3) `VaultMembershipSetup.tsx` gained an optional `leaves` prop;
+   when present it builds its roleArrays from each leaf's own `id`/`keys`
+   instead of the five fixed arrays, and every role label falls back to
+   the leaf's own `label` (e.g. "Grantor(s)") instead of the fixed
+   `ROLE_LABELS` map. `tapit-circle-members.ts` needed no change at all --
+   it was already role-agnostic, taking any key array. `VaultDetail.tsx`
+   now passes `vault.leaves` through. A key that legitimately sits in more
+   than one leaf (the key-reuse pattern `find_key_reuse` already
+   recognizes) gets one membership grant per leaf it's actually in, which
+   is arguably more correct than the named-field path's fixed
+   founder-signs-two-leaves mapping. Works for any custom-shape vault,
+   including the new Revocable living trust template.
 
 **Next roadmap (captured 2026-04-18, post audit-fix push):**
 
@@ -579,6 +594,19 @@ on descriptor compile + single-source tree builder. Next phase is the trust
    is higher in the trust layer.
 
 **Recently closed:**
+
+- **PDF/audit/tax exports + Tapit circle-membership invites for the
+  custom leaf-list vault shape (2026-08-19).** Direct follow-up to the
+  Revocable living trust entry below -- items 8 and 9 in Open gaps above
+  were left open in that same session per the operator's instruction to
+  "keep a list of the things we need to work on" rather than fixed
+  silently; this pass closes both. Full detail lives in the strikethrough
+  entries for items 8 and 9 above, not repeated here. Net effect: a
+  custom leaf-list vault (living-trust-shaped or otherwise) now gets
+  correct legal/tax documents instead of "0 of 0 signatures required,"
+  and its Tapit circle members can actually be invited over the
+  encrypted-messaging pipeline, matching what already worked for the
+  named-field and Bloc vault shapes. All four gates green.
 
 - **Revocable living trust shape + trust-wording toggle + trust-doc
   generation for the custom leaf-list builder (2026-08-19).** Operator

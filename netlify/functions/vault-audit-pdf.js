@@ -196,12 +196,30 @@ async function buildAuditPdf(data) {
   keyValue('Status', vault.status);
   keyValue('Address type', vault.address_type);
   keyValue('Address', vault.address, { valueMono: true });
-  keyValue('Founder quorum', `${vault.founder_quorum} of ${(vault.founder_keys || []).length}`);
-  keyValue('Heir quorum', `${vault.heir_quorum} of ${(vault.heir_keys || []).length}`);
-  if (vault.recovery_quorum != null) keyValue('Recovery quorum', `${vault.recovery_quorum} of ${(vault.founder_keys || []).length}`);
-  keyValue('Recovery at block', (vault.recovery_after || 0).toLocaleString());
-  keyValue('Inheritance at block', (vault.inheritance_after || 0).toLocaleString());
-  if (vault.consent_quorum != null) keyValue('Consent quorum', `${vault.consent_quorum} of ${(vault.consent_keys || []).length}`);
+  // A custom leaf-list vault (isLeafShape, including the Revocable living
+  // trust template) has no founder_quorum/heir_quorum/recovery_quorum at
+  // all -- those columns sit at their defaults (null / 0) for this shape,
+  // and reading them directly used to print "undefined of 0" here. Read
+  // vault.leaves (LeafSpec[]) generically instead when present.
+  const isLeafShape = Array.isArray(vault.leaves) && vault.leaves.length > 0;
+  if (isLeafShape) {
+    for (const leaf of vault.leaves) {
+      const name = leaf.label || leaf.id;
+      const unlock = leaf.unlock || {};
+      const timing = unlock.type === 'immediate' ? 'available now'
+        : unlock.type === 'after' ? `after block ${(unlock.blocks || 0).toLocaleString()}`
+        : unlock.type === 'older' ? `if untouched for ${(unlock.blocks || 0).toLocaleString()} blocks`
+        : '-';
+      keyValue(`${name} quorum`, `${leaf.quorum} of ${(leaf.keys || []).length} -- ${timing}`);
+    }
+  } else {
+    keyValue('Founder quorum', `${vault.founder_quorum} of ${(vault.founder_keys || []).length}`);
+    keyValue('Heir quorum', `${vault.heir_quorum} of ${(vault.heir_keys || []).length}`);
+    if (vault.recovery_quorum != null) keyValue('Recovery quorum', `${vault.recovery_quorum} of ${(vault.founder_keys || []).length}`);
+    keyValue('Recovery at block', (vault.recovery_after || 0).toLocaleString());
+    keyValue('Inheritance at block', (vault.inheritance_after || 0).toLocaleString());
+    if (vault.consent_quorum != null) keyValue('Consent quorum', `${vault.consent_quorum} of ${(vault.consent_keys || []).length}`);
+  }
   keyValue('Compiled', fmtDate(vault.updated_at || vault.created_at));
   y -= 6;
 

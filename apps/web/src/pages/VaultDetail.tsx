@@ -2832,6 +2832,7 @@ function MembersTab({ vault }: { vault: Vault }) {
           backupKeys={vault.backup_keys}
           consentKeys={vault.consent_keys}
           secondHeirKeys={vault.second_heir_keys}
+          leaves={vault.leaves}
           leafScripts={vault.leaf_scripts}
           keyLabels={vault.key_labels}
           isOwner={sessionUserId === vault.user_id}
