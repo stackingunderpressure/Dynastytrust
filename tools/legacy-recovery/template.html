@@ -46,7 +46,7 @@
 </head>
 <body>
   <h1>DynastyTrust Legacy Recovery</h1>
-  <p class="sub">Recovers a vault's descriptor from one or two keys and their sealed shares. Works fully offline -- nothing on this page ever sends data anywhere.</p>
+  <p class="sub">Recovers a vault's descriptor from one or two keys and their sealed shares, or -- for the newer, simpler mechanism -- from a single key's own on-chain publication. Works fully offline -- nothing on this page ever sends data anywhere.</p>
 
   <div class="warning">
     This tool runs entirely in your browser. Close it and clear your browser history/cache afterward if this computer isn't yours to keep. Never enter a seed phrase into any page unless you understand what it does -- this page's full source is visible via "View Source" if you want to verify it before use.
@@ -56,6 +56,7 @@
     <div class="tab" id="tab-fast" role="tab" aria-selected="true">Fast path (seed phrase)</div>
     <div class="tab" id="tab-fast-sig" role="tab" aria-selected="false">Fast path (signature)</div>
     <div class="tab" id="tab-fallback" role="tab" aria-selected="false">Fallback path (two keys)</div>
+    <div class="tab" id="tab-onchain" role="tab" aria-selected="false">Sign to recover (v2)</div>
   </div>
 
   <div id="panel-fast">
@@ -168,6 +169,37 @@
       <textarea id="fb-ciphertext"></textarea>
     </fieldset>
     <button class="run" id="fb-run">Recover</button>
+  </div>
+
+  <div id="panel-onchain" style="display:none">
+    <div class="warning">
+      No vault ID, no shares to combine -- this key's own on-chain address IS the lookup. You'll
+      need the OP_RETURN transaction's full scriptPubKey hex, found on any block explorer by
+      searching the address from your recovery note (most explorers show this on the transaction's
+      output details, sometimes labeled "Script pubkey (hex)" or similar). Then sign the exact
+      message below with the SAME key, at derivation path <code>m/9999'/&lt;coin&gt;'/&lt;vault
+      index&gt;'/1'</code>, using the CLASSIC message-signing method (plain ECDSA) -- not BIP-322 or
+      a Taproot-address signature, those use a different scheme and will not match. Most hardware
+      wallets' "Sign Message" feature supports signing against a custom derivation path directly.
+    </div>
+    <fieldset>
+      <legend>Vault index and message</legend>
+      <label for="oc-vault-index">Vault index (from your recovery note)</label>
+      <input id="oc-vault-index" placeholder="0">
+      <label for="oc-message">Message to sign (updates as you fill in the index above)</label>
+      <textarea id="oc-message" readonly></textarea>
+    </fieldset>
+    <fieldset>
+      <legend>The on-chain transaction</legend>
+      <label for="oc-scriptpubkey">OP_RETURN output's scriptPubKey (hex, from a block explorer)</label>
+      <textarea id="oc-scriptpubkey" placeholder="6a4c..."></textarea>
+    </fieldset>
+    <fieldset>
+      <legend>Your signature</legend>
+      <label for="oc-signature">Signature (base64 or hex, from your hardware wallet)</label>
+      <textarea id="oc-signature" placeholder="paste the signature your wallet produced"></textarea>
+    </fieldset>
+    <button class="run" id="oc-run">Recover</button>
   </div>
 
   <label for="result">Recovered descriptor bundle</label>
