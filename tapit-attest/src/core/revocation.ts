@@ -67,26 +67,45 @@ export function revocationTarget(env: AttestationEnvelope): string | null {
 interface LedgerEntry {
   readonly config: TierConfig;
   readonly issuedAtMs: number;
+  readonly authorizedRevokers: ReadonlySet<string>;
   revokedAtMs: number | null;
 }
 
 /**
  * Tracks the lifecycle state of a set of attestations.
  *
- * Storage-agnostic: the ledger holds only ids, tiers and timestamps.
- * Persist or rebuild it from whatever store you use (see sync.ts).
+ * Storage-agnostic: the ledger holds only ids, tiers, timestamps, and
+ * the standing revoker set. Persist or rebuild it from whatever store
+ * you use (see sync.ts).
  */
 export class RevocationLedger {
   private readonly entries = new Map<string, LedgerEntry>();
 
-  /** Register an attestation as `pending`. Idempotent per id. */
-  register(targetId: string, tier: TierName, issuedAt: string): void {
+  /**
+   * Register an attestation as `pending`. Idempotent per id.
+   *
+   * `authorizedRevokers` is the set of x-only pubkeys (hex) with
+   * standing to void this attestation -- normally the attestation's
+   * own signer(s) (self-revocation), but a caller may pass any
+   * separately-authorized revoker role it tracks. A revocation whose
+   * signer is not in this set is rejected by `applyRevocation`.
+   */
+  register(
+    targetId: string,
+    tier: TierName,
+    issuedAt: string,
+    authorizedRevokers: readonly string[],
+  ): void {
     if (this.entries.has(targetId)) return;
     const ms = Date.parse(issuedAt);
     if (Number.isNaN(ms)) throw new Error('issuedAt is not a valid timestamp');
+    if (authorizedRevokers.length === 0) {
+      throw new Error('authorizedRevokers must be non-empty -- an attestation with no standing revoker can never be voided');
+    }
     this.entries.set(targetId, {
       config: tierConfig(tier),
       issuedAtMs: ms,
+      authorizedRevokers: new Set(authorizedRevokers),
       revokedAtMs: null,
     });
   }
@@ -111,11 +130,18 @@ export class RevocationLedger {
   ): RevocationStatus {
     const targetId = revocationTarget(revocation);
     if (!targetId) throw new Error('not a revocation attestation');
-    if (!verifyEnvelope(revocation).valid) {
+    const verified = verifyEnvelope(revocation);
+    if (!verified.valid) {
       throw new Error('revocation attestation has no valid signature');
     }
     const entry = this.entries.get(targetId);
     if (!entry) throw new Error(`unknown attestation: ${targetId}`);
+    const hasStanding = verified.validSigners.some((signer) =>
+      entry.authorizedRevokers.has(signer),
+    );
+    if (!hasStanding) {
+      throw new Error('revocation signer is not an authorized revoker for this attestation');
+    }
     const status = this.statusOf(targetId, now);
     if (status === 'void') return 'void';
     if (status === 'final') {
