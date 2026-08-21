@@ -999,6 +999,12 @@ export const api = {
         redFlags: DuressFlag[];
         config: { circle: string[]; requiredGreenByPath: Record<string, number>; ttlSeconds: number } | null;
       }>(`/liveness?vault_id=${vault_id}`),
+    /** Owner-only: clear a stuck duress flag for a subject so a single
+     *  malicious or stale flag can't freeze signing forever. Never
+     *  clears proof-of-life rows (those self-replace on a fresh
+     *  heartbeat already). */
+    clearDuress: (vault_id: string, subject: string) =>
+      req<{ ok: true }>(`/liveness?vault_id=${vault_id}&subject=${subject}`, { method: 'DELETE' }),
   },
 
 

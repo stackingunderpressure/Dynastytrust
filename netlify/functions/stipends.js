@@ -22,6 +22,20 @@ const FIELDS =
 
 const INTERVALS = ["weekly", "monthly", "quarterly", "annually"];
 
+// Mirrors VaultDetail.tsx's advanceDueDate exactly -- the one legitimate
+// use a non-owner member has for writing next_due_at is bumping it
+// forward by one interval right after a broadcast, so the server
+// recomputes that same value independently rather than trusting
+// whatever timestamp the client sent.
+function advanceDueDate(from, interval) {
+  const d = new Date(from.getTime());
+  if (interval === "weekly") d.setUTCDate(d.getUTCDate() + 7);
+  else if (interval === "monthly") d.setUTCMonth(d.getUTCMonth() + 1);
+  else if (interval === "quarterly") d.setUTCMonth(d.getUTCMonth() + 3);
+  else if (interval === "annually") d.setUTCFullYear(d.getUTCFullYear() + 1);
+  return d;
+}
+
 async function assertOwner(supabase, vaultId, userId) {
   const { data } = await supabase
     .from("vaults")
@@ -129,7 +143,7 @@ export async function handler(event) {
 
     const { data: existing } = await supabase
       .from("scheduled_stipends")
-      .select("vault_id")
+      .select("vault_id, interval_kind")
       .eq("id", id)
       .maybeSingle();
     if (!existing) return json(404, { error: "Stipend not found" });
@@ -149,6 +163,28 @@ export async function handler(event) {
     const updates = Object.fromEntries(
       Object.entries(body).filter(([k]) => allowed.includes(k)),
     );
+
+    // A non-owner member's only legitimate reason to touch next_due_at is
+    // bumping it forward by one interval right after a broadcast --
+    // VaultDetail.tsx's advanceDueDate does exactly that client-side.
+    // Without this check any active member could set next_due_at to any
+    // arbitrary date: far in the future to indefinitely stall a
+    // stipend's payout, or in the past to make it look immediately due
+    // (Kimi K3 scan #55). Recompute the expected advance server-side and
+    // require the client's value to land within a day of it -- tight
+    // enough to reject an arbitrary jump, loose enough to absorb normal
+    // client/server clock skew and request latency.
+    if (!isOwner && updates.next_due_at) {
+      const expected = advanceDueDate(new Date(), existing.interval_kind).getTime();
+      const got = Date.parse(updates.next_due_at);
+      const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+      if (!Number.isFinite(got) || Math.abs(got - expected) > ONE_DAY_MS) {
+        return json(400, {
+          error: "next_due_at must be the next scheduled occurrence (one interval from now), not an arbitrary date.",
+        });
+      }
+    }
+
     if (!Object.keys(updates).length) {
       return json(400, { error: `No editable fields provided. Allowed: ${allowed.join(", ")}` });
     }

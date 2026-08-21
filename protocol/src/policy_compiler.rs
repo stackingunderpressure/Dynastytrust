@@ -203,6 +203,8 @@ pub enum PolicyError {
     InheritanceTooSoon,
     #[error("inheritance_after must be > 0 when heir_keys is set")]
     InheritanceRequiresDelay,
+    #[error("inheritance_after must be ≥ MIN_RECOVERY_BLOCKS ({MIN_RECOVERY_BLOCKS}) when there is no recovery leaf")]
+    InheritanceTooSoonNoRecovery,
     #[error("recovery_after and backup_keys are mutually exclusive -- both occupy the same tree slot; pick one")]
     BackupConflictsWithRecovery,
     #[error("a second inheritance branch requires the primary inheritance leaf (heir_keys set); it is an additional heir path, not a replacement")]
@@ -1318,6 +1320,17 @@ fn verify_leaf_policy(policy: &LeafPolicy) -> Result<(), PolicyError> {
                 return Err(PolicyError::RelativeTimelockTooLong(blocks));
             }
         }
+        // Same floor the named-branch path enforces on both
+        // recovery_after and inheritance_after -- missing here entirely
+        // (Kimi K3 scan #58): an After{blocks: 1} fallback leaf compiled
+        // fine and was spendable almost immediately after funding,
+        // undermining the "recovery/inheritance opens only after a real
+        // waiting period" promise on this vault shape specifically.
+        if let Unlock::After { blocks } = leaf.unlock {
+            if blocks > 0 && blocks < MIN_RECOVERY_BLOCKS {
+                return Err(PolicyError::RecoveryTooSoon);
+            }
+        }
         if let Some(cfg) = &leaf.decay {
             if cfg.floor_quorum == 0 || cfg.floor_quorum > leaf.quorum {
                 return Err(PolicyError::InvalidQuorum);
@@ -1632,6 +1645,14 @@ fn verify(policy: &DynastyPolicy) -> Result<(), PolicyError> {
         // after a delay, no separate recovery leaf): still needs a real
         // timelock on the one delayed path that exists.
         return Err(PolicyError::InheritanceRequiresDelay);
+    } else if policy.inheritance_after < MIN_RECOVERY_BLOCKS {
+        // Same floor as the has_recovery() branch above, just missing
+        // here (Kimi K3 scan #42): without it, a Gift-Locker-shaped
+        // policy with no recovery leaf could set inheritance_after to
+        // as little as 1 block (~10 minutes) and pass every other
+        // check -- the one real timelock this shape depends on would
+        // be trivially bypassable.
+        return Err(PolicyError::InheritanceTooSoonNoRecovery);
     }
 
     Ok(())
@@ -2202,6 +2223,26 @@ mod gift_locker_tests {
     }
 
     #[test]
+    fn tiny_but_nonzero_inheritance_delay_with_no_recovery_is_rejected() {
+        // Kimi K3 scan #42: unlike zero (caught above), a NONZERO but
+        // tiny inheritance_after (e.g. 1 block, ~10 minutes) previously
+        // passed every check in this no-recovery-leaf branch -- the
+        // MIN_RECOVERY_BLOCKS floor the has_recovery() branch enforces
+        // was missing here entirely.
+        let mut p = gift_locker_policy();
+        p.inheritance_after = 1;
+        let err = build_multileaf(&p).unwrap_err();
+        assert!(matches!(err, PolicyError::InheritanceTooSoonNoRecovery));
+    }
+
+    #[test]
+    fn inheritance_delay_at_the_floor_with_no_recovery_is_accepted() {
+        let mut p = gift_locker_policy();
+        p.inheritance_after = MIN_RECOVERY_BLOCKS;
+        assert!(build_multileaf(&p).is_ok());
+    }
+
+    #[test]
     fn build_policy_string_matches_the_two_leaf_shape() {
         let s = build_policy_string(&gift_locker_policy());
         assert!(s.starts_with("or("));
@@ -2493,6 +2534,66 @@ mod leaf_policy_tests {
             old_out.spend_info.output_key(),
             "same leaf must tweak to the same output key -- same address"
         );
+    }
+
+    #[test]
+    fn tiny_after_fallback_leaf_is_rejected() {
+        // Kimi K3 scan #58: the leaf-list path never carried over the
+        // MIN_RECOVERY_BLOCKS floor the named-branch path enforces on
+        // recovery_after/inheritance_after -- an After{blocks: 1}
+        // fallback leaf (spendable ~10 minutes after funding) compiled
+        // fine here.
+        let policy = LeafPolicy {
+            leaves: vec![
+                Leaf {
+                    id: "primary".into(),
+                    label: "Founders".into(),
+                    keys: founders(),
+                    quorum: 2,
+                    unlock: Unlock::Immediate,
+                    decay: None,
+                },
+                Leaf {
+                    id: "fallback".into(),
+                    label: "Recovery".into(),
+                    keys: heirs(),
+                    quorum: 1,
+                    unlock: Unlock::After { blocks: 1 },
+                    decay: None,
+                },
+            ],
+            consent_keys: vec![],
+            consent_quorum: None,
+        };
+        let err = build_leaf_multileaf(&policy).unwrap_err();
+        assert!(matches!(err, PolicyError::RecoveryTooSoon));
+    }
+
+    #[test]
+    fn after_fallback_leaf_at_the_floor_is_accepted() {
+        let policy = LeafPolicy {
+            leaves: vec![
+                Leaf {
+                    id: "primary".into(),
+                    label: "Founders".into(),
+                    keys: founders(),
+                    quorum: 2,
+                    unlock: Unlock::Immediate,
+                    decay: None,
+                },
+                Leaf {
+                    id: "fallback".into(),
+                    label: "Recovery".into(),
+                    keys: heirs(),
+                    quorum: 1,
+                    unlock: Unlock::After { blocks: MIN_RECOVERY_BLOCKS },
+                    decay: None,
+                },
+            ],
+            consent_keys: vec![],
+            consent_quorum: None,
+        };
+        assert!(build_leaf_multileaf(&policy).is_ok());
     }
 
     #[test]

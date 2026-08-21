@@ -8,7 +8,7 @@
 
 import { requireUser, json } from './_auth.js';
 import { getSupabaseAdmin } from './_supabase.js';
-import { fetchTipHeight } from './_chain.js';
+import { fetchTipHeight, MEMPOOL, mempoolFetch } from './_chain.js';
 
 const COMPILER_URL    = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -180,7 +180,7 @@ export async function handler(event) {
     // was too restrictive once quorum is collected by co-signers.
     const { data: existing } = await supabase
       .from('proposals')
-      .select('vault_id, status')
+      .select('vault_id, status, destination, amount_sats')
       .eq('id', id)
       .maybeSingle();
     if (!existing) return json(404, { error: 'Proposal not found' });
@@ -206,6 +206,40 @@ export async function handler(event) {
       .eq('status', 'active')
       .maybeSingle();
     if (!membership) return json(403, { error: 'Not a member of this vault' });
+
+    // Transitioning to 'broadcast' declares a spend final -- the audit
+    // PDF and activity export read this row as the permanent record.
+    // Previously any active member could set status='broadcast' with a
+    // fabricated txid and nothing checked it was real (Kimi K3 scan
+    // #25). Require a real, well-formed txid and verify against
+    // mempool.space that it actually pays this proposal's own
+    // destination/amount before accepting the transition.
+    if (updates.status === 'broadcast') {
+      const txid = updates.txid;
+      if (typeof txid !== 'string' || !/^[0-9a-f]{64}$/i.test(txid)) {
+        return json(400, { error: 'txid must be a 64-char hex transaction id to mark a proposal broadcast' });
+      }
+      const { data: v } = await supabase
+        .from('vaults')
+        .select('network')
+        .eq('id', existing.vault_id)
+        .maybeSingle();
+      const base = MEMPOOL[v?.network] || MEMPOOL.testnet;
+      let tx;
+      try {
+        tx = await mempoolFetch(`${base}/tx/${txid}`);
+      } catch (e) {
+        return json(400, { error: `Could not find transaction ${txid} on ${v?.network || 'testnet'}: ${e.message}` });
+      }
+      const paysDestination = (tx.vout || []).some(
+        (out) => out.scriptpubkey_address === existing.destination && out.value === existing.amount_sats,
+      );
+      if (!paysDestination) {
+        return json(400, {
+          error: `Transaction ${txid} does not pay this proposal's destination (${existing.destination}) with the expected amount (${existing.amount_sats} sats) -- refusing to mark broadcast.`,
+        });
+      }
+    }
 
     const { data: updated, error: upErr } = await supabase
       .from('proposals')
