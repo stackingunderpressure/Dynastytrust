@@ -310,6 +310,87 @@ export function downloadLegacyRecoveryPackage(p: LegacyRecoveryPackageLike): voi
 }
 
 /**
+ * Legacy Recovery v2's downloadable takeaway note (see
+ * legacy-onchain-recovery.ts's header for the mechanism). Unlike
+ * LegacyRecoveryPackageLike above, there is no secret in this file at
+ * all -- the address, derivation path, and vault index are all public,
+ * safe-to-publish values by design. That's the whole point of the fully
+ * hardened derivation path: nobody who only has this note, this vault's
+ * xpubs, or its descriptor can compute or watch for this address; only
+ * the actual seed can. This note exists purely so a keyholder has
+ * something durable to keep alongside their seed phrase, rather than
+ * having to remember an arbitrary vault index and re-derive everything
+ * from scratch decades later.
+ */
+export interface LegacyOnChainRecoveryNoteLike {
+  vaultName: string;
+  network: 'testnet' | 'signet' | 'bitcoin';
+  roleLabel: string;
+  vaultIndex: number;
+  address: string;
+  derivationPath: string;
+  unlockMessage: string;
+  txid: string | null;
+}
+
+export function legacyOnChainRecoveryNoteText(n: LegacyOnChainRecoveryNoteLike): string {
+  const lines = [
+    `# DynastyTrust Legacy Recovery v2 -- on-chain recovery note`,
+    `# Vault: ${n.vaultName}`,
+    `# This key's role: ${n.roleLabel}`,
+    `# Network: ${n.network}`,
+    `# Generated: ${new Date().toISOString()}`,
+    ``,
+    `# WHAT THIS IS`,
+    `# Nothing below is secret. This note just says where to look and`,
+    `# what to sign -- the encrypted descriptor itself already lives`,
+    `# permanently on the Bitcoin blockchain. Combined with your own`,
+    `# seed phrase (never written here -- keep that in your existing`,
+    `# separate cold storage, or use a hardware wallet's own "Sign`,
+    `# Message" feature so the seed never has to be typed into anything),`,
+    `# this is everything needed to recover the full descriptor, decades`,
+    `# from now, with no other key, no share to combine with anyone`,
+    `# else's, and no DynastyTrust account required.`,
+    ``,
+    `# HOW TO RECOVER`,
+    `# 1. Go to DynastyTrust's "Retrieve a descriptor" page and open the`,
+    `#    "Sign to recover" section (or the standalone offline recovery`,
+    `#    tool, once it supports this path).`,
+    `# 2. Enter the address and vault index below.`,
+    `# 3. Sign the exact message below with this same key, at derivation`,
+    `#    path ${n.derivationPath} -- the CLASSIC message-signing method`,
+    `#    (plain ECDSA), not BIP-322 or a Taproot-address signature. Most`,
+    `#    hardware wallets' "Sign Message" feature does this natively,`,
+    `#    against a custom derivation path.`,
+    `# 4. Paste the signature. That's it -- no combining, no second key.`,
+    ``,
+    `Vault index:      ${n.vaultIndex}`,
+    `Address:          ${n.address}`,
+    `Derivation path:  ${n.derivationPath}`,
+    `Message to sign:`,
+    n.unlockMessage,
+    ...(n.txid ? [``, `On-chain publish transaction: ${n.txid}`] : []),
+    ``,
+    `# This note alone recovers nothing -- it only works together with`,
+    `# the one key that can actually sign at the path above.`,
+    ``,
+  ];
+  return lines.join('\n');
+}
+
+export function downloadLegacyOnChainRecoveryNote(n: LegacyOnChainRecoveryNoteLike): void {
+  const safeVault = n.vaultName.replace(/[^a-z0-9\-_]+/gi, '_').toLowerCase() || 'vault';
+  const safeRole = n.roleLabel.replace(/[^a-z0-9\-_]+/gi, '_').toLowerCase() || 'key';
+  const blob = new Blob([legacyOnChainRecoveryNoteText(n)], { type: 'text/plain' });
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(blob),
+    download: `dynastytrust-${safeVault}-${safeRole}-legacy-recovery-v2.txt`,
+  });
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+/**
  * Human-readable .txt backup for one Tranche distribution wallet.
  * Every tranche has its OWN address and descriptor (a separate
  * Taproot output per unlock date -- see build_tranche in

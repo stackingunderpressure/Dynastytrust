@@ -3,8 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { api, type Vault } from '../lib/api';
 import { listKeys, revealMnemonic, type LocalKey } from '../lib/keystore';
 import { sealVaultLegacyRecovery, vaultNetworkToKeystoreNetwork } from '../lib/legacy-seal';
-import { unb64, descriptorFingerprint } from '../lib/legacy-recovery';
-import { vaultBackupText, downloadLegacyRecoveryPackage } from '../lib/descriptor-backup';
+import { unb64, descriptorFingerprint, legacyOnChainDerivationPath, legacyOnChainUnlockMessage } from '../lib/legacy-recovery';
+import { vaultBackupText, downloadLegacyRecoveryPackage, downloadLegacyOnChainRecoveryNote } from '../lib/descriptor-backup';
 import { p2wpkhAddressForPubkey, buildAndSignPublishTx, type BuiltPublishTx } from '../lib/onchain-publish';
 import {
   legacyOnChainLookupAddress,
@@ -245,6 +245,21 @@ function LegacyOnChainV2Card({ vault, role, defaultVaultIndex, localKeys, toast 
               <div style={{ fontFamily: fonts.mono, fontSize: 13, color: colors.text, wordBreak: 'break-all', marginBottom: 10 }}>
                 {address}
               </div>
+              <Button
+                variant="ghost" size="sm" style={{ marginBottom: 10 }}
+                onClick={() => downloadLegacyOnChainRecoveryNote({
+                  vaultName: vault.name,
+                  network: vault.network,
+                  roleLabel: role.label,
+                  vaultIndex: parsedIndex,
+                  address,
+                  derivationPath: legacyOnChainDerivationPath(vaultNetworkToKeystoreNetwork(vault.network), parsedIndex),
+                  unlockMessage: legacyOnChainUnlockMessage(parsedIndex),
+                  txid: candidate?.txid ?? broadcastTxid,
+                })}
+              >
+                Download recovery note (nothing secret in it -- safe to keep anywhere)
+              </Button>
 
               {candidate ? (
                 <div style={{ fontSize: 14, color: colors.text, lineHeight: 1.6, marginBottom: 4 }}>

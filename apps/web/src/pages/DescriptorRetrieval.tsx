@@ -12,8 +12,12 @@ import {
   unsealBundle,
   unb64,
   parseUnlockSignature,
+  legacyOnChainUnlockMessage,
+  signLegacyOnChainUnlock,
+  recoverViaOnChainPath,
 } from '../lib/legacy-recovery';
-import { p2wpkhAddressForPubkey } from '../lib/onchain-publish';
+import { fetchLegacyOnChainCandidates, legacyOnChainLookupAddress, type OnChainCandidate } from '../lib/legacy-onchain-recovery';
+import { p2wpkhAddressForPubkey, type PublishNetwork } from '../lib/onchain-publish';
 import { colors, fonts, radii, space } from '../theme';
 import { Button, Card, Textarea } from '../components/ui';
 import { useToast } from '../components/toast';
@@ -159,6 +163,85 @@ export default function DescriptorRetrieval() {
     }
   }
 
+  // ── Legacy Recovery v2 (see legacy-onchain-recovery.ts's header): no
+  // vault ID, no DynastyTrust database lookup at all -- the chain is the
+  // only place this ever lived. A keyholder needs the address this key
+  // published to (from their own recovery note, or re-derived here from
+  // a local key) plus a signature over the fixed message, and that's the
+  // whole recovery, no second key or share involved.
+  const [v2Network, setV2Network] = useState<PublishNetwork>('testnet');
+  const [v2VaultIndex, setV2VaultIndex] = useState('0');
+  const [v2Address, setV2Address] = useState('');
+  const [v2Checking, setV2Checking] = useState(false);
+  const [v2Candidate, setV2Candidate] = useState<OnChainCandidate | null>(null);
+  const [v2Checked, setV2Checked] = useState(false);
+
+  const [v2LocalKeyId, setV2LocalKeyId] = useState('');
+  const [v2LocalPassword, setV2LocalPassword] = useState('');
+  const [v2Deriving, setV2Deriving] = useState(false);
+
+  const [v2SignatureInput, setV2SignatureInput] = useState('');
+  const [v2Unlocking, setV2Unlocking] = useState(false);
+  const [v2RecoveredBundle, setV2RecoveredBundle] = useState<string | null>(null);
+
+  const v2LocalKey = localKeys.find(k => k.keyId === v2LocalKeyId) ?? null;
+  const v2LocalNeedsPassword = !!v2LocalKey && !v2LocalKey.testMnemonic && !!v2LocalKey.encryptedMnemonic;
+  const v2ParsedIndex = parseInt(v2VaultIndex, 10);
+  const v2IndexValid = Number.isInteger(v2ParsedIndex) && v2ParsedIndex >= 0;
+
+  async function handleV2DeriveLocally() {
+    if (!v2LocalKey || !v2IndexValid) return;
+    setV2Deriving(true);
+    try {
+      const network = v2LocalKey.network;
+      const mnemonic = await revealMnemonic(v2LocalKey.keyId, v2LocalNeedsPassword ? v2LocalPassword : undefined);
+      const address = legacyOnChainLookupAddress(mnemonic, network, v2ParsedIndex);
+      const signature = signLegacyOnChainUnlock(mnemonic, network, v2ParsedIndex);
+      setV2Address(address);
+      setV2SignatureInput(toHex(signature));
+      setV2Network(network === 'mainnet' ? 'bitcoin' : network);
+      setV2Candidate(null);
+      setV2Checked(false);
+      toast.success('Address and signature derived from this key. Check the chain next.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not derive from that key.');
+    } finally {
+      setV2Deriving(false);
+    }
+  }
+
+  async function handleV2Check() {
+    if (!v2Address.trim() || !v2IndexValid) return;
+    setV2Checking(true);
+    setV2Candidate(null);
+    setV2Checked(false);
+    setV2RecoveredBundle(null);
+    try {
+      const candidates = await fetchLegacyOnChainCandidates(v2Address.trim(), v2Network);
+      setV2Candidate(candidates.length > 0 ? candidates[candidates.length - 1] : null);
+      setV2Checked(true);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Chain lookup failed');
+    } finally {
+      setV2Checking(false);
+    }
+  }
+
+  async function handleV2Unlock() {
+    if (!v2Candidate || !v2IndexValid) return;
+    setV2Unlocking(true);
+    try {
+      const signature = parseUnlockSignature(v2SignatureInput);
+      const text = await recoverViaOnChainPath(signature, v2ParsedIndex, v2Candidate.sealed);
+      setV2RecoveredBundle(text);
+      toast.success('Unlocked. This one key, alone, was everything this recovery needed.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Unlock failed -- wrong signature, wrong vault index, or this address published for a different key.');
+    } finally {
+      setV2Unlocking(false);
+    }
+  }
+
   return (
     <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: space[3] }}>
       <p style={{ fontSize: 16, fontWeight: 450, color: colors.text, lineHeight: 1.6 }}>
@@ -289,16 +372,180 @@ export default function DescriptorRetrieval() {
         </Card>
       )}
 
+      <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${colors.border}` }}>
+        <div style={{ fontSize: 16, fontWeight: 600, color: colors.text, marginBottom: 6 }}>
+          Sign to recover (no vault ID, no lookup needed)
+        </div>
+        <p style={{ fontSize: 14, color: colors.sub, lineHeight: 1.6, marginBottom: 14 }}>
+          A newer, simpler mechanism: no xpub match, no DynastyTrust database involved at all --
+          this key's own on-chain address IS the lookup. If you have the address from your recovery
+          note (or this key is in this browser), enter it below with the vault index, check the
+          chain, then sign the message shown to unlock. One key, alone, recovers the full
+          descriptor -- nothing to combine with anyone else.
+        </p>
+
+        <Card>
+          <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
+            Network
+          </label>
+          <select
+            value={v2Network}
+            onChange={e => { setV2Network(e.target.value as PublishNetwork); setV2Candidate(null); setV2Checked(false); }}
+            style={{
+              width: '100%', padding: '10px 12px', background: colors.input,
+              border: `1px solid ${colors.border}`, borderRadius: radii.md,
+              color: colors.text, fontSize: 16, fontFamily: fonts.sans, marginBottom: 10,
+            }}
+          >
+            <option value="bitcoin">Mainnet</option>
+            <option value="testnet">Testnet</option>
+            <option value="signet">Signet</option>
+          </select>
+
+          <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
+            Vault index (from your recovery note)
+          </label>
+          <input
+            value={v2VaultIndex}
+            onChange={e => { setV2VaultIndex(e.target.value.replace(/[^0-9]/g, '')); setV2Candidate(null); setV2Checked(false); }}
+            style={{
+              width: 100, padding: '10px 12px', background: colors.input,
+              border: `1px solid ${colors.border}`, borderRadius: radii.md,
+              color: colors.text, fontSize: 14, fontFamily: fonts.mono, marginBottom: 10,
+            }}
+          />
+
+          <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
+            Address (from your recovery note)
+          </label>
+          <Textarea
+            mono
+            value={v2Address}
+            onChange={e => { setV2Address(e.target.value); setV2Candidate(null); setV2Checked(false); }}
+            placeholder="bc1... / tb1..."
+            rows={1}
+            style={{ marginBottom: 10 }}
+          />
+
+          <div style={{ fontSize: 12, color: colors.muted, marginBottom: 6 }}>
+            Don't have the note, but this key is in this browser?
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <select
+              value={v2LocalKeyId}
+              onChange={e => setV2LocalKeyId(e.target.value)}
+              style={{
+                flex: 1, minWidth: 180, padding: '10px 12px', background: colors.input,
+                border: `1px solid ${colors.border}`, borderRadius: radii.md,
+                color: colors.text, fontSize: 16, fontFamily: fonts.sans,
+              }}
+            >
+              <option value="">Choose a local key...</option>
+              {localKeys.map(k => <option key={k.keyId} value={k.keyId}>{k.label}</option>)}
+            </select>
+            {v2LocalNeedsPassword && (
+              <input
+                type="password"
+                placeholder="Password"
+                value={v2LocalPassword}
+                onChange={e => setV2LocalPassword(e.target.value)}
+                style={{
+                  padding: '10px 12px', background: colors.input,
+                  border: `1px solid ${colors.border}`, borderRadius: radii.md,
+                  color: colors.text, fontSize: 16, fontFamily: fonts.sans, width: 160,
+                }}
+              />
+            )}
+            <Button
+              variant="ghost" size="sm" onClick={handleV2DeriveLocally}
+              disabled={!v2LocalKey || !v2IndexValid || v2Deriving || (v2LocalNeedsPassword && !v2LocalPassword)}
+            >
+              {v2Deriving ? 'Deriving...' : 'Derive address & sign'}
+            </Button>
+          </div>
+
+          <Button onClick={handleV2Check} disabled={v2Checking || !v2Address.trim() || !v2IndexValid}>
+            {v2Checking ? 'Checking...' : 'Check the chain'}
+          </Button>
+
+          {v2Checked && !v2Candidate && (
+            <div style={{ marginTop: 12, fontSize: 14, color: colors.sub }}>
+              Nothing published at that address for this vault index yet. Double-check the address
+              and index came from the same recovery note, and that you picked the right network.
+            </div>
+          )}
+        </Card>
+
+        {v2Candidate && (
+          <Card style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: colors.gold, marginBottom: 4 }}>
+              Found it.
+            </div>
+            <p style={{ fontSize: 14, color: colors.sub, lineHeight: 1.6, marginBottom: 14 }}>
+              Prove you hold this key by signing the exact message below, at derivation path{' '}
+              <code style={{ fontFamily: fonts.mono, color: colors.text }}>
+                m/9999&apos;/{v2Network === 'bitcoin' ? '0' : '1'}&apos;/{v2ParsedIndex}&apos;/1&apos;
+              </code>.
+            </p>
+
+            <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
+              Message to sign
+            </label>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+              <Textarea mono readOnly value={legacyOnChainUnlockMessage(v2ParsedIndex)} rows={2} style={{ flex: 1 }} />
+              <Button variant="ghost" size="sm" onClick={() => copyText(legacyOnChainUnlockMessage(v2ParsedIndex), 'Message')}>
+                Copy
+              </Button>
+            </div>
+
+            <p style={{ fontSize: 13, color: colors.red, lineHeight: 1.6, marginBottom: 14 }}>
+              Use the CLASSIC message-signing method (plain ECDSA), not BIP-322 or a Taproot-address
+              signature -- most hardware wallets' "Sign Message" feature against a custom
+              derivation path does this natively.
+            </p>
+
+            <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
+              Signature
+            </label>
+            <Textarea
+              mono
+              value={v2SignatureInput}
+              onChange={e => setV2SignatureInput(e.target.value)}
+              placeholder="Paste the signature your wallet produced (base64 or hex), or derive locally above"
+              rows={2}
+              style={{ marginBottom: 12 }}
+            />
+
+            <Button onClick={handleV2Unlock} disabled={v2Unlocking || !v2SignatureInput.trim()}>
+              {v2Unlocking ? 'Unlocking...' : 'Unlock'}
+            </Button>
+          </Card>
+        )}
+
+        {v2RecoveredBundle && (
+          <Card style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: colors.gold, marginBottom: 8 }}>
+              Recovered descriptor bundle
+            </div>
+            <Textarea mono readOnly value={v2RecoveredBundle} rows={14} style={{ marginBottom: 10 }} />
+            <Button variant="ghost" size="sm" onClick={() => copyText(v2RecoveredBundle, 'Bundle')}>
+              Copy
+            </Button>
+          </Card>
+        )}
+      </div>
+
       <div
         style={{
           background: colors.input, border: `1px solid ${colors.gold}33`, borderRadius: radii.md,
           padding: '14px 18px', fontSize: 13, color: colors.sub, lineHeight: 1.6,
         }}
       >
-        DynastyTrust is doing the lookup and the XOR/decrypt math here as a convenience -- nothing
-        above needs this app specifically. A signature over a fixed message, an xpub, and a bit of
-        published math is all this mechanism actually is; anyone with the sealed share and the
-        on-chain pad could do the same recovery by hand.
+        DynastyTrust is doing the lookup and the XOR/decrypt (or, for the sign-to-recover mechanism
+        above, the direct decrypt) math here as a convenience -- nothing on this page needs this
+        app specifically. A signature over a fixed message plus a bit of published math is all
+        either mechanism actually is; anyone with the sealed data could do the same recovery by
+        hand, with nothing but a calculator and patience.
       </div>
     </div>
   );
