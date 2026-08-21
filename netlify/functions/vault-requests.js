@@ -128,6 +128,37 @@ export async function handler(event) {
     const isTrustee = me.role === "owner" || me.role === "founder";
 
     const wantsStatus = body.status;
+    // Explicit allowed-transitions table (Kimi K3 scan #15/#49): every
+    // status string not listed here is rejected outright (closes the
+    // "arbitrary status value" gap -- previously any string not equal to
+    // the four checked literals slipped past both role checks below and
+    // got written verbatim, stamping resolved_by/resolved_at on
+    // gibberish; the DB's own CHECK constraint would reject it too, but
+    // as an ugly 500 rather than a clean 400). Each FROM state only
+    // allows the transitions that actually make sense: a request can be
+    // decided once from pending, an approved request can still be
+    // cancelled by its own requester before payout or marked fulfilled
+    // by a trustee once paid, and declined/fulfilled/cancelled are all
+    // terminal. This also closes the reordering gap the comment above
+    // already claimed but never enforced: "requester can cancel their
+    // own PENDING request" only ever checked isRequester, never that the
+    // request was still pending -- an approved-or-fulfilled distribution
+    // could be flipped back to cancelled after the fact.
+    const TRANSITIONS = {
+      pending:  ["approved", "declined", "cancelled"],
+      approved: ["fulfilled", "cancelled"],
+    };
+    if (wantsStatus !== undefined) {
+      const allowedNext = TRANSITIONS[existing.status] ?? [];
+      if (!allowedNext.includes(wantsStatus)) {
+        return json(409, {
+          error: `Cannot move a "${existing.status}" request to "${wantsStatus}". ` +
+            (allowedNext.length
+              ? `Valid next states: ${allowedNext.join(", ")}.`
+              : `This request is already ${existing.status} and cannot be changed further.`),
+        });
+      }
+    }
     if (
       wantsStatus === "cancelled" && !isRequester
     ) {
