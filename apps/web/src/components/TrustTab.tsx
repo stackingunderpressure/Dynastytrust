@@ -266,12 +266,20 @@ function MemberAttestList({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       {attestations.map(a => {
         const member = members.find(m => m.user_id === a.user_id);
-        const ok = verifyAttestation({
-          attestationType: a.attestation_type,
-          targetHash: a.target_hash,
-          signature: a.signature,
-          pubkey: a.pubkey,
-        });
+        // A valid signature alone only proves SOME key signed this --
+        // it must also be the member's own registered vault key
+        // (attest.ts signs with the same /0/0 child as PSBT signing
+        // precisely so this can be checked), or the "signed" checkmark
+        // doesn't actually prove the real, known member attested.
+        const ok =
+          !!member?.pubkey &&
+          a.pubkey.toLowerCase() === member.pubkey.toLowerCase() &&
+          verifyAttestation({
+            attestationType: a.attestation_type,
+            targetHash: a.target_hash,
+            signature: a.signature,
+            pubkey: a.pubkey,
+          });
         return (
           <div
             key={a.id}

@@ -41,6 +41,19 @@ async function assertMember(supabase, vaultId, userId) {
   return !!data;
 }
 
+/** The caller's own registered signing pubkey for this vault, or null
+ *  if they aren't an active member or haven't provisioned a key yet. */
+async function memberPubkey(supabase, vaultId, userId) {
+  const { data } = await supabase
+    .from("vault_members")
+    .select("pubkey")
+    .eq("vault_id", vaultId)
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .maybeSingle();
+  return data?.pubkey ?? null;
+}
+
 function isHex(s, expectedChars) {
   if (typeof s !== "string") return false;
   if (s.length !== expectedChars) return false;
@@ -101,6 +114,22 @@ export async function handler(event) {
 
     if (!(await assertMember(supabase, vault_id, u.userId))) {
       return json(403, { error: "Not a member of this vault" });
+    }
+    // attest.ts derives the signing key from the SAME /0/0 child used for
+    // PSBT signing specifically so it matches vault_members.pubkey -- the
+    // client's own header comment states that intent. Enforce it here:
+    // a member can only attest under their own real, registered signing
+    // key, never a freshly-generated, unregistered keypair.
+    const registeredPubkey = await memberPubkey(supabase, vault_id, u.userId);
+    if (!registeredPubkey) {
+      return json(403, {
+        error: "You have no registered signing key on this vault yet -- provision your key before attesting",
+      });
+    }
+    if (pubkey.toLowerCase() !== registeredPubkey.toLowerCase()) {
+      return json(403, {
+        error: "pubkey does not match your registered vault signing key",
+      });
     }
 
     const row = {
