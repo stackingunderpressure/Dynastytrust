@@ -74,6 +74,14 @@ const notGreen = evaluateSigningGate(
 assert.equal(notGreen.allow, false);
 assert.ok(codes(notGreen).includes('NOT_GREEN'));
 
+// Kimi K3 scan #56: approvalsRequired must have a floor. Without one,
+// approvalsRequired=0 is vacuously satisfied by approvalsCollected=0,
+// bypassing the approval gate entirely.
+const zeroRequired = evaluateSigningGate(
+  { ...baseInput, ceremony: { ...greenCeremony, approvalsRequired: 0, approvalsCollected: 0 } }, NOW);
+assert.equal(zeroRequired.allow, false, 'approvalsRequired=0 must not vacuously pass the gate');
+assert.ok(codes(zeroRequired).includes('NOT_GREEN'));
+
 // Duress dominates -> deny even when otherwise green.
 const duress = evaluateSigningGate(
   { ...baseInput, ceremony: { ...greenCeremony, duress: true } }, NOW);
