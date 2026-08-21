@@ -63,7 +63,7 @@ export async function handler(event) {
       return json(400, { error: "Invalid JSON body" });
     }
 
-    const { proposal_id, psbt_partial_hex, fingerprint, label } = body;
+    const { proposal_id, psbt_partial_hex, label } = body;
     if (!proposal_id) return json(400, { error: "Missing: proposal_id" });
     if (!psbt_partial_hex) return json(400, { error: "Missing: psbt_partial_hex" });
 
@@ -93,12 +93,17 @@ export async function handler(event) {
       .eq("member_id", member.id)
       .maybeSingle();
 
+    // fingerprint is always the caller's OWN registered member row --
+    // never request-supplied (Kimi K3 scan #144). Accepting a
+    // client-chosen fingerprint let a signer record their partial
+    // signature under another member's fingerprint, making a proposal
+    // look signed by a co-signer who never signed.
     const row = {
       proposal_id,
       member_id: member.id,
       signer_role: member.role === "heir" ? "heir" : "founder",
       label: label ?? member.label ?? null,
-      fingerprint: fingerprint ?? member.fingerprint ?? null,
+      fingerprint: member.fingerprint ?? null,
       psbt_partial_hex,
       signed: true,
       signed_at: new Date().toISOString(),

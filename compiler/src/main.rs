@@ -66,6 +66,16 @@ fn check_auth(headers: &HeaderMap, state: &AppState) -> Result<(), ApiError> {
             "Compiler is not configured with a secret -- refusing all requests until COMPILER_SECRET is set",
         ));
     };
+    // An explicitly empty secret (COMPILER_SECRET="", distinct from unset)
+    // must fail closed the same way -- otherwise a request with no
+    // Authorization header at all supplies token="" via the unwrap_or
+    // below, and constant_time_eq(b"", b"") trivially passes.
+    if secret.is_empty() {
+        return Err(api_err(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Compiler is configured with an empty secret -- refusing all requests until COMPILER_SECRET is set to a real value",
+        ));
+    }
     let token = headers
         .get("authorization").or_else(|| headers.get("Authorization"))
         .and_then(|v| v.to_str().ok())
@@ -113,6 +123,19 @@ mod auth_tests {
     fn missing_header_is_rejected_when_secret_is_configured() {
         let state = AppState { secret: Some("s3cr3t".to_string()) };
         assert!(check_auth(&HeaderMap::new(), &state).is_err());
+    }
+
+    // Kimi K3 scan #37: Some("") -- an operator explicitly setting
+    // COMPILER_SECRET="" -- is distinct from None (unset), and previously
+    // fell through to constant_time_eq(b"", b""), which a request with
+    // NO Authorization header at all satisfies (token defaults to "").
+    #[test]
+    fn empty_secret_rejects_every_request_even_with_no_auth_header() {
+        let state = AppState { secret: Some(String::new()) };
+        let result_no_header = check_auth(&HeaderMap::new(), &state);
+        assert!(result_no_header.is_err(), "an empty secret must fail closed, not open");
+        let result_empty_bearer = check_auth(&headers_with_bearer(""), &state);
+        assert!(result_empty_bearer.is_err());
     }
 
     #[test]

@@ -162,17 +162,54 @@ export async function handler(event) {
     secondHeirs = [];
   }
 
+  // Dedupe by the key material that actually lands in the compiled
+  // policy (xpub if present, else the bare pubkey) -- without this, two
+  // invite claims (or two direct_keys entries) submitting the SAME key
+  // silently occupy two "founder" slots while only ever being one real
+  // signer, quietly reducing founder_quorum-of-N's real threshold below
+  // what the roster otherwise appears to show (Kimi K3 scan #134).
+  const dedupeByKey = (arr) => {
+    const seen = new Set();
+    return arr.filter((k) => {
+      const id = k.xpub || k.pubkey;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  };
+  founders = dedupeByKey(founders);
+  heirs = dedupeByKey(heirs);
+
+  // On the invite-based path, a null planned count defaulting to
+  // founders.length/heirs.length would trivially satisfy the exact-count
+  // check below regardless of how many people actually claimed an
+  // invite -- exactly the silently-inflated-roster case #134 flags.
+  // direct_keys drafts have no invite race (the owner supplies every
+  // key themselves in one request) so the same default is harmless there.
+  if (!dk) {
+    if (vault.planned_founder_count == null) {
+      return json(400, { error: "This vault has no planned founder count set -- cannot compile an invite-based roster without it." });
+    }
+    if (vault.planned_heir_count == null && heirs.length > 0) {
+      return json(400, { error: "This vault has heirs but no planned heir count set -- cannot compile without it." });
+    }
+  }
+
   const plannedF = vault.planned_founder_count ?? founders.length;
   const plannedH = vault.planned_heir_count ?? heirs.length;
 
-  if (founders.length < plannedF) {
+  // Exact match, not merely "at least": a roster that silently grew
+  // (extra invite claims) or shrank (duplicates just removed above)
+  // relative to the planned count fails closed rather than compiling
+  // with a founder/heir set the owner never actually agreed to.
+  if (founders.length !== plannedF) {
     return json(400, {
-      error: `Need ${plannedF} provisioned founder(s); only ${founders.length} ready.`,
+      error: `Need exactly ${plannedF} provisioned founder(s); ${founders.length} ready (after removing duplicate keys).`,
     });
   }
-  if (plannedH > 0 && heirs.length < plannedH) {
+  if (plannedH > 0 && heirs.length !== plannedH) {
     return json(400, {
-      error: `Need ${plannedH} provisioned heir(s); only ${heirs.length} ready.`,
+      error: `Need exactly ${plannedH} provisioned heir(s); ${heirs.length} ready (after removing duplicate keys).`,
     });
   }
 
