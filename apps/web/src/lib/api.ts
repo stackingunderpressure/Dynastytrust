@@ -1028,68 +1028,6 @@ export const api = {
     return `/api/vault-pdf?id=${vault_id}&token=${token}`;
   },
 
-  legacy: {
-    get: (vault_id: string) =>
-      req<{
-        ok: true;
-        sealed: boolean;
-        bundle: {
-          nonce_b64: string;
-          ciphertext_b64: string;
-          updated_at: string;
-          /** descriptorFingerprint(descriptor) at seal time, or null for a
-           *  bundle sealed before this field existed (2026-08-20). Compare
-           *  against the vault's current descriptor's own fingerprint to
-           *  detect a recompile that left this seal stale. */
-          sealed_descriptor_hash: string | null;
-        } | null;
-        shares: {
-          key_role: string;
-          locked_fast_share_b64: string;
-          locked_fallback_share_b64: string;
-          identity_pubkey_hex: string | null;
-          locked_fast_share_sig_b64: string | null;
-        }[];
-        onchain: { onchain_share_b64: string; txid: string | null; published_at: string | null } | null;
-      }>(`/vault-legacy?vault_id=${vault_id}`),
-
-    seal: (body: {
-      vault_id: string;
-      sealed_bundle: { nonce_b64: string; ciphertext_b64: string };
-      /** descriptorFingerprint(vault.descriptor) -- see legacy-recovery.ts. */
-      descriptor_hash: string;
-      onchain_share_b64: string;
-      shares: {
-        key_role: string;
-        locked_fast_share_b64: string;
-        locked_fallback_share_b64: string;
-        identity_pubkey_hex?: string;
-        locked_fast_share_sig_b64?: string;
-      }[];
-    }) =>
-      req<{ ok: true }>(`/vault-legacy`, { method: 'POST', body: JSON.stringify(body) }),
-
-    recordOnchainPublication: (vault_id: string, txid: string) =>
-      req<{ ok: true }>(`/vault-legacy?vault_id=${vault_id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ txid }),
-      }),
-
-    // "Here is my xpub, is there a share hidden for it?" -- see
-    // legacy-lookup.js's header. Deliberately not vault-scoped: the
-    // caller may not know, or remember, which vault this key belongs to.
-    lookup: (identity_pubkey_hex: string) =>
-      req<{
-        ok: true;
-        vault_id: string;
-        vault_name: string | null;
-        key_role: string;
-        locked_fast_share_sig_b64: string;
-        onchain_share_b64: string | null;
-        sealed_bundle: { nonce_b64: string; ciphertext_b64: string };
-      }>(`/legacy-lookup?identity_pubkey_hex=${identity_pubkey_hex}`),
-  },
-
   distributionWallets: {
     list: (vault_id: string) =>
       req<{ ok: true; wallets: DistributionWallet[] }>(`/distribution-wallets?vault_id=${vault_id}`),

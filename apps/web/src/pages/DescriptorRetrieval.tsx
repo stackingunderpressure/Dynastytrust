@@ -1,154 +1,32 @@
 import { useMemo, useState } from 'react';
-import { api } from '../lib/api';
-import { listAllKeys, revealMnemonic, type LocalKey } from '../lib/keystore';
+import { listAllKeys, revealMnemonic } from '../lib/keystore';
 import {
-  legacyIdentityPubkeyFromXpub,
-  detectXpubNetwork,
-  legacyUnlockMessage,
-  signLegacyUnlockMessage,
-  verifyLegacyUnlockSignature,
-  deriveLegacyLockBytesFromSignature,
-  recoverViaFastPath,
-  unsealBundle,
-  unb64,
+  legacyOnChainUnlockMessage,
+  signLegacyOnChainUnlock,
+  recoverViaOnChainPath,
   parseUnlockSignature,
 } from '../lib/legacy-recovery';
-import { p2wpkhAddressForPubkey } from '../lib/onchain-publish';
+import { fetchLegacyOnChainCandidates, legacyOnChainLookupAddress, type OnChainCandidate } from '../lib/legacy-onchain-recovery';
+import { type PublishNetwork } from '../lib/onchain-publish';
 import { colors, fonts, radii, space } from '../theme';
 import { Button, Card, Textarea } from '../components/ui';
 import { useToast } from '../components/toast';
-
-// The hardware-wallet-compatible sibling of LegacyRecoverySetup.tsx (see
-// legacy-recovery.ts's header on signature-locked shares). That page
-// requires knowing which vault a key belongs to and walks the OWNER
-// through sealing; this page answers a colder-start question a
-// SURVIVING KEYHOLDER might actually face decades from now: "I have
-// this key's xpub -- is there anything hidden for it, anywhere?" -- and
-// unlocks it by proving key ownership with a SIGNATURE, never a raw
-// private key or mnemonic. Any device that can sign an arbitrary message
-// with the identity child key (a real hardware wallet, eventually) can
-// complete this flow; a local software key is used below only because
-// it is the only signer this browser can currently produce on demand --
-// the unlock logic itself never looks at the mnemonic, only at the
-// signature bytes it produces.
 
 function toHex(bytes: Uint8Array): string {
   return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-interface LookupResult {
-  vaultId: string;
-  vaultName: string | null;
-  keyRole: string;
-  lockedFastShareSigB64: string;
-  onchainShareB64: string | null;
-  sealedBundle: { nonce_b64: string; ciphertext_b64: string };
-  identityPubkey: Uint8Array;
-  identityAddress: string;
-}
+// Legacy Recovery, "sign to recover" (see legacy-onchain-recovery.ts's
+// header for the full mechanism): no vault ID, no DynastyTrust database
+// lookup at all -- the Bitcoin blockchain is the only place this ever
+// lived. A keyholder needs the address this key published to (from
+// their own recovery note, or re-derived here from a local key) plus a
+// signature over one fixed message, and that's the whole recovery -- no
+// second key, no share to combine with anyone else.
 
 export default function DescriptorRetrieval() {
   const toast = useToast();
   const localKeys = useMemo(() => listAllKeys(), []);
-
-  const [xpubInput, setXpubInput] = useState('');
-  const [checking, setChecking] = useState(false);
-  const [result, setResult] = useState<LookupResult | null>(null);
-  const [notFound, setNotFound] = useState(false);
-
-  const [signatureHex, setSignatureHex] = useState('');
-  const [signingLocally, setSigningLocally] = useState(false);
-  const [unlocking, setUnlocking] = useState(false);
-  const [recoveredBundle, setRecoveredBundle] = useState<string | null>(null);
-
-  // Only useful as a convenience for testing this mechanism today --
-  // real recovery decades from now won't have this browser's
-  // localStorage. See the module header.
-  const matchingLocalKey: LocalKey | undefined = localKeys.find(
-    k => k.xpub && k.xpub === xpubInput.trim(),
-  );
-
-  async function handleCheck() {
-    const xpub = xpubInput.trim();
-    if (!xpub) return;
-    setChecking(true);
-    setResult(null);
-    setNotFound(false);
-    setRecoveredBundle(null);
-    setSignatureHex('');
-    try {
-      const identityPubkey = legacyIdentityPubkeyFromXpub(xpub);
-      const network = detectXpubNetwork(xpub);
-      const identityAddress = p2wpkhAddressForPubkey(toHex(identityPubkey), network === 'mainnet' ? 'bitcoin' : 'testnet');
-      const res = await api.legacy.lookup(toHex(identityPubkey));
-      setResult({
-        vaultId: res.vault_id,
-        vaultName: res.vault_name,
-        keyRole: res.key_role,
-        lockedFastShareSigB64: res.locked_fast_share_sig_b64,
-        onchainShareB64: res.onchain_share_b64,
-        sealedBundle: res.sealed_bundle,
-        identityPubkey,
-        identityAddress,
-      });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Lookup failed';
-      if (msg.includes('404') || msg.toLowerCase().includes('no sealed')) {
-        setNotFound(true);
-      } else {
-        toast.error(msg);
-      }
-    } finally {
-      setChecking(false);
-    }
-  }
-
-  async function handleSignLocally() {
-    if (!result || !matchingLocalKey) return;
-    setSigningLocally(true);
-    try {
-      const mnemonic = await revealMnemonic(matchingLocalKey.keyId);
-      const signature = signLegacyUnlockMessage(
-        mnemonic, matchingLocalKey.network, matchingLocalKey.derivationPath, result.vaultId, result.keyRole,
-      );
-      setSignatureHex(toHex(signature));
-      toast.success('Signed. Review the signature below, then unlock.');
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Signing failed -- this key may need a password (use a hardware wallet or paste a signature instead).');
-    } finally {
-      setSigningLocally(false);
-    }
-  }
-
-  async function handleUnlock() {
-    if (!result) return;
-    if (!result.onchainShareB64) {
-      toast.error("This vault's on-chain share hasn't been published yet -- ask the vault owner to publish it, or recover through a second keyholder's key instead.");
-      return;
-    }
-    setUnlocking(true);
-    try {
-      const signature = parseUnlockSignature(signatureHex);
-      if (!verifyLegacyUnlockSignature(signature, result.identityPubkey, result.vaultId, result.keyRole)) {
-        toast.error("That signature doesn't match this key. Make sure it signed the EXACT message above, at path .../1/0 under this same xpub's account, using the classic ECDSA message-signing method (not BIP-322 / Taproot signing).");
-        return;
-      }
-      const lockBytes = deriveLegacyLockBytesFromSignature(signature, result.vaultId, result.keyRole);
-      const secret = recoverViaFastPath(
-        unb64(result.lockedFastShareSigB64), lockBytes, unb64(result.onchainShareB64),
-      );
-      const text = await unsealBundle(
-        { version: 1, nonceB64: result.sealedBundle.nonce_b64, ciphertextB64: result.sealedBundle.ciphertext_b64 },
-        secret,
-      );
-      setRecoveredBundle(text);
-      toast.success('Unlocked. This is why the mechanism works with no shared secret except the key itself.');
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Unlock failed -- wrong signature, or this share was sealed under a different key.');
-    } finally {
-      setUnlocking(false);
-    }
-  }
 
   async function copyText(text: string, label: string) {
     try {
@@ -159,121 +37,224 @@ export default function DescriptorRetrieval() {
     }
   }
 
+  const [network, setNetwork] = useState<PublishNetwork>('testnet');
+  const [vaultIndex, setVaultIndex] = useState('0');
+  const [address, setAddress] = useState('');
+  const [checking, setChecking] = useState(false);
+  const [candidate, setCandidate] = useState<OnChainCandidate | null>(null);
+  const [checked, setChecked] = useState(false);
+
+  const [localKeyId, setLocalKeyId] = useState('');
+  const [localPassword, setLocalPassword] = useState('');
+  const [deriving, setDeriving] = useState(false);
+
+  const [signatureInput, setSignatureInput] = useState('');
+  const [unlocking, setUnlocking] = useState(false);
+  const [recoveredBundle, setRecoveredBundle] = useState<string | null>(null);
+
+  const localKey = localKeys.find(k => k.keyId === localKeyId) ?? null;
+  const localNeedsPassword = !!localKey && !localKey.testMnemonic && !!localKey.encryptedMnemonic;
+  const parsedIndex = parseInt(vaultIndex, 10);
+  const indexValid = Number.isInteger(parsedIndex) && parsedIndex >= 0;
+
+  async function handleDeriveLocally() {
+    if (!localKey || !indexValid) return;
+    setDeriving(true);
+    try {
+      const keyNetwork = localKey.network;
+      const mnemonic = await revealMnemonic(localKey.keyId, localNeedsPassword ? localPassword : undefined);
+      const addr = legacyOnChainLookupAddress(mnemonic, keyNetwork, parsedIndex);
+      const signature = signLegacyOnChainUnlock(mnemonic, keyNetwork, parsedIndex);
+      setAddress(addr);
+      setSignatureInput(toHex(signature));
+      setNetwork(keyNetwork === 'mainnet' ? 'bitcoin' : keyNetwork);
+      setCandidate(null);
+      setChecked(false);
+      toast.success('Address and signature derived from this key. Check the chain next.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not derive from that key.');
+    } finally {
+      setDeriving(false);
+    }
+  }
+
+  async function handleCheck() {
+    if (!address.trim() || !indexValid) return;
+    setChecking(true);
+    setCandidate(null);
+    setChecked(false);
+    setRecoveredBundle(null);
+    try {
+      const candidates = await fetchLegacyOnChainCandidates(address.trim(), network);
+      setCandidate(candidates.length > 0 ? candidates[candidates.length - 1] : null);
+      setChecked(true);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Chain lookup failed');
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  async function handleUnlock() {
+    if (!candidate || !indexValid) return;
+    setUnlocking(true);
+    try {
+      const signature = parseUnlockSignature(signatureInput);
+      const text = await recoverViaOnChainPath(signature, parsedIndex, candidate.sealed);
+      setRecoveredBundle(text);
+      toast.success('Unlocked. This one key, alone, was everything this recovery needed.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Unlock failed -- wrong signature, wrong vault index, or this address published for a different key.');
+    } finally {
+      setUnlocking(false);
+    }
+  }
+
   return (
     <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: space[3] }}>
       <p style={{ fontSize: 16, fontWeight: 450, color: colors.text, lineHeight: 1.6 }}>
-        Found a key years later and don't remember which vault it belongs to? Paste its xpub
-        (the public key, never the mnemonic) below. If a vault ever sealed a recovery share for
-        that exact key, this finds it -- and unlocks it with a signature, not the key itself, so
-        it works the same way with a hardware wallet as with a key stored here.
+        No vault ID, no DynastyTrust account, no database lookup -- this key's own on-chain address
+        IS the lookup. If you have the address from your recovery note (or this key is in this
+        browser), enter it below with the vault index, check the chain, then sign the message shown
+        to unlock. One key, alone, recovers the full descriptor -- nothing to combine with anyone
+        else.
       </p>
 
       <Card>
         <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
-          Account xpub
+          Network
+        </label>
+        <select
+          value={network}
+          onChange={e => { setNetwork(e.target.value as PublishNetwork); setCandidate(null); setChecked(false); }}
+          style={{
+            width: '100%', padding: '10px 12px', background: colors.input,
+            border: `1px solid ${colors.border}`, borderRadius: radii.md,
+            color: colors.text, fontSize: 16, fontFamily: fonts.sans, marginBottom: 10,
+          }}
+        >
+          <option value="bitcoin">Mainnet</option>
+          <option value="testnet">Testnet</option>
+          <option value="signet">Signet</option>
+        </select>
+
+        <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
+          Vault index (from your recovery note)
+        </label>
+        <input
+          value={vaultIndex}
+          onChange={e => { setVaultIndex(e.target.value.replace(/[^0-9]/g, '')); setCandidate(null); setChecked(false); }}
+          style={{
+            width: 100, padding: '10px 12px', background: colors.input,
+            border: `1px solid ${colors.border}`, borderRadius: radii.md,
+            color: colors.text, fontSize: 14, fontFamily: fonts.mono, marginBottom: 10,
+          }}
+        />
+
+        <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
+          Address (from your recovery note)
         </label>
         <Textarea
           mono
-          value={xpubInput}
-          onChange={e => { setXpubInput(e.target.value); setResult(null); setNotFound(false); }}
-          placeholder="xpub6... or tpub..."
-          rows={2}
+          value={address}
+          onChange={e => { setAddress(e.target.value); setCandidate(null); setChecked(false); }}
+          placeholder="bc1... / tb1..."
+          rows={1}
           style={{ marginBottom: 10 }}
         />
-        <Button onClick={handleCheck} disabled={checking || !xpubInput.trim()}>
-          {checking ? 'Checking...' : 'Check for a hidden share'}
+
+        <div style={{ fontSize: 12, color: colors.muted, marginBottom: 6 }}>
+          Don't have the note, but this key is in this browser?
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <select
+            value={localKeyId}
+            onChange={e => setLocalKeyId(e.target.value)}
+            style={{
+              flex: 1, minWidth: 180, padding: '10px 12px', background: colors.input,
+              border: `1px solid ${colors.border}`, borderRadius: radii.md,
+              color: colors.text, fontSize: 16, fontFamily: fonts.sans,
+            }}
+          >
+            <option value="">Choose a local key...</option>
+            {localKeys.map(k => <option key={k.keyId} value={k.keyId}>{k.label}</option>)}
+          </select>
+          {localNeedsPassword && (
+            <input
+              type="password"
+              placeholder="Password"
+              value={localPassword}
+              onChange={e => setLocalPassword(e.target.value)}
+              style={{
+                padding: '10px 12px', background: colors.input,
+                border: `1px solid ${colors.border}`, borderRadius: radii.md,
+                color: colors.text, fontSize: 16, fontFamily: fonts.sans, width: 160,
+              }}
+            />
+          )}
+          <Button
+            variant="ghost" size="sm" onClick={handleDeriveLocally}
+            disabled={!localKey || !indexValid || deriving || (localNeedsPassword && !localPassword)}
+          >
+            {deriving ? 'Deriving...' : 'Derive address & sign'}
+          </Button>
+        </div>
+
+        <Button onClick={handleCheck} disabled={checking || !address.trim() || !indexValid}>
+          {checking ? 'Checking...' : 'Check the chain'}
         </Button>
 
-        {notFound && (
+        {checked && !candidate && (
           <div style={{ marginTop: 12, fontSize: 14, color: colors.sub }}>
-            Nothing found for that key. Either no vault sealed a signature-based share for it, or
-            the xpub doesn't match exactly -- double check it was copied in full.
+            Nothing published at that address for this vault index yet. Double-check the address
+            and index came from the same recovery note, and that you picked the right network.
           </div>
         )}
       </Card>
 
-      {result && (
+      {candidate && (
         <Card>
           <div style={{ fontSize: 15, fontWeight: 600, color: colors.gold, marginBottom: 4 }}>
             Found it.
           </div>
           <p style={{ fontSize: 14, color: colors.sub, lineHeight: 1.6, marginBottom: 14 }}>
-            This key is the <strong style={{ color: colors.text }}>{result.keyRole}</strong> on{' '}
-            {result.vaultName ? <>the vault "<strong style={{ color: colors.text }}>{result.vaultName}</strong>"</> : 'a DynastyTrust vault'}.
-            Prove you hold this key by signing the exact message below.
+            Prove you hold this key by signing the exact message below, at derivation path{' '}
+            <code style={{ fontFamily: fonts.mono, color: colors.text }}>
+              m/9999&apos;/{network === 'bitcoin' ? '0' : '1'}&apos;/{parsedIndex}&apos;/1&apos;
+            </code>.
           </p>
 
           <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
             Message to sign
           </label>
           <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-            <Textarea mono readOnly value={legacyUnlockMessage(result.vaultId, result.keyRole)} rows={3} style={{ flex: 1 }} />
-            <Button variant="ghost" size="sm" onClick={() => copyText(legacyUnlockMessage(result.vaultId, result.keyRole), 'Message')}>
+            <Textarea mono readOnly value={legacyOnChainUnlockMessage(parsedIndex)} rows={2} style={{ flex: 1 }} />
+            <Button variant="ghost" size="sm" onClick={() => copyText(legacyOnChainUnlockMessage(parsedIndex), 'Message')}>
               Copy
             </Button>
           </div>
 
-          <div
-            style={{
-              background: colors.input, border: `1px solid ${colors.border}`, borderRadius: radii.md,
-              padding: '12px 14px', marginBottom: 14,
-            }}
-          >
-            <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 6 }}>
-              With a hardware wallet
-            </div>
-            <p style={{ fontSize: 13, color: colors.sub, lineHeight: 1.6, marginBottom: 10 }}>
-              Use its "Sign Message" feature (Coldcard, Sparrow, Electrum, and most others support
-              this) against derivation path{' '}
-              <code style={{ fontFamily: fonts.mono, color: colors.text }}>&lt;this account&gt;/1/0</code>,
-              which is the same account this xpub came from. Some wallets let you type that path
-              directly (Sparrow's Tools &gt; Sign/Verify Message); others need the address instead:
-            </p>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-              <Textarea mono readOnly value={result.identityAddress} rows={1} style={{ flex: 1 }} />
-              <Button variant="ghost" size="sm" onClick={() => copyText(result.identityAddress, 'Address')}>
-                Copy
-              </Button>
-            </div>
-            <p style={{ fontSize: 13, color: colors.red, lineHeight: 1.6 }}>
-              Important: use the CLASSIC message-signing method (plain ECDSA), not BIP-322 or a
-              Taproot-address signature -- those use a different signature scheme that won't match
-              what this was sealed with, even from the exact right key. If your wallet offers both,
-              pick the older/classic one.
-            </p>
-          </div>
-
-          {matchingLocalKey && (
-            <div style={{ marginBottom: 14 }}>
-              <Button variant="ghost" onClick={handleSignLocally} disabled={signingLocally}>
-                {signingLocally ? 'Signing...' : `Sign now with "${matchingLocalKey.label}" (this browser)`}
-              </Button>
-            </div>
-          )}
+          <p style={{ fontSize: 13, color: colors.red, lineHeight: 1.6, marginBottom: 14 }}>
+            Use the CLASSIC message-signing method (plain ECDSA), not BIP-322 or a Taproot-address
+            signature -- most hardware wallets' "Sign Message" feature against a custom
+            derivation path does this natively.
+          </p>
 
           <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
             Signature
           </label>
           <Textarea
             mono
-            value={signatureHex}
-            onChange={e => setSignatureHex(e.target.value)}
-            placeholder="Paste the signature your wallet produced (base64 or hex), or sign locally above"
+            value={signatureInput}
+            onChange={e => setSignatureInput(e.target.value)}
+            placeholder="Paste the signature your wallet produced (base64 or hex), or derive locally above"
             rows={2}
             style={{ marginBottom: 12 }}
           />
 
-          <Button onClick={handleUnlock} disabled={unlocking || !signatureHex.trim()}>
+          <Button onClick={handleUnlock} disabled={unlocking || !signatureInput.trim()}>
             {unlocking ? 'Unlocking...' : 'Unlock'}
           </Button>
-
-          {!result.onchainShareB64 && (
-            <div style={{ marginTop: 12, fontSize: 13, color: colors.sub }}>
-              Heads up: this vault's on-chain share hasn't been published yet, so unlocking will
-              fail even with a correct signature -- that piece is still needed to reconstruct the
-              secret.
-            </div>
-          )}
         </Card>
       )}
 
@@ -295,10 +276,10 @@ export default function DescriptorRetrieval() {
           padding: '14px 18px', fontSize: 13, color: colors.sub, lineHeight: 1.6,
         }}
       >
-        DynastyTrust is doing the lookup and the XOR/decrypt math here as a convenience -- nothing
-        above needs this app specifically. A signature over a fixed message, an xpub, and a bit of
-        published math is all this mechanism actually is; anyone with the sealed share and the
-        on-chain pad could do the same recovery by hand.
+        DynastyTrust is doing the chain lookup and the decrypt here as a convenience -- nothing on
+        this page needs this app specifically. A signature over a fixed message plus the data
+        already sitting on the Bitcoin blockchain is all this mechanism actually is; anyone with
+        the address and the signature could do the same recovery by hand.
       </div>
     </div>
   );

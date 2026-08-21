@@ -18,12 +18,6 @@
     background: #161622; border: 1px solid #C9A84C55; border-radius: 10px;
     padding: 14px 16px; font-size: 13px; color: #9994A8; margin-bottom: 24px;
   }
-  .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
-  .tab {
-    background: #161622; border: 1px solid #2A2A3A; border-radius: 8px;
-    padding: 10px 16px; color: #E8E4D8; cursor: pointer; font-size: 14px;
-  }
-  .tab[aria-selected="true"] { border-color: #C9A84C; color: #C9A84C; }
   fieldset { border: 1px solid #2A2A3A; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
   legend { color: #C9A84C; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; padding: 0 6px; }
   label { display: block; font-size: 13px; color: #9994A8; margin: 12px 0 4px; }
@@ -33,6 +27,7 @@
     font-family: inherit;
   }
   textarea { min-height: 64px; font-family: ui-monospace, monospace; font-size: 13px; }
+  code { font-family: ui-monospace, monospace; color: #E8E4D8; }
   button.run {
     background: #C9A84C; color: #0A0A0F; border: none; border-radius: 8px;
     padding: 12px 20px; font-size: 15px; font-weight: 700; cursor: pointer; margin-top: 16px;
@@ -46,129 +41,41 @@
 </head>
 <body>
   <h1>DynastyTrust Legacy Recovery</h1>
-  <p class="sub">Recovers a vault's descriptor from one or two keys and their sealed shares. Works fully offline -- nothing on this page ever sends data anywhere.</p>
+  <p class="sub">All you need is your key. Recovers a vault's descriptor from a single key's own on-chain publication. Works fully offline -- nothing on this page ever sends data anywhere.</p>
 
   <div class="warning">
     This tool runs entirely in your browser. Close it and clear your browser history/cache afterward if this computer isn't yours to keep. Never enter a seed phrase into any page unless you understand what it does -- this page's full source is visible via "View Source" if you want to verify it before use.
   </div>
 
-  <div class="tabs" role="tablist">
-    <div class="tab" id="tab-fast" role="tab" aria-selected="true">Fast path (seed phrase)</div>
-    <div class="tab" id="tab-fast-sig" role="tab" aria-selected="false">Fast path (signature)</div>
-    <div class="tab" id="tab-fallback" role="tab" aria-selected="false">Fallback path (two keys)</div>
+  <div class="warning">
+    No vault ID, no shares to combine -- this key's own on-chain address IS the lookup. You'll need
+    the OP_RETURN transaction's full scriptPubKey hex, found on any block explorer by searching the
+    address from your recovery note (most explorers show this on the transaction's output details,
+    sometimes labeled "Script pubkey (hex)" or similar). Then sign the exact message below with the
+    SAME key, at derivation path <code>m/9999'/&lt;coin&gt;'/&lt;vault index&gt;'/1'</code>, using the
+    CLASSIC message-signing method (plain ECDSA) -- not BIP-322 or a Taproot-address signature, those
+    use a different scheme and will not match. Most hardware wallets' "Sign Message" feature supports
+    signing against a custom derivation path directly.
   </div>
 
-  <div id="panel-fast">
-    <fieldset>
-      <legend>Your key</legend>
-      <label for="fp-mnemonic">Seed phrase</label>
-      <textarea id="fp-mnemonic" placeholder="24 words, space-separated"></textarea>
-      <label for="fp-network">Network</label>
-      <select id="fp-network">
-        <option value="mainnet">Mainnet</option>
-        <option value="testnet">Testnet</option>
-        <option value="signet">Signet</option>
-      </select>
-      <label for="fp-vault-id">Vault ID</label>
-      <input id="fp-vault-id" placeholder="from your backup file">
-      <label for="fp-key-role">Your key's role</label>
-      <input id="fp-key-role" placeholder="e.g. heir_2 -- from your backup file">
-    </fieldset>
-    <fieldset>
-      <legend>From the backup file</legend>
-      <label for="fp-locked-share">Your locked fast-path share (base64)</label>
-      <textarea id="fp-locked-share"></textarea>
-      <label for="fp-onchain-share">On-chain share (base64 -- from the backup, or looked up on-chain)</label>
-      <textarea id="fp-onchain-share"></textarea>
-      <label for="fp-nonce">Sealed bundle nonce (base64)</label>
-      <input id="fp-nonce">
-      <label for="fp-ciphertext">Sealed bundle ciphertext (base64)</label>
-      <textarea id="fp-ciphertext"></textarea>
-    </fieldset>
-    <button class="run" id="fp-run">Recover</button>
-  </div>
-
-  <div id="panel-fast-sig" style="display:none">
-    <div class="warning">
-      For a key that only ever lives on a hardware wallet -- no seed phrase ever typed into any
-      screen. Sign the exact message below with your hardware wallet's own "Sign Message" feature
-      (Coldcard, Sparrow, Electrum, and most others support this), using the CLASSIC message-signing
-      method (plain ECDSA) -- not BIP-322 or a Taproot-address signature, those use a different
-      scheme and will not match. Sign against derivation path <code>&lt;your account&gt;/1/0</code>
-      under the same account this vault's backup file names for your role.
-    </div>
-    <fieldset>
-      <legend>This vault and role</legend>
-      <label for="fs-vault-id">Vault ID</label>
-      <input id="fs-vault-id" placeholder="from your recovery package">
-      <label for="fs-key-role">Your key's role</label>
-      <input id="fs-key-role" placeholder="e.g. heir_2 -- from your recovery package">
-      <label for="fs-message">Message to sign (updates as you fill in the fields above)</label>
-      <textarea id="fs-message" readonly></textarea>
-    </fieldset>
-    <fieldset>
-      <legend>Your signature</legend>
-      <label for="fs-signature">Signature (base64 or hex, from your hardware wallet)</label>
-      <textarea id="fs-signature" placeholder="paste the signature your wallet produced"></textarea>
-    </fieldset>
-    <fieldset>
-      <legend>From your recovery package</legend>
-      <label for="fs-locked-share">Your signature-locked share (base64)</label>
-      <textarea id="fs-locked-share"></textarea>
-      <label for="fs-onchain-share">On-chain share (base64 -- from the package, or looked up on-chain)</label>
-      <textarea id="fs-onchain-share"></textarea>
-      <label for="fs-nonce">Sealed bundle nonce (base64)</label>
-      <input id="fs-nonce">
-      <label for="fs-ciphertext">Sealed bundle ciphertext (base64)</label>
-      <textarea id="fs-ciphertext"></textarea>
-    </fieldset>
-    <button class="run" id="fs-run">Recover</button>
-  </div>
-
-  <div id="panel-fallback" style="display:none">
-    <fieldset>
-      <legend>First key</legend>
-      <label for="fb-mnemonic-a">Seed phrase</label>
-      <textarea id="fb-mnemonic-a" placeholder="24 words, space-separated"></textarea>
-      <label for="fb-network-a">Network</label>
-      <select id="fb-network-a">
-        <option value="mainnet">Mainnet</option>
-        <option value="testnet">Testnet</option>
-        <option value="signet">Signet</option>
-      </select>
-      <label for="fb-vault-id-a">Vault ID</label>
-      <input id="fb-vault-id-a">
-      <label for="fb-key-role-a">This key's role</label>
-      <input id="fb-key-role-a" placeholder="e.g. founder_1">
-      <label for="fb-locked-share-a">This key's locked fallback share (base64)</label>
-      <textarea id="fb-locked-share-a"></textarea>
-    </fieldset>
-    <fieldset>
-      <legend>Second key</legend>
-      <label for="fb-mnemonic-b">Seed phrase</label>
-      <textarea id="fb-mnemonic-b" placeholder="24 words, space-separated"></textarea>
-      <label for="fb-network-b">Network</label>
-      <select id="fb-network-b">
-        <option value="mainnet">Mainnet</option>
-        <option value="testnet">Testnet</option>
-        <option value="signet">Signet</option>
-      </select>
-      <label for="fb-vault-id-b">Vault ID</label>
-      <input id="fb-vault-id-b">
-      <label for="fb-key-role-b">This key's role</label>
-      <input id="fb-key-role-b" placeholder="e.g. backup_1">
-      <label for="fb-locked-share-b">This key's locked fallback share (base64)</label>
-      <textarea id="fb-locked-share-b"></textarea>
-    </fieldset>
-    <fieldset>
-      <legend>Sealed bundle (same for both keys)</legend>
-      <label for="fb-nonce">Nonce (base64)</label>
-      <input id="fb-nonce">
-      <label for="fb-ciphertext">Ciphertext (base64)</label>
-      <textarea id="fb-ciphertext"></textarea>
-    </fieldset>
-    <button class="run" id="fb-run">Recover</button>
-  </div>
+  <fieldset>
+    <legend>Vault index and message</legend>
+    <label for="vault-index">Vault index (from your recovery note)</label>
+    <input id="vault-index" placeholder="0">
+    <label for="message">Message to sign (updates as you fill in the index above)</label>
+    <textarea id="message" readonly></textarea>
+  </fieldset>
+  <fieldset>
+    <legend>The on-chain transaction</legend>
+    <label for="scriptpubkey">OP_RETURN output's scriptPubKey (hex, from a block explorer)</label>
+    <textarea id="scriptpubkey" placeholder="6a4c..."></textarea>
+  </fieldset>
+  <fieldset>
+    <legend>Your signature</legend>
+    <label for="signature">Signature (base64 or hex, from your hardware wallet)</label>
+    <textarea id="signature" placeholder="paste the signature your wallet produced"></textarea>
+  </fieldset>
+  <button class="run" id="run">Recover</button>
 
   <label for="result">Recovered descriptor bundle</label>
   <textarea id="result" readonly placeholder="Recovered text will appear here."></textarea>

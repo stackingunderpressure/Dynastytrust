@@ -451,34 +451,36 @@ See `Stack` above for the layout.
 - Vault Detail: overview, send flow with PSBT build, browser signing,
   broadcast to mempool.space, proposal history
 - Legacy Recovery: long-horizon descriptor recovery independent of this app
-  ever running again. `apps/web/src/lib/legacy-recovery.ts` (crypto core,
-  BIP32-derived key locks + audited Shamir sharing, no consensus/Taproot
-  changes) + `legacy-seal.ts` (orchestration) + `vault-legacy.js`/
-  `vault_legacy_*` tables (storage) + `LegacyRecoverySetup.tsx`
-  (`/vaults/:id/legacy-recovery` -- the owner assigns one local key per
-  vault role and seals) + a standalone, offline, single-HTML-file recovery
-  tool at `/dynastytrust-legacy-recovery-tool.html`
+  ever running again -- "all you need is your key," no database, no
+  shares to combine (see `apps/web/src/lib/legacy-recovery.ts`'s header
+  for the full mechanism and CLAUDE.md's "Recently closed" entry below
+  for the design history). Each keyholder derives a fully hardened
+  on-chain address (`m/9999'/coin'/vault-index'/1'` -- computable only
+  from their own seed, never from this vault's xpubs, its descriptor, or
+  anything DynastyTrust stores) and publishes an encrypted copy of the
+  vault's descriptor there via a single OP_RETURN transaction, keyed
+  directly by a deterministic signature over one fixed message. Years
+  later, recovery is signing that same message again (a hardware
+  wallet's own "Sign Message" feature against a custom derivation path
+  works fine -- no seed phrase ever typed into a recovery tool) and
+  decrypting -- no vault ID, no second key, no combining.
+  `LegacyRecoverySetup.tsx` (`/vaults/:id/legacy-recovery`) is the
+  publish side: derive the address, check the chain, fund + build +
+  sign + broadcast the publish transaction, and download a small
+  takeaway note (nothing secret in it -- address, vault index,
+  derivation path are all public by design) to keep alongside the seed
+  phrase. `DescriptorRetrieval.tsx` (`/recover-descriptor`) is the
+  recovery side: enter the address + vault index, check the chain, sign,
+  unlock. `apps/web/src/lib/legacy-onchain-recovery.ts` orchestrates
+  both against `onchain-publish.ts` (P2WPKH build/sign/broadcast, via
+  `@scure/btc-signer`) and mempool.space. A standalone, offline,
+  single-HTML-file recovery tool ships at
+  `/dynastytrust-legacy-recovery-tool.html`
   (`tools/legacy-recovery/`, rebuild with `node tools/legacy-recovery/
-  build.mjs` and commit whenever legacy-recovery.ts changes). Two recovery
-  paths sharing one secret: fast (one key + an on-chain-published pad,
-  pure XOR) and fallback (two different keys' Shamir shares, real GF(2^8)
-  math, for when the on-chain piece is unavailable). Covers the
-  named-field ("standard") vault shape only so far -- see Open Gaps. The
-  setup page shows the on-chain pad as a ready-to-embed OP_RETURN hex
-  payload for publishing manually in any wallet, AND (2026-08-18) an
-  in-app path: `apps/web/src/lib/onchain-publish.ts` (P2WPKH address
-  derivation + OP_RETURN tx build + sign, via `@scure/btc-signer` --
-  same paulmillr trust family as `@scure/bip32`/`bip39` already
-  vendored here, not hand-rolled BIP143/bech32) builds and signs a
-  small transaction spending a UTXO the owner funded externally (any
-  wallet, pasted or fetched back via mempool.space's address/utxo
-  endpoint) from one of their own local keys, and broadcast is an
-  explicit button click through the same mempool.space push-tx pattern
-  `VaultDetail.tsx`'s send flow already uses. Still never touches vault
-  funds or vault keys -- the publisher key is any ordinary local
-  software key, unrelated to the vault's spending policy, matching the
-  "unrelated coins, separate transaction" privacy property this
-  mechanism depends on.
+  build.mjs` and commit whenever legacy-recovery.ts changes) -- reuses
+  the exact same tested functions, not a second hand-typed
+  implementation. Covers the named-field ("standard") vault shape only
+  so far -- see Open Gaps.
 
 **Open gaps (prioritized):**
 
@@ -594,6 +596,119 @@ on descriptor compile + single-source tree builder. Next phase is the trust
    is higher in the trust layer.
 
 **Recently closed:**
+
+- **Original (v1) Legacy Recovery mechanism retired entirely
+  (2026-08-21).** Operator, after the v2 on-chain mechanism shipped
+  (previous entry): "I don't think we need to keep anything of the old
+  version. I just didn't like it. None of it worked. None of it's gonna
+  be used. It's just gonna be clutter that's in the way. I just want the
+  new signature based signing." Read as full authorization to delete,
+  not deprecate -- the whole hybrid XOR/Shamir, database-backed design
+  is gone, code and schema alike. Deleted: `legacy-seal.ts` (v1
+  orchestration), `netlify/functions/vault-legacy.js` and
+  `legacy-lookup.js` (v1 storage/lookup endpoints), the `api.legacy.*`
+  client block, `descriptor-backup.ts`'s `LegacyRecoveryPackageLike`/
+  `legacyRecoveryPackageText`/`downloadLegacyRecoveryPackage`, and the
+  `shamir-secret-sharing` dependency (`npm install` pruned it from the
+  lockfile). `legacy-recovery.ts` dropped every v1-only export
+  (`deriveLegacyLockBytes`, `legacyIdentityPubkeyFromXpub`,
+  `detectXpubNetwork`, `signLegacyUnlockMessage`,
+  `verifyLegacyUnlockSignature`, `deriveLegacyLockBytesFromSignature`,
+  `lockShare`/`unlockShare`, `splitLegacySecret`/`combineLegacySecret`,
+  `splitLegacySecretHybrid`, `recoverViaFastPath`/
+  `recoverViaFallbackPath`, `generateLegacySecret`,
+  `descriptorFingerprint` -- the last was v1's stale-seal label, moot
+  once the sealed-bundle-in-a-database it labeled no longer exists) --
+  file is roughly half its former size, down to shared primitives
+  (`bitcoinMessageDigest`, `parseUnlockSignature`, `sealBundle`/
+  `unsealBundle`) plus the on-chain mechanism, unchanged.
+  `LegacyRecoverySetup.tsx` and `DescriptorRetrieval.tsx` both lost
+  their entire v1 half (role-assignment/seal flow, xpub-lookup flow,
+  "download recovery package") and now show only the on-chain
+  publish/recovery cards that already existed alongside v1. The
+  standalone offline tool (`tools/legacy-recovery/`) dropped its
+  three-tab layout for a single flow -- no tabs needed with one
+  mechanism -- and its Playwright verification script
+  (`scripts/verify-legacy-recovery-tool.mjs`, not part of `npm test`)
+  now drives that flow against a real signed transaction rather than
+  the old fast/fallback paths.
+  `supabase/migrations/20260821150000_drop_legacy_recovery_v1.sql` drops
+  `vault_legacy_bundles`/`vault_legacy_shares`/
+  `vault_legacy_onchain_shares` outright (applies automatically on push
+  to main, same as every other migration here) -- the two prior
+  migrations that extended those tables
+  (`20260818203809_legacy_shares_signature_unlock.sql`,
+  `20260820120000_legacy_recovery_descriptor_fingerprint.sql`) are left
+  in place as history, never edited or deleted, per migration
+  convention. `scripts/test-legacy-recovery.mjs` dropped every v1
+  assertion, keeping only the on-chain mechanism's round-trip/
+  determinism/tamper-detection proofs. All four gates green; typecheck/
+  lint match the documented pre-existing baseline exactly, both before
+  and after -- confirming the removal didn't disturb anything else.
+
+- **Legacy Recovery v2: "all you need is your key" -- a second,
+  database-free on-chain recovery mechanism (2026-08-21).** Operator,
+  after using v1: "We need to look at the long term back up. I tink we
+  mad it harder to back up not easier... The whole idea was that you
+  would have only your key and somehow you would be able to see your
+  description on chain... I just like to know any solution better than
+  this because this is just redundant doing the same thing over and
+  over." v1 (still fully intact, never touched or weakened -- anything
+  already sealed under it keeps recovering exactly as before) needs a
+  threshold of shares plus, for its fast path, a database round trip;
+  the operator wanted a version where ONE key, alone, is the entire
+  backup. Plan vetted for holes before any code was written, per the
+  operator's explicit request, catching two design problems along the
+  way: an early sketch derived the on-chain lookup address from the
+  vault's own account xpub, which the operator's "I don't want to be
+  leaking a information about the key" caught as a real linkability
+  leak (anyone holding that xpub could watch for or discover the
+  publication); and an ECDH envelope-encryption design was dropped as
+  unneeded complexity once unlinkability already forced one publish per
+  keyholder anyway. Final design: `legacyOnChainDerivationPath` in
+  `legacy-recovery.ts` derives a FULLY HARDENED path,
+  `m/9999'/<coin>'/<vault index>'/1'` (vault index = that person's own
+  small per-vault counter, distinct from v1's `9999'` sub-path by its
+  trailing `1'` vs v1's `0'`) -- hardened means it is computable ONLY
+  from the real seed, never from this vault's xpubs, descriptor, or
+  DynastyTrust's whole database. A deterministic (RFC 6979) ECDSA
+  signature over a fixed message at that path IS the AES-256-GCM key
+  directly (`deriveLegacyOnChainKey`, SHA-256 with a domain-separation
+  tag) -- no ECDH, no envelope, and the same signature doubles as "prove
+  key ownership," so recovery is nothing but signing a message
+  (verbatim ask: "sign something and decrypts instead of entering
+  phrase") -- works identically for a mnemonic (computed locally) or a
+  hardware wallet's native "Sign Message" feature against a custom
+  path, no seed phrase ever typed into any tool. The full encrypted
+  bundle publishes as a single OP_RETURN (Bitcoin Core 30's 100,000-byte
+  relay limit makes this trivial, unlike v1's small on-chain pad) --
+  `legacy-onchain-recovery.ts` orchestrates seal + build + sign
+  (`sealAndBuildOnChainPublishTx`) and scan + extract
+  (`fetchLegacyOnChainCandidates`/`extractOnChainCandidates`, via
+  `@scure/btc-signer`'s `Script.decode`, real-transaction round-trip
+  tested in `test-legacy-onchain-recovery.mjs`, not just a fixture).
+  Genuinely no database at all -- the chain IS the storage, so there is
+  nothing here for a DynastyTrust outage or a stale row to break.
+  Shipped in explicit operator-approved stages, each independently
+  gated: (1) crypto core, unit-tested in isolation
+  (`test-legacy-recovery.mjs`'s new v2 section: path
+  determinism/uniqueness/non-collision-with-v1, signature determinism,
+  key-derivation domain separation, full seal/unseal round-trip, AEAD
+  tamper/wrong-key rejection); (2) on-chain publish/lookup plumbing;
+  (3) `LegacyRecoverySetup.tsx` gained a per-role "recover with just
+  this key" card (derive address, check the chain, guided UTXO-fetch-
+  then-build-then-broadcast mirroring the existing v1 flow's pattern,
+  plus a "download recovery note" -- unlike v1's package, nothing in it
+  is secret, so it's safe to keep anywhere) and
+  `DescriptorRetrieval.tsx` gained a "Sign to recover" section (no xpub
+  match needed -- v2's hardened path means there is nothing a
+  server-side lookup could match against, so the address itself IS the
+  lookup); (4) the standalone offline tool
+  (`tools/legacy-recovery/`) gained a fourth tab reusing the SAME tested
+  functions (no second hand-typed implementation), rebuilt via
+  `node tools/legacy-recovery/build.mjs`. All four gates green at every
+  stage; typecheck/lint match the documented pre-existing baseline
+  throughout.
 
 - **Family D closed: numeric-bounds validation at every JSON body
   boundary reaching CLTV/fee/quorum arithmetic (2026-08-21).** The

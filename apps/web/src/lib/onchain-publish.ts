@@ -98,7 +98,30 @@ export function buildAndSignPublishTx(opts: {
   feeRateSatsPerVb: number;
 }): BuiltPublishTx {
   const { mnemonic, derivationPath, network, utxo, opReturnDataHex, feeRateSatsPerVb } = opts;
-  const { privateKey, publicKey } = deriveChild00(mnemonic, derivationPath, network);
+  const keypair = deriveChild00(mnemonic, derivationPath, network);
+  return buildAndSignPublishTxFromKeypair({ ...keypair, network, utxo, opReturnDataHex, feeRateSatsPerVb });
+}
+
+/**
+ * Same transaction shape as buildAndSignPublishTx, but given an
+ * already-derived keypair directly rather than deriving one internally
+ * from a base path + the fixed /0/0 child convention. Legacy Recovery v2
+ * (legacy-onchain-recovery.ts) uses this: its keypair comes from a fully
+ * hardened path (legacyOnChainIdentity in legacy-recovery.ts) that this
+ * file has no reason to know about -- the two concerns (deriving the
+ * RIGHT key, and building a VALID transaction from any key) stay
+ * separate. buildAndSignPublishTx above is now a thin wrapper over this
+ * for the v1 pad-publish flow, unchanged in behavior.
+ */
+export function buildAndSignPublishTxFromKeypair(opts: {
+  privateKey: Uint8Array;
+  publicKey: Uint8Array;
+  network: PublishNetwork;
+  utxo: PublishUtxo;
+  opReturnDataHex: string;
+  feeRateSatsPerVb: number;
+}): BuiltPublishTx {
+  const { privateKey, publicKey, network, utxo, opReturnDataHex, feeRateSatsPerVb } = opts;
   const net = btcNetwork(network);
   const p2wpkh = btc.p2wpkh(publicKey, net);
   if (!p2wpkh.address) throw new Error('Could not derive address');
