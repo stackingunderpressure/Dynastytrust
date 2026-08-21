@@ -840,15 +840,13 @@ export const api = {
   // This BUILDS and EXPORTS the PSBT only -- the user signs in their
   // hardware wallet, then finalizes + broadcasts.
   psbtBloc: (body: {
-    // Persisted vault (recommended): the server looks up address + the
-    // whole policy (including key_origins) from the vaults row -- pass
-    // just this and destination/amount/path. Omit the raw-policy fields
-    // below entirely.
-    vault_id?: string;
-    // Un-persisted / legacy form: caller supplies the whole policy
-    // directly, same as before Bloc vaults were saveable.
-    address?: string;
-    network?: 'testnet' | 'signet' | 'bitcoin';
+    // The server looks up address + the whole policy (including
+    // key_origins) from the vaults row -- pass just this and
+    // destination/amount/path. (2026-08-21: the un-persisted/legacy
+    // direct-policy form was removed -- BlocBuilder.tsx, its only
+    // caller, was retired when VaultWizard absorbed it; see
+    // netlify/functions/psbt-binary-bloc.js's header, Kimi K3 scan #4/#38.)
+    vault_id: string;
     destination: string;
     /** Required unless sweep is true -- see netlify/functions/psbt-binary-bloc.js. */
     amount_sats?: number;
@@ -859,23 +857,6 @@ export const api = {
     path: 'parents_now' | 'coparent_kids' | 'parent_solo' | 'kids_decay';
     // REQUIRED when path === 'kids_decay': which decay rung's quorum.
     quorum?: number;
-    parent_keys?: string[];
-    kid_keys?: string[];
-    parents_together_quorum?: number;
-    coparent_quorum?: number;
-    kids_with_parent_quorum?: number;
-    parent_solo_quorum?: number;
-    kids_decay_start_quorum?: number;
-    kids_decay_floor_quorum?: number;
-    // ABSOLUTE block heights.
-    parent_solo_after?: number;
-    kids_decay_start_after?: number;
-    kids_decay_step_blocks?: number;
-    // BIP32 origins for hardware-wallet compatibility (2026-08-06 fix) --
-    // optional; omitting it degrades to pre-fix behavior (no
-    // tap_key_origins attached, so only the browser/Tapit signers work).
-    // Ignored when vault_id is given -- comes from the stored policy.
-    key_origins?: { pubkey: string; fingerprint: string; derivation_path: string }[];
   }) => req<{
     ok: true;
     psbt_hex: string;
