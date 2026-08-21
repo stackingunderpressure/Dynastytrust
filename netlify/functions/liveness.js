@@ -50,6 +50,16 @@ async function isActiveMember(supabase, vaultId, userId) {
   return Boolean(data);
 }
 
+async function isOwner(supabase, vaultId, userId) {
+  const { data } = await supabase
+    .from('vaults')
+    .select('id')
+    .eq('id', vaultId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  return Boolean(data);
+}
+
 export async function handler(event) {
   const u = await requireUser(event);
   if (u.error) return json(401, { error: u.error });
@@ -147,6 +157,38 @@ export async function handler(event) {
     if (insErr) return json(500, { error: insErr.message });
 
     return json(201, { ok: true, signal: inserted });
+  }
+
+  // -- DELETE: owner clears duress-flag rows for a subject.
+  // Duress-flag rows never expired or had any removal path (Kimi K3
+  // scan #66): any active member could submit one -- the write side
+  // above only checks membership + a valid signature, never that the
+  // flag's subject/raiser belongs to any particular role -- and every
+  // subsequent signing attempt reads it back as LIVENESS_RED, forever.
+  // One malicious or stale flag could freeze a vault's spending
+  // permanently with no in-band recovery. Clearing is owner-only and
+  // deliberately does NOT extend to proof-of-life rows -- those already
+  // self-replace on a fresh heartbeat and clearing them would let a
+  // compromised owner account forge liveness for someone else.
+  if (event.httpMethod === 'DELETE') {
+    const vault_id = event.queryStringParameters?.vault_id;
+    const subject = event.queryStringParameters?.subject;
+    if (!vault_id) return json(400, { error: 'Missing: vault_id' });
+    if (!subject) return json(400, { error: 'Missing: subject' });
+
+    if (!(await isOwner(supabase, vault_id, u.userId))) {
+      return json(403, { error: 'Only the vault owner can clear a duress flag' });
+    }
+
+    const { error } = await supabase
+      .from('liveness_signals')
+      .delete()
+      .eq('vault_id', vault_id)
+      .eq('subject', subject)
+      .eq('kind', 'duress-flag');
+    if (error) return json(500, { error: error.message });
+
+    return json(200, { ok: true });
   }
 
   return json(405, { error: 'Method not allowed' });
