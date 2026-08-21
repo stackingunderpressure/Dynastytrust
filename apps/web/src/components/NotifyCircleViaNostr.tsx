@@ -150,6 +150,17 @@ export function NotifyCircleViaNostr({
         transportRef.current = new NostrTransport({ relays: DEFAULT_RELAYS });
       }
       const sub = subscribePsbtCosignResponses(transportRef.current, result.replyPrivateKey, item => {
+        // reply_pubkey is published in the clear inside the original
+        // request event, so anyone who reads it off a relay can address a
+        // validly-decryptable forged response to it from a throwaway
+        // keypair -- NIP-44 decryption succeeding only proves SOME key
+        // produced this ciphertext, never that the sender is this specific
+        // signer. Only accept when the event's real author matches this
+        // key's known Tapit pubkey (Kimi K3 scan #53/80/92/131).
+        if (item.signerPubkey.toLowerCase() !== key.tapitXOnlyPubkey!.toLowerCase()) {
+          toast.error(`Received a signed PSBT for ${key.label} that wasn't signed by their registered key -- ignored.`);
+          return;
+        }
         setStatus(prev => {
           const priorCount = prev.get(key.keyId)?.sentCount ?? record.sentCount;
           return new Map(prev).set(key.keyId, { phase: "signed", sentCount: priorCount });

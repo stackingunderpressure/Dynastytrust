@@ -32,6 +32,19 @@ export interface SignInResponse {
   grant: unknown;
   eventId: string;
   receivedAt: number;
+  /** The Nostr event's real author (event.pubkey). The QR/broadcast connect
+   *  path (subscribeSignInResponses with no known target identity) has
+   *  nothing to check this against -- whichever real Tapit wallet answers
+   *  the single-use server challenge is legitimately the one connecting,
+   *  same as scanning the QR in person. The paste-a-pubkey connect path
+   *  (startTapitPubkeyConnectRequest) DOES have a known target -- the
+   *  caller MUST check this equals that pasted pubkey before finishing the
+   *  link, since the reply pubkey is published in the clear in the request
+   *  event and NIP-44 decryption succeeding only proves SOME real Tapit
+   *  wallet answered, never that it was the specific one pasted (Kimi K3
+   *  scan #146). Without that check a forged response from any other real
+   *  Tapit wallet would silently link the wrong identity. */
+  signerPubkey: string;
 }
 
 export type SignInResponseHandler = (item: SignInResponse) => void;
@@ -82,5 +95,5 @@ async function handleIncoming(
     return;
   }
   if (!isSignInResponsePayload(parsed)) return;
-  onResponse({ grant: parsed.grant, eventId: event.id, receivedAt: event.created_at });
+  onResponse({ grant: parsed.grant, eventId: event.id, receivedAt: event.created_at, signerPubkey: event.pubkey });
 }

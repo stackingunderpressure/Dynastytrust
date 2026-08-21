@@ -112,7 +112,19 @@ export function TapitConnectModal({ mode, onClose, onDone }: { mode: TapitMode; 
       const { subscription, transport } = subscribeSignInResponses(
         replyPrivateKey,
         replyPublicKey,
-        response => finishWithGrant(response.grant),
+        response => {
+          // Unlike the QR path (any real Tapit wallet answering the
+          // challenge is legitimately the one connecting), this path names
+          // a specific pubkey up front -- the reply pubkey is published in
+          // the clear in the request event, so a forged response from a
+          // DIFFERENT real Tapit wallet would otherwise silently link the
+          // wrong identity to this account (Kimi K3 scan #146).
+          if (response.signerPubkey.toLowerCase() !== clean) {
+            toast.error("Received a connect response that wasn't signed by the pasted public key -- ignored.");
+            return;
+          }
+          finishWithGrant(response.grant);
+        },
       );
       pubkeyCleanupRef.current = () => {
         subscription.close();
