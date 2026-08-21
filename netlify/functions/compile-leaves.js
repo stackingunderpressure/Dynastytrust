@@ -31,7 +31,8 @@
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
-import { fetchTipHeight, relativeToAbsolute } from "./_chain.js";
+import { fetchTipHeight, relativeToAbsolute, checkTimelockFloor } from "./_chain.js";
+import { checkNumberBounds } from "./_numeric.js";
 import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
 import { assertNotPrivateExtendedKey } from "./_xpub.js";
 
@@ -80,12 +81,34 @@ export async function handler(event) {
     if (!Array.isArray(leaf.keys) || !leaf.keys.length) {
       return json(400, { error: `Leaf '${leaf.id}' has no keys` });
     }
+    // leaf.quorum was forwarded to the Rust compiler with zero
+    // validation of any kind -- Rust's own verify_leaf_policy DOES
+    // bound it (quorum == 0 || quorum > keys.len()), so this was
+    // defense-in-depth-only, not an active bypass, but it means this
+    // endpoint added none of its own protection: a future refactor of
+    // that one Rust check would leave this path unguarded with nothing
+    // else to catch it (Kimi K3 scan Family D).
+    const quorumErr = checkNumberBounds(leaf.quorum, { field: `Leaf '${leaf.id}' quorum`, min: 1, max: leaf.keys.length, integer: true });
+    if (quorumErr) return json(400, { error: quorumErr });
     for (const k of leaf.keys) {
       try {
         assertNotPrivateExtendedKey(k);
       } catch (e) {
         return json(400, { error: e.message });
       }
+    }
+    // Floor-check an After leaf's raw relative offset BEFORE tip+offset
+    // conversion below -- Rust's own verify_leaf_policy check only ever
+    // sees the already-absolute value by the time it runs and is a
+    // structural no-op on any live network (same reason compile.js
+    // checks recovery_after/inheritance_after here; this generic
+    // leaf-list path never got the equivalent check at all -- Kimi K3
+    // scan Family D). OlderThan leaves are a duration forwarded
+    // unchanged, not converted, so Rust's own MAX_RELATIVE_BLOCKS check
+    // against the raw value is already effective there -- no gap.
+    if (leaf.unlock?.type === "after") {
+      const err = checkTimelockFloor(leaf.unlock.blocks, `Leaf '${leaf.id}' unlock.blocks`);
+      if (err) return json(400, { error: err });
     }
   }
   for (const k of vault.consent_keys ?? []) {

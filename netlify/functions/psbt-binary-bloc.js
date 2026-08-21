@@ -32,6 +32,7 @@ import { requireUser, json } from './_auth.js';
 import { getSupabaseAdmin } from './_supabase.js';
 import { MEMPOOL, mempoolFetch, getFeeRate } from './_chain.js';
 import { assertNotPrivateExtendedKey } from './_xpub.js';
+import { checkNumberBounds, MIN_FEE_RATE_SAT_VB, MAX_FEE_RATE_SAT_VB } from './_numeric.js';
 
 const COMPILER_URL    = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -40,11 +41,6 @@ const COMPILER_SECRET = process.env.COMPILER_SECRET;
 const TR_INPUT_VBYTES  = 57.5;
 const TR_OUTPUT_VBYTES = 43;
 const TX_OVERHEAD      = 10.5;
-
-// See psbt-binary.js for why this bound exists: an unbounded
-// caller-supplied fee_rate could drain most of a spend into fees.
-const MIN_FEE_RATE_SAT_VB = 1;
-const MAX_FEE_RATE_SAT_VB = 1000;
 
 // Size a script-path (tapscript leaf) taproot input properly instead of
 // the flat TR_INPUT_VBYTES guess, which is only correct for a plain
@@ -161,13 +157,27 @@ export async function handler(event) {
   const key_origins = bp.key_origins ?? [];
 
   if (!destination) return json(400, { error: 'Missing: destination' });
-  if (!sweep && (!amount_sats || amount_sats < 546)) return json(400, { error: 'amount_sats must be >= 546' });
-  if (fee_rate != null && (fee_rate < MIN_FEE_RATE_SAT_VB || fee_rate > MAX_FEE_RATE_SAT_VB)) {
-    return json(400, { error: `fee_rate must be between ${MIN_FEE_RATE_SAT_VB} and ${MAX_FEE_RATE_SAT_VB} sat/vB` });
+  // checkNumberBounds requires a real finite number first -- see
+  // psbt-binary.js's identical fix comment (Kimi K3 scan Family D).
+  if (!sweep) {
+    const amountErr = checkNumberBounds(amount_sats, { field: 'amount_sats', min: 546, max: Number.MAX_SAFE_INTEGER, integer: true });
+    if (amountErr) return json(400, { error: amountErr });
+  }
+  if (fee_rate != null) {
+    const feeErr = checkNumberBounds(fee_rate, { field: 'fee_rate', min: MIN_FEE_RATE_SAT_VB, max: MAX_FEE_RATE_SAT_VB });
+    if (feeErr) return json(400, { error: feeErr });
   }
   if (!BLOC_PATHS.has(path)) return json(400, { error: `Unknown path: ${path}` });
-  if (path === 'kids_decay' && !quorum) {
-    return json(400, { error: 'kids_decay requires a quorum (which decay rung to spend)' });
+  if (path === 'kids_decay') {
+    // Was truthy-only -- an out-of-range quorum never matched any leaf
+    // actually in the compiled Taproot tree, so it already failed
+    // safely at script-construction time downstream; this just turns
+    // that into a clear error instead of a confusing one, and rejects
+    // non-numeric input up front (Kimi K3 scan Family D).
+    const quorumErr = checkNumberBounds(quorum, {
+      field: 'quorum', min: kids_decay_floor_quorum, max: kids_decay_start_quorum, integer: true,
+    });
+    if (quorumErr) return json(400, { error: `kids_decay requires a valid decay-rung quorum: ${quorumErr}` });
   }
   if (!parent_keys.length) return json(400, { error: 'Missing: parent_keys' });
   if (!kid_keys.length)    return json(400, { error: 'Missing: kid_keys' });

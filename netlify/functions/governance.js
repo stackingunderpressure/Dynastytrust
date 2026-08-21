@@ -15,6 +15,7 @@
 
 import { requireUser, json } from './_auth.js';
 import { getSupabaseAdmin } from './_supabase.js';
+import { checkNumberBounds } from './_numeric.js';
 
 const COMPILER_URL    = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -78,6 +79,19 @@ export async function handler(event) {
   if (action === 'status') {
     const { utxo_age_blocks = 0 } = body;
 
+    // The `jsGovernanceStatus`/`jsGovernanceAudit` comparisons below
+    // (`utxo_age_blocks >= policy.recovery_after`, `amount_sats < 546`,
+    // etc.) all evaluate false for NaN, so a non-numeric value silently
+    // produced a plausible-looking but wrong advisory result instead of
+    // a clear error. This endpoint is read-only/advisory -- it doesn't
+    // authorize a real spend on its own -- but the audit/status result
+    // it returns is what a human reads before deciding whether to
+    // propose one (Kimi K3 scan Family D).
+    if (utxo_age_blocks !== 0) {
+      const err = checkNumberBounds(utxo_age_blocks, { field: 'utxo_age_blocks', min: 0, max: Number.MAX_SAFE_INTEGER, integer: true });
+      if (err) return json(400, { error: err });
+    }
+
     // If compiler is not available, run a simplified JS version
     if (!COMPILER_URL) {
       return json(200, { ok: true, result: jsGovernanceStatus(policyBase, utxo_age_blocks) });
@@ -101,8 +115,17 @@ export async function handler(event) {
   if (action === 'audit') {
     const { path = 'founders_now', amount_sats, destination, utxo_age_blocks = 0, total_vault_sats = 0, signers = [] } = body;
 
-    if (!amount_sats) return json(400, { error: 'Missing: amount_sats' });
+    const amountErr = checkNumberBounds(amount_sats, { field: 'amount_sats', min: 546, max: Number.MAX_SAFE_INTEGER, integer: true });
+    if (amountErr) return json(400, { error: amountErr });
     if (!destination) return json(400, { error: 'Missing: destination' });
+    if (utxo_age_blocks !== 0) {
+      const err = checkNumberBounds(utxo_age_blocks, { field: 'utxo_age_blocks', min: 0, max: Number.MAX_SAFE_INTEGER, integer: true });
+      if (err) return json(400, { error: err });
+    }
+    if (total_vault_sats !== 0) {
+      const err = checkNumberBounds(total_vault_sats, { field: 'total_vault_sats', min: 0, max: Number.MAX_SAFE_INTEGER, integer: true });
+      if (err) return json(400, { error: err });
+    }
 
     if (!COMPILER_URL) {
       return json(200, { ok: true, result: jsGovernanceAudit(policyBase, { path, amount_sats, destination, utxo_age_blocks, total_vault_sats, signers }) });

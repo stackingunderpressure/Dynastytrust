@@ -20,22 +20,12 @@
 
 import { requireUser, json } from "./_auth.js";
 import { getSupabaseAdmin } from "./_supabase.js";
-import { fetchTipHeight, relativeToAbsolute } from "./_chain.js";
+import { fetchTipHeight, relativeToAbsolute, checkTimelockFloor } from "./_chain.js";
 import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
 import { assertNotPrivateExtendedKey } from "./_xpub.js";
 
 const COMPILER_URL    = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
-
-// Mirrors protocol/src/policy_compiler.rs's MIN_RECOVERY_BLOCKS. Must be
-// checked HERE, against the raw relative offset, before the tip+offset
-// conversion below turns it into an absolute height -- by the time a
-// value reaches the Rust compiler's own verify() it is already absolute
-// (tip + offset, generally in the hundreds of thousands on any live
-// network), so Rust's `recovery_after < MIN_RECOVERY_BLOCKS` check is
-// structurally a no-op on every live network and cannot be relied on to
-// catch a too-soon recovery timelock.
-const MIN_RECOVERY_BLOCKS = 26_000;
 
 export async function handler(event) {
   if (event.httpMethod !== "POST") {
@@ -110,11 +100,16 @@ export async function handler(event) {
     // something nonzero it must still clear MIN_RECOVERY_BLOCKS -- check
     // it here, against the raw relative value, since Rust's own verify()
     // only ever sees the absolute height post-conversion below.
-    if (finalRecoveryAfter && finalRecoveryAfter < MIN_RECOVERY_BLOCKS) {
-      return json(400, {
-        error: `recovery_after must be >= ${MIN_RECOVERY_BLOCKS} blocks (or 0 for no recovery leaf)`,
-      });
-    }
+    const recoveryErr = checkTimelockFloor(finalRecoveryAfter, "recovery_after");
+    if (recoveryErr) return json(400, { error: recoveryErr });
+    // inheritance_after got the identical treatment as a documented
+    // requirement (line above, "Missing: inheritance_after") but never
+    // the floor check itself -- unlike recovery_after, inheritance_after
+    // is REQUIRED whenever there are heirs (never the falsy "no leaf"
+    // case reached above), so any value that got this far must clear
+    // MIN_RECOVERY_BLOCKS too (Kimi K3 scan Family D).
+    const inheritanceErr = checkTimelockFloor(finalInheritanceAfter, "inheritance_after");
+    if (inheritanceErr) return json(400, { error: inheritanceErr });
   }
 
   if (!COMPILER_URL) {

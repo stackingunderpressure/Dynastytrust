@@ -22,7 +22,7 @@
  */
 
 import { requireUser, json } from "./_auth.js";
-import { fetchTipHeight, relativeToAbsolute } from "./_chain.js";
+import { fetchTipHeight, relativeToAbsolute, checkTimelockFloor } from "./_chain.js";
 import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
 
 const COMPILER_URL    = process.env.COMPILER_URL;
@@ -71,6 +71,20 @@ export async function handler(event) {
   if (!kids_decay_floor_quorum) return json(400, { error: "Missing: kids_decay_floor_quorum" });
   if (!parent_solo_after)       return json(400, { error: "Missing: parent_solo_after" });
   if (!kids_decay_start_after)  return json(400, { error: "Missing: kids_decay_start_after" });
+
+  // Floor-check the raw relative offsets BEFORE tip+offset conversion
+  // below -- Rust's own MIN_RECOVERY_BLOCKS check
+  // (verify_bloc/parent_solo_after) only ever sees the already-absolute
+  // value and is a structural no-op by then (Kimi K3 scan Family D;
+  // this file previously had no floor check at all, unlike compile.js's
+  // recovery_after).
+  for (const [value, field] of [
+    [parent_solo_after, "parent_solo_after"],
+    [kids_decay_start_after, "kids_decay_start_after"],
+  ]) {
+    const err = checkTimelockFloor(value, field);
+    if (err) return json(400, { error: err });
+  }
 
   if (!COMPILER_URL) {
     return json(503, {
