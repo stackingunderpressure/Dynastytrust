@@ -471,7 +471,26 @@ export function livenessStateFor(input: {
 
   // Every OTHER chosen member (never the subject) must clear a flag before
   // it stops counting. Computed once per call since `group` is fixed here.
-  const requiredClearers = group.filter((pk) => pk !== subject);
+  const requiredClearers = new Set(group.filter((pk) => pk !== subject));
+
+  // Group clears by flagId ONCE, filtering by the cheap checks (shape,
+  // subject, not-self, in the required-clearer set) before any signature
+  // verification. Kimi K3 scan #139: re-scanning the full `clears` array
+  // per flag made this O(flags x clears) worst case -- a peer supplying
+  // large flag/clear sets could force tens of thousands of Schnorr
+  // verifications per tally call. Grouping turns it into O(flags +
+  // clears): every clear is classified once, and each flag only ever
+  // touches its own candidate list.
+  const clearsByFlagId = new Map<string, DuressClear[]>();
+  for (const clear of clears) {
+    if (!isDuressClearShape(clear)) continue;
+    if (clear.subject !== subject) continue;
+    if (clear.clearedBy === subject) continue; // self-clear never counts
+    if (!requiredClearers.has(clear.clearedBy)) continue;
+    const list = clearsByFlagId.get(clear.flagId);
+    if (list) list.push(clear);
+    else clearsByFlagId.set(clear.flagId, [clear]);
+  }
 
   // (a) Red dominates, unless every required clearer has voted for THIS flag.
   for (const flag of redFlags) {
@@ -482,17 +501,12 @@ export function livenessStateFor(input: {
 
     const flagId = duressFlagId(flag);
     const clearedBy = new Set<string>();
-    for (const clear of clears) {
-      if (!isDuressClearShape(clear)) continue;
-      if (clear.subject !== subject) continue;
-      if (clear.flagId !== flagId) continue;
-      if (clear.clearedBy === subject) continue; // self-clear never counts
-      if (!requiredClearers.includes(clear.clearedBy)) continue;
+    for (const clear of clearsByFlagId.get(flagId) ?? []) {
       if (!verifyDuressClear(clear)) continue;
       clearedBy.add(clear.clearedBy);
     }
     const fullyCleared =
-      requiredClearers.length > 0 && requiredClearers.every((pk) => clearedBy.has(pk));
+      requiredClearers.size > 0 && [...requiredClearers].every((pk) => clearedBy.has(pk));
     if (!fullyCleared) return 'red';
   }
 
