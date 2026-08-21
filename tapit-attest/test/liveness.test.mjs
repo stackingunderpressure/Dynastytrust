@@ -231,6 +231,49 @@ test('build + verify round-trip with a local test key (own minting works)', () =
   );
 });
 
+// Kimi K3 scan #26: the freshness window was one-sided
+// (`now - issuedMs <= ttlSeconds * 1000`), so a proof-of-life dated
+// decades in the future made the difference deeply negative --
+// trivially satisfying the bound forever. One pre-signed future-dated
+// heartbeat would then hold 'green' permanently, regardless of ttl.
+test('a proof-of-life dated far in the future does not count as green', () => {
+  const priv = '5'.repeat(64);
+  const pol = buildProofOfLife({
+    signerPrivateKey: priv,
+    issuedAt: '2126-06-22T00:00:00.000Z', // 100 years ahead of `now` below
+  });
+  assert.equal(verifyProofOfLife(pol), true);
+
+  const state = livenessStateFor({
+    subject: pol.subject,
+    group: [],
+    proofOfLife: pol,
+    redFlags: [],
+    ttlSeconds: ONE_YEAR,
+    now: Date.parse('2026-06-22T00:01:00.000Z'),
+  });
+  assert.equal(state, 'no-report');
+});
+
+test('a proof-of-life within normal clock-skew tolerance still counts as green', () => {
+  const priv = '6'.repeat(64);
+  const now = Date.parse('2026-06-22T00:01:00.000Z');
+  const pol = buildProofOfLife({
+    signerPrivateKey: priv,
+    // 90 seconds ahead of `now` -- inside the clock-skew tolerance.
+    issuedAt: new Date(now + 90_000).toISOString(),
+  });
+  const state = livenessStateFor({
+    subject: pol.subject,
+    group: [],
+    proofOfLife: pol,
+    redFlags: [],
+    ttlSeconds: ONE_YEAR,
+    now,
+  });
+  assert.equal(state, 'green');
+});
+
 test('build + verify + clear round-trip with local test keys (own minting works)', () => {
   const subjPriv = '3'.repeat(64);
   const peerPriv = '4'.repeat(64);

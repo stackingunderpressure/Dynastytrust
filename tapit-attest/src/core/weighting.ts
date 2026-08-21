@@ -39,7 +39,12 @@ export function computeWeight(
   const perSigner = new Map<string, number>();
   let totalWeight = 0;
   for (const signer of verification.validSigners) {
-    const w = table.get(signer) ?? 1;
+    const raw = table.get(signer) ?? 1;
+    // Defensive floor regardless of where the table came from: a
+    // negative or non-finite entry must never subtract from or blow up
+    // the sum. See sign.ts's sanitizeWeight for the same clamp applied
+    // to the per-signature declared weight.
+    const w = Number.isFinite(raw) && raw > 0 ? raw : 1;
     perSigner.set(signer, w);
     totalWeight += w;
   }

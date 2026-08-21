@@ -59,6 +59,13 @@ import { utf8, toHex, fromHex } from '../internal/hex.js';
  * the golden fixtures from Tapit's source.
  */
 
+// How far into the future an issuedAt may sit and still be treated as
+// "now" for the green-window check -- real device clocks drift by a
+// little; this is not a defense mechanism, just tolerance for that.
+// A window far beyond this (a proof-of-life signed decades ahead, the
+// #26 exploit shape) never counts as fresh.
+const CLOCK_SKEW_TOLERANCE_MS = 2 * 60_000;
+
 function isHex(value: unknown, byteLength?: number): value is string {
   if (typeof value !== 'string' || value.length % 2 !== 0) return false;
   if (!/^[0-9a-fA-F]*$/.test(value)) return false;
@@ -428,8 +435,12 @@ export type LivenessState = 'green' | 'no-report' | 'red';
  *     deliberately harder to lift than it is to raise.
  *
  * (b) GREEN. Otherwise, if a proof-of-life for this subject verifies, was
- *     signed by the subject, and is within the freshness window
- *     (`now - issuedAt <= ttlSeconds * 1000`), return 'green'.
+ *     signed by the subject, and is within the freshness window --
+ *     `issuedAt` no more than `ttlSeconds` in the past AND no more than
+ *     `CLOCK_SKEW_TOLERANCE_MS` in the future -- return 'green'. Both
+ *     directions matter: a stale heartbeat must lapse, and a
+ *     future-dated one (a pre-signed proof-of-life stamped decades
+ *     ahead) must not be able to hold 'green' forever.
  *
  * (c) NO-REPORT. Otherwise freshness has lapsed or nothing was ever reported --
  *     return 'no-report'. This is the honest default: absence of a current
@@ -485,11 +496,18 @@ export function livenessStateFor(input: {
     if (!fullyCleared) return 'red';
   }
 
-  // (b) Green: a fresh, verifying, self-signed heartbeat.
+  // (b) Green: a fresh, verifying, self-signed heartbeat. The window is
+  // two-sided -- `now - issuedMs <= ttlSeconds * 1000` alone is
+  // satisfied forever by a future-dated issuedAt (the difference goes
+  // negative, trivially <= a positive bound), letting one pre-signed
+  // future-dated proof-of-life hold 'green' permanently. Allow a small
+  // clock-skew tolerance rather than a hard issuedMs <= now, since real
+  // devices' clocks drift.
   if (proofOfLife && isProofOfLifeShape(proofOfLife) && proofOfLife.subject === subject) {
     if (verifyProofOfLife(proofOfLife)) {
       const issuedMs = Date.parse(proofOfLife.issuedAt);
-      if (!Number.isNaN(issuedMs) && now - issuedMs <= ttlSeconds * 1000) {
+      const age = now - issuedMs;
+      if (!Number.isNaN(issuedMs) && age >= -CLOCK_SKEW_TOLERANCE_MS && age <= ttlSeconds * 1000) {
         return 'green';
       }
     }
