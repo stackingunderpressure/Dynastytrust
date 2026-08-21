@@ -31,6 +31,16 @@ export interface PsbtCosignResponse {
   psbtHex: string;
   eventId: string;
   receivedAt: number;
+  /** The Nostr event's real author (event.pubkey). The reply pubkey this
+   *  response is addressed to is published in the clear inside the
+   *  original request event (tapit-nostr-cosign.ts), so anyone who reads
+   *  that event off a relay can construct a validly-decryptable forged
+   *  response from a throwaway keypair -- NIP-44 decryption succeeding
+   *  only proves SOME key produced this ciphertext, never that the
+   *  sender is the real invited signer. The caller MUST check this
+   *  equals the specific key's known tapitXOnlyPubkey before treating
+   *  psbtHex as that signer's real signature (Kimi K3 scan #53/80/92/131). */
+  signerPubkey: string;
 }
 
 export type PsbtCosignResponseHandler = (item: PsbtCosignResponse) => void;
@@ -79,5 +89,10 @@ async function handleIncoming(
     return;
   }
   if (!isPsbtCosignResponsePayload(parsed)) return;
-  onResponse({ psbtHex: parsed.psbt_hex, eventId: event.id, receivedAt: event.created_at });
+  onResponse({
+    psbtHex: parsed.psbt_hex,
+    eventId: event.id,
+    receivedAt: event.created_at,
+    signerPubkey: event.pubkey,
+  });
 }
