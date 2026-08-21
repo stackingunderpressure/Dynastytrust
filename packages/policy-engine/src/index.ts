@@ -80,9 +80,6 @@ export interface SigningCeremony {
   amountSats: number;
   /** Spend path id (e.g. parents_now / kids_decay / recovery). */
   path: string;
-  /** Go-for-green: approvals required vs collected from the member roster. */
-  approvalsRequired: number;
-  approvalsCollected: number;
   /** A duress / hold signal dominates everything (Q4). */
   duress: boolean;
   /** Optional expiry (epoch ms). */
@@ -173,17 +170,13 @@ export function evaluateSigningGate(
     deny('CEREMONY_NOT_SIGNABLE', `Proposal status "${ceremony.status}" is not signable.`);
   }
 
-  // Go-for-green: the member approvals threshold must be met. A
-  // non-positive approvalsRequired would be vacuously satisfied by any
-  // collected count (including 0) -- this is the fail-closed spine's
-  // one load-bearing number, so it gets its own floor rather than
-  // trusting whatever the caller computed it as (Kimi K3 scan #56).
-  if (!Number.isFinite(ceremony.approvalsRequired) || ceremony.approvalsRequired < 1) {
-    deny('NOT_GREEN', `Invalid approvalsRequired: ${ceremony.approvalsRequired}.`);
-  }
-  if (ceremony.approvalsCollected < ceremony.approvalsRequired) {
-    deny('NOT_GREEN', `Approvals not complete: ${ceremony.approvalsCollected} of ${ceremony.approvalsRequired}.`);
-  }
+  // No standalone per-member approval-vote axis: no such feature exists
+  // anywhere in this app (operator decision, Kimi K3 scan #142 follow-up)
+  // -- there was never a real vote to count, only a synthetic voter that
+  // trivially satisfied itself on every signable proposal. Quorum is
+  // enforced on-chain by the Taproot script itself (the required number of
+  // real signatures), and by the governance/liveness/duress axes below;
+  // this gate does not duplicate a vote that doesn't exist.
 
   // Duress dominates: hold position; funds fall to the timelock backstop.
   if (ceremony.duress) {
@@ -223,11 +216,11 @@ export function evaluateSigningGate(
 
 // ── Ceremony bridge ─────────────────────────────────────────────────────────
 //
-// Maps persisted records (a proposal + its advisory approve-votes + a duress
-// flag) into the SigningCeremony the gate consumes. This is the
-// correctness-critical glue between the database and the fail-closed gate:
-// it counts DISTINCT approvers, maps the proposal status to a signable
-// state, and carries the duress signal. Pure + unit-tested.
+// Maps a persisted proposal record (+ a duress flag) into the
+// SigningCeremony the gate consumes. This is the correctness-critical
+// glue between the database and the fail-closed gate: it maps the
+// proposal status to a signable state and carries the duress signal.
+// Pure + unit-tested.
 //
 // Status mapping (proposals.status -> CeremonyStatus):
 //   draft     -> draft      (not signable -- not yet submitted)
@@ -250,10 +243,6 @@ export interface CeremonyBridgeInput {
   /** Binding digest of the proposal's unsigned PSBT, computed by the caller
    *  with the SAME hash used at sign time (single source of truth). */
   authorizedPsbtHash: string;
-  /** User ids that voted 'approve'. Deduped here. */
-  approveVoterIds: string[];
-  /** Go-for-green threshold (e.g. the path's signing quorum). */
-  approvalsRequired: number;
   /** A duress / hold signal on the vault or proposal -- dominates. */
   duress: boolean;
   expiresAt?: number;
@@ -271,7 +260,7 @@ function mapProposalStatus(status: string): CeremonyStatus {
 }
 
 export function ceremonyFromProposal(input: CeremonyBridgeInput): SigningCeremony {
-  const { proposal, authorizedPsbtHash, approveVoterIds, approvalsRequired, duress, expiresAt } = input;
+  const { proposal, authorizedPsbtHash, duress, expiresAt } = input;
   const ceremony: SigningCeremony = {
     proposalId: proposal.proposalId,
     vaultId: proposal.vaultId,
@@ -280,8 +269,6 @@ export function ceremonyFromProposal(input: CeremonyBridgeInput): SigningCeremon
     destination: proposal.destination,
     amountSats: proposal.amountSats,
     path: proposal.path,
-    approvalsRequired,
-    approvalsCollected: new Set(approveVoterIds).size,
     duress,
   };
   if (typeof expiresAt === 'number') ceremony.expiresAt = expiresAt;

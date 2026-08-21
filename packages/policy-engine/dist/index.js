@@ -89,17 +89,13 @@ export function evaluateSigningGate(input, now = Date.now()) {
     if (!signable) {
         deny('CEREMONY_NOT_SIGNABLE', `Proposal status "${ceremony.status}" is not signable.`);
     }
-    // Go-for-green: the member approvals threshold must be met. A
-    // non-positive approvalsRequired would be vacuously satisfied by any
-    // collected count (including 0) -- this is the fail-closed spine's
-    // one load-bearing number, so it gets its own floor rather than
-    // trusting whatever the caller computed it as (Kimi K3 scan #56).
-    if (!Number.isFinite(ceremony.approvalsRequired) || ceremony.approvalsRequired < 1) {
-        deny('NOT_GREEN', `Invalid approvalsRequired: ${ceremony.approvalsRequired}.`);
-    }
-    if (ceremony.approvalsCollected < ceremony.approvalsRequired) {
-        deny('NOT_GREEN', `Approvals not complete: ${ceremony.approvalsCollected} of ${ceremony.approvalsRequired}.`);
-    }
+    // No standalone per-member approval-vote axis: no such feature exists
+    // anywhere in this app (operator decision, Kimi K3 scan #142 follow-up)
+    // -- there was never a real vote to count, only a synthetic voter that
+    // trivially satisfied itself on every signable proposal. Quorum is
+    // enforced on-chain by the Taproot script itself (the required number of
+    // real signatures), and by the governance/liveness/duress axes below;
+    // this gate does not duplicate a vote that doesn't exist.
     // Duress dominates: hold position; funds fall to the timelock backstop.
     if (ceremony.duress) {
         deny('DURESS_HOLD', 'A duress/hold signal is active. Signing is blocked; the timelock backstop is the guarantee.');
@@ -145,7 +141,7 @@ function mapProposalStatus(status) {
     }
 }
 export function ceremonyFromProposal(input) {
-    const { proposal, authorizedPsbtHash, approveVoterIds, approvalsRequired, duress, expiresAt } = input;
+    const { proposal, authorizedPsbtHash, duress, expiresAt } = input;
     const ceremony = {
         proposalId: proposal.proposalId,
         vaultId: proposal.vaultId,
@@ -154,8 +150,6 @@ export function ceremonyFromProposal(input) {
         destination: proposal.destination,
         amountSats: proposal.amountSats,
         path: proposal.path,
-        approvalsRequired,
-        approvalsCollected: new Set(approveVoterIds).size,
         duress,
     };
     if (typeof expiresAt === 'number')

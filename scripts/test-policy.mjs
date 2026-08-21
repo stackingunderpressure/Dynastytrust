@@ -31,7 +31,7 @@ const NOW = 1_000_000;
 const greenCeremony = {
   proposalId: 'pr1', vaultId: 'v1', status: 'approved',
   authorizedPsbtHash: 'abc123', destination: 'tb1pdest', amountSats: 50_000,
-  path: 'parents_now', approvalsRequired: 2, approvalsCollected: 2,
+  path: 'parents_now',
   duress: false, expiresAt: NOW + 10_000,
 };
 const baseRequest = {
@@ -67,20 +67,6 @@ assert.ok(codes(swapped).includes('PSBT_HASH_MISMATCH'));
 assert.equal(evaluateSigningGate({ ...baseInput, request: { ...baseRequest, destination: 'tb1pEVIL' } }, NOW).allow, false);
 assert.equal(evaluateSigningGate({ ...baseInput, request: { ...baseRequest, amountSats: 99_999 } }, NOW).allow, false);
 assert.equal(evaluateSigningGate({ ...baseInput, request: { ...baseRequest, path: 'kids_decay' } }, NOW).allow, false);
-
-// Not green: approvals threshold not met.
-const notGreen = evaluateSigningGate(
-  { ...baseInput, ceremony: { ...greenCeremony, approvalsCollected: 1 } }, NOW);
-assert.equal(notGreen.allow, false);
-assert.ok(codes(notGreen).includes('NOT_GREEN'));
-
-// Kimi K3 scan #56: approvalsRequired must have a floor. Without one,
-// approvalsRequired=0 is vacuously satisfied by approvalsCollected=0,
-// bypassing the approval gate entirely.
-const zeroRequired = evaluateSigningGate(
-  { ...baseInput, ceremony: { ...greenCeremony, approvalsRequired: 0, approvalsCollected: 0 } }, NOW);
-assert.equal(zeroRequired.allow, false, 'approvalsRequired=0 must not vacuously pass the gate');
-assert.ok(codes(zeroRequired).includes('NOT_GREEN'));
 
 // Duress dominates -> deny even when otherwise green.
 const duress = evaluateSigningGate(
@@ -153,18 +139,15 @@ const proposalRec = {
 const bridged = ceremonyFromProposal({
   proposal: proposalRec,
   authorizedPsbtHash: 'abc123',
-  approveVoterIds: ['u1', 'u2', 'u2'], // u2 duplicated -> counts once
-  approvalsRequired: 2,
   duress: false,
 });
 assert.equal(bridged.status, 'signing', 'signed proposal -> signing');
-assert.equal(bridged.approvalsCollected, 2, 'distinct approvers counted');
 assert.equal(bridged.authorizedPsbtHash, 'abc123');
 
 // Status mapping is exhaustive and correct.
 const statusMap = { draft: 'draft', pending: 'pending', signed: 'signing', broadcast: 'broadcast', cancelled: 'cancelled' };
 for (const [dbStatus, ceremonyStatus] of Object.entries(statusMap)) {
-  const c = ceremonyFromProposal({ proposal: { ...proposalRec, status: dbStatus }, authorizedPsbtHash: 'h', approveVoterIds: ['u1', 'u2'], approvalsRequired: 2, duress: false });
+  const c = ceremonyFromProposal({ proposal: { ...proposalRec, status: dbStatus }, authorizedPsbtHash: 'h', duress: false });
   assert.equal(c.status, ceremonyStatus, `status ${dbStatus} -> ${ceremonyStatus}`);
 }
 
@@ -177,19 +160,13 @@ const bridgedAllow = evaluateSigningGate({
 assert.equal(bridgedAllow.allow, true, 'bridged green ceremony must pass the gate');
 
 // A draft proposal bridges to a non-signable ceremony -> gate denies.
-const draftCeremony = ceremonyFromProposal({ proposal: { ...proposalRec, status: 'draft' }, authorizedPsbtHash: 'abc123', approveVoterIds: ['u1', 'u2'], approvalsRequired: 2, duress: false });
+const draftCeremony = ceremonyFromProposal({ proposal: { ...proposalRec, status: 'draft' }, authorizedPsbtHash: 'abc123', duress: false });
 const draftGate = evaluateSigningGate({ request: bridgedReq, ceremony: draftCeremony, vault: { vaultId: 'v1', address: 'tb1pvault' }, psbtBindsToVault: true }, 0);
 assert.equal(draftGate.allow, false, 'draft proposal must not be signable');
 assert.ok(draftGate.denials.some((d) => d.code === 'CEREMONY_NOT_SIGNABLE'));
 
-// Insufficient approvers -> gate denies NOT_GREEN.
-const underApproved = ceremonyFromProposal({ proposal: proposalRec, authorizedPsbtHash: 'abc123', approveVoterIds: ['u1'], approvalsRequired: 2, duress: false });
-const underGate = evaluateSigningGate({ request: bridgedReq, ceremony: underApproved, vault: { vaultId: 'v1', address: 'tb1pvault' }, psbtBindsToVault: true }, 0);
-assert.equal(underGate.allow, false);
-assert.ok(underGate.denials.some((d) => d.code === 'NOT_GREEN'));
-
 // Duress bridges through and dominates.
-const duressCeremony = ceremonyFromProposal({ proposal: proposalRec, authorizedPsbtHash: 'abc123', approveVoterIds: ['u1', 'u2'], approvalsRequired: 2, duress: true });
+const duressCeremony = ceremonyFromProposal({ proposal: proposalRec, authorizedPsbtHash: 'abc123', duress: true });
 const duressGate = evaluateSigningGate({ request: bridgedReq, ceremony: duressCeremony, vault: { vaultId: 'v1', address: 'tb1pvault' }, psbtBindsToVault: true }, 0);
 assert.equal(duressGate.allow, false);
 assert.ok(duressGate.denials.some((d) => d.code === 'DURESS_HOLD'));

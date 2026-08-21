@@ -97,9 +97,6 @@ export interface SigningCeremony {
     amountSats: number;
     /** Spend path id (e.g. parents_now / kids_decay / recovery). */
     path: string;
-    /** Go-for-green: approvals required vs collected from the member roster. */
-    approvalsRequired: number;
-    approvalsCollected: number;
     /** A duress / hold signal dominates everything (Q4). */
     duress: boolean;
     /** Optional expiry (epoch ms). */
@@ -162,10 +159,6 @@ export interface CeremonyBridgeInput {
     /** Binding digest of the proposal's unsigned PSBT, computed by the caller
      *  with the SAME hash used at sign time (single source of truth). */
     authorizedPsbtHash: string;
-    /** User ids that voted 'approve'. Deduped here. */
-    approveVoterIds: string[];
-    /** Go-for-green threshold (e.g. the path's signing quorum). */
-    approvalsRequired: number;
     /** A duress / hold signal on the vault or proposal -- dominates. */
     duress: boolean;
     expiresAt?: number;
