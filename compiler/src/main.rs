@@ -824,6 +824,25 @@ async fn psbt_binary(
         }
     }
 
+    // The one scriptPubkey this vault's policy can ever actually spend
+    // from -- this app's vaults are a single fixed tr_multileaf address
+    // (see CLAUDE.md's "Address type" rule), so every claimed input MUST
+    // pay into exactly this script. Computed once, used both for the
+    // change-output check below and for the new input check further
+    // down (Kimi K3 scan #12/#22): neither witness_utxo.value_sats nor
+    // .script_pubkey the caller claims per input was ever cross-checked
+    // against what the vault's own compiled policy actually derives --
+    // trusted implicitly. Since BIP341 sighashes commit to the claimed
+    // prevout, a mismatched claim already fails on-chain validation at
+    // broadcast, so this isn't a theft path by itself; it closes the
+    // defense-in-depth gap (a compromised/buggy caller, or a signer's
+    // on-screen summary reflecting fabricated numbers with nothing here
+    // to catch it before they approve) the same way the change-output
+    // check just below it already does.
+    let compiled_output_script: Option<ScriptBuf> = full_output
+        .as_ref()
+        .map(|out| bitcoin::ScriptBuf::new_p2tr_tweaked(out.spend_info.output_key()));
+
     // Change always returns to this same vault's own tr_multileaf address
     // (psbt-binary.js sets change_address: vault.address), but until now the
     // change output carried no taproot metadata at all -- a bare
@@ -848,12 +867,13 @@ async fn psbt_binary(
             // without independently recomputing the output key the way
             // this check does, would be misled. Reject rather than attach
             // mismatched metadata.
-            let compiled_change_script = bitcoin::ScriptBuf::new_p2tr_tweaked(out.spend_info.output_key());
-            if psbt.unsigned_tx.output[1].script_pubkey != compiled_change_script {
-                return Err(api_err(
-                    StatusCode::BAD_REQUEST,
-                    "change_address does not match the address this policy actually compiles to",
-                ));
+            if let Some(ref compiled) = compiled_output_script {
+                if psbt.unsigned_tx.output[1].script_pubkey != *compiled {
+                    return Err(api_err(
+                        StatusCode::BAD_REQUEST,
+                        "change_address does not match the address this policy actually compiles to",
+                    ));
+                }
             }
             let nums_bytes = hex::decode(NUMS_HEX).unwrap();
             let internal_key = XOnlyPublicKey::from_slice(&nums_bytes).unwrap();
@@ -901,6 +921,21 @@ async fn psbt_binary(
             format!("bad script_pubkey for input {}:{}: {e}", utxo_in.txid, utxo_in.vout),
         ))?;
         let spk = ScriptBuf::from_bytes(spk_bytes);
+
+        // Every input this vault spends must actually come from this
+        // vault's own compiled address -- see compiled_output_script's
+        // doc comment above (Kimi K3 scan #12/#22). Reject rather than
+        // build a PSBT whose witness_utxo describes a UTXO the compiled
+        // policy doesn't actually own.
+        if let Some(ref compiled) = compiled_output_script {
+            if spk != *compiled {
+                return Err(api_err(
+                    StatusCode::BAD_REQUEST,
+                    format!("input {}:{} script_pubkey does not match the address this policy compiles to", utxo_in.txid, utxo_in.vout),
+                ));
+            }
+        }
+
         psbt.inputs[i].witness_utxo = Some(TxOut {
             value: Amount::from_sat(utxo_in.value_sats),
             script_pubkey: spk.clone(),
