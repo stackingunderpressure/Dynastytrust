@@ -34,6 +34,7 @@
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 import { assertNotPrivateExtendedKey } from "./_xpub.js";
+import { checkNumberBounds } from "./_numeric.js";
 
 const FIELDS =
   "id, created_at, updated_at, vault_id, name, beneficiary_name, beneficiary_xpub, beneficiary_pubkey, trustee_keys, trustee_quorum, tranches, network, key_origins";
@@ -104,6 +105,15 @@ export async function handler(event) {
       return json(400, { error: "Missing: trustee_keys" });
     }
     if (!trustee_quorum) return json(400, { error: "Missing: trustee_quorum" });
+    // trustee_quorum was only ever truthy-checked -- Rust's own
+    // build_tranche does bound it against trustee_keys.length at SPEND
+    // time (psbt-binary-tranche.js), but nothing checked it at CREATION
+    // time, so a garbage value (e.g. a float, or a quorum bigger than
+    // the trustee set) could sit in a saved distribution wallet
+    // indefinitely before anyone tried to spend through it (Kimi K3
+    // scan Family D).
+    const quorumErr = checkNumberBounds(trustee_quorum, { field: "trustee_quorum", min: 1, max: trustee_keys.length, integer: true });
+    if (quorumErr) return json(400, { error: quorumErr });
 
     // 2026-08-15 security audit: see compile.js's identical comment.
     for (const k of [beneficiary_xpub, beneficiary_pubkey, ...trustee_keys]) {
@@ -120,10 +130,25 @@ export async function handler(event) {
     if (!Array.isArray(tranches) || tranches.length === 0) {
       return json(400, { error: "Tranches array is required" });
     }
-    for (const t of tranches) {
-      if (typeof t.unlock_block !== "number" || !t.address || !t.descriptor || !t.amount_sats) {
-        return json(400, { error: "Every tranche needs unlock_block, amount_sats, address, descriptor" });
+    for (const [i, t] of tranches.entries()) {
+      if (!t.address || !t.descriptor) {
+        return json(400, { error: `Tranche ${i} needs an address and descriptor` });
       }
+      // `typeof x === "number"` alone accepts NaN/Infinity/negative/
+      // non-integer floats -- psbt-binary-tranche.js's own `tip <
+      // tranche.unlock_block` unlock gate goes silently false (never
+      // blocks) when unlock_block is NaN, so a malformed tranche looked
+      // permanently unlocked to that endpoint's informational check
+      // (real enforcement still lives in the already-compiled Taproot
+      // leaf, which this value must match to ever produce a valid
+      // spend -- so the practical effect was a broken/rejected PSBT
+      // rather than a stolen fund, but the gate itself was bypassed
+      // silently instead of failing with a clear error) (Kimi K3 scan
+      // Family D).
+      const unlockErr = checkNumberBounds(t.unlock_block, { field: `Tranche ${i} unlock_block`, min: 0, max: Number.MAX_SAFE_INTEGER, integer: true });
+      if (unlockErr) return json(400, { error: unlockErr });
+      const amountErr = checkNumberBounds(t.amount_sats, { field: `Tranche ${i} amount_sats`, min: 546, max: Number.MAX_SAFE_INTEGER, integer: true });
+      if (amountErr) return json(400, { error: amountErr });
     }
     if (!(await assertOwner(supabase, vault_id, u.userId))) {
       return json(403, { error: "Only the primary trustee can create distribution wallets" });

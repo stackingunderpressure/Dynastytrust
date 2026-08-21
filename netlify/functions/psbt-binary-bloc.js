@@ -168,8 +168,16 @@ export async function handler(event) {
     if (feeErr) return json(400, { error: feeErr });
   }
   if (!BLOC_PATHS.has(path)) return json(400, { error: `Unknown path: ${path}` });
-  if (path === 'kids_decay' && !quorum) {
-    return json(400, { error: 'kids_decay requires a quorum (which decay rung to spend)' });
+  if (path === 'kids_decay') {
+    // Was truthy-only -- an out-of-range quorum never matched any leaf
+    // actually in the compiled Taproot tree, so it already failed
+    // safely at script-construction time downstream; this just turns
+    // that into a clear error instead of a confusing one, and rejects
+    // non-numeric input up front (Kimi K3 scan Family D).
+    const quorumErr = checkNumberBounds(quorum, {
+      field: 'quorum', min: kids_decay_floor_quorum, max: kids_decay_start_quorum, integer: true,
+    });
+    if (quorumErr) return json(400, { error: `kids_decay requires a valid decay-rung quorum: ${quorumErr}` });
   }
   if (!parent_keys.length) return json(400, { error: 'Missing: parent_keys' });
   if (!kid_keys.length)    return json(400, { error: 'Missing: kid_keys' });
