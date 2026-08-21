@@ -595,6 +595,56 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Family D closed: numeric-bounds validation at every JSON body
+  boundary reaching CLTV/fee/quorum arithmetic (2026-08-21).** The
+  original Kimi K3 scan's per-finding text for this family wasn't
+  preserved verbatim from an earlier session, so this was re-derived
+  fresh via a research-agent audit of the current code rather than
+  patched from memory (per this file's own grounding rule) -- the real
+  gap matched the family's description either way. New
+  `netlify/functions/_numeric.js`: `checkNumberBounds()`/
+  `isFiniteNumber()` plus centralized `MIN_FEE_RATE_SAT_VB`/
+  `MAX_FEE_RATE_SAT_VB` (previously duplicated verbatim in three
+  files); `_chain.js` gained `MIN_RECOVERY_BLOCKS`/`checkTimelockFloor()`
+  alongside the existing `relativeToAbsolute()`. Four batches: (1) the
+  same MIN_RECOVERY_BLOCKS timelock-bypass bug already fixed for
+  `compile.js`'s `recovery_after` had never been propagated to its
+  siblings -- `inheritance_after` (`compile.js`, `vaults-compile.js`,
+  plus `second_inheritance_after`), Bloc's `parent_solo_after`/
+  `kids_decay_start_after` (`compile-bloc.js`, `vaults-compile-bloc.js`,
+  which didn't even import the constant), and the generic leaf-list's
+  `After`-type `unlock.blocks` (`compile-leaves.js`, the newest vault
+  builder, including the Revocable Living Trust template) all had only
+  a truthy check or no check at all -- `inheritance_after: 1` passed
+  every existing check on a Gift Locker vault. (2) Every `fee_rate`/
+  `amount_sats` range check across `psbt-binary.js`/`-bloc.js`/
+  `-tranche.js` and `proposals.js` was written as `x < MIN || x > MAX`
+  without first confirming `x` is a real finite number -- `NaN < MIN`
+  and `NaN > MAX` both evaluate false, so non-numeric input silently
+  passed. `proposals.js` mattered most here: no Rust compiler sits in
+  its path, so `amount_sats`/`fee_sats`/`fee_rate`/`utxo_age_blocks`/
+  `total_vault_sats` wrote straight to the `proposals` table -- which
+  the audit PDF, tax summary, and activity export all treat as the
+  permanent record -- with no backstop at all beyond whatever
+  Postgres/PostgREST does with an out-of-type value. (3)/(4) Defense-
+  in-depth for quorum/tranche fields Rust already bounds at compile/
+  spend time but that had no check of their own at write time:
+  `distribution-wallets.js`'s `trustee_quorum` and per-tranche
+  `unlock_block` (whose `typeof` check accepted NaN, silently
+  defeating `psbt-binary-tranche.js`'s own unlock gate), the
+  `kids_decay` path's `quorum` in `psbt-binary-bloc.js`, and
+  `compile-leaves.js`'s per-leaf `quorum`. `governance.js` (read-only
+  audit/status endpoint, not fund-moving) got the same
+  `amount_sats`/`utxo_age_blocks`/`total_vault_sats` fix for
+  consistency. `OlderThan` (decay-ladder) leaves were deliberately left
+  untouched throughout: their block count is a duration forwarded
+  unconverted, so Rust's own `MAX_RELATIVE_BLOCKS` check runs against
+  the real value and was never a no-op -- only the `After`/CLTV-shaped
+  fields had the conversion-order bug. All four gates green across
+  every batch; `netlify/functions/*.js` aren't covered by the
+  eslint/tsc gates (plain JS, no build step), verified with
+  `node --check` on every edited file instead.
+
 - **Security audit follow-up: three operator design calls resolved
   (2026-08-21).** Full Kimi K3 automated security scan (146 findings)
   triaged and the confirmed-real ones fixed across this session and the
