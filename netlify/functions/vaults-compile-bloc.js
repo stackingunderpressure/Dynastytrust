@@ -29,7 +29,7 @@
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
-import { fetchTipHeight, relativeToAbsolute } from "./_chain.js";
+import { fetchTipHeight, relativeToAbsolute, checkTimelockFloor } from "./_chain.js";
 import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
 import { assertNotPrivateExtendedKey } from "./_xpub.js";
 
@@ -94,6 +94,17 @@ export async function handler(event) {
   const missing = required.filter(k => bp[k] === undefined || bp[k] === null);
   if (missing.length) {
     return json(400, { error: `Draft is missing quorum/timelock config: ${missing.join(", ")}` });
+  }
+
+  // Floor-check the stored relative offsets BEFORE tip+offset conversion
+  // below -- same reason compile-bloc.js checks them, and the identical
+  // gap this file had until now (Kimi K3 scan Family D).
+  for (const [value, field] of [
+    [bp.parent_solo_after, "parent_solo_after"],
+    [bp.kids_decay_start_after, "kids_decay_start_after"],
+  ]) {
+    const err = checkTimelockFloor(value, field);
+    if (err) return json(400, { error: err });
   }
 
   // The draft stored RELATIVE offsets (set at Configure time, before any

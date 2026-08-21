@@ -16,6 +16,37 @@ export const MEMPOOL = {
   bitcoin: "https://mempool.space/api",
 };
 
+// Mirrors protocol/src/policy_compiler.rs's MIN_RECOVERY_BLOCKS. Single
+// source of truth for every Netlify endpoint that must floor-check a raw
+// relative block offset (recovery_after, inheritance_after,
+// parent_solo_after, kids_decay_start_after, a generic leaf's
+// unlock.blocks, second_inheritance_after) BEFORE relativeToAbsolute
+// below converts it into an absolute CLTV height. Once absolute (tip +
+// offset, generally in the hundreds of thousands on any live network),
+// Rust's own `< MIN_RECOVERY_BLOCKS` checks are structurally a no-op --
+// this was first fixed for compile.js's recovery_after (2026-08-XX
+// security audit) and is centralized here so every sibling timelock
+// field gets the identical check rather than each endpoint re-deriving
+// (and, as happened, sometimes forgetting) it (Kimi K3 scan Family D).
+export const MIN_RECOVERY_BLOCKS = 26_000;
+
+/**
+ * Floor-check a raw relative block offset before conversion. 0/null/
+ * undefined means "no leaf at this path" and is always allowed. Any
+ * other value must be a safe positive integer >= MIN_RECOVERY_BLOCKS.
+ * Returns null when valid, or a human-readable error string.
+ */
+export function checkTimelockFloor(value, fieldName) {
+  if (!value) return null;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    return `${fieldName} must be a whole number of blocks.`;
+  }
+  if (value < MIN_RECOVERY_BLOCKS) {
+    return `${fieldName} must be >= ${MIN_RECOVERY_BLOCKS} blocks (or 0 for no leaf).`;
+  }
+  return null;
+}
+
 /** GET a mempool.space URL and parse the JSON body. Throws on a non-2xx status. */
 export async function mempoolFetch(url) {
   const res = await fetch(url);

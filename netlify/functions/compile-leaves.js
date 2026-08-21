@@ -31,7 +31,7 @@
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
-import { fetchTipHeight, relativeToAbsolute } from "./_chain.js";
+import { fetchTipHeight, relativeToAbsolute, checkTimelockFloor } from "./_chain.js";
 import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
 import { assertNotPrivateExtendedKey } from "./_xpub.js";
 
@@ -86,6 +86,19 @@ export async function handler(event) {
       } catch (e) {
         return json(400, { error: e.message });
       }
+    }
+    // Floor-check an After leaf's raw relative offset BEFORE tip+offset
+    // conversion below -- Rust's own verify_leaf_policy check only ever
+    // sees the already-absolute value by the time it runs and is a
+    // structural no-op on any live network (same reason compile.js
+    // checks recovery_after/inheritance_after here; this generic
+    // leaf-list path never got the equivalent check at all -- Kimi K3
+    // scan Family D). OlderThan leaves are a duration forwarded
+    // unchanged, not converted, so Rust's own MAX_RELATIVE_BLOCKS check
+    // against the raw value is already effective there -- no gap.
+    if (leaf.unlock?.type === "after") {
+      const err = checkTimelockFloor(leaf.unlock.blocks, `Leaf '${leaf.id}' unlock.blocks`);
+      if (err) return json(400, { error: err });
     }
   }
   for (const k of vault.consent_keys ?? []) {
