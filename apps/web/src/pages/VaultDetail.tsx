@@ -1593,6 +1593,33 @@ function SendTab({ vault, balance, onDone, prefill }: {
         );
       }
 
+      // Fetch duress fresh from the server immediately before gating,
+      // rather than trusting `vault.duress` off React state -- that prop
+      // already has `duressOverride` (a purely client-side, optimistic
+      // value set locally right after the setDuress call, see line ~204)
+      // layered on top of it. A stolen unlocked session (or a malicious
+      // co-signer at the victim's own keyboard) could otherwise clear a
+      // real halt through the app's own toggle control and sign before
+      // the next full page load ever re-synced state from the server.
+      // Same fail-closed posture as the liveness fetch just above: a
+      // failed fetch blocks signing rather than silently treating it as
+      // "not halted" (Kimi K3 scan #142).
+      let freshDuress: boolean;
+      try {
+        const [{ vaults: activeVaults }, { vaults: archivedVaults }] = await Promise.all([
+          api.vaults.list(false),
+          api.vaults.list(true),
+        ]);
+        const fresh = [...activeVaults, ...archivedVaults].find(v => v.id === vault.id);
+        if (!fresh) throw new Error("Vault not found");
+        freshDuress = fresh.duress;
+      } catch (e) {
+        throw new Error(
+          "Could not confirm this vault's duress status -- refusing to sign until it can be verified: " +
+            (e instanceof Error ? e.message : "network error"),
+        );
+      }
+
       const ceremony = ceremonyFromProposal({
         proposal: {
           proposalId: proposal.id,
@@ -1604,15 +1631,19 @@ function SendTab({ vault, balance, onDone, prefill }: {
         },
         authorizedPsbtHash: proposal.psbt_hex ? psbtBindingHash(proposal.psbt_hex) : "",
         // No separate per-member approval-vote step exists in this app yet
-        // (see docs/integration-phase1-signin-and-bridge.md). A single
+        // (see docs/integration-phase1-signin-and-bridge.md) -- vault_events'
+        // "voted_approve"/"voted_decline" cases exist only as a display
+        // label for an event type nothing ever actually writes. A single
         // synthetic voter stands for "the proposal reached a signable
         // status," matching BlocBuilder.tsx's own local-ceremony precedent
-        // (approvalsRequired: 1, approvalsCollected: 1). Real per-member
-        // approval voting is a genuine future improvement, not something
-        // this cut regresses -- today's code enforced none of this at all.
+        // (approvalsRequired: 1, approvalsCollected: 1) -- this axis is
+        // honestly vacuous today (any signable proposal satisfies it),
+        // not a real per-member approval gate. Real per-member approval
+        // voting is a genuine future improvement, not something this cut
+        // regresses -- today's code enforced none of this at all.
         approveVoterIds: ["proposal-exists"],
         approvalsRequired: 1,
-        duress: vault.duress,
+        duress: freshDuress,
       });
 
       // request.destination/amountSats deliberately come from `signing`
