@@ -214,6 +214,20 @@ export function VaultMembershipSetup({
       // grants, so a 'left' ack for THIS grant won't arrive on this
       // subscription; it's handled by the separate listener below.
       if (!grant || grant.status !== 'sent' || ack.decision === 'left') return;
+      // reply_pubkey is published in the clear inside the original request
+      // event, so anyone who reads it off a relay can address a validly-
+      // decryptable forged ack to it from a throwaway keypair -- NIP-44
+      // decryption succeeding only proves SOME key produced this ciphertext
+      // for this reply pubkey, never that the sender is the real invited
+      // circle member. ack.signerPubkey is the Nostr event's real author
+      // (event.pubkey); only accepting when it matches the grant's actual
+      // recipient closes that forgery path (Kimi K3 scan #145).
+      if (ack.signerPubkey.toLowerCase() !== grant.recipient_pubkey.toLowerCase()) {
+        toast.error(
+          `Received a membership response for ${grant.recipient_label} that wasn't signed by their registered key -- ignored.`,
+        );
+        return;
+      }
       void api.vaultMembershipGrants.updateStatus(grant.id, ack.decision).then(res => {
         setGrants(prev => prev.map(g => (g.id === res.grant.id ? res.grant : g)));
         toast[ack.decision === 'accepted' ? 'success' : 'error'](
@@ -242,6 +256,14 @@ export function VaultMembershipSetup({
       if (ack.decision !== 'left') return;
       const grant = grantsRef.current.find(g => g.reply_pubkey === ack.replyPubkey);
       if (!grant || grant.status !== 'accepted') return;
+      // Same forgery guard as the 'sent'-scoped listener above -- see the
+      // comment there (Kimi K3 scan #145).
+      if (ack.signerPubkey.toLowerCase() !== grant.recipient_pubkey.toLowerCase()) {
+        toast.error(
+          `Received a "left" response for ${grant.recipient_label} that wasn't signed by their registered key -- ignored.`,
+        );
+        return;
+      }
       void api.vaultMembershipGrants.updateStatus(grant.id, 'left').then(res => {
         setGrants(prev => prev.map(g => (g.id === res.grant.id ? res.grant : g)));
         toast.info(

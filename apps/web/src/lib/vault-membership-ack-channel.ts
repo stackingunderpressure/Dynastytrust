@@ -40,6 +40,17 @@ export interface VaultMembershipAck {
   decision: 'accepted' | 'declined' | 'left';
   eventId: string;
   receivedAt: number;
+  /** The Nostr event's real author (event.pubkey) -- the caller MUST
+   *  check this equals the specific grant's recipient_pubkey before
+   *  acting on the ack. reply_pubkey is published in the clear inside
+   *  the original request event, so anyone who can read that event off
+   *  a relay learns it and can address a forged, validly-decryptable
+   *  ack to it from a throwaway keypair (Kimi K3 scan #145 / Family C)
+   *  -- NIP-44 decryption succeeding only proves SOME key produced this
+   *  ciphertext for this reply pubkey, never that the sender is the
+   *  real invited circle member. Binding to recipient_pubkey is the
+   *  only thing that actually proves that. */
+  signerPubkey: string;
 }
 
 export type VaultMembershipAckHandler = (ack: VaultMembershipAck) => void;
@@ -99,5 +110,11 @@ async function handleIncoming(
     return;
   }
   if (!isAckPayload(parsed)) return;
-  onAck({ replyPubkey: pTag, decision: parsed.decision, eventId: event.id, receivedAt: event.created_at });
+  onAck({
+    replyPubkey: pTag,
+    decision: parsed.decision,
+    eventId: event.id,
+    receivedAt: event.created_at,
+    signerPubkey: event.pubkey,
+  });
 }
