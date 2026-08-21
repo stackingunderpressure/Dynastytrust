@@ -2,16 +2,22 @@
  * POST /api/psbt-binary-bloc
  *
  * Builds an unsigned PSBT that spends a Dynasty Bloc UTXO via a chosen
- * leaf. Mirrors psbt-binary.js. Two calling conventions:
+ * leaf. Mirrors psbt-binary.js. vault_id is required -- the Bloc vault
+ * is persisted (023_bloc_vaults.sql's bloc_policy column, wired up to a
+ * save path 2026-08-06); policy + address + key_origins are looked up
+ * server-side from the vaults table, the same way psbt-binary.js works
+ * for standard vaults, and ownership is checked against the caller.
  *
- *   1. vault_id -- the Bloc vault is now persisted (023_bloc_vaults.sql's
- *      bloc_policy column, wired up to a save path 2026-08-06). Policy +
- *      address + key_origins are looked up server-side from the vaults
- *      table, the same way psbt-binary.js works for standard vaults --
- *      the caller doesn't need to resend the whole policy on every spend.
- *   2. address + raw policy fields -- the original client-holds-the-policy
- *      form BlocBuilder.tsx used before persistence existed. Kept working
- *      underneath so this stays additive, not a breaking rewrite.
+ * The original client-holds-the-policy direct/ad-hoc calling convention
+ * (address + raw policy fields, no vault_id, no ownership check) that
+ * BlocBuilder.tsx used before persistence existed was removed 2026-08-21
+ * (Kimi K3 scan #4/#38): BlocBuilder.tsx itself was retired when
+ * VaultWizard absorbed it, and the only live caller
+ * (VaultDetail.tsx's send flow) always passes vault_id -- the direct
+ * path was dead code that let any authenticated caller build a spend
+ * PSBT against an arbitrary address with a caller-controlled
+ * change_address, no ownership check possible since there was nothing
+ * to check ownership against.
  *
  * Parent/kid keys are 66-char compressed pubkey hex (the same values sent
  * to /compile-bloc), so no xpub derivation is needed here.
@@ -108,73 +114,52 @@ export async function handler(event) {
   try { body = JSON.parse(event.body || '{}'); }
   catch { return json(400, { error: 'Invalid JSON' }); }
 
-  let {
+  const {
     vault_id,
-    address,
-    network = 'testnet',
     destination,
     amount_sats,
     sweep,
     fee_rate,
     path = 'parents_now',
     quorum = 0,
-    change_address,
-    parent_keys = [],
-    kid_keys = [],
-    parents_together_quorum,
-    coparent_quorum,
-    kids_with_parent_quorum,
-    parent_solo_quorum,
-    kids_decay_start_quorum,
-    kids_decay_floor_quorum,
-    parent_solo_after,
-    kids_decay_start_after,
-    kids_decay_step_blocks,
-    // BIP32 origins for hardware-wallet compatibility (2026-08-06 fix).
-    // For a persisted vault (vault_id given) these come from the stored
-    // bloc_policy instead -- see the lookup block below.
-    key_origins = [],
   } = body;
 
-  // Persisted-vault path: pull address + the whole policy from the
-  // vaults row instead of requiring the caller to resend it. Mirrors
-  // psbt-binary.js's vault.address lookup. Bloc vaults are single-owner
-  // (no vault_members row per signer), so ownership is just user_id.
-  if (vault_id) {
-    const supabase = getSupabaseAdmin();
-    const { data: vault, error } = await supabase
-      .from('vaults')
-      .select('id, user_id, address, network, bloc_policy')
-      .eq('id', vault_id)
-      .maybeSingle();
-    if (error || !vault) return json(404, { error: 'Vault not found' });
-    if (vault.user_id !== u.userId) return json(403, { error: 'Not the owner of this vault' });
-    if (!vault.bloc_policy) return json(400, { error: 'Vault has no bloc_policy -- not a Bloc vault' });
+  if (!vault_id) return json(400, { error: 'Missing: vault_id' });
 
-    const bp = vault.bloc_policy;
-    address = vault.address;
-    network = vault.network;
-    // 2026-08-12 fix: change must always return to the vault's OWN address
-    // when the policy itself is trusted/server-derived -- a caller-supplied
-    // change_address surviving this lookup let any request redirect a
-    // spend's change to an address of its choosing. Mirrors psbt-binary.js's
-    // hardcoded `change_address: vault.address` for the standard vault.
-    change_address = vault.address;
-    parent_keys = bp.parent_pubkeys ?? [];
-    kid_keys = bp.kid_pubkeys ?? [];
-    parents_together_quorum = bp.parents_together_quorum;
-    coparent_quorum = bp.coparent_quorum;
-    kids_with_parent_quorum = bp.kids_with_parent_quorum;
-    parent_solo_quorum = bp.parent_solo_quorum;
-    kids_decay_start_quorum = bp.kids_decay_start_quorum;
-    kids_decay_floor_quorum = bp.kids_decay_floor_quorum;
-    parent_solo_after = bp.parent_solo_after;
-    kids_decay_start_after = bp.kids_decay_start_after;
-    kids_decay_step_blocks = bp.kids_decay_step_blocks;
-    key_origins = bp.key_origins ?? [];
-  }
+  // Pull address + the whole policy from the vaults row -- the caller
+  // never supplies policy fields directly. Mirrors psbt-binary.js's
+  // vault.address lookup. Bloc vaults are single-owner (no
+  // vault_members row per signer), so ownership is just user_id.
+  const supabase = getSupabaseAdmin();
+  const { data: vault, error } = await supabase
+    .from('vaults')
+    .select('id, user_id, address, network, bloc_policy')
+    .eq('id', vault_id)
+    .maybeSingle();
+  if (error || !vault) return json(404, { error: 'Vault not found' });
+  if (vault.user_id !== u.userId) return json(403, { error: 'Not the owner of this vault' });
+  if (!vault.bloc_policy) return json(400, { error: 'Vault has no bloc_policy -- not a Bloc vault' });
 
-  if (!address)     return json(400, { error: 'Missing: address' });
+  const bp = vault.bloc_policy;
+  const address = vault.address;
+  const network = vault.network;
+  // Change always returns to the vault's OWN address -- never
+  // caller-supplied. Mirrors psbt-binary.js's hardcoded
+  // `change_address: vault.address` for the standard vault.
+  const change_address = vault.address;
+  const parent_keys = bp.parent_pubkeys ?? [];
+  const kid_keys = bp.kid_pubkeys ?? [];
+  const parents_together_quorum = bp.parents_together_quorum;
+  const coparent_quorum = bp.coparent_quorum;
+  const kids_with_parent_quorum = bp.kids_with_parent_quorum;
+  const parent_solo_quorum = bp.parent_solo_quorum;
+  const kids_decay_start_quorum = bp.kids_decay_start_quorum;
+  const kids_decay_floor_quorum = bp.kids_decay_floor_quorum;
+  const parent_solo_after = bp.parent_solo_after;
+  const kids_decay_start_after = bp.kids_decay_start_after;
+  const kids_decay_step_blocks = bp.kids_decay_step_blocks;
+  const key_origins = bp.key_origins ?? [];
+
   if (!destination) return json(400, { error: 'Missing: destination' });
   if (!sweep && (!amount_sats || amount_sats < 546)) return json(400, { error: 'amount_sats must be >= 546' });
   if (fee_rate != null && (fee_rate < MIN_FEE_RATE_SAT_VB || fee_rate > MAX_FEE_RATE_SAT_VB)) {
@@ -187,10 +172,9 @@ export async function handler(event) {
   if (!parent_keys.length) return json(400, { error: 'Missing: parent_keys' });
   if (!kid_keys.length)    return json(400, { error: 'Missing: kid_keys' });
 
-  // 2026-08-15 security audit: see compile.js's identical comment. Covers
-  // both the vault_id path (already-stored, should already be clean) and
-  // the direct/ad-hoc path (parent_keys/kid_keys fresh from the request
-  // body) uniformly, rather than trusting the stored side implicitly.
+  // 2026-08-15 security audit: see compile.js's identical comment. Defense
+  // in depth on the stored keys -- they should already be clean, but this
+  // never assumes the DB side implicitly.
   for (const k of [...parent_keys, ...kid_keys]) {
     try {
       assertNotPrivateExtendedKey(k);

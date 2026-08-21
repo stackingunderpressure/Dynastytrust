@@ -59,6 +59,13 @@ import { utf8, toHex, fromHex } from '../internal/hex.js';
  * the golden fixtures from Tapit's source.
  */
 
+// How far into the future an issuedAt may sit and still be treated as
+// "now" for the green-window check -- real device clocks drift by a
+// little; this is not a defense mechanism, just tolerance for that.
+// A window far beyond this (a proof-of-life signed decades ahead, the
+// #26 exploit shape) never counts as fresh.
+const CLOCK_SKEW_TOLERANCE_MS = 2 * 60_000;
+
 function isHex(value: unknown, byteLength?: number): value is string {
   if (typeof value !== 'string' || value.length % 2 !== 0) return false;
   if (!/^[0-9a-fA-F]*$/.test(value)) return false;
@@ -428,8 +435,12 @@ export type LivenessState = 'green' | 'no-report' | 'red';
  *     deliberately harder to lift than it is to raise.
  *
  * (b) GREEN. Otherwise, if a proof-of-life for this subject verifies, was
- *     signed by the subject, and is within the freshness window
- *     (`now - issuedAt <= ttlSeconds * 1000`), return 'green'.
+ *     signed by the subject, and is within the freshness window --
+ *     `issuedAt` no more than `ttlSeconds` in the past AND no more than
+ *     `CLOCK_SKEW_TOLERANCE_MS` in the future -- return 'green'. Both
+ *     directions matter: a stale heartbeat must lapse, and a
+ *     future-dated one (a pre-signed proof-of-life stamped decades
+ *     ahead) must not be able to hold 'green' forever.
  *
  * (c) NO-REPORT. Otherwise freshness has lapsed or nothing was ever reported --
  *     return 'no-report'. This is the honest default: absence of a current
@@ -460,7 +471,26 @@ export function livenessStateFor(input: {
 
   // Every OTHER chosen member (never the subject) must clear a flag before
   // it stops counting. Computed once per call since `group` is fixed here.
-  const requiredClearers = group.filter((pk) => pk !== subject);
+  const requiredClearers = new Set(group.filter((pk) => pk !== subject));
+
+  // Group clears by flagId ONCE, filtering by the cheap checks (shape,
+  // subject, not-self, in the required-clearer set) before any signature
+  // verification. Kimi K3 scan #139: re-scanning the full `clears` array
+  // per flag made this O(flags x clears) worst case -- a peer supplying
+  // large flag/clear sets could force tens of thousands of Schnorr
+  // verifications per tally call. Grouping turns it into O(flags +
+  // clears): every clear is classified once, and each flag only ever
+  // touches its own candidate list.
+  const clearsByFlagId = new Map<string, DuressClear[]>();
+  for (const clear of clears) {
+    if (!isDuressClearShape(clear)) continue;
+    if (clear.subject !== subject) continue;
+    if (clear.clearedBy === subject) continue; // self-clear never counts
+    if (!requiredClearers.has(clear.clearedBy)) continue;
+    const list = clearsByFlagId.get(clear.flagId);
+    if (list) list.push(clear);
+    else clearsByFlagId.set(clear.flagId, [clear]);
+  }
 
   // (a) Red dominates, unless every required clearer has voted for THIS flag.
   for (const flag of redFlags) {
@@ -471,25 +501,27 @@ export function livenessStateFor(input: {
 
     const flagId = duressFlagId(flag);
     const clearedBy = new Set<string>();
-    for (const clear of clears) {
-      if (!isDuressClearShape(clear)) continue;
-      if (clear.subject !== subject) continue;
-      if (clear.flagId !== flagId) continue;
-      if (clear.clearedBy === subject) continue; // self-clear never counts
-      if (!requiredClearers.includes(clear.clearedBy)) continue;
+    for (const clear of clearsByFlagId.get(flagId) ?? []) {
       if (!verifyDuressClear(clear)) continue;
       clearedBy.add(clear.clearedBy);
     }
     const fullyCleared =
-      requiredClearers.length > 0 && requiredClearers.every((pk) => clearedBy.has(pk));
+      requiredClearers.size > 0 && [...requiredClearers].every((pk) => clearedBy.has(pk));
     if (!fullyCleared) return 'red';
   }
 
-  // (b) Green: a fresh, verifying, self-signed heartbeat.
+  // (b) Green: a fresh, verifying, self-signed heartbeat. The window is
+  // two-sided -- `now - issuedMs <= ttlSeconds * 1000` alone is
+  // satisfied forever by a future-dated issuedAt (the difference goes
+  // negative, trivially <= a positive bound), letting one pre-signed
+  // future-dated proof-of-life hold 'green' permanently. Allow a small
+  // clock-skew tolerance rather than a hard issuedMs <= now, since real
+  // devices' clocks drift.
   if (proofOfLife && isProofOfLifeShape(proofOfLife) && proofOfLife.subject === subject) {
     if (verifyProofOfLife(proofOfLife)) {
       const issuedMs = Date.parse(proofOfLife.issuedAt);
-      if (!Number.isNaN(issuedMs) && now - issuedMs <= ttlSeconds * 1000) {
+      const age = now - issuedMs;
+      if (!Number.isNaN(issuedMs) && age >= -CLOCK_SKEW_TOLERANCE_MS && age <= ttlSeconds * 1000) {
         return 'green';
       }
     }

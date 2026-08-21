@@ -21,7 +21,7 @@ import {
 import { supabase } from "../lib/supabase";
 import { listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
 import { keyNetworkMatches } from "../lib/network";
-import { signPsbtWithMnemonic, countSignatures, mergePsbts } from "../lib/psbt-signer";
+import { signPsbtWithMnemonic, countSignatures, mergePsbts, verifyPsbtMatchesRequest } from "../lib/psbt-signer";
 import { fetchTapitDisplayNames } from "../lib/tapit-profile-lookup";
 import { assembleLivenessGateInput } from "../lib/liveness-gate";
 import { evaluateSigningGate, ceremonyFromProposal } from "@dynastytrust/policy-engine";
@@ -1358,6 +1358,20 @@ function SendTab({ vault, balance, onDone, prefill }: {
 
       if (psbtRes.status === "no_utxos") {
         setErr("No confirmed UTXOs. Fund the vault and wait for confirmation.");
+        setBusy(false);
+        return;
+      }
+
+      // Re-derive what the PSBT actually pays from its own bytes before
+      // trusting the server's summary text at all -- see
+      // verifyPsbtMatchesRequest's doc comment (Kimi K3 scan Family A).
+      const psbtCheck = verifyPsbtMatchesRequest(psbtRes.psbt_hex, {
+        destination: dest.trim(),
+        amountSats: psbtRes.summary.amount_sats,
+        network: vault.network,
+      });
+      if (!psbtCheck.ok) {
+        setErr(`Refusing to sign: ${psbtCheck.reason}. This PSBT does not match what you requested -- try again, and contact support if this persists.`);
         setBusy(false);
         return;
       }

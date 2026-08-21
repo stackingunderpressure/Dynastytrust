@@ -10,6 +10,7 @@ use bitcoin::{
     PublicKey, ScriptBuf, Transaction, TxIn, TxOut, Txid, Witness,
 };
 use bitcoin::psbt::Psbt;
+use bitcoin::sighash::TapSighashType;
 use bitcoin::taproot::LeafVersion;
 use bitcoin::secp256k1::{Secp256k1, XOnlyPublicKey};
 use dynastytrust_protocol::{
@@ -65,6 +66,16 @@ fn check_auth(headers: &HeaderMap, state: &AppState) -> Result<(), ApiError> {
             "Compiler is not configured with a secret -- refusing all requests until COMPILER_SECRET is set",
         ));
     };
+    // An explicitly empty secret (COMPILER_SECRET="", distinct from unset)
+    // must fail closed the same way -- otherwise a request with no
+    // Authorization header at all supplies token="" via the unwrap_or
+    // below, and constant_time_eq(b"", b"") trivially passes.
+    if secret.is_empty() {
+        return Err(api_err(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Compiler is configured with an empty secret -- refusing all requests until COMPILER_SECRET is set to a real value",
+        ));
+    }
     let token = headers
         .get("authorization").or_else(|| headers.get("Authorization"))
         .and_then(|v| v.to_str().ok())
@@ -112,6 +123,19 @@ mod auth_tests {
     fn missing_header_is_rejected_when_secret_is_configured() {
         let state = AppState { secret: Some("s3cr3t".to_string()) };
         assert!(check_auth(&HeaderMap::new(), &state).is_err());
+    }
+
+    // Kimi K3 scan #37: Some("") -- an operator explicitly setting
+    // COMPILER_SECRET="" -- is distinct from None (unset), and previously
+    // fell through to constant_time_eq(b"", b""), which a request with
+    // NO Authorization header at all satisfies (token defaults to "").
+    #[test]
+    fn empty_secret_rejects_every_request_even_with_no_auth_header() {
+        let state = AppState { secret: Some(String::new()) };
+        let result_no_header = check_auth(&HeaderMap::new(), &state);
+        assert!(result_no_header.is_err(), "an empty secret must fail closed, not open");
+        let result_empty_bearer = check_auth(&headers_with_bearer(""), &state);
+        assert!(result_empty_bearer.is_err());
     }
 
     #[test]
@@ -823,6 +847,25 @@ async fn psbt_binary(
         }
     }
 
+    // The one scriptPubkey this vault's policy can ever actually spend
+    // from -- this app's vaults are a single fixed tr_multileaf address
+    // (see CLAUDE.md's "Address type" rule), so every claimed input MUST
+    // pay into exactly this script. Computed once, used both for the
+    // change-output check below and for the new input check further
+    // down (Kimi K3 scan #12/#22): neither witness_utxo.value_sats nor
+    // .script_pubkey the caller claims per input was ever cross-checked
+    // against what the vault's own compiled policy actually derives --
+    // trusted implicitly. Since BIP341 sighashes commit to the claimed
+    // prevout, a mismatched claim already fails on-chain validation at
+    // broadcast, so this isn't a theft path by itself; it closes the
+    // defense-in-depth gap (a compromised/buggy caller, or a signer's
+    // on-screen summary reflecting fabricated numbers with nothing here
+    // to catch it before they approve) the same way the change-output
+    // check just below it already does.
+    let compiled_output_script: Option<ScriptBuf> = full_output
+        .as_ref()
+        .map(|out| bitcoin::ScriptBuf::new_p2tr_tweaked(out.spend_info.output_key()));
+
     // Change always returns to this same vault's own tr_multileaf address
     // (psbt-binary.js sets change_address: vault.address), but until now the
     // change output carried no taproot metadata at all -- a bare
@@ -847,12 +890,13 @@ async fn psbt_binary(
             // without independently recomputing the output key the way
             // this check does, would be misled. Reject rather than attach
             // mismatched metadata.
-            let compiled_change_script = bitcoin::ScriptBuf::new_p2tr_tweaked(out.spend_info.output_key());
-            if psbt.unsigned_tx.output[1].script_pubkey != compiled_change_script {
-                return Err(api_err(
-                    StatusCode::BAD_REQUEST,
-                    "change_address does not match the address this policy actually compiles to",
-                ));
+            if let Some(ref compiled) = compiled_output_script {
+                if psbt.unsigned_tx.output[1].script_pubkey != *compiled {
+                    return Err(api_err(
+                        StatusCode::BAD_REQUEST,
+                        "change_address does not match the address this policy actually compiles to",
+                    ));
+                }
             }
             let nums_bytes = hex::decode(NUMS_HEX).unwrap();
             let internal_key = XOnlyPublicKey::from_slice(&nums_bytes).unwrap();
@@ -900,6 +944,21 @@ async fn psbt_binary(
             format!("bad script_pubkey for input {}:{}: {e}", utxo_in.txid, utxo_in.vout),
         ))?;
         let spk = ScriptBuf::from_bytes(spk_bytes);
+
+        // Every input this vault spends must actually come from this
+        // vault's own compiled address -- see compiled_output_script's
+        // doc comment above (Kimi K3 scan #12/#22). Reject rather than
+        // build a PSBT whose witness_utxo describes a UTXO the compiled
+        // policy doesn't actually own.
+        if let Some(ref compiled) = compiled_output_script {
+            if spk != *compiled {
+                return Err(api_err(
+                    StatusCode::BAD_REQUEST,
+                    format!("input {}:{} script_pubkey does not match the address this policy compiles to", utxo_in.txid, utxo_in.vout),
+                ));
+            }
+        }
+
         psbt.inputs[i].witness_utxo = Some(TxOut {
             value: Amount::from_sat(utxo_in.value_sats),
             script_pubkey: spk.clone(),
@@ -1172,6 +1231,31 @@ async fn psbt_finalize(
     if !has_sigs {
         return Err(api_err(StatusCode::BAD_REQUEST,
             "PSBT has no signatures. Sign it with your hardware wallet first, then finalize."));
+    }
+
+    // Reject any signature whose sighash type isn't Default/All before
+    // finalizing. This app's only signer (psbt-signer.ts /
+    // bip341-psbt-signer) hardcodes SIGHASH_DEFAULT and, as of the same
+    // fix, throws on any other type -- so this never fires against real
+    // traffic. It exists as the finalize-boundary half of that fix
+    // (Kimi K3 scan #10/#85): whether miniscript::psbt::Psbt::finalize_mut
+    // itself would accept a non-Default/All tapscript signature depends
+    // on that crate's own internals, not this app's code, so this check
+    // makes the acceptance boundary explicit here rather than relying on
+    // an unverified upstream guarantee.
+    for input in &psbt.inputs {
+        for sig in input.tap_script_sigs.values() {
+            if sig.hash_ty != TapSighashType::Default && sig.hash_ty != TapSighashType::All {
+                return Err(api_err(StatusCode::BAD_REQUEST,
+                    format!("Unsupported sighash type {:?} on a tapscript signature -- only SIGHASH_DEFAULT and SIGHASH_ALL are accepted.", sig.hash_ty)));
+            }
+        }
+        if let Some(sig) = &input.tap_key_sig {
+            if sig.hash_ty != TapSighashType::Default && sig.hash_ty != TapSighashType::All {
+                return Err(api_err(StatusCode::BAD_REQUEST,
+                    format!("Unsupported sighash type {:?} on a key-path signature -- only SIGHASH_DEFAULT and SIGHASH_ALL are accepted.", sig.hash_ty)));
+            }
+        }
     }
 
     // miniscript::psbt::finalize fills final_script_witness from tap_script_sigs.

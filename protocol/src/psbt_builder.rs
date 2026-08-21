@@ -267,6 +267,18 @@ pub fn build_bloc_spend_psbt(
     let tree = build_bloc_multileaf(policy)
         .map_err(|e| PsbtError::Psbt(format!("bloc tree: {e}")))?;
 
+    // The one scriptPubkey this Bloc vault can ever actually spend from
+    // or receive change into. Neither the caller-claimed input UTXOs nor
+    // change_address were ever cross-checked against what this policy
+    // actually compiles to (Kimi K3 scan #12/#22) -- BIP341 sighashes
+    // commit to the claimed prevout, so a mismatch already fails
+    // on-chain validation at broadcast, but nothing here caught it
+    // before a signer was asked to approve a summary built from
+    // fabricated numbers. Same defense-in-depth pattern
+    // compiler/src/main.rs's psbt_binary handler already applies to the
+    // standard vault.
+    let compiled_output_script = ScriptBuf::new_p2tr_tweaked(tree.spend_info.output_key());
+
     // Decay rungs share a path id, so match on quorum too. Other paths
     // are unique by id.
     let leaf = tree
@@ -291,6 +303,11 @@ pub fn build_bloc_spend_psbt(
         .map_err(|e| PsbtError::InvalidAddress(format!("change_address: {e}")))?
         .require_network(network)
         .map_err(|e| PsbtError::InvalidAddress(format!("change network mismatch: {e}")))?;
+    if change_address.script_pubkey() != compiled_output_script {
+        return Err(PsbtError::InvalidAddress(
+            "change_address does not match the address this policy actually compiles to".into(),
+        ));
+    }
 
     let selected = select_coins(req.utxos, req.amount, req.fee)?;
     let inputs_value: u64 = selected.iter().map(|u| u.value).sum();
@@ -377,9 +394,16 @@ pub fn build_bloc_spend_psbt(
         .ok_or_else(|| PsbtError::Psbt("no control block for selected leaf".into()))?;
 
     for (i, utxo) in selected.iter().enumerate() {
+        let spk = parse_script_pubkey(&utxo.script_pubkey)?;
+        if spk != compiled_output_script {
+            return Err(PsbtError::InvalidAddress(format!(
+                "input {}:{} script_pubkey does not match the address this policy compiles to",
+                utxo.txid, utxo.vout
+            )));
+        }
         psbt.inputs[i].witness_utxo = Some(TxOut {
             value: Amount::from_sat(utxo.value),
-            script_pubkey: parse_script_pubkey(&utxo.script_pubkey)?,
+            script_pubkey: spk,
         });
         psbt.inputs[i].tap_internal_key = Some(tree.internal_key);
         psbt.inputs[i].tap_scripts.insert(control_block.clone(), script_ver.clone());

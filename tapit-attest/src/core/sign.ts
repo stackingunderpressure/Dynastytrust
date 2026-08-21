@@ -56,6 +56,25 @@ export function signEnvelope(
   return { ...env, signatures: [...env.signatures, signature] };
 }
 
+// `AttestationSignature.weight` is never covered by attestationDigest --
+// it's free-form metadata a signer (or a hostile relay/MITM, since it
+// isn't signed) can set to anything. `verifyEnvelope` feeds it straight
+// into `signerWeights`, which `evaluateTier` sums against a threshold:
+// an unbounded weight lets one otherwise-legitimate signature satisfy
+// any threshold alone (Number.MAX_VALUE), or a negative one depress a
+// legitimate tally. Clamp rather than reject the whole signature --
+// weight corruption doesn't invalidate the Schnorr signature itself,
+// and rejecting the signature over it would let an attacker who can
+// only tamper with the UNSIGNED weight field (not forge a signature)
+// DoS an otherwise-valid attestation's `valid` flag.
+const MAX_SIGNER_WEIGHT = 2 ** 31;
+
+function sanitizeWeight(weight: number): number {
+  return Number.isFinite(weight) && weight > 0 && weight <= MAX_SIGNER_WEIGHT
+    ? weight
+    : 1;
+}
+
 /** Verify one signature against an envelope's digest. */
 export function verifySignature(
   env: AttestationEnvelope,
@@ -90,7 +109,7 @@ export function verifyEnvelope(env: AttestationEnvelope): VerifyResult {
   for (const sig of env.signatures) {
     if (verifySignature(env, sig)) {
       validSigners.push(sig.signer);
-      signerWeights.set(sig.signer, sig.weight);
+      signerWeights.set(sig.signer, sanitizeWeight(sig.weight));
     } else {
       invalidSigners.push(sig.signer);
     }

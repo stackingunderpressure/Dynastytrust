@@ -131,16 +131,34 @@ export interface ParsedPsbt {
   inputs: PsbtInput[];
 }
 
+// A real PSBT for this app's vaults (a handful of inputs/outputs plus
+// leaf scripts and control blocks) is at most a few KB. 2,000,000 bytes
+// (4M hex chars) is generous headroom -- far beyond anything this app
+// would ever legitimately produce -- while still bounding the resource
+// use an arbitrarily large attacker-controlled hex string could force.
+const MAX_PSBT_BYTES = 2_000_000;
+
+function assertInBounds(buf: Uint8Array, pos: number, len: number, what: string): void {
+  if (pos < 0 || len < 0 || pos + len > buf.length) {
+    throw new Error(`Malformed PSBT: ${what} at offset ${pos} (length ${len}) exceeds buffer (${buf.length} bytes)`);
+  }
+}
+
 function readVarInt(buf: Uint8Array, offset: number): [number, number] {
+  assertInBounds(buf, offset, 1, "varint");
   const first = buf[offset];
   if (first < 0xfd) return [first, offset + 1];
-  if (first === 0xfd) return [readUint16LE(buf, offset + 1), offset + 3];
-  if (first === 0xfe) return [readUint32LE(buf, offset + 1), offset + 5];
+  if (first === 0xfd) { assertInBounds(buf, offset + 1, 2, "varint"); return [readUint16LE(buf, offset + 1), offset + 3]; }
+  if (first === 0xfe) { assertInBounds(buf, offset + 1, 4, "varint"); return [readUint32LE(buf, offset + 1), offset + 5]; }
   throw new Error("64-bit varint not supported");
 }
 
 export function parsePsbt(hex: string): ParsedPsbt {
+  if (hex.length > MAX_PSBT_BYTES * 2) {
+    throw new Error(`PSBT hex too large: ${hex.length} chars exceeds the ${MAX_PSBT_BYTES * 2}-char limit`);
+  }
   const buf = fromHex(hex);
+  if (buf.length < 5) throw new Error("Malformed PSBT: shorter than the magic bytes");
   let pos = 0;
 
   // Magic
@@ -154,10 +172,12 @@ export function parsePsbt(hex: string): ParsedPsbt {
     const [keyLen, newPos] = readVarInt(buf, pos);
     pos = newPos;
     if (keyLen === 0) return null;
+    assertInBounds(buf, pos, keyLen, "KV key");
     const key = buf.slice(pos, pos + keyLen);
     pos += keyLen;
     const [valLen, newPos2] = readVarInt(buf, pos);
     pos = newPos2;
+    assertInBounds(buf, pos, valLen, "KV value");
     const value = buf.slice(pos, pos + valLen);
     pos += valLen;
     return { key, value };
@@ -224,24 +244,34 @@ export function parsePsbt(hex: string): ParsedPsbt {
 
 function parseRawTx(buf: Uint8Array): PsbtTx {
   let pos = 0;
+  assertInBounds(buf, pos, 4, "tx version");
   const version = readUint32LE(buf, pos); pos += 4;
   const [inCount, inPos] = readVarInt(buf, pos); pos = inPos;
   const inputs = [];
   for (let i = 0; i < inCount; i++) {
+    assertInBounds(buf, pos, 32, "input txid");
     const txid = buf.slice(pos, pos + 32); pos += 32;
+    assertInBounds(buf, pos, 4, "input vout");
     const vout = readUint32LE(buf, pos); pos += 4;
-    const [scriptLen, scriptPos] = readVarInt(buf, pos); pos = scriptPos + scriptLen;
+    const [scriptLen, scriptPos] = readVarInt(buf, pos);
+    assertInBounds(buf, scriptPos, scriptLen, "input scriptSig");
+    pos = scriptPos + scriptLen;
+    assertInBounds(buf, pos, 4, "input sequence");
     const sequence = readUint32LE(buf, pos); pos += 4;
     inputs.push({ txid, vout, sequence });
   }
   const [outCount, outPos] = readVarInt(buf, pos); pos = outPos;
   const outputs = [];
   for (let i = 0; i < outCount; i++) {
+    assertInBounds(buf, pos, 8, "output amount");
     const amount = readInt64LE(buf, pos); pos += 8;
-    const [scriptLen, scriptPos] = readVarInt(buf, pos); pos = scriptPos + scriptLen;
+    const [scriptLen, scriptPos] = readVarInt(buf, pos);
+    assertInBounds(buf, scriptPos, scriptLen, "output scriptPubkey");
+    pos = scriptPos + scriptLen;
     const scriptPubkey = buf.slice(scriptPos, scriptPos + scriptLen);
     outputs.push({ amount, scriptPubkey });
   }
+  assertInBounds(buf, pos, 4, "tx locktime");
   const locktime = readUint32LE(buf, pos);
   return { version, inputs, outputs, locktime };
 }
@@ -263,6 +293,18 @@ export function tapscriptSighash(
   // with "TapSighash". Missing sha_prevouts or using taggedHash
   // for the inner pieces produces a sighash that rust-miniscript's
   // finalizer rejects as "bad schnorr signature".
+  // The sigMsg assembly below is hardcoded for SIGHASH_DEFAULT/ALL (no
+  // ANYONECANPAY, no NONE/SINGLE output-set narrowing) -- it always hashes
+  // every prevout/sequence and the full output set regardless of what
+  // sighashType is passed in. Accepting any other value here would
+  // silently produce a wrong-but-plausible digest instead of the digest
+  // the caller actually asked for. Kimi K3 scan #10/#85: reject until
+  // ANYONECANPAY/NONE/SINGLE serialization is implemented.
+  if (sighashType !== 0x00 && sighashType !== 0x01) {
+    throw new Error(
+      `tapscriptSighash: sighashType 0x${sighashType.toString(16)} is not supported -- only SIGHASH_DEFAULT (0x00) and SIGHASH_ALL (0x01) are implemented`,
+    );
+  }
   const tx = psbt.tx;
   const input = psbt.inputs[inputIndex];
   if (!input.witnessUtxo) throw new Error("Input " + inputIndex + " missing witness_utxo");

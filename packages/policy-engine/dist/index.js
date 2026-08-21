@@ -89,7 +89,14 @@ export function evaluateSigningGate(input, now = Date.now()) {
     if (!signable) {
         deny('CEREMONY_NOT_SIGNABLE', `Proposal status "${ceremony.status}" is not signable.`);
     }
-    // Go-for-green: the member approvals threshold must be met.
+    // Go-for-green: the member approvals threshold must be met. A
+    // non-positive approvalsRequired would be vacuously satisfied by any
+    // collected count (including 0) -- this is the fail-closed spine's
+    // one load-bearing number, so it gets its own floor rather than
+    // trusting whatever the caller computed it as (Kimi K3 scan #56).
+    if (!Number.isFinite(ceremony.approvalsRequired) || ceremony.approvalsRequired < 1) {
+        deny('NOT_GREEN', `Invalid approvalsRequired: ${ceremony.approvalsRequired}.`);
+    }
     if (ceremony.approvalsCollected < ceremony.approvalsRequired) {
         deny('NOT_GREEN', `Approvals not complete: ${ceremony.approvalsCollected} of ${ceremony.approvalsRequired}.`);
     }

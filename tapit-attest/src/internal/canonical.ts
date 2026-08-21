@@ -22,8 +22,22 @@ export function canonicalJson(value: unknown): string {
     throw new Error('cannot canonicalize undefined');
   }
   if (value === null || typeof value !== 'object') {
-    if (typeof value === 'number' && !Number.isFinite(value)) {
-      throw new Error('cannot canonicalize non-finite number');
+    if (typeof value === 'number') {
+      if (!Number.isFinite(value)) {
+        throw new Error('cannot canonicalize non-finite number');
+      }
+      // Every numeric field this library actually carries (weight,
+      // block heights, timestamps-as-numbers, counts) is conceptually
+      // an integer. Beyond 2^53, JSON.stringify emits the nearest
+      // double's decimal form rather than the mathematical integer the
+      // producer intended -- two producers computing the "same" large
+      // integer differently (or one rounding first, one not) derive
+      // different canonical bytes for what should hash/verify
+      // identically. Reject rather than silently accept a
+      // non-reproducible digest.
+      if (!Number.isSafeInteger(value)) {
+        throw new Error('cannot canonicalize a number outside the safe integer range');
+      }
     }
     return JSON.stringify(value);
   }

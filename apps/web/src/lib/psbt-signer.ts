@@ -18,6 +18,7 @@
 import { secp256k1, schnorr } from "@noble/curves/secp256k1";
 import { HDKey } from "@scure/bip32";
 import { mnemonicToSeedSync } from "@scure/bip39";
+import { Address, OutScript, NETWORK, TEST_NETWORK } from "@scure/btc-signer";
 import {
   toHex,
   parsePsbt,
@@ -119,6 +120,76 @@ export function countSignatures(psbtHex: string): number {
   } catch {
     return 0;
   }
+}
+
+export interface PsbtRequestCheck {
+  destination: string;
+  /** Expected exact amount of the destination output, in sats. Compare
+   *  against the server's OWN echoed summary.amount_sats for a sweep
+   *  (where the real amount is server-derived), or the amount the human
+   *  actually requested for a fixed-amount spend. */
+  amountSats: number;
+  network: "bitcoin" | "testnet" | "signet";
+}
+
+export interface PsbtVerifyResult {
+  ok: boolean;
+  reason?: string;
+}
+
+/**
+ * Re-parse a server-returned PSBT and confirm its real bytes actually pay
+ * what was requested, before a human is shown a confirm screen built from
+ * the server's own summary text alone. Kimi K3 scan Family A ("blind trust
+ * of server-returned PSBTs"): #9/#14/#40/#50/#53/#54/#67/#77/#84/#93/#124/
+ * #132/#140 are all instances of the same gap -- the client set psbtHex
+ * from a response and rendered res.summary directly, with nothing that
+ * re-derives what the PSBT actually does from the PSBT's own bytes.
+ *
+ * By this app's own architecture the destination output is always
+ * output[0] -- every server-side builder (compiler/src/main.rs's
+ * psbt_binary, protocol/src/psbt_builder.rs's build_bloc_spend_psbt /
+ * build_tranche_spend_psbt) constructs `tx_outputs` with the destination
+ * pushed first, change (if any) second, and never more than two outputs.
+ * A third output, or a destination output at any other index, is not a
+ * shape this app's own compiler ever produces -- reject rather than
+ * trust it.
+ */
+export function verifyPsbtMatchesRequest(
+  psbtHex: string,
+  request: PsbtRequestCheck,
+): PsbtVerifyResult {
+  let parsed: ParsedPsbt;
+  try {
+    parsed = parsePsbt(psbtHex);
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : "Could not parse PSBT" };
+  }
+
+  if (parsed.tx.outputs.length === 0 || parsed.tx.outputs.length > 2) {
+    return { ok: false, reason: `Unexpected output count: ${parsed.tx.outputs.length}` };
+  }
+
+  let expectedScript: Uint8Array;
+  try {
+    const net = request.network === "bitcoin" ? NETWORK : TEST_NETWORK;
+    expectedScript = OutScript.encode(Address(net).decode(request.destination));
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : "Could not decode destination address" };
+  }
+
+  const destOutput = parsed.tx.outputs[0];
+  if (toHex(destOutput.scriptPubkey) !== toHex(expectedScript)) {
+    return { ok: false, reason: "The PSBT's destination does not match the address you entered" };
+  }
+  if (destOutput.amount !== BigInt(request.amountSats)) {
+    return {
+      ok: false,
+      reason: `The PSBT pays ${destOutput.amount} sats, not the ${request.amountSats} sats shown`,
+    };
+  }
+
+  return { ok: true };
 }
 
 /**
