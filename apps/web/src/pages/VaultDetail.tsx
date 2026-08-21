@@ -1630,19 +1630,11 @@ function SendTab({ vault, balance, onDone, prefill }: {
           path: proposal.path,
         },
         authorizedPsbtHash: proposal.psbt_hex ? psbtBindingHash(proposal.psbt_hex) : "",
-        // No separate per-member approval-vote step exists in this app yet
-        // (see docs/integration-phase1-signin-and-bridge.md) -- vault_events'
-        // "voted_approve"/"voted_decline" cases exist only as a display
-        // label for an event type nothing ever actually writes. A single
-        // synthetic voter stands for "the proposal reached a signable
-        // status," matching BlocBuilder.tsx's own local-ceremony precedent
-        // (approvalsRequired: 1, approvalsCollected: 1) -- this axis is
-        // honestly vacuous today (any signable proposal satisfies it),
-        // not a real per-member approval gate. Real per-member approval
-        // voting is a genuine future improvement, not something this cut
-        // regresses -- today's code enforced none of this at all.
-        approveVoterIds: ["proposal-exists"],
-        approvalsRequired: 1,
+        // No separate per-member approval-vote step exists in this app
+        // (operator decision, Kimi K3 scan #142 follow-up: dropped the
+        // synthetic voter axis from the gate entirely rather than keep a
+        // check that always trivially passed itself). Quorum is enforced
+        // by the Taproot script's own required signature count.
         duress: freshDuress,
       });
 

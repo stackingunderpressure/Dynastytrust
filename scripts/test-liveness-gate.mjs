@@ -100,7 +100,7 @@ function livenessCodes(liveness) {
       request: { vaultId: 'v1', psbtHash: 'h', destination: 'd', amountSats: 1, path: 'p' },
       ceremony: {
         proposalId: 'pr1', vaultId: 'v1', status: 'approved', authorizedPsbtHash: 'h',
-        destination: 'd', amountSats: 1, path: 'p', approvalsRequired: 1, approvalsCollected: 1,
+        destination: 'd', amountSats: 1, path: 'p',
         duress: false,
       },
       vault: { vaultId: 'v1', address: 'addr' },

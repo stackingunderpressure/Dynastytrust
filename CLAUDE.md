@@ -595,6 +595,43 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Security audit follow-up: three operator design calls resolved
+  (2026-08-21).** Full Kimi K3 automated security scan (146 findings)
+  triaged and the confirmed-real ones fixed across this session and the
+  prior one; three findings were product/design questions rather than
+  bugs, put to the operator directly rather than "fixed" unilaterally:
+  (1) **Tranche trustee escape hatch has no CLTV gate** -- confirmed as
+  coded, not missing: `trustee_quorum` can move a beneficiary's tranche
+  before its unlock height, and `psbt-binary-tranche.js`'s own error
+  message says "Use the trustee escape hatch to move funds before then."
+  Operator confirmed this is intentional (real-world trustee discretion,
+  same structural pattern as the standard vault's founders' Recovery
+  path) -- left as-is, no code change; recorded here so a future scan
+  doesn't re-flag it. (2) **The signing gate's synthetic approvals axis
+  was vacuous** -- `ceremonyFromProposal` was feeding the gate a single
+  hardcoded `approveVoterIds: ["proposal-exists"]`/`approvalsRequired: 1`
+  that any signable proposal trivially satisfied; no real per-member
+  approval-vote feature exists anywhere in this app to build a genuine
+  check from. Operator chose to drop the axis entirely rather than build
+  the feature or leave the vacuous check in place --
+  `SigningCeremony.approvalsRequired`/`approvalsCollected` and
+  `CeremonyBridgeInput.approveVoterIds`/`approvalsRequired` removed from
+  `packages/policy-engine/src/index.ts` (dist rebuilt + committed, this
+  package's dist IS git-tracked), the two `NOT_GREEN` denial checks
+  removed from `evaluateSigningGate`, `VaultDetail.tsx`'s call site and
+  `scripts/test-policy.mjs`/`test-liveness-gate.mjs` updated to match.
+  The gate's other axes (PSBT-exact-match, ceremony status, duress,
+  governance, liveness) are unaffected and still enforce for real; quorum
+  itself is enforced on-chain by the Taproot script's own required
+  signature count, which this axis was never actually checking anyway.
+  (3) **Legacy Recovery's on-screen unlock-signature exposure** --
+  `signLegacyUnlockMessage`'s deterministic-ECDSA-signature-as-secret
+  design is confirmed intentional (see the Legacy Recovery history
+  below), and the retrieval page's "review the signature" step showing
+  that value on-screen before use is accepted as inherent to a
+  decades-out manual recovery flow, not something to mask. No code
+  change. All four gates green throughout.
+
 - **PDF/audit/tax exports + Tapit circle-membership invites for the
   custom leaf-list vault shape (2026-08-19).** Direct follow-up to the
   Revocable living trust entry below -- items 8 and 9 in Open gaps above
