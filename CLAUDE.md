@@ -595,6 +595,70 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Legacy Recovery v2: "all you need is your key" -- a second,
+  database-free on-chain recovery mechanism (2026-08-21).** Operator,
+  after using v1: "We need to look at the long term back up. I tink we
+  mad it harder to back up not easier... The whole idea was that you
+  would have only your key and somehow you would be able to see your
+  description on chain... I just like to know any solution better than
+  this because this is just redundant doing the same thing over and
+  over." v1 (still fully intact, never touched or weakened -- anything
+  already sealed under it keeps recovering exactly as before) needs a
+  threshold of shares plus, for its fast path, a database round trip;
+  the operator wanted a version where ONE key, alone, is the entire
+  backup. Plan vetted for holes before any code was written, per the
+  operator's explicit request, catching two design problems along the
+  way: an early sketch derived the on-chain lookup address from the
+  vault's own account xpub, which the operator's "I don't want to be
+  leaking a information about the key" caught as a real linkability
+  leak (anyone holding that xpub could watch for or discover the
+  publication); and an ECDH envelope-encryption design was dropped as
+  unneeded complexity once unlinkability already forced one publish per
+  keyholder anyway. Final design: `legacyOnChainDerivationPath` in
+  `legacy-recovery.ts` derives a FULLY HARDENED path,
+  `m/9999'/<coin>'/<vault index>'/1'` (vault index = that person's own
+  small per-vault counter, distinct from v1's `9999'` sub-path by its
+  trailing `1'` vs v1's `0'`) -- hardened means it is computable ONLY
+  from the real seed, never from this vault's xpubs, descriptor, or
+  DynastyTrust's whole database. A deterministic (RFC 6979) ECDSA
+  signature over a fixed message at that path IS the AES-256-GCM key
+  directly (`deriveLegacyOnChainKey`, SHA-256 with a domain-separation
+  tag) -- no ECDH, no envelope, and the same signature doubles as "prove
+  key ownership," so recovery is nothing but signing a message
+  (verbatim ask: "sign something and decrypts instead of entering
+  phrase") -- works identically for a mnemonic (computed locally) or a
+  hardware wallet's native "Sign Message" feature against a custom
+  path, no seed phrase ever typed into any tool. The full encrypted
+  bundle publishes as a single OP_RETURN (Bitcoin Core 30's 100,000-byte
+  relay limit makes this trivial, unlike v1's small on-chain pad) --
+  `legacy-onchain-recovery.ts` orchestrates seal + build + sign
+  (`sealAndBuildOnChainPublishTx`) and scan + extract
+  (`fetchLegacyOnChainCandidates`/`extractOnChainCandidates`, via
+  `@scure/btc-signer`'s `Script.decode`, real-transaction round-trip
+  tested in `test-legacy-onchain-recovery.mjs`, not just a fixture).
+  Genuinely no database at all -- the chain IS the storage, so there is
+  nothing here for a DynastyTrust outage or a stale row to break.
+  Shipped in explicit operator-approved stages, each independently
+  gated: (1) crypto core, unit-tested in isolation
+  (`test-legacy-recovery.mjs`'s new v2 section: path
+  determinism/uniqueness/non-collision-with-v1, signature determinism,
+  key-derivation domain separation, full seal/unseal round-trip, AEAD
+  tamper/wrong-key rejection); (2) on-chain publish/lookup plumbing;
+  (3) `LegacyRecoverySetup.tsx` gained a per-role "recover with just
+  this key" card (derive address, check the chain, guided UTXO-fetch-
+  then-build-then-broadcast mirroring the existing v1 flow's pattern,
+  plus a "download recovery note" -- unlike v1's package, nothing in it
+  is secret, so it's safe to keep anywhere) and
+  `DescriptorRetrieval.tsx` gained a "Sign to recover" section (no xpub
+  match needed -- v2's hardened path means there is nothing a
+  server-side lookup could match against, so the address itself IS the
+  lookup); (4) the standalone offline tool
+  (`tools/legacy-recovery/`) gained a fourth tab reusing the SAME tested
+  functions (no second hand-typed implementation), rebuilt via
+  `node tools/legacy-recovery/build.mjs`. All four gates green at every
+  stage; typecheck/lint match the documented pre-existing baseline
+  throughout.
+
 - **Family D closed: numeric-bounds validation at every JSON body
   boundary reaching CLTV/fee/quorum arithmetic (2026-08-21).** The
   original Kimi K3 scan's per-finding text for this family wasn't
