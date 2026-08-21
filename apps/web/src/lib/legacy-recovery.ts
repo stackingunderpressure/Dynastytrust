@@ -527,3 +527,180 @@ export async function recoverViaFallbackPath(
   const shareB = unlockShare(lockedFallbackShareB, lockBytesB);
   return combineLegacySecret([shareA, shareB]);
 }
+
+// ── v2: pure on-chain recovery -- "only your key," no separate file to
+// protect at all. Replaces the hybrid XOR/Shamir mechanism above for new
+// seals (the v1 functions above stay, unmodified, forever -- anything
+// already sealed under v1 must keep recovering exactly as it always has).
+//
+// The whole recovery bundle is encrypted and published on-chain, per
+// keyholder, keyed by that keyholder's own signature -- nothing but a
+// signature and the on-chain data is ever needed to recover. No locked
+// share, no vault ID, no nonce/ciphertext pair to keep together in a
+// file: all of that lives permanently on the chain instead.
+//
+// Design constraints this satisfies (see the design conversation this
+// codifies, 2026-08-21):
+//   1. UNLINKABLE: the derivation path is fully hardened
+//      (m/9999'/coin'/N'/1'), so nobody who has this vault's own xpubs,
+//      descriptor, or DynastyTrust's whole database can compute or watch
+//      for the address this gets published to -- only the seed can. This
+//      is the fix for the earlier design, which (wrongly) reused the
+//      vault's own account xpub for the lookup address.
+//   2. SIGN, DON'T TYPE A SEED: recovery is "sign this fixed message,
+//      then that signature decrypts" -- a hardware wallet's ordinary
+//      "Sign Message" feature, never a raw private key or seed pasted
+//      into the recovery tool. A software/mnemonic-held key can produce
+//      the same deterministic signature locally when no hardware wallet
+//      is available.
+//   3. ONE MECHANISM, not two: the same signature both proves key
+//      ownership AND directly derives the decryption key -- no separate
+//      "mnemonic path" vs "signature path" to keep in sync (unlike v1).
+//   4. NO ECDH: originally sketched with ECDH envelope encryption, but
+//      since unlinkability already forces one on-chain publish PER
+//      keyholder (their hardened addresses are unlinkable from each
+//      OTHER by design, so there is no shared address multiple people
+//      could all find), there is no multi-recipient envelope to build --
+//      each keyholder's own deterministic signature directly derives the
+//      symmetric key for their own copy of the bundle. Simpler, and
+//      reuses this file's already-proven sealBundle/unsealBundle as-is.
+//   5. The trailing hardened `1'` (vs. v1's trailing `0'`) guarantees the
+//      two schemes never derive the same child even at the same index,
+//      so both can coexist under the same reserved LEGACY_PURPOSE forever.
+//   6. `vaultIndex` (0, 1, 2, ...) is this PERSON's own small sequential
+//      count of how many vaults they've sealed a v2 share for -- never a
+//      vault UUID. A human can plausibly remember or just try "0, then
+//      1, then 2" decades from now; nobody is expected to remember a
+//      UUID with nothing to check it against.
+
+/** m/9999'/coin'/N'/1' -- N = this person's own small per-vault index. */
+export function legacyOnChainDerivationPath(network: Network, vaultIndex: number): string {
+  if (!Number.isSafeInteger(vaultIndex) || vaultIndex < 0) {
+    throw new Error(`legacyOnChainDerivationPath: vaultIndex must be a non-negative whole number, got ${vaultIndex}`);
+  }
+  const coin = network === 'mainnet' ? '0' : '1';
+  return `m/${LEGACY_PURPOSE}/${coin}'/${vaultIndex}'/1'`;
+}
+
+/** The fixed, domain-separated text a keyholder signs -- both to prove key ownership and to derive the decryption key. Plain ASCII, has to survive being retyped by hand decades from now. */
+export function legacyOnChainUnlockMessage(vaultIndex: number): string {
+  return `DynastyTrust Legacy Recovery v2\nvault index: ${vaultIndex}`;
+}
+
+/**
+ * Derives the hardened identity keypair at legacyOnChainDerivationPath.
+ * Needs the raw mnemonic (or an equivalent seed) -- this is the ONE
+ * moment a software-held key needs its mnemonic for this whole mechanism;
+ * a hardware wallet performs the equivalent derivation + signing
+ * internally and never exposes this private key at all.
+ */
+export function legacyOnChainIdentity(
+  mnemonic: string,
+  network: Network,
+  vaultIndex: number,
+): { privateKey: Uint8Array; publicKey: Uint8Array } {
+  const seed = mnemonicToSeedSync(mnemonic);
+  const root = HDKey.fromMasterSeed(seed, networkVersions(network));
+  const child = root.derive(legacyOnChainDerivationPath(network, vaultIndex));
+  if (!child.privateKey || !child.publicKey) {
+    throw new Error('legacy on-chain identity derivation produced no keypair (hardened path requires the seed, not an xpub)');
+  }
+  return { privateKey: child.privateKey, publicKey: child.publicKey };
+}
+
+/**
+ * Signs legacyOnChainUnlockMessage(vaultIndex) with the hardened identity
+ * key, using deterministic ECDSA (RFC 6979 -- @noble/curves' default, no
+ * random nonce) over the classic Bitcoin-signed-message digest. Same
+ * scheme signLegacyUnlockMessage (v1) already uses, for the same reason:
+ * determinism makes the signature itself a reproducible unlock value.
+ * A real hardware wallet's "Sign Message" feature reproduces the
+ * identical signature later from only its own held key -- this function
+ * exists so a software-held key can do the same thing without one.
+ */
+export function signLegacyOnChainUnlock(
+  mnemonic: string,
+  network: Network,
+  vaultIndex: number,
+): Uint8Array {
+  const { privateKey } = legacyOnChainIdentity(mnemonic, network, vaultIndex);
+  const digest = bitcoinMessageDigest(legacyOnChainUnlockMessage(vaultIndex));
+  return secp256k1.sign(digest, privateKey).toCompactRawBytes();
+}
+
+/**
+ * Verifies a signature -- however it was produced, software key or real
+ * hardware wallet -- actually matches the identity pubkey it claims to,
+ * over the exact legacyOnChainUnlockMessage digest. Callers should check
+ * this BEFORE attempting to decrypt, so a wrong or garbled signature
+ * fails with a clear "that signature doesn't match this key" instead of
+ * a confusing AEAD failure three steps later.
+ */
+export function verifyLegacyOnChainSignature(
+  signature: Uint8Array,
+  identityPubkey: Uint8Array,
+  vaultIndex: number,
+): boolean {
+  const digest = bitcoinMessageDigest(legacyOnChainUnlockMessage(vaultIndex));
+  try {
+    return secp256k1.verify(signature, digest, identityPubkey);
+  } catch {
+    return false;
+  }
+}
+
+const LEGACY_ONCHAIN_KEY_TAG = 'dynastytrust-legacy-v2-key';
+
+/**
+ * Derives the 32-byte AES-256-GCM key straight from the deterministic
+ * signature -- this IS the encryption key, not just a value that locks
+ * some other secret (v1's extra XOR-lock indirection is gone; there is
+ * nothing left for it to protect once each keyholder gets their own
+ * on-chain copy of the bundle encrypted directly to their own signature).
+ * Domain-separated by vaultIndex so the same signature-producing key,
+ * reused across a person's different vaults, never derives the same
+ * encryption key twice.
+ */
+export function deriveLegacyOnChainKey(signature: Uint8Array, vaultIndex: number): Uint8Array {
+  const tag = new TextEncoder().encode(`${LEGACY_ONCHAIN_KEY_TAG}:${vaultIndex}`);
+  const input = new Uint8Array(signature.length + tag.length);
+  input.set(signature, 0);
+  input.set(tag, signature.length);
+  return sha256(input);
+}
+
+/**
+ * Seals a bundle for the v2 on-chain mechanism: derive this keyholder's
+ * deterministic signature, use it directly as the AES-256-GCM key
+ * (reusing sealBundle as-is -- it already accepts any 32-byte key), and
+ * return both the sealed bundle and the identity pubkey (safe to publish
+ * -- it's what the on-chain address is derived from, and never reveals
+ * the private key or the signature).
+ */
+export async function sealBundleOnChain(
+  bundleText: string,
+  mnemonic: string,
+  network: Network,
+  vaultIndex: number,
+): Promise<{ sealed: SealedBundle; identityPubkey: Uint8Array }> {
+  const { publicKey } = legacyOnChainIdentity(mnemonic, network, vaultIndex);
+  const signature = signLegacyOnChainUnlock(mnemonic, network, vaultIndex);
+  const key = deriveLegacyOnChainKey(signature, vaultIndex);
+  const sealed = await sealBundle(bundleText, key);
+  return { sealed, identityPubkey: publicKey };
+}
+
+/**
+ * Recovers a v2-sealed bundle given the keyholder's signature (however
+ * it was produced) and the sealed bundle found on-chain. Callers should
+ * call verifyLegacyOnChainSignature first for a clear error on a wrong
+ * signature rather than a confusing AEAD failure here.
+ */
+export async function recoverViaOnChainPath(
+  signature: Uint8Array,
+  vaultIndex: number,
+  sealed: SealedBundle,
+): Promise<string> {
+  const key = deriveLegacyOnChainKey(signature, vaultIndex);
+  return unsealBundle(sealed, key);
+}

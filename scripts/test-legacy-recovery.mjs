@@ -28,6 +28,14 @@ import {
   legacyIdentityPubkeyFromXpub,
   detectXpubNetwork,
   descriptorFingerprint,
+  legacyOnChainDerivationPath,
+  legacyOnChainUnlockMessage,
+  legacyOnChainIdentity,
+  signLegacyOnChainUnlock,
+  verifyLegacyOnChainSignature,
+  deriveLegacyOnChainKey,
+  sealBundleOnChain,
+  recoverViaOnChainPath,
 } from '../apps/web/src/lib/legacy-recovery.ts';
 
 const network = 'testnet';
@@ -206,5 +214,82 @@ assert.equal(descriptorFingerprint(descA), descriptorFingerprint(descA), 'same d
 assert.notEqual(descriptorFingerprint(descA), descriptorFingerprint(descB), 'different descriptors must fingerprint differently');
 assert.equal(descriptorFingerprint(descA).length, 16, 'fingerprint is 8 bytes of SHA-256 as hex (16 chars)');
 assert.match(descriptorFingerprint(descA), /^[0-9a-f]{16}$/, 'fingerprint must be lowercase hex');
+
+// ── v2: pure on-chain recovery -- "only your key," signature-unlocked ─────
+
+// Path is fixed for a given (network, vaultIndex); different index ->
+// different path; the trailing hardened 1' must never collide with v1's
+// trailing 0' at the same index.
+const v2PathA = legacyOnChainDerivationPath(network, 0);
+assert.equal(v2PathA, legacyOnChainDerivationPath(network, 0), 'same (network, vaultIndex) must always derive the same path');
+assert.notEqual(v2PathA, legacyOnChainDerivationPath(network, 1), 'different vaultIndex must derive a different path');
+assert.notEqual(v2PathA, legacyDerivationPath(network), 'v2 path at index 0 must never collide with the v1 fixed path');
+assert.throws(() => legacyOnChainDerivationPath(network, -1), /non-negative/, 'negative vaultIndex must be rejected');
+assert.throws(() => legacyOnChainDerivationPath(network, 1.5), /whole number/, 'non-integer vaultIndex must be rejected');
+
+// The signed message is fixed per vaultIndex, human-readable, and ASCII.
+assert.equal(legacyOnChainUnlockMessage(0), legacyOnChainUnlockMessage(0));
+assert.notEqual(legacyOnChainUnlockMessage(0), legacyOnChainUnlockMessage(1));
+
+// Deterministic signature: same mnemonic + network + vaultIndex -> the
+// exact same signature every time (RFC 6979, no random nonce) -- this is
+// what lets the signature itself double as a reproducible decryption key.
+const v2Mnemonic = generateMnemonic(wordlist);
+const v2VaultIndex = 0;
+const v2SigA = signLegacyOnChainUnlock(v2Mnemonic, network, v2VaultIndex);
+const v2SigB = signLegacyOnChainUnlock(v2Mnemonic, network, v2VaultIndex);
+assert.deepEqual(v2SigA, v2SigB, 'signing the same message with the same key twice must produce byte-identical signatures');
+const v2SigDifferentIndex = signLegacyOnChainUnlock(v2Mnemonic, network, 1);
+assert.notDeepEqual(v2SigA, v2SigDifferentIndex, 'a different vaultIndex must sign a different message and produce a different signature');
+
+// verifyLegacyOnChainSignature: true only for the right signature, pubkey,
+// and index all matching -- a hardware wallet reproducing the signature
+// later must verify against the same identity pubkey derived at seal time.
+const { publicKey: v2IdentityPubkey } = legacyOnChainIdentity(v2Mnemonic, network, v2VaultIndex);
+assert.equal(verifyLegacyOnChainSignature(v2SigA, v2IdentityPubkey, v2VaultIndex), true, 'the real signature must verify against its own identity pubkey');
+assert.equal(verifyLegacyOnChainSignature(v2SigDifferentIndex, v2IdentityPubkey, v2VaultIndex), false, 'a signature over the WRONG vaultIndex message must not verify');
+const wrongMnemonicV2 = generateMnemonic(wordlist);
+const v2SigWrongKey = signLegacyOnChainUnlock(wrongMnemonicV2, network, v2VaultIndex);
+assert.equal(verifyLegacyOnChainSignature(v2SigWrongKey, v2IdentityPubkey, v2VaultIndex), false, 'a signature from a DIFFERENT key must not verify against this identity pubkey');
+
+// deriveLegacyOnChainKey: deterministic, and domain-separated by vaultIndex
+// so the same signature-producing key reused across a person's different
+// vaults never derives the same encryption key twice.
+const v2KeyA = deriveLegacyOnChainKey(v2SigA, v2VaultIndex);
+const v2KeyB = deriveLegacyOnChainKey(v2SigA, v2VaultIndex);
+assert.deepEqual(v2KeyA, v2KeyB, 'the same signature + vaultIndex must always derive the same key');
+assert.equal(v2KeyA.length, 32, 'derived key must be 32 bytes (AES-256)');
+const v2KeyDifferentIndex = deriveLegacyOnChainKey(v2SigA, 1);
+assert.notDeepEqual(v2KeyA, v2KeyDifferentIndex, 'the same signature under a different vaultIndex tag must derive a different key');
+
+// Full round trip: seal, then INDEPENDENTLY re-derive the signature (as a
+// real recovery would -- sign again, don't reuse the seal-time value) and
+// recover. Proves this is genuinely reproducible from just the key, not
+// only internally self-consistent within one call.
+const v2BundleText = 'descriptor=tr(...); policy=or(thresh(2,pk(A),pk(B)),and(after(500000),pk(C)))';
+const { sealed: v2Sealed, identityPubkey: v2SealedIdentityPubkey } =
+  await sealBundleOnChain(v2BundleText, v2Mnemonic, network, v2VaultIndex);
+assert.deepEqual(v2SealedIdentityPubkey, v2IdentityPubkey, 'sealBundleOnChain must expose the same identity pubkey legacyOnChainIdentity derives');
+
+const v2RecoverySignature = signLegacyOnChainUnlock(v2Mnemonic, network, v2VaultIndex); // re-derived independently, not reused
+assert.equal(verifyLegacyOnChainSignature(v2RecoverySignature, v2SealedIdentityPubkey, v2VaultIndex), true, 'recovery-time signature must verify before attempting to decrypt');
+const v2RecoveredBundle = await recoverViaOnChainPath(v2RecoverySignature, v2VaultIndex, v2Sealed);
+assert.equal(v2RecoveredBundle, v2BundleText, 'bundle recovered via v2 on-chain path must byte-match the original');
+
+// Wrong key must fail closed (AEAD failure), never produce a wrong-but-
+// plausible plaintext.
+const v2WrongKeySignature = signLegacyOnChainUnlock(wrongMnemonicV2, network, v2VaultIndex);
+await assert.rejects(
+  recoverViaOnChainPath(v2WrongKeySignature, v2VaultIndex, v2Sealed),
+  'decrypting with a signature from the wrong key must fail, not silently succeed',
+);
+
+// Tamper detection: a mutated ciphertext must fail to decrypt even with
+// the RIGHT signature -- AES-GCM is authenticated, not just confidential.
+const v2Tampered = { ...v2Sealed, ciphertextB64: v2Sealed.ciphertextB64.slice(0, -4) + 'AAAA' };
+await assert.rejects(
+  recoverViaOnChainPath(v2RecoverySignature, v2VaultIndex, v2Tampered),
+  'a tampered ciphertext must fail AEAD verification, never decrypt to a different valid plaintext',
+);
 
 console.log('legacy-recovery tests passed');
