@@ -18,12 +18,6 @@
     background: #161622; border: 1px solid #C9A84C55; border-radius: 10px;
     padding: 14px 16px; font-size: 13px; color: #9994A8; margin-bottom: 24px;
   }
-  .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
-  .tab {
-    background: #161622; border: 1px solid #2A2A3A; border-radius: 8px;
-    padding: 10px 16px; color: #E8E4D8; cursor: pointer; font-size: 14px;
-  }
-  .tab[aria-selected="true"] { border-color: #C9A84C; color: #C9A84C; }
   fieldset { border: 1px solid #2A2A3A; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
   legend { color: #C9A84C; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; padding: 0 6px; }
   label { display: block; font-size: 13px; color: #9994A8; margin: 12px 0 4px; }
@@ -33,6 +27,7 @@
     font-family: inherit;
   }
   textarea { min-height: 64px; font-family: ui-monospace, monospace; font-size: 13px; }
+  code { font-family: ui-monospace, monospace; color: #E8E4D8; }
   button.run {
     background: #C9A84C; color: #0A0A0F; border: none; border-radius: 8px;
     padding: 12px 20px; font-size: 15px; font-weight: 700; cursor: pointer; margin-top: 16px;
@@ -46,161 +41,41 @@
 </head>
 <body>
   <h1>DynastyTrust Legacy Recovery</h1>
-  <p class="sub">Recovers a vault's descriptor from one or two keys and their sealed shares, or -- for the newer, simpler mechanism -- from a single key's own on-chain publication. Works fully offline -- nothing on this page ever sends data anywhere.</p>
+  <p class="sub">All you need is your key. Recovers a vault's descriptor from a single key's own on-chain publication. Works fully offline -- nothing on this page ever sends data anywhere.</p>
 
   <div class="warning">
     This tool runs entirely in your browser. Close it and clear your browser history/cache afterward if this computer isn't yours to keep. Never enter a seed phrase into any page unless you understand what it does -- this page's full source is visible via "View Source" if you want to verify it before use.
   </div>
 
-  <div class="tabs" role="tablist">
-    <div class="tab" id="tab-fast" role="tab" aria-selected="true">Fast path (seed phrase)</div>
-    <div class="tab" id="tab-fast-sig" role="tab" aria-selected="false">Fast path (signature)</div>
-    <div class="tab" id="tab-fallback" role="tab" aria-selected="false">Fallback path (two keys)</div>
-    <div class="tab" id="tab-onchain" role="tab" aria-selected="false">Sign to recover (v2)</div>
+  <div class="warning">
+    No vault ID, no shares to combine -- this key's own on-chain address IS the lookup. You'll need
+    the OP_RETURN transaction's full scriptPubKey hex, found on any block explorer by searching the
+    address from your recovery note (most explorers show this on the transaction's output details,
+    sometimes labeled "Script pubkey (hex)" or similar). Then sign the exact message below with the
+    SAME key, at derivation path <code>m/9999'/&lt;coin&gt;'/&lt;vault index&gt;'/1'</code>, using the
+    CLASSIC message-signing method (plain ECDSA) -- not BIP-322 or a Taproot-address signature, those
+    use a different scheme and will not match. Most hardware wallets' "Sign Message" feature supports
+    signing against a custom derivation path directly.
   </div>
 
-  <div id="panel-fast">
-    <fieldset>
-      <legend>Your key</legend>
-      <label for="fp-mnemonic">Seed phrase</label>
-      <textarea id="fp-mnemonic" placeholder="24 words, space-separated"></textarea>
-      <label for="fp-network">Network</label>
-      <select id="fp-network">
-        <option value="mainnet">Mainnet</option>
-        <option value="testnet">Testnet</option>
-        <option value="signet">Signet</option>
-      </select>
-      <label for="fp-vault-id">Vault ID</label>
-      <input id="fp-vault-id" placeholder="from your backup file">
-      <label for="fp-key-role">Your key's role</label>
-      <input id="fp-key-role" placeholder="e.g. heir_2 -- from your backup file">
-    </fieldset>
-    <fieldset>
-      <legend>From the backup file</legend>
-      <label for="fp-locked-share">Your locked fast-path share (base64)</label>
-      <textarea id="fp-locked-share"></textarea>
-      <label for="fp-onchain-share">On-chain share (base64 -- from the backup, or looked up on-chain)</label>
-      <textarea id="fp-onchain-share"></textarea>
-      <label for="fp-nonce">Sealed bundle nonce (base64)</label>
-      <input id="fp-nonce">
-      <label for="fp-ciphertext">Sealed bundle ciphertext (base64)</label>
-      <textarea id="fp-ciphertext"></textarea>
-    </fieldset>
-    <button class="run" id="fp-run">Recover</button>
-  </div>
-
-  <div id="panel-fast-sig" style="display:none">
-    <div class="warning">
-      For a key that only ever lives on a hardware wallet -- no seed phrase ever typed into any
-      screen. Sign the exact message below with your hardware wallet's own "Sign Message" feature
-      (Coldcard, Sparrow, Electrum, and most others support this), using the CLASSIC message-signing
-      method (plain ECDSA) -- not BIP-322 or a Taproot-address signature, those use a different
-      scheme and will not match. Sign against derivation path <code>&lt;your account&gt;/1/0</code>
-      under the same account this vault's backup file names for your role.
-    </div>
-    <fieldset>
-      <legend>This vault and role</legend>
-      <label for="fs-vault-id">Vault ID</label>
-      <input id="fs-vault-id" placeholder="from your recovery package">
-      <label for="fs-key-role">Your key's role</label>
-      <input id="fs-key-role" placeholder="e.g. heir_2 -- from your recovery package">
-      <label for="fs-message">Message to sign (updates as you fill in the fields above)</label>
-      <textarea id="fs-message" readonly></textarea>
-    </fieldset>
-    <fieldset>
-      <legend>Your signature</legend>
-      <label for="fs-signature">Signature (base64 or hex, from your hardware wallet)</label>
-      <textarea id="fs-signature" placeholder="paste the signature your wallet produced"></textarea>
-    </fieldset>
-    <fieldset>
-      <legend>From your recovery package</legend>
-      <label for="fs-locked-share">Your signature-locked share (base64)</label>
-      <textarea id="fs-locked-share"></textarea>
-      <label for="fs-onchain-share">On-chain share (base64 -- from the package, or looked up on-chain)</label>
-      <textarea id="fs-onchain-share"></textarea>
-      <label for="fs-nonce">Sealed bundle nonce (base64)</label>
-      <input id="fs-nonce">
-      <label for="fs-ciphertext">Sealed bundle ciphertext (base64)</label>
-      <textarea id="fs-ciphertext"></textarea>
-    </fieldset>
-    <button class="run" id="fs-run">Recover</button>
-  </div>
-
-  <div id="panel-fallback" style="display:none">
-    <fieldset>
-      <legend>First key</legend>
-      <label for="fb-mnemonic-a">Seed phrase</label>
-      <textarea id="fb-mnemonic-a" placeholder="24 words, space-separated"></textarea>
-      <label for="fb-network-a">Network</label>
-      <select id="fb-network-a">
-        <option value="mainnet">Mainnet</option>
-        <option value="testnet">Testnet</option>
-        <option value="signet">Signet</option>
-      </select>
-      <label for="fb-vault-id-a">Vault ID</label>
-      <input id="fb-vault-id-a">
-      <label for="fb-key-role-a">This key's role</label>
-      <input id="fb-key-role-a" placeholder="e.g. founder_1">
-      <label for="fb-locked-share-a">This key's locked fallback share (base64)</label>
-      <textarea id="fb-locked-share-a"></textarea>
-    </fieldset>
-    <fieldset>
-      <legend>Second key</legend>
-      <label for="fb-mnemonic-b">Seed phrase</label>
-      <textarea id="fb-mnemonic-b" placeholder="24 words, space-separated"></textarea>
-      <label for="fb-network-b">Network</label>
-      <select id="fb-network-b">
-        <option value="mainnet">Mainnet</option>
-        <option value="testnet">Testnet</option>
-        <option value="signet">Signet</option>
-      </select>
-      <label for="fb-vault-id-b">Vault ID</label>
-      <input id="fb-vault-id-b">
-      <label for="fb-key-role-b">This key's role</label>
-      <input id="fb-key-role-b" placeholder="e.g. backup_1">
-      <label for="fb-locked-share-b">This key's locked fallback share (base64)</label>
-      <textarea id="fb-locked-share-b"></textarea>
-    </fieldset>
-    <fieldset>
-      <legend>Sealed bundle (same for both keys)</legend>
-      <label for="fb-nonce">Nonce (base64)</label>
-      <input id="fb-nonce">
-      <label for="fb-ciphertext">Ciphertext (base64)</label>
-      <textarea id="fb-ciphertext"></textarea>
-    </fieldset>
-    <button class="run" id="fb-run">Recover</button>
-  </div>
-
-  <div id="panel-onchain" style="display:none">
-    <div class="warning">
-      No vault ID, no shares to combine -- this key's own on-chain address IS the lookup. You'll
-      need the OP_RETURN transaction's full scriptPubKey hex, found on any block explorer by
-      searching the address from your recovery note (most explorers show this on the transaction's
-      output details, sometimes labeled "Script pubkey (hex)" or similar). Then sign the exact
-      message below with the SAME key, at derivation path <code>m/9999'/&lt;coin&gt;'/&lt;vault
-      index&gt;'/1'</code>, using the CLASSIC message-signing method (plain ECDSA) -- not BIP-322 or
-      a Taproot-address signature, those use a different scheme and will not match. Most hardware
-      wallets' "Sign Message" feature supports signing against a custom derivation path directly.
-    </div>
-    <fieldset>
-      <legend>Vault index and message</legend>
-      <label for="oc-vault-index">Vault index (from your recovery note)</label>
-      <input id="oc-vault-index" placeholder="0">
-      <label for="oc-message">Message to sign (updates as you fill in the index above)</label>
-      <textarea id="oc-message" readonly></textarea>
-    </fieldset>
-    <fieldset>
-      <legend>The on-chain transaction</legend>
-      <label for="oc-scriptpubkey">OP_RETURN output's scriptPubKey (hex, from a block explorer)</label>
-      <textarea id="oc-scriptpubkey" placeholder="6a4c..."></textarea>
-    </fieldset>
-    <fieldset>
-      <legend>Your signature</legend>
-      <label for="oc-signature">Signature (base64 or hex, from your hardware wallet)</label>
-      <textarea id="oc-signature" placeholder="paste the signature your wallet produced"></textarea>
-    </fieldset>
-    <button class="run" id="oc-run">Recover</button>
-  </div>
+  <fieldset>
+    <legend>Vault index and message</legend>
+    <label for="vault-index">Vault index (from your recovery note)</label>
+    <input id="vault-index" placeholder="0">
+    <label for="message">Message to sign (updates as you fill in the index above)</label>
+    <textarea id="message" readonly></textarea>
+  </fieldset>
+  <fieldset>
+    <legend>The on-chain transaction</legend>
+    <label for="scriptpubkey">OP_RETURN output's scriptPubKey (hex, from a block explorer)</label>
+    <textarea id="scriptpubkey" placeholder="6a4c..."></textarea>
+  </fieldset>
+  <fieldset>
+    <legend>Your signature</legend>
+    <label for="signature">Signature (base64 or hex, from your hardware wallet)</label>
+    <textarea id="signature" placeholder="paste the signature your wallet produced"></textarea>
+  </fieldset>
+  <button class="run" id="run">Recover</button>
 
   <label for="result">Recovered descriptor bundle</label>
   <textarea id="result" readonly placeholder="Recovered text will appear here."></textarea>
@@ -252,9 +127,6 @@
   }
   function rotr(word, shift) {
     return word << 32 - shift | word >>> shift;
-  }
-  function rotl(word, shift) {
-    return word << shift | word >>> 32 - shift >>> 0;
   }
   var hasHexBuiltin = /* @__PURE__ */ (() => (
     // @ts-ignore
@@ -313,12 +185,6 @@
     abytes(data);
     return data;
   }
-  function kdfInputToBytes(data) {
-    if (typeof data === "string")
-      data = utf8ToBytes(data);
-    abytes(data);
-    return data;
-  }
   function concatBytes(...arrays) {
     let sum = 0;
     for (let i = 0; i < arrays.length; i++) {
@@ -333,12 +199,6 @@
       pad += a.length;
     }
     return res;
-  }
-  function checkOpts(defaults, opts) {
-    if (opts !== void 0 && {}.toString.call(opts) !== "[object Object]")
-      throw new Error("options should be object or undefined");
-    const merged = Object.assign(defaults, opts);
-    return merged;
   }
   var Hash = class {
   };
@@ -862,9 +722,9 @@
   function setBigUint64(view2, byteOffset, value, isLE) {
     if (typeof view2.setBigUint64 === "function")
       return view2.setBigUint64(byteOffset, value, isLE);
-    const _32n2 = BigInt(32);
+    const _32n = BigInt(32);
     const _u32_max = BigInt(4294967295);
-    const wh = Number(value >> _32n2 & _u32_max);
+    const wh = Number(value >> _32n & _u32_max);
     const wl = Number(value & _u32_max);
     const h = isLE ? 4 : 0;
     const l = isLE ? 0 : 4;
@@ -977,59 +837,6 @@
     528734635,
     1541459225
   ]);
-  var SHA512_IV = /* @__PURE__ */ Uint32Array.from([
-    1779033703,
-    4089235720,
-    3144134277,
-    2227873595,
-    1013904242,
-    4271175723,
-    2773480762,
-    1595750129,
-    1359893119,
-    2917565137,
-    2600822924,
-    725511199,
-    528734635,
-    4215389547,
-    1541459225,
-    327033209
-  ]);
-
-  // node_modules/@noble/hashes/esm/_u64.js
-  var U32_MASK64 = /* @__PURE__ */ BigInt(2 ** 32 - 1);
-  var _32n = /* @__PURE__ */ BigInt(32);
-  function fromBig(n, le = false) {
-    if (le)
-      return { h: Number(n & U32_MASK64), l: Number(n >> _32n & U32_MASK64) };
-    return { h: Number(n >> _32n & U32_MASK64) | 0, l: Number(n & U32_MASK64) | 0 };
-  }
-  function split(lst, le = false) {
-    const len = lst.length;
-    let Ah = new Uint32Array(len);
-    let Al = new Uint32Array(len);
-    for (let i = 0; i < len; i++) {
-      const { h, l } = fromBig(lst[i], le);
-      [Ah[i], Al[i]] = [h, l];
-    }
-    return [Ah, Al];
-  }
-  var shrSH = (h, _l, s) => h >>> s;
-  var shrSL = (h, l, s) => h << 32 - s | l >>> s;
-  var rotrSH = (h, l, s) => h >>> s | l << 32 - s;
-  var rotrSL = (h, l, s) => h << 32 - s | l >>> s;
-  var rotrBH = (h, l, s) => h << 64 - s | l >>> s - 32;
-  var rotrBL = (h, l, s) => h >>> s - 32 | l << 64 - s;
-  function add(Ah, Al, Bh, Bl) {
-    const l = (Al >>> 0) + (Bl >>> 0);
-    return { h: Ah + Bh + (l / 2 ** 32 | 0) | 0, l: l | 0 };
-  }
-  var add3L = (Al, Bl, Cl) => (Al >>> 0) + (Bl >>> 0) + (Cl >>> 0);
-  var add3H = (low, Ah, Bh, Ch) => Ah + Bh + Ch + (low / 2 ** 32 | 0) | 0;
-  var add4L = (Al, Bl, Cl, Dl) => (Al >>> 0) + (Bl >>> 0) + (Cl >>> 0) + (Dl >>> 0);
-  var add4H = (low, Ah, Bh, Ch, Dh) => Ah + Bh + Ch + Dh + (low / 2 ** 32 | 0) | 0;
-  var add5L = (Al, Bl, Cl, Dl, El) => (Al >>> 0) + (Bl >>> 0) + (Cl >>> 0) + (Dl >>> 0) + (El >>> 0);
-  var add5H = (low, Ah, Bh, Ch, Dh, Eh) => Ah + Bh + Ch + Dh + Eh + (low / 2 ** 32 | 0) | 0;
 
   // node_modules/@noble/hashes/esm/sha2.js
   var SHA256_K = /* @__PURE__ */ Uint32Array.from([
@@ -1169,205 +976,7 @@
       clean(this.buffer);
     }
   };
-  var K512 = /* @__PURE__ */ (() => split([
-    "0x428a2f98d728ae22",
-    "0x7137449123ef65cd",
-    "0xb5c0fbcfec4d3b2f",
-    "0xe9b5dba58189dbbc",
-    "0x3956c25bf348b538",
-    "0x59f111f1b605d019",
-    "0x923f82a4af194f9b",
-    "0xab1c5ed5da6d8118",
-    "0xd807aa98a3030242",
-    "0x12835b0145706fbe",
-    "0x243185be4ee4b28c",
-    "0x550c7dc3d5ffb4e2",
-    "0x72be5d74f27b896f",
-    "0x80deb1fe3b1696b1",
-    "0x9bdc06a725c71235",
-    "0xc19bf174cf692694",
-    "0xe49b69c19ef14ad2",
-    "0xefbe4786384f25e3",
-    "0x0fc19dc68b8cd5b5",
-    "0x240ca1cc77ac9c65",
-    "0x2de92c6f592b0275",
-    "0x4a7484aa6ea6e483",
-    "0x5cb0a9dcbd41fbd4",
-    "0x76f988da831153b5",
-    "0x983e5152ee66dfab",
-    "0xa831c66d2db43210",
-    "0xb00327c898fb213f",
-    "0xbf597fc7beef0ee4",
-    "0xc6e00bf33da88fc2",
-    "0xd5a79147930aa725",
-    "0x06ca6351e003826f",
-    "0x142929670a0e6e70",
-    "0x27b70a8546d22ffc",
-    "0x2e1b21385c26c926",
-    "0x4d2c6dfc5ac42aed",
-    "0x53380d139d95b3df",
-    "0x650a73548baf63de",
-    "0x766a0abb3c77b2a8",
-    "0x81c2c92e47edaee6",
-    "0x92722c851482353b",
-    "0xa2bfe8a14cf10364",
-    "0xa81a664bbc423001",
-    "0xc24b8b70d0f89791",
-    "0xc76c51a30654be30",
-    "0xd192e819d6ef5218",
-    "0xd69906245565a910",
-    "0xf40e35855771202a",
-    "0x106aa07032bbd1b8",
-    "0x19a4c116b8d2d0c8",
-    "0x1e376c085141ab53",
-    "0x2748774cdf8eeb99",
-    "0x34b0bcb5e19b48a8",
-    "0x391c0cb3c5c95a63",
-    "0x4ed8aa4ae3418acb",
-    "0x5b9cca4f7763e373",
-    "0x682e6ff3d6b2b8a3",
-    "0x748f82ee5defb2fc",
-    "0x78a5636f43172f60",
-    "0x84c87814a1f0ab72",
-    "0x8cc702081a6439ec",
-    "0x90befffa23631e28",
-    "0xa4506cebde82bde9",
-    "0xbef9a3f7b2c67915",
-    "0xc67178f2e372532b",
-    "0xca273eceea26619c",
-    "0xd186b8c721c0c207",
-    "0xeada7dd6cde0eb1e",
-    "0xf57d4f7fee6ed178",
-    "0x06f067aa72176fba",
-    "0x0a637dc5a2c898a6",
-    "0x113f9804bef90dae",
-    "0x1b710b35131c471b",
-    "0x28db77f523047d84",
-    "0x32caab7b40c72493",
-    "0x3c9ebe0a15c9bebc",
-    "0x431d67c49c100d4c",
-    "0x4cc5d4becb3e42b6",
-    "0x597f299cfc657e2a",
-    "0x5fcb6fab3ad6faec",
-    "0x6c44198c4a475817"
-  ].map((n) => BigInt(n))))();
-  var SHA512_Kh = /* @__PURE__ */ (() => K512[0])();
-  var SHA512_Kl = /* @__PURE__ */ (() => K512[1])();
-  var SHA512_W_H = /* @__PURE__ */ new Uint32Array(80);
-  var SHA512_W_L = /* @__PURE__ */ new Uint32Array(80);
-  var SHA512 = class extends HashMD {
-    constructor(outputLen = 64) {
-      super(128, outputLen, 16, false);
-      this.Ah = SHA512_IV[0] | 0;
-      this.Al = SHA512_IV[1] | 0;
-      this.Bh = SHA512_IV[2] | 0;
-      this.Bl = SHA512_IV[3] | 0;
-      this.Ch = SHA512_IV[4] | 0;
-      this.Cl = SHA512_IV[5] | 0;
-      this.Dh = SHA512_IV[6] | 0;
-      this.Dl = SHA512_IV[7] | 0;
-      this.Eh = SHA512_IV[8] | 0;
-      this.El = SHA512_IV[9] | 0;
-      this.Fh = SHA512_IV[10] | 0;
-      this.Fl = SHA512_IV[11] | 0;
-      this.Gh = SHA512_IV[12] | 0;
-      this.Gl = SHA512_IV[13] | 0;
-      this.Hh = SHA512_IV[14] | 0;
-      this.Hl = SHA512_IV[15] | 0;
-    }
-    // prettier-ignore
-    get() {
-      const { Ah, Al, Bh, Bl, Ch, Cl, Dh, Dl, Eh, El, Fh, Fl, Gh, Gl, Hh, Hl } = this;
-      return [Ah, Al, Bh, Bl, Ch, Cl, Dh, Dl, Eh, El, Fh, Fl, Gh, Gl, Hh, Hl];
-    }
-    // prettier-ignore
-    set(Ah, Al, Bh, Bl, Ch, Cl, Dh, Dl, Eh, El, Fh, Fl, Gh, Gl, Hh, Hl) {
-      this.Ah = Ah | 0;
-      this.Al = Al | 0;
-      this.Bh = Bh | 0;
-      this.Bl = Bl | 0;
-      this.Ch = Ch | 0;
-      this.Cl = Cl | 0;
-      this.Dh = Dh | 0;
-      this.Dl = Dl | 0;
-      this.Eh = Eh | 0;
-      this.El = El | 0;
-      this.Fh = Fh | 0;
-      this.Fl = Fl | 0;
-      this.Gh = Gh | 0;
-      this.Gl = Gl | 0;
-      this.Hh = Hh | 0;
-      this.Hl = Hl | 0;
-    }
-    process(view2, offset) {
-      for (let i = 0; i < 16; i++, offset += 4) {
-        SHA512_W_H[i] = view2.getUint32(offset);
-        SHA512_W_L[i] = view2.getUint32(offset += 4);
-      }
-      for (let i = 16; i < 80; i++) {
-        const W15h = SHA512_W_H[i - 15] | 0;
-        const W15l = SHA512_W_L[i - 15] | 0;
-        const s0h = rotrSH(W15h, W15l, 1) ^ rotrSH(W15h, W15l, 8) ^ shrSH(W15h, W15l, 7);
-        const s0l = rotrSL(W15h, W15l, 1) ^ rotrSL(W15h, W15l, 8) ^ shrSL(W15h, W15l, 7);
-        const W2h = SHA512_W_H[i - 2] | 0;
-        const W2l = SHA512_W_L[i - 2] | 0;
-        const s1h = rotrSH(W2h, W2l, 19) ^ rotrBH(W2h, W2l, 61) ^ shrSH(W2h, W2l, 6);
-        const s1l = rotrSL(W2h, W2l, 19) ^ rotrBL(W2h, W2l, 61) ^ shrSL(W2h, W2l, 6);
-        const SUMl = add4L(s0l, s1l, SHA512_W_L[i - 7], SHA512_W_L[i - 16]);
-        const SUMh = add4H(SUMl, s0h, s1h, SHA512_W_H[i - 7], SHA512_W_H[i - 16]);
-        SHA512_W_H[i] = SUMh | 0;
-        SHA512_W_L[i] = SUMl | 0;
-      }
-      let { Ah, Al, Bh, Bl, Ch, Cl, Dh, Dl, Eh, El, Fh, Fl, Gh, Gl, Hh, Hl } = this;
-      for (let i = 0; i < 80; i++) {
-        const sigma1h = rotrSH(Eh, El, 14) ^ rotrSH(Eh, El, 18) ^ rotrBH(Eh, El, 41);
-        const sigma1l = rotrSL(Eh, El, 14) ^ rotrSL(Eh, El, 18) ^ rotrBL(Eh, El, 41);
-        const CHIh = Eh & Fh ^ ~Eh & Gh;
-        const CHIl = El & Fl ^ ~El & Gl;
-        const T1ll = add5L(Hl, sigma1l, CHIl, SHA512_Kl[i], SHA512_W_L[i]);
-        const T1h = add5H(T1ll, Hh, sigma1h, CHIh, SHA512_Kh[i], SHA512_W_H[i]);
-        const T1l = T1ll | 0;
-        const sigma0h = rotrSH(Ah, Al, 28) ^ rotrBH(Ah, Al, 34) ^ rotrBH(Ah, Al, 39);
-        const sigma0l = rotrSL(Ah, Al, 28) ^ rotrBL(Ah, Al, 34) ^ rotrBL(Ah, Al, 39);
-        const MAJh = Ah & Bh ^ Ah & Ch ^ Bh & Ch;
-        const MAJl = Al & Bl ^ Al & Cl ^ Bl & Cl;
-        Hh = Gh | 0;
-        Hl = Gl | 0;
-        Gh = Fh | 0;
-        Gl = Fl | 0;
-        Fh = Eh | 0;
-        Fl = El | 0;
-        ({ h: Eh, l: El } = add(Dh | 0, Dl | 0, T1h | 0, T1l | 0));
-        Dh = Ch | 0;
-        Dl = Cl | 0;
-        Ch = Bh | 0;
-        Cl = Bl | 0;
-        Bh = Ah | 0;
-        Bl = Al | 0;
-        const All = add3L(T1l, sigma0l, MAJl);
-        Ah = add3H(All, T1h, sigma0h, MAJh);
-        Al = All | 0;
-      }
-      ({ h: Ah, l: Al } = add(this.Ah | 0, this.Al | 0, Ah | 0, Al | 0));
-      ({ h: Bh, l: Bl } = add(this.Bh | 0, this.Bl | 0, Bh | 0, Bl | 0));
-      ({ h: Ch, l: Cl } = add(this.Ch | 0, this.Cl | 0, Ch | 0, Cl | 0));
-      ({ h: Dh, l: Dl } = add(this.Dh | 0, this.Dl | 0, Dh | 0, Dl | 0));
-      ({ h: Eh, l: El } = add(this.Eh | 0, this.El | 0, Eh | 0, El | 0));
-      ({ h: Fh, l: Fl } = add(this.Fh | 0, this.Fl | 0, Fh | 0, Fl | 0));
-      ({ h: Gh, l: Gl } = add(this.Gh | 0, this.Gl | 0, Gh | 0, Gl | 0));
-      ({ h: Hh, l: Hl } = add(this.Hh | 0, this.Hl | 0, Hh | 0, Hl | 0));
-      this.set(Ah, Al, Bh, Bl, Ch, Cl, Dh, Dl, Eh, El, Fh, Fl, Gh, Gl, Hh, Hl);
-    }
-    roundClean() {
-      clean(SHA512_W_H, SHA512_W_L);
-    }
-    destroy() {
-      clean(this.buffer);
-      this.set(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-    }
-  };
   var sha256 = /* @__PURE__ */ createHasher(() => new SHA256());
-  var sha512 = /* @__PURE__ */ createHasher(() => new SHA512());
 
   // node_modules/@noble/hashes/esm/hmac.js
   var HMAC = class extends Hash {
@@ -1504,10 +1113,10 @@
   }
   var wNAF = class {
     // Parametrized with a given Point class (not individual point)
-    constructor(Point3, bits) {
-      this.BASE = Point3.BASE;
-      this.ZERO = Point3.ZERO;
-      this.Fn = Point3.Fn;
+    constructor(Point2, bits) {
+      this.BASE = Point2.BASE;
+      this.ZERO = Point2.ZERO;
+      this.Fn = Point2.Fn;
       this.bits = bits;
     }
     // non-const time multiplication ladder
@@ -1629,10 +1238,10 @@
       return getW(elm) !== 1;
     }
   };
-  function mulEndoUnsafe(Point3, point, k1, k2) {
+  function mulEndoUnsafe(Point2, point, k1, k2) {
     let acc = point;
-    let p1 = Point3.ZERO;
-    let p2 = Point3.ZERO;
+    let p1 = Point2.ZERO;
+    let p2 = Point2.ZERO;
     while (k1 > _0n3 || k2 > _0n3) {
       if (k1 & _1n3)
         p1 = p1.add(acc);
@@ -1974,7 +1583,7 @@
       return n;
     }
     function aprjpoint(other) {
-      if (!(other instanceof Point3))
+      if (!(other instanceof Point2))
         throw new Error("ProjectivePoint expected");
     }
     function splitEndoScalarN(k) {
@@ -2014,12 +1623,12 @@
       return true;
     });
     function finishEndo(endoBeta, k1p, k2p, k1neg, k2neg) {
-      k2p = new Point3(Fp.mul(k2p.X, endoBeta), k2p.Y, k2p.Z);
+      k2p = new Point2(Fp.mul(k2p.X, endoBeta), k2p.Y, k2p.Z);
       k1p = negateCt(k1neg, k1p);
       k2p = negateCt(k2neg, k2p);
       return k1p.add(k2p);
     }
-    class Point3 {
+    class Point2 {
       /** Does NOT validate if the point is valid. Use `.assertValidity()`. */
       constructor(X, Y, Z) {
         this.X = acoord("x", X);
@@ -2035,19 +1644,19 @@
         const { x, y } = p || {};
         if (!p || !Fp.isValid(x) || !Fp.isValid(y))
           throw new Error("invalid affine point");
-        if (p instanceof Point3)
+        if (p instanceof Point2)
           throw new Error("projective point not allowed");
         if (Fp.is0(x) && Fp.is0(y))
-          return Point3.ZERO;
-        return new Point3(x, y, Fp.ONE);
+          return Point2.ZERO;
+        return new Point2(x, y, Fp.ONE);
       }
       static fromBytes(bytes) {
-        const P = Point3.fromAffine(decodePoint(_abytes2(bytes, void 0, "point")));
+        const P = Point2.fromAffine(decodePoint(_abytes2(bytes, void 0, "point")));
         P.assertValidity();
         return P;
       }
       static fromHex(hex2) {
-        return Point3.fromBytes(ensureBytes("pointHex", hex2));
+        return Point2.fromBytes(ensureBytes("pointHex", hex2));
       }
       get x() {
         return this.toAffine().x;
@@ -2089,7 +1698,7 @@
       }
       /** Flips point to one corresponding to (x, -y) in Affine coordinates. */
       negate() {
-        return new Point3(this.X, Fp.neg(this.Y), this.Z);
+        return new Point2(this.X, Fp.neg(this.Y), this.Z);
       }
       // Renes-Costello-Batina exception-free doubling formula.
       // There is 30% faster Jacobian formula, but it is not complete.
@@ -2131,7 +1740,7 @@
         Z3 = Fp.mul(t2, t1);
         Z3 = Fp.add(Z3, Z3);
         Z3 = Fp.add(Z3, Z3);
-        return new Point3(X3, Y3, Z3);
+        return new Point2(X3, Y3, Z3);
       }
       // Renes-Costello-Batina exception-free addition formula.
       // There is 30% faster Jacobian formula, but it is not complete.
@@ -2184,13 +1793,13 @@
         t0 = Fp.mul(t3, t1);
         Z3 = Fp.mul(t5, Z3);
         Z3 = Fp.add(Z3, t0);
-        return new Point3(X3, Y3, Z3);
+        return new Point2(X3, Y3, Z3);
       }
       subtract(other) {
         return this.add(other.negate());
       }
       is0() {
-        return this.equals(Point3.ZERO);
+        return this.equals(Point2.ZERO);
       }
       /**
        * Constant time multiplication.
@@ -2206,7 +1815,7 @@
         if (!Fn.isValidNot0(scalar))
           throw new Error("invalid scalar: out of range");
         let point, fake;
-        const mul = (n) => wnaf.cached(this, n, (p) => normalizeZ(Point3, p));
+        const mul = (n) => wnaf.cached(this, n, (p) => normalizeZ(Point2, p));
         if (endo2) {
           const { k1neg, k1, k2neg, k2 } = splitEndoScalarN(scalar);
           const { p: k1p, f: k1f } = mul(k1);
@@ -2218,7 +1827,7 @@
           point = p;
           fake = f;
         }
-        return normalizeZ(Point3, [point, fake])[0];
+        return normalizeZ(Point2, [point, fake])[0];
       }
       /**
        * Non-constant-time multiplication. Uses double-and-add algorithm.
@@ -2231,14 +1840,14 @@
         if (!Fn.isValid(sc))
           throw new Error("invalid scalar: out of range");
         if (sc === _0n4 || p.is0())
-          return Point3.ZERO;
+          return Point2.ZERO;
         if (sc === _1n4)
           return p;
         if (wnaf.hasCache(this))
           return this.multiply(sc);
         if (endo2) {
           const { k1neg, k1, k2neg, k2 } = splitEndoScalarN(sc);
-          const { p1, p2 } = mulEndoUnsafe(Point3, p, k1, k2);
+          const { p1, p2 } = mulEndoUnsafe(Point2, p, k1, k2);
           return finishEndo(endo2.beta, p1, p2, k1neg, k2neg);
         } else {
           return wnaf.unsafe(p, sc);
@@ -2264,7 +1873,7 @@
         if (cofactor === _1n4)
           return true;
         if (isTorsionFree)
-          return isTorsionFree(Point3, this);
+          return isTorsionFree(Point2, this);
         return wnaf.unsafe(this, CURVE_ORDER2).is0();
       }
       clearCofactor() {
@@ -2272,7 +1881,7 @@
         if (cofactor === _1n4)
           return this;
         if (clearCofactor)
-          return clearCofactor(Point3, this);
+          return clearCofactor(Point2, this);
         return this.multiplyUnsafe(cofactor);
       }
       isSmallOrder() {
@@ -2281,7 +1890,7 @@
       toBytes(isCompressed = true) {
         _abool2(isCompressed, "isCompressed");
         this.assertValidity();
-        return encodePoint(Point3, this, isCompressed);
+        return encodePoint(Point2, this, isCompressed);
       }
       toHex(isCompressed = true) {
         return bytesToHex(this.toBytes(isCompressed));
@@ -2306,23 +1915,23 @@
         this.precompute(windowSize);
       }
       static normalizeZ(points) {
-        return normalizeZ(Point3, points);
+        return normalizeZ(Point2, points);
       }
       static msm(points, scalars) {
-        return pippenger(Point3, Fn, points, scalars);
+        return pippenger(Point2, Fn, points, scalars);
       }
       static fromPrivateKey(privateKey) {
-        return Point3.BASE.multiply(_normFnElement(Fn, privateKey));
+        return Point2.BASE.multiply(_normFnElement(Fn, privateKey));
       }
     }
-    Point3.BASE = new Point3(CURVE.Gx, CURVE.Gy, Fp.ONE);
-    Point3.ZERO = new Point3(Fp.ZERO, Fp.ONE, Fp.ZERO);
-    Point3.Fp = Fp;
-    Point3.Fn = Fn;
+    Point2.BASE = new Point2(CURVE.Gx, CURVE.Gy, Fp.ONE);
+    Point2.ZERO = new Point2(Fp.ZERO, Fp.ONE, Fp.ZERO);
+    Point2.Fp = Fp;
+    Point2.Fn = Fn;
     const bits = Fn.BITS;
-    const wnaf = new wNAF(Point3, extraOpts.endo ? Math.ceil(bits / 2) : bits);
-    Point3.BASE.precompute(8);
-    return Point3;
+    const wnaf = new wNAF(Point2, extraOpts.endo ? Math.ceil(bits / 2) : bits);
+    Point2.BASE.precompute(8);
+    return Point2;
   }
   function pprefix(hasEvenY) {
     return Uint8Array.of(hasEvenY ? 2 : 3);
@@ -2336,10 +1945,10 @@
       signature: 2 * Fn.BYTES
     };
   }
-  function ecdh(Point3, ecdhOpts = {}) {
-    const { Fn } = Point3;
+  function ecdh(Point2, ecdhOpts = {}) {
+    const { Fn } = Point2;
     const randomBytes_ = ecdhOpts.randomBytes || randomBytes;
-    const lengths = Object.assign(getWLengths(Point3.Fp, Fn), { seed: getMinHashLength(Fn.ORDER) });
+    const lengths = Object.assign(getWLengths(Point2.Fp, Fn), { seed: getMinHashLength(Fn.ORDER) });
     function isValidSecretKey(secretKey) {
       try {
         return !!_normFnElement(Fn, secretKey);
@@ -2355,7 +1964,7 @@
           return false;
         if (isCompressed === false && l !== publicKeyUncompressed)
           return false;
-        return !!Point3.fromBytes(publicKey);
+        return !!Point2.fromBytes(publicKey);
       } catch (error) {
         return false;
       }
@@ -2364,7 +1973,7 @@
       return mapHashToField(_abytes2(seed, lengths.seed, "seed"), Fn.ORDER);
     }
     function getPublicKey(secretKey, isCompressed = true) {
-      return Point3.BASE.multiply(_normFnElement(Fn, secretKey)).toBytes(isCompressed);
+      return Point2.BASE.multiply(_normFnElement(Fn, secretKey)).toBytes(isCompressed);
     }
     function keygen(seed) {
       const secretKey = randomSecretKey(seed);
@@ -2373,7 +1982,7 @@
     function isProbPub(item) {
       if (typeof item === "bigint")
         return false;
-      if (item instanceof Point3)
+      if (item instanceof Point2)
         return true;
       const { secretKey, publicKey, publicKeyUncompressed } = lengths;
       if (Fn.allowedLengths || secretKey === publicKey)
@@ -2387,7 +1996,7 @@
       if (isProbPub(publicKeyB) === false)
         throw new Error("second arg must be public key");
       const s = _normFnElement(Fn, secretKeyA);
-      const b = Point3.fromHex(publicKeyB);
+      const b = Point2.fromHex(publicKeyB);
       return b.multiply(s).toBytes(isCompressed);
     }
     const utils2 = {
@@ -2398,13 +2007,13 @@
       isValidPrivateKey: isValidSecretKey,
       randomPrivateKey: randomSecretKey,
       normPrivateKeyToScalar: (key) => _normFnElement(Fn, key),
-      precompute(windowSize = 8, point = Point3.BASE) {
+      precompute(windowSize = 8, point = Point2.BASE) {
         return point.precompute(windowSize, false);
       }
     };
-    return Object.freeze({ getPublicKey, getSharedSecret, keygen, Point: Point3, utils: utils2, lengths });
+    return Object.freeze({ getPublicKey, getSharedSecret, keygen, Point: Point2, utils: utils2, lengths });
   }
-  function ecdsa(Point3, hash, ecdsaOpts = {}) {
+  function ecdsa(Point2, hash, ecdsaOpts = {}) {
     ahash(hash);
     _validateObject(ecdsaOpts, {}, {
       hmac: "function",
@@ -2415,9 +2024,9 @@
     });
     const randomBytes2 = ecdsaOpts.randomBytes || randomBytes;
     const hmac2 = ecdsaOpts.hmac || ((key, ...msgs) => hmac(hash, key, concatBytes(...msgs)));
-    const { Fp, Fn } = Point3;
+    const { Fp, Fn } = Point2;
     const { ORDER: CURVE_ORDER2, BITS: fnBits } = Fn;
-    const { keygen, getPublicKey, getSharedSecret, utils: utils2, lengths } = ecdh(Point3, ecdsaOpts);
+    const { keygen, getPublicKey, getSharedSecret, utils: utils2, lengths } = ecdh(Point2, ecdsaOpts);
     const defaultSigOpts = {
       prehash: false,
       lowS: typeof ecdsaOpts.lowS === "boolean" ? ecdsaOpts.lowS : false,
@@ -2484,12 +2093,12 @@
         if (!Fp.isValid(radj))
           throw new Error("recovery id 2 or 3 invalid");
         const x = Fp.toBytes(radj);
-        const R = Point3.fromBytes(concatBytes(pprefix((rec & 1) === 0), x));
+        const R = Point2.fromBytes(concatBytes(pprefix((rec & 1) === 0), x));
         const ir = Fn.inv(radj);
         const h = bits2int_modN(ensureBytes("msgHash", messageHash));
         const u1 = Fn.create(-h * ir);
         const u2 = Fn.create(s * ir);
-        const Q = Point3.BASE.multiplyUnsafe(u1).add(R.multiplyUnsafe(u2));
+        const Q = Point2.BASE.multiplyUnsafe(u1).add(R.multiplyUnsafe(u2));
         if (Q.is0())
           throw new Error("point at infinify");
         Q.assertValidity();
@@ -2578,7 +2187,7 @@
         if (!Fn.isValidNot0(k))
           return;
         const ik = Fn.inv(k);
-        const q = Point3.BASE.multiply(k).toAffine();
+        const q = Point2.BASE.multiply(k).toAffine();
         const r = Fn.create(q.x);
         if (r === _0n4)
           return;
@@ -2639,7 +2248,7 @@
       if (sig === false)
         return false;
       try {
-        const P = Point3.fromBytes(publicKey);
+        const P = Point2.fromBytes(publicKey);
         if (lowS && sig.hasHighS())
           return false;
         const { r, s } = sig;
@@ -2647,7 +2256,7 @@
         const is = Fn.inv(s);
         const u1 = Fn.create(h * is);
         const u2 = Fn.create(r * is);
-        const R = Point3.BASE.multiplyUnsafe(u1).add(P.multiplyUnsafe(u2));
+        const R = Point2.BASE.multiplyUnsafe(u1).add(P.multiplyUnsafe(u2));
         if (R.is0())
           return false;
         const v = Fn.create(R.x);
@@ -2667,7 +2276,7 @@
       getSharedSecret,
       utils: utils2,
       lengths,
-      Point: Point3,
+      Point: Point2,
       sign,
       verify,
       recoverPublicKey,
@@ -2716,16 +2325,16 @@
     return { CURVE, curveOpts, hash: c.hash, ecdsaOpts };
   }
   function _ecdsa_new_output_to_legacy(c, _ecdsa) {
-    const Point3 = _ecdsa.Point;
+    const Point2 = _ecdsa.Point;
     return Object.assign({}, _ecdsa, {
-      ProjectivePoint: Point3,
-      CURVE: Object.assign({}, c, nLength(Point3.Fn.ORDER, Point3.Fn.BITS))
+      ProjectivePoint: Point2,
+      CURVE: Object.assign({}, c, nLength(Point2.Fn.ORDER, Point2.Fn.BITS))
     });
   }
   function weierstrass(c) {
     const { CURVE, curveOpts, hash, ecdsaOpts } = _ecdsa_legacy_opts_to_new(c);
-    const Point3 = weierstrassN(CURVE, curveOpts);
-    const signs = ecdsa(Point3, hash, ecdsaOpts);
+    const Point2 = weierstrassN(CURVE, curveOpts);
+    const signs = ecdsa(Point2, hash, ecdsaOpts);
     return _ecdsa_new_output_to_legacy(c, signs);
   }
 
@@ -2896,124 +2505,6 @@
     };
   })();
 
-  // node_modules/@noble/hashes/esm/legacy.js
-  var Rho160 = /* @__PURE__ */ Uint8Array.from([
-    7,
-    4,
-    13,
-    1,
-    10,
-    6,
-    15,
-    3,
-    12,
-    0,
-    9,
-    5,
-    2,
-    14,
-    11,
-    8
-  ]);
-  var Id160 = /* @__PURE__ */ (() => Uint8Array.from(new Array(16).fill(0).map((_, i) => i)))();
-  var Pi160 = /* @__PURE__ */ (() => Id160.map((i) => (9 * i + 5) % 16))();
-  var idxLR = /* @__PURE__ */ (() => {
-    const L = [Id160];
-    const R = [Pi160];
-    const res = [L, R];
-    for (let i = 0; i < 4; i++)
-      for (let j of res)
-        j.push(j[i].map((k) => Rho160[k]));
-    return res;
-  })();
-  var idxL = /* @__PURE__ */ (() => idxLR[0])();
-  var idxR = /* @__PURE__ */ (() => idxLR[1])();
-  var shifts160 = /* @__PURE__ */ [
-    [11, 14, 15, 12, 5, 8, 7, 9, 11, 13, 14, 15, 6, 7, 9, 8],
-    [12, 13, 11, 15, 6, 9, 9, 7, 12, 15, 11, 13, 7, 8, 7, 7],
-    [13, 15, 14, 11, 7, 7, 6, 8, 13, 14, 13, 12, 5, 5, 6, 9],
-    [14, 11, 12, 14, 8, 6, 5, 5, 15, 12, 15, 14, 9, 9, 8, 6],
-    [15, 12, 13, 13, 9, 5, 8, 6, 14, 11, 12, 11, 8, 6, 5, 5]
-  ].map((i) => Uint8Array.from(i));
-  var shiftsL160 = /* @__PURE__ */ idxL.map((idx, i) => idx.map((j) => shifts160[i][j]));
-  var shiftsR160 = /* @__PURE__ */ idxR.map((idx, i) => idx.map((j) => shifts160[i][j]));
-  var Kl160 = /* @__PURE__ */ Uint32Array.from([
-    0,
-    1518500249,
-    1859775393,
-    2400959708,
-    2840853838
-  ]);
-  var Kr160 = /* @__PURE__ */ Uint32Array.from([
-    1352829926,
-    1548603684,
-    1836072691,
-    2053994217,
-    0
-  ]);
-  function ripemd_f(group, x, y, z) {
-    if (group === 0)
-      return x ^ y ^ z;
-    if (group === 1)
-      return x & y | ~x & z;
-    if (group === 2)
-      return (x | ~y) ^ z;
-    if (group === 3)
-      return x & z | y & ~z;
-    return x ^ (y | ~z);
-  }
-  var BUF_160 = /* @__PURE__ */ new Uint32Array(16);
-  var RIPEMD160 = class extends HashMD {
-    constructor() {
-      super(64, 20, 8, true);
-      this.h0 = 1732584193 | 0;
-      this.h1 = 4023233417 | 0;
-      this.h2 = 2562383102 | 0;
-      this.h3 = 271733878 | 0;
-      this.h4 = 3285377520 | 0;
-    }
-    get() {
-      const { h0, h1, h2, h3, h4 } = this;
-      return [h0, h1, h2, h3, h4];
-    }
-    set(h0, h1, h2, h3, h4) {
-      this.h0 = h0 | 0;
-      this.h1 = h1 | 0;
-      this.h2 = h2 | 0;
-      this.h3 = h3 | 0;
-      this.h4 = h4 | 0;
-    }
-    process(view2, offset) {
-      for (let i = 0; i < 16; i++, offset += 4)
-        BUF_160[i] = view2.getUint32(offset, true);
-      let al = this.h0 | 0, ar = al, bl = this.h1 | 0, br = bl, cl = this.h2 | 0, cr = cl, dl = this.h3 | 0, dr = dl, el = this.h4 | 0, er = el;
-      for (let group = 0; group < 5; group++) {
-        const rGroup = 4 - group;
-        const hbl = Kl160[group], hbr = Kr160[group];
-        const rl = idxL[group], rr = idxR[group];
-        const sl = shiftsL160[group], sr = shiftsR160[group];
-        for (let i = 0; i < 16; i++) {
-          const tl = rotl(al + ripemd_f(group, bl, cl, dl) + BUF_160[rl[i]] + hbl, sl[i]) + el | 0;
-          al = el, el = dl, dl = rotl(cl, 10) | 0, cl = bl, bl = tl;
-        }
-        for (let i = 0; i < 16; i++) {
-          const tr = rotl(ar + ripemd_f(rGroup, br, cr, dr) + BUF_160[rr[i]] + hbr, sr[i]) + er | 0;
-          ar = er, er = dr, dr = rotl(cr, 10) | 0, cr = br, br = tr;
-        }
-      }
-      this.set(this.h1 + cl + dr | 0, this.h2 + dl + er | 0, this.h3 + el + ar | 0, this.h4 + al + br | 0, this.h0 + bl + cr | 0);
-    }
-    roundClean() {
-      clean(BUF_160);
-    }
-    destroy() {
-      this.destroyed = true;
-      clean(this.buffer);
-      this.set(0, 0, 0, 0, 0);
-    }
-  };
-  var ripemd160 = /* @__PURE__ */ createHasher(() => new RIPEMD160());
-
   // node_modules/@scure/base/lib/esm/index.js
   function isBytes2(a) {
     return a instanceof Uint8Array || ArrayBuffer.isView(a) && a.constructor.name === "Uint8Array";
@@ -3115,54 +2606,6 @@
     afn(fn);
     return { encode: (from) => from, decode: (to) => fn(to) };
   }
-  function convertRadix(data, from, to) {
-    if (from < 2)
-      throw new Error(`convertRadix: invalid from=${from}, base cannot be less than 2`);
-    if (to < 2)
-      throw new Error(`convertRadix: invalid to=${to}, base cannot be less than 2`);
-    aArr(data);
-    if (!data.length)
-      return [];
-    let pos = 0;
-    const res = [];
-    const digits = Array.from(data, (d) => {
-      anumber2(d);
-      if (d < 0 || d >= from)
-        throw new Error(`invalid integer: ${d}`);
-      return d;
-    });
-    const dlen = digits.length;
-    while (true) {
-      let carry = 0;
-      let done = true;
-      for (let i = pos; i < dlen; i++) {
-        const digit = digits[i];
-        const fromCarry = from * carry;
-        const digitBase = fromCarry + digit;
-        if (!Number.isSafeInteger(digitBase) || fromCarry / from !== carry || digitBase - digit !== fromCarry) {
-          throw new Error("convertRadix: carry overflow");
-        }
-        const div2 = digitBase / to;
-        carry = digitBase % to;
-        const rounded = Math.floor(div2);
-        digits[i] = rounded;
-        if (!Number.isSafeInteger(rounded) || rounded * to + carry !== digitBase)
-          throw new Error("convertRadix: carry overflow");
-        if (!done)
-          continue;
-        else if (!rounded)
-          pos = i;
-        else
-          done = false;
-      }
-      res.push(carry);
-      if (done)
-        break;
-    }
-    for (let i = 0; i < data.length - 1 && data[i] === 0; i++)
-      res.push(0);
-    return res.reverse();
-  }
   var gcd = (a, b) => b === 0 ? a : gcd(b, a % b);
   var radix2carry = /* @__NO_SIDE_EFFECTS__ */ (from, to) => from + (to - gcd(from, to));
   var powers = /* @__PURE__ */ (() => {
@@ -3210,22 +2653,6 @@
     return res;
   }
   // @__NO_SIDE_EFFECTS__
-  function radix(num2) {
-    anumber2(num2);
-    const _256 = 2 ** 8;
-    return {
-      encode: (bytes) => {
-        if (!isBytes2(bytes))
-          throw new Error("radix.encode input should be Uint8Array");
-        return convertRadix(Array.from(bytes), _256, num2);
-      },
-      decode: (digits) => {
-        anumArr("radix.decode", digits);
-        return Uint8Array.from(convertRadix(digits, num2, _256));
-      }
-    };
-  }
-  // @__NO_SIDE_EFFECTS__
   function radix2(bits, revPadding = false) {
     anumber2(bits);
     if (bits <= 0 || bits > 32)
@@ -3244,35 +2671,6 @@
       }
     };
   }
-  function checksum(len, fn) {
-    anumber2(len);
-    afn(fn);
-    return {
-      encode(data) {
-        if (!isBytes2(data))
-          throw new Error("checksum.encode: input should be Uint8Array");
-        const sum = fn(data).slice(0, len);
-        const res = new Uint8Array(data.length + len);
-        res.set(data);
-        res.set(sum, data.length);
-        return res;
-      },
-      decode(data) {
-        if (!isBytes2(data))
-          throw new Error("checksum.decode: input should be Uint8Array");
-        const payload = data.slice(0, -len);
-        const oldChecksum = data.slice(-len);
-        const newChecksum = fn(payload).slice(0, len);
-        for (let i = 0; i < len; i++)
-          if (newChecksum[i] !== oldChecksum[i])
-            throw new Error("Invalid checksum");
-        return payload;
-      }
-    };
-  }
-  var genBase58 = /* @__NO_SIDE_EFFECTS__ */ (abc) => /* @__PURE__ */ chain(/* @__PURE__ */ radix(58), /* @__PURE__ */ alphabet(abc), /* @__PURE__ */ join(""));
-  var base58 = /* @__PURE__ */ genBase58("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz");
-  var createBase58check = (sha2563) => /* @__PURE__ */ chain(checksum(4, (data) => sha2563(sha2563(data))), base58);
   var hasHexBuiltin2 = /* @__PURE__ */ (() => typeof Uint8Array.from([]).toHex === "function" && typeof Uint8Array.fromHex === "function")();
   var hexBuiltin = {
     encode(data) {
@@ -3290,950 +2688,8 @@
     return s.toLowerCase();
   }));
 
-  // node_modules/@scure/bip32/lib/esm/index.js
-  var Point = secp256k1.ProjectivePoint;
-  var base58check = createBase58check(sha256);
-  function bytesToNumber(bytes) {
-    abytes(bytes);
-    const h = bytes.length === 0 ? "0" : bytesToHex(bytes);
-    return BigInt("0x" + h);
-  }
-  function numberToBytes(num2) {
-    if (typeof num2 !== "bigint")
-      throw new Error("bigint expected");
-    return hexToBytes(num2.toString(16).padStart(64, "0"));
-  }
-  var MASTER_SECRET = utf8ToBytes("Bitcoin seed");
-  var BITCOIN_VERSIONS = { private: 76066276, public: 76067358 };
-  var HARDENED_OFFSET = 2147483648;
-  var hash160 = (data) => ripemd160(sha256(data));
-  var fromU32 = (data) => createView(data).getUint32(0, false);
-  var toU32 = (n) => {
-    if (!Number.isSafeInteger(n) || n < 0 || n > 2 ** 32 - 1) {
-      throw new Error("invalid number, should be from 0 to 2**32-1, got " + n);
-    }
-    const buf = new Uint8Array(4);
-    createView(buf).setUint32(0, n, false);
-    return buf;
-  };
-  var HDKey = class _HDKey {
-    get fingerprint() {
-      if (!this.pubHash) {
-        throw new Error("No publicKey set!");
-      }
-      return fromU32(this.pubHash);
-    }
-    get identifier() {
-      return this.pubHash;
-    }
-    get pubKeyHash() {
-      return this.pubHash;
-    }
-    get privateKey() {
-      return this.privKeyBytes || null;
-    }
-    get publicKey() {
-      return this.pubKey || null;
-    }
-    get privateExtendedKey() {
-      const priv = this.privateKey;
-      if (!priv) {
-        throw new Error("No private key");
-      }
-      return base58check.encode(this.serialize(this.versions.private, concatBytes(new Uint8Array([0]), priv)));
-    }
-    get publicExtendedKey() {
-      if (!this.pubKey) {
-        throw new Error("No public key");
-      }
-      return base58check.encode(this.serialize(this.versions.public, this.pubKey));
-    }
-    static fromMasterSeed(seed, versions = BITCOIN_VERSIONS) {
-      abytes(seed);
-      if (8 * seed.length < 128 || 8 * seed.length > 512) {
-        throw new Error("HDKey: seed length must be between 128 and 512 bits; 256 bits is advised, got " + seed.length);
-      }
-      const I = hmac(sha512, MASTER_SECRET, seed);
-      return new _HDKey({
-        versions,
-        chainCode: I.slice(32),
-        privateKey: I.slice(0, 32)
-      });
-    }
-    static fromExtendedKey(base58key, versions = BITCOIN_VERSIONS) {
-      const keyBuffer = base58check.decode(base58key);
-      const keyView = createView(keyBuffer);
-      const version = keyView.getUint32(0, false);
-      const opt = {
-        versions,
-        depth: keyBuffer[4],
-        parentFingerprint: keyView.getUint32(5, false),
-        index: keyView.getUint32(9, false),
-        chainCode: keyBuffer.slice(13, 45)
-      };
-      const key = keyBuffer.slice(45);
-      const isPriv = key[0] === 0;
-      if (version !== versions[isPriv ? "private" : "public"]) {
-        throw new Error("Version mismatch");
-      }
-      if (isPriv) {
-        return new _HDKey({ ...opt, privateKey: key.slice(1) });
-      } else {
-        return new _HDKey({ ...opt, publicKey: key });
-      }
-    }
-    static fromJSON(json) {
-      return _HDKey.fromExtendedKey(json.xpriv);
-    }
-    constructor(opt) {
-      this.depth = 0;
-      this.index = 0;
-      this.chainCode = null;
-      this.parentFingerprint = 0;
-      if (!opt || typeof opt !== "object") {
-        throw new Error("HDKey.constructor must not be called directly");
-      }
-      this.versions = opt.versions || BITCOIN_VERSIONS;
-      this.depth = opt.depth || 0;
-      this.chainCode = opt.chainCode || null;
-      this.index = opt.index || 0;
-      this.parentFingerprint = opt.parentFingerprint || 0;
-      if (!this.depth) {
-        if (this.parentFingerprint || this.index) {
-          throw new Error("HDKey: zero depth with non-zero index/parent fingerprint");
-        }
-      }
-      if (opt.publicKey && opt.privateKey) {
-        throw new Error("HDKey: publicKey and privateKey at same time.");
-      }
-      if (opt.privateKey) {
-        if (!secp256k1.utils.isValidPrivateKey(opt.privateKey)) {
-          throw new Error("Invalid private key");
-        }
-        this.privKey = typeof opt.privateKey === "bigint" ? opt.privateKey : bytesToNumber(opt.privateKey);
-        this.privKeyBytes = numberToBytes(this.privKey);
-        this.pubKey = secp256k1.getPublicKey(opt.privateKey, true);
-      } else if (opt.publicKey) {
-        this.pubKey = Point.fromHex(opt.publicKey).toRawBytes(true);
-      } else {
-        throw new Error("HDKey: no public or private key provided");
-      }
-      this.pubHash = hash160(this.pubKey);
-    }
-    derive(path) {
-      if (!/^[mM]'?/.test(path)) {
-        throw new Error('Path must start with "m" or "M"');
-      }
-      if (/^[mM]'?$/.test(path)) {
-        return this;
-      }
-      const parts = path.replace(/^[mM]'?\//, "").split("/");
-      let child = this;
-      for (const c of parts) {
-        const m = /^(\d+)('?)$/.exec(c);
-        const m1 = m && m[1];
-        if (!m || m.length !== 3 || typeof m1 !== "string")
-          throw new Error("invalid child index: " + c);
-        let idx = +m1;
-        if (!Number.isSafeInteger(idx) || idx >= HARDENED_OFFSET) {
-          throw new Error("Invalid index");
-        }
-        if (m[2] === "'") {
-          idx += HARDENED_OFFSET;
-        }
-        child = child.deriveChild(idx);
-      }
-      return child;
-    }
-    deriveChild(index) {
-      if (!this.pubKey || !this.chainCode) {
-        throw new Error("No publicKey or chainCode set");
-      }
-      let data = toU32(index);
-      if (index >= HARDENED_OFFSET) {
-        const priv = this.privateKey;
-        if (!priv) {
-          throw new Error("Could not derive hardened child key");
-        }
-        data = concatBytes(new Uint8Array([0]), priv, data);
-      } else {
-        data = concatBytes(this.pubKey, data);
-      }
-      const I = hmac(sha512, this.chainCode, data);
-      const childTweak = bytesToNumber(I.slice(0, 32));
-      const chainCode = I.slice(32);
-      if (!secp256k1.utils.isValidPrivateKey(childTweak)) {
-        throw new Error("Tweak bigger than curve order");
-      }
-      const opt = {
-        versions: this.versions,
-        chainCode,
-        depth: this.depth + 1,
-        parentFingerprint: this.fingerprint,
-        index
-      };
-      try {
-        if (this.privateKey) {
-          const added = mod(this.privKey + childTweak, secp256k1.CURVE.n);
-          if (!secp256k1.utils.isValidPrivateKey(added)) {
-            throw new Error("The tweak was out of range or the resulted private key is invalid");
-          }
-          opt.privateKey = added;
-        } else {
-          const added = Point.fromHex(this.pubKey).add(Point.fromPrivateKey(childTweak));
-          if (added.equals(Point.ZERO)) {
-            throw new Error("The tweak was equal to negative P, which made the result key invalid");
-          }
-          opt.publicKey = added.toRawBytes(true);
-        }
-        return new _HDKey(opt);
-      } catch (err) {
-        return this.deriveChild(index + 1);
-      }
-    }
-    sign(hash) {
-      if (!this.privateKey) {
-        throw new Error("No privateKey set!");
-      }
-      abytes(hash, 32);
-      return secp256k1.sign(hash, this.privKey).toCompactRawBytes();
-    }
-    verify(hash, signature) {
-      abytes(hash, 32);
-      abytes(signature, 64);
-      if (!this.publicKey) {
-        throw new Error("No publicKey set!");
-      }
-      let sig;
-      try {
-        sig = secp256k1.Signature.fromCompact(signature);
-      } catch (error) {
-        return false;
-      }
-      return secp256k1.verify(sig, hash, this.publicKey);
-    }
-    wipePrivateData() {
-      this.privKey = void 0;
-      if (this.privKeyBytes) {
-        this.privKeyBytes.fill(0);
-        this.privKeyBytes = void 0;
-      }
-      return this;
-    }
-    toJSON() {
-      return {
-        xpriv: this.privateExtendedKey,
-        xpub: this.publicExtendedKey
-      };
-    }
-    serialize(version, key) {
-      if (!this.chainCode) {
-        throw new Error("No chainCode set");
-      }
-      abytes(key, 33);
-      return concatBytes(toU32(version), new Uint8Array([this.depth]), toU32(this.parentFingerprint), toU32(this.index), this.chainCode, key);
-    }
-  };
-
-  // node_modules/@noble/hashes/esm/pbkdf2.js
-  function pbkdf2Init(hash, _password, _salt, _opts) {
-    ahash(hash);
-    const opts = checkOpts({ dkLen: 32, asyncTick: 10 }, _opts);
-    const { c, dkLen, asyncTick } = opts;
-    anumber(c);
-    anumber(dkLen);
-    anumber(asyncTick);
-    if (c < 1)
-      throw new Error("iterations (c) should be >= 1");
-    const password = kdfInputToBytes(_password);
-    const salt = kdfInputToBytes(_salt);
-    const DK = new Uint8Array(dkLen);
-    const PRF = hmac.create(hash, password);
-    const PRFSalt = PRF._cloneInto().update(salt);
-    return { c, dkLen, asyncTick, DK, PRF, PRFSalt };
-  }
-  function pbkdf2Output(PRF, PRFSalt, DK, prfW, u) {
-    PRF.destroy();
-    PRFSalt.destroy();
-    if (prfW)
-      prfW.destroy();
-    clean(u);
-    return DK;
-  }
-  function pbkdf2(hash, password, salt, opts) {
-    const { c, dkLen, DK, PRF, PRFSalt } = pbkdf2Init(hash, password, salt, opts);
-    let prfW;
-    const arr = new Uint8Array(4);
-    const view2 = createView(arr);
-    const u = new Uint8Array(PRF.outputLen);
-    for (let ti = 1, pos = 0; pos < dkLen; ti++, pos += PRF.outputLen) {
-      const Ti = DK.subarray(pos, pos + PRF.outputLen);
-      view2.setInt32(0, ti, false);
-      (prfW = PRFSalt._cloneInto(prfW)).update(arr).digestInto(u);
-      Ti.set(u.subarray(0, Ti.length));
-      for (let ui = 1; ui < c; ui++) {
-        PRF._cloneInto(prfW).update(u).digestInto(u);
-        for (let i = 0; i < Ti.length; i++)
-          Ti[i] ^= u[i];
-      }
-    }
-    return pbkdf2Output(PRF, PRFSalt, DK, prfW, u);
-  }
-
-  // node_modules/@scure/bip39/esm/index.js
-  function nfkd(str) {
-    if (typeof str !== "string")
-      throw new TypeError("invalid mnemonic type: " + typeof str);
-    return str.normalize("NFKD");
-  }
-  function normalize2(str) {
-    const norm = nfkd(str);
-    const words = norm.split(" ");
-    if (![12, 15, 18, 21, 24].includes(words.length))
-      throw new Error("Invalid mnemonic");
-    return { nfkd: norm, words };
-  }
-  var psalt = (passphrase) => nfkd("mnemonic" + passphrase);
-  function mnemonicToSeedSync(mnemonic, passphrase = "") {
-    return pbkdf2(sha512, normalize2(mnemonic).nfkd, psalt(passphrase), { c: 2048, dkLen: 64 });
-  }
-
   // node_modules/@noble/hashes/esm/sha256.js
   var sha2562 = sha256;
-
-  // node_modules/shamir-secret-sharing/esm/index.js
-  var LOG_TABLE = new Uint8Array([
-    0,
-    255,
-    200,
-    8,
-    145,
-    16,
-    208,
-    54,
-    90,
-    62,
-    216,
-    67,
-    153,
-    119,
-    254,
-    24,
-    35,
-    32,
-    7,
-    112,
-    161,
-    108,
-    12,
-    127,
-    98,
-    139,
-    64,
-    70,
-    199,
-    75,
-    224,
-    14,
-    235,
-    22,
-    232,
-    173,
-    207,
-    205,
-    57,
-    83,
-    106,
-    39,
-    53,
-    147,
-    212,
-    78,
-    72,
-    195,
-    43,
-    121,
-    84,
-    40,
-    9,
-    120,
-    15,
-    33,
-    144,
-    135,
-    20,
-    42,
-    169,
-    156,
-    214,
-    116,
-    180,
-    124,
-    222,
-    237,
-    177,
-    134,
-    118,
-    164,
-    152,
-    226,
-    150,
-    143,
-    2,
-    50,
-    28,
-    193,
-    51,
-    238,
-    239,
-    129,
-    253,
-    48,
-    92,
-    19,
-    157,
-    41,
-    23,
-    196,
-    17,
-    68,
-    140,
-    128,
-    243,
-    115,
-    66,
-    30,
-    29,
-    181,
-    240,
-    18,
-    209,
-    91,
-    65,
-    162,
-    215,
-    44,
-    233,
-    213,
-    89,
-    203,
-    80,
-    168,
-    220,
-    252,
-    242,
-    86,
-    114,
-    166,
-    101,
-    47,
-    159,
-    155,
-    61,
-    186,
-    125,
-    194,
-    69,
-    130,
-    167,
-    87,
-    182,
-    163,
-    122,
-    117,
-    79,
-    174,
-    63,
-    55,
-    109,
-    71,
-    97,
-    190,
-    171,
-    211,
-    95,
-    176,
-    88,
-    175,
-    202,
-    94,
-    250,
-    133,
-    228,
-    77,
-    138,
-    5,
-    251,
-    96,
-    183,
-    123,
-    184,
-    38,
-    74,
-    103,
-    198,
-    26,
-    248,
-    105,
-    37,
-    179,
-    219,
-    189,
-    102,
-    221,
-    241,
-    210,
-    223,
-    3,
-    141,
-    52,
-    217,
-    146,
-    13,
-    99,
-    85,
-    170,
-    73,
-    236,
-    188,
-    149,
-    60,
-    132,
-    11,
-    245,
-    230,
-    231,
-    229,
-    172,
-    126,
-    110,
-    185,
-    249,
-    218,
-    142,
-    154,
-    201,
-    36,
-    225,
-    10,
-    21,
-    107,
-    58,
-    160,
-    81,
-    244,
-    234,
-    178,
-    151,
-    158,
-    93,
-    34,
-    136,
-    148,
-    206,
-    25,
-    1,
-    113,
-    76,
-    165,
-    227,
-    197,
-    49,
-    187,
-    204,
-    31,
-    45,
-    59,
-    82,
-    111,
-    246,
-    46,
-    137,
-    247,
-    192,
-    104,
-    27,
-    100,
-    4,
-    6,
-    191,
-    131,
-    56
-  ]);
-  var EXP_TABLE = new Uint8Array([
-    1,
-    229,
-    76,
-    181,
-    251,
-    159,
-    252,
-    18,
-    3,
-    52,
-    212,
-    196,
-    22,
-    186,
-    31,
-    54,
-    5,
-    92,
-    103,
-    87,
-    58,
-    213,
-    33,
-    90,
-    15,
-    228,
-    169,
-    249,
-    78,
-    100,
-    99,
-    238,
-    17,
-    55,
-    224,
-    16,
-    210,
-    172,
-    165,
-    41,
-    51,
-    89,
-    59,
-    48,
-    109,
-    239,
-    244,
-    123,
-    85,
-    235,
-    77,
-    80,
-    183,
-    42,
-    7,
-    141,
-    255,
-    38,
-    215,
-    240,
-    194,
-    126,
-    9,
-    140,
-    26,
-    106,
-    98,
-    11,
-    93,
-    130,
-    27,
-    143,
-    46,
-    190,
-    166,
-    29,
-    231,
-    157,
-    45,
-    138,
-    114,
-    217,
-    241,
-    39,
-    50,
-    188,
-    119,
-    133,
-    150,
-    112,
-    8,
-    105,
-    86,
-    223,
-    153,
-    148,
-    161,
-    144,
-    24,
-    187,
-    250,
-    122,
-    176,
-    167,
-    248,
-    171,
-    40,
-    214,
-    21,
-    142,
-    203,
-    242,
-    19,
-    230,
-    120,
-    97,
-    63,
-    137,
-    70,
-    13,
-    53,
-    49,
-    136,
-    163,
-    65,
-    128,
-    202,
-    23,
-    95,
-    83,
-    131,
-    254,
-    195,
-    155,
-    69,
-    57,
-    225,
-    245,
-    158,
-    25,
-    94,
-    182,
-    207,
-    75,
-    56,
-    4,
-    185,
-    43,
-    226,
-    193,
-    74,
-    221,
-    72,
-    12,
-    208,
-    125,
-    61,
-    88,
-    222,
-    124,
-    216,
-    20,
-    107,
-    135,
-    71,
-    232,
-    121,
-    132,
-    115,
-    60,
-    189,
-    146,
-    201,
-    35,
-    139,
-    151,
-    149,
-    68,
-    220,
-    173,
-    64,
-    101,
-    134,
-    162,
-    164,
-    204,
-    127,
-    236,
-    192,
-    175,
-    145,
-    253,
-    247,
-    79,
-    129,
-    47,
-    91,
-    234,
-    168,
-    28,
-    2,
-    209,
-    152,
-    113,
-    237,
-    37,
-    227,
-    36,
-    6,
-    104,
-    179,
-    147,
-    44,
-    111,
-    62,
-    108,
-    10,
-    184,
-    206,
-    174,
-    116,
-    177,
-    66,
-    180,
-    30,
-    211,
-    73,
-    233,
-    156,
-    200,
-    198,
-    199,
-    34,
-    110,
-    219,
-    32,
-    191,
-    67,
-    81,
-    82,
-    102,
-    178,
-    118,
-    96,
-    218,
-    197,
-    243,
-    246,
-    170,
-    205,
-    154,
-    160,
-    117,
-    84,
-    14,
-    1
-  ]);
-  function add2(a, b) {
-    if (!Number.isInteger(a) || a < 0 || a > 255) {
-      throw new RangeError("Number is out of Uint8 range");
-    }
-    if (!Number.isInteger(b) || b < 0 || b > 255) {
-      throw new RangeError("Number is out of Uint8 range");
-    }
-    return a ^ b;
-  }
-  function div(a, b) {
-    if (!Number.isInteger(a) || a < 0 || a > 255) {
-      throw new RangeError("Number is out of Uint8 range");
-    }
-    if (!Number.isInteger(b) || b < 0 || b > 255) {
-      throw new RangeError("Number is out of Uint8 range");
-    }
-    if (b === 0) {
-      throw new Error("cannot divide by zero");
-    }
-    const logA = LOG_TABLE[a];
-    const logB = LOG_TABLE[b];
-    const diff = (logA - logB + 255) % 255;
-    const result = EXP_TABLE[diff];
-    return a === 0 ? 0 : result;
-  }
-  function mult(a, b) {
-    if (!Number.isInteger(a) || a < 0 || a > 255) {
-      throw new RangeError("Number is out of Uint8 range");
-    }
-    if (!Number.isInteger(b) || b < 0 || b > 255) {
-      throw new RangeError("Number is out of Uint8 range");
-    }
-    const logA = LOG_TABLE[a];
-    const logB = LOG_TABLE[b];
-    const sum = (logA + logB) % 255;
-    const result = EXP_TABLE[sum];
-    return a === 0 || b === 0 ? 0 : result;
-  }
-  function interpolatePolynomial(xSamples, ySamples, x) {
-    if (xSamples.length !== ySamples.length) {
-      throw new Error("sample length mistmatch");
-    }
-    const limit = xSamples.length;
-    let basis = 0;
-    let result = 0;
-    for (let i = 0; i < limit; i++) {
-      basis = 1;
-      for (let j = 0; j < limit; ++j) {
-        if (i === j) {
-          continue;
-        }
-        const num2 = add2(x, xSamples[j]);
-        const denom = add2(xSamples[i], xSamples[j]);
-        const term = div(num2, denom);
-        basis = mult(basis, term);
-      }
-      result = add2(result, mult(ySamples[i], basis));
-    }
-    return result;
-  }
-  var AssertArgument = {
-    instanceOf(object, constructor, message) {
-      if (object.constructor !== constructor) {
-        throw new TypeError(message);
-      }
-    },
-    inRange(n, start, until, message) {
-      if (!(start < until && n >= start && n < until)) {
-        throw new RangeError(message);
-      }
-    },
-    greaterThanOrEqualTo(a, b, message) {
-      if (a < b) {
-        throw new Error(message);
-      }
-    },
-    equalTo(a, b, message) {
-      if (a !== b) {
-        throw new Error(message);
-      }
-    }
-  };
-  async function combine(shares) {
-    AssertArgument.instanceOf(shares, Array, "shares must be an Array");
-    AssertArgument.inRange(shares.length, 2, 256, "shares must have at least 2 and at most 255 elements");
-    const share1 = shares[0];
-    AssertArgument.instanceOf(share1, Uint8Array, "each share must be a Uint8Array");
-    for (const share of shares) {
-      AssertArgument.instanceOf(share, Uint8Array, "each share must be a Uint8Array");
-      AssertArgument.greaterThanOrEqualTo(share.byteLength, 2, "each share must be at least 2 bytes");
-      AssertArgument.equalTo(share.byteLength, share1.byteLength, "all shares must have the same byte length");
-    }
-    const sharesLength = shares.length;
-    const shareLength = share1.byteLength;
-    const secretLength = shareLength - 1;
-    const secret = new Uint8Array(secretLength);
-    const xSamples = new Uint8Array(sharesLength);
-    const ySamples = new Uint8Array(sharesLength);
-    const samples = /* @__PURE__ */ new Set();
-    for (let i = 0; i < sharesLength; i++) {
-      const share = shares[i];
-      const sample = share[shareLength - 1];
-      if (samples.has(sample)) {
-        throw new Error("shares must contain unique values but a duplicate was found");
-      }
-      samples.add(sample);
-      xSamples[i] = sample;
-    }
-    for (let i = 0; i < secretLength; i++) {
-      for (let j = 0; j < sharesLength; ++j) {
-        ySamples[j] = shares[j][i];
-      }
-      secret[i] = interpolatePolynomial(xSamples, ySamples, 0);
-    }
-    return secret;
-  }
 
   // node_modules/@scure/bip39/esm/wordlists/english.js
   var wordlist = `abandon
@@ -6285,37 +4741,7 @@ zero
 zone
 zoo`.split("\n");
 
-  // apps/web/src/lib/keystore.ts
-  function networkVersions(network) {
-    return network === "mainnet" ? { private: 76066276, public: 76067358 } : { private: 70615956, public: 70617039 };
-  }
-
   // apps/web/src/lib/legacy-recovery.ts
-  var LEGACY_PURPOSE = "9999'";
-  function legacyDerivationPath(network) {
-    const coin = network === "mainnet" ? "0" : "1";
-    return `m/${LEGACY_PURPOSE}/${coin}'/0'/0'`;
-  }
-  var LEGACY_TAG_PREFIX = "dynastytrust-legacy-v1";
-  function deriveLegacyLockBytes(mnemonic, network, vaultId, keyRole) {
-    const seed = mnemonicToSeedSync(mnemonic);
-    const root = HDKey.fromMasterSeed(seed, networkVersions(network));
-    const child = root.derive(legacyDerivationPath(network));
-    if (!child.privateKey) {
-      throw new Error("legacy derivation produced no private key (hardened path requires the seed, not an xpub)");
-    }
-    const tag = new TextEncoder().encode(`${LEGACY_TAG_PREFIX}:${vaultId}:${keyRole}`);
-    const input = new Uint8Array(child.privateKey.length + tag.length);
-    input.set(child.privateKey, 0);
-    input.set(tag, child.privateKey.length);
-    return sha2562(input);
-  }
-  var LEGACY_SIG_TAG_PREFIX = "dynastytrust-legacy-sig-v1";
-  function legacyUnlockMessage(vaultId, keyRole) {
-    return `DynastyTrust Legacy Recovery Unlock v1
-vault: ${vaultId}
-role: ${keyRole}`;
-  }
   function hexToBytesStrict(hex2) {
     const clean2 = hex2.trim().replace(/^0x/, "");
     if (!/^[0-9a-fA-F]+$/.test(clean2) || clean2.length % 2 !== 0) {
@@ -6338,41 +4764,6 @@ role: ${keyRole}`;
     if (bytes.length === 64) return bytes;
     throw new Error(`Signature is ${bytes.length} bytes -- expected 64 (raw) or 65 (BIP-137, with header byte)`);
   }
-  function deriveLegacyLockBytesFromSignature(signature, vaultId, keyRole) {
-    const tag = new TextEncoder().encode(`${LEGACY_SIG_TAG_PREFIX}:${vaultId}:${keyRole}`);
-    const input = new Uint8Array(signature.length + tag.length);
-    input.set(signature, 0);
-    input.set(tag, signature.length);
-    return sha2562(input);
-  }
-  function expandKeystream(lockBytes, length) {
-    const out = new Uint8Array(length);
-    let filled = 0;
-    let counter = 0;
-    while (filled < length) {
-      const block = new Uint8Array(lockBytes.length + 1);
-      block.set(lockBytes, 0);
-      block[lockBytes.length] = counter;
-      const digest = sha2562(block);
-      const take = Math.min(digest.length, length - filled);
-      out.set(digest.subarray(0, take), filled);
-      filled += take;
-      counter += 1;
-    }
-    return out;
-  }
-  function xorBytes(a, b) {
-    if (a.length !== b.length) {
-      throw new Error(`xorBytes: length mismatch (${a.length} vs ${b.length})`);
-    }
-    const out = new Uint8Array(a.length);
-    for (let i = 0; i < a.length; i++) out[i] = a[i] ^ b[i];
-    return out;
-  }
-  function lockShare(shareBytes, lockBytes) {
-    return xorBytes(shareBytes, expandKeystream(lockBytes, shareBytes.length));
-  }
-  var unlockShare = lockShare;
   function b64(arr) {
     return btoa(String.fromCharCode(...arr));
   }
@@ -6390,18 +4781,6 @@ role: ${keyRole}`;
       asBufferSource(unb64(sealed.ciphertextB64))
     );
     return new TextDecoder().decode(plain);
-  }
-  async function combineLegacySecret(shares) {
-    return combine(shares);
-  }
-  function recoverViaFastPath(lockedFastPathShare, lockBytes, onChainShare) {
-    const fastPathShare = unlockShare(lockedFastPathShare, lockBytes);
-    return xorBytes(fastPathShare, onChainShare);
-  }
-  async function recoverViaFallbackPath(lockedFallbackShareA, lockBytesA, lockedFallbackShareB, lockBytesB) {
-    const shareA = unlockShare(lockedFallbackShareA, lockBytesA);
-    const shareB = unlockShare(lockedFallbackShareB, lockBytesB);
-    return combineLegacySecret([shareA, shareB]);
   }
   function legacyOnChainUnlockMessage(vaultIndex) {
     return `DynastyTrust Legacy Recovery v2
@@ -7429,7 +5808,7 @@ vault index: ${vaultIndex}`;
   }
 
   // node_modules/@scure/btc-signer/esm/utils.js
-  var Point2 = secp256k1.ProjectivePoint;
+  var Point = secp256k1.ProjectivePoint;
   var CURVE_ORDER = secp256k1.CURVE.n;
   var isBytes4 = utils.isBytes;
   var concatBytes3 = utils.concatBytes;
@@ -7444,7 +5823,7 @@ vault index: ${vaultIndex}`;
     PubT2[PubT2["ecdsa"] = 0] = "ecdsa";
     PubT2[PubT2["schnorr"] = 1] = "schnorr";
   })(PubT || (PubT = {}));
-  var TAPROOT_UNSPENDABLE_KEY = sha256(Point2.BASE.toRawBytes(false));
+  var TAPROOT_UNSPENDABLE_KEY = sha256(Point.BASE.toRawBytes(false));
 
   // node_modules/@scure/btc-signer/esm/script.js
   var OP;
@@ -7795,93 +6174,11 @@ vault index: ${vaultIndex}`;
     out.value = text;
     out.style.borderColor = isError ? "#c0392b" : "#2f9e44";
   }
-  function readNetwork(id) {
-    return $(id).value;
-  }
-  async function runFastPath() {
+  async function runRecovery() {
     try {
-      const mnemonic = $("fp-mnemonic").value.trim();
-      const network = readNetwork("fp-network");
-      const vaultId = $("fp-vault-id").value.trim();
-      const keyRole = $("fp-key-role").value.trim();
-      const lockedFastShare = unb64($("fp-locked-share").value.trim());
-      const onChainShare = unb64($("fp-onchain-share").value.trim());
-      const nonceB64 = $("fp-nonce").value.trim();
-      const ciphertextB64 = $("fp-ciphertext").value.trim();
-      if (!mnemonic || !vaultId || !keyRole || !nonceB64 || !ciphertextB64) {
-        showResult("Fill in every field above before recovering.", true);
-        return;
-      }
-      const lockBytes = deriveLegacyLockBytes(mnemonic, network, vaultId, keyRole);
-      const secret = recoverViaFastPath(lockedFastShare, lockBytes, onChainShare);
-      const sealed = { version: 1, nonceB64, ciphertextB64 };
-      const bundle = await unsealBundle(sealed, secret);
-      showResult(bundle, false);
-    } catch (e) {
-      showResult(`Recovery failed: ${e instanceof Error ? e.message : String(e)}`, true);
-    }
-  }
-  async function runFastPathSignature() {
-    try {
-      const vaultId = $("fs-vault-id").value.trim();
-      const keyRole = $("fs-key-role").value.trim();
-      const signatureRaw = $("fs-signature").value.trim();
-      const lockedFastShare = unb64($("fs-locked-share").value.trim());
-      const onChainShare = unb64($("fs-onchain-share").value.trim());
-      const nonceB64 = $("fs-nonce").value.trim();
-      const ciphertextB64 = $("fs-ciphertext").value.trim();
-      if (!vaultId || !keyRole || !signatureRaw || !nonceB64 || !ciphertextB64) {
-        showResult("Fill in every field above before recovering.", true);
-        return;
-      }
-      const signature = parseUnlockSignature(signatureRaw);
-      const lockBytes = deriveLegacyLockBytesFromSignature(signature, vaultId, keyRole);
-      const secret = recoverViaFastPath(lockedFastShare, lockBytes, onChainShare);
-      const sealed = { version: 1, nonceB64, ciphertextB64 };
-      const bundle = await unsealBundle(sealed, secret);
-      showResult(bundle, false);
-    } catch (e) {
-      showResult(`Recovery failed: ${e instanceof Error ? e.message : String(e)}`, true);
-    }
-  }
-  function updateFastPathSignatureMessage() {
-    const vaultId = $("fs-vault-id").value.trim();
-    const keyRole = $("fs-key-role").value.trim();
-    $("fs-message").value = vaultId && keyRole ? legacyUnlockMessage(vaultId, keyRole) : "(fill in the vault ID and role above)";
-  }
-  async function runFallbackPath() {
-    try {
-      const mnemonicA = $("fb-mnemonic-a").value.trim();
-      const networkA = readNetwork("fb-network-a");
-      const vaultIdA = $("fb-vault-id-a").value.trim();
-      const keyRoleA = $("fb-key-role-a").value.trim();
-      const lockedShareA = unb64($("fb-locked-share-a").value.trim());
-      const mnemonicB = $("fb-mnemonic-b").value.trim();
-      const networkB = readNetwork("fb-network-b");
-      const vaultIdB = $("fb-vault-id-b").value.trim();
-      const keyRoleB = $("fb-key-role-b").value.trim();
-      const lockedShareB = unb64($("fb-locked-share-b").value.trim());
-      const nonceB64 = $("fb-nonce").value.trim();
-      const ciphertextB64 = $("fb-ciphertext").value.trim();
-      if (!mnemonicA || !vaultIdA || !keyRoleA || !mnemonicB || !vaultIdB || !keyRoleB || !nonceB64 || !ciphertextB64) {
-        showResult("Fill in every field above before recovering.", true);
-        return;
-      }
-      const lockBytesA = deriveLegacyLockBytes(mnemonicA, networkA, vaultIdA, keyRoleA);
-      const lockBytesB = deriveLegacyLockBytes(mnemonicB, networkB, vaultIdB, keyRoleB);
-      const secret = await recoverViaFallbackPath(lockedShareA, lockBytesA, lockedShareB, lockBytesB);
-      const sealed = { version: 1, nonceB64, ciphertextB64 };
-      const bundle = await unsealBundle(sealed, secret);
-      showResult(bundle, false);
-    } catch (e) {
-      showResult(`Recovery failed: ${e instanceof Error ? e.message : String(e)}`, true);
-    }
-  }
-  async function runOnChainPath() {
-    try {
-      const vaultIndexRaw = $("oc-vault-index").value.trim();
-      const scriptPubkeyHex = $("oc-scriptpubkey").value.trim();
-      const signatureRaw = $("oc-signature").value.trim();
+      const vaultIndexRaw = $("vault-index").value.trim();
+      const scriptPubkeyHex = $("scriptpubkey").value.trim();
+      const signatureRaw = $("signature").value.trim();
       const vaultIndex = parseInt(vaultIndexRaw, 10);
       if (!Number.isInteger(vaultIndex) || vaultIndex < 0) {
         showResult("Vault index must be a whole number, 0 or greater.", true);
@@ -7895,7 +6192,7 @@ vault index: ${vaultIndex}`;
         { txid: "0".repeat(64), vout: [{ scriptpubkey_type: "op_return", scriptpubkey: scriptPubkeyHex }] }
       ]);
       if (candidates.length === 0) {
-        showResult("That doesn't decode as a Legacy Recovery v2 payload -- double check you copied the OP_RETURN output's full scriptPubKey (hex), not just the address or the txid.", true);
+        showResult("That doesn't decode as a Legacy Recovery payload -- double check you copied the OP_RETURN output's full scriptPubKey (hex), not just the address or the txid.", true);
         return;
       }
       const signature = parseUnlockSignature(signatureRaw);
@@ -7905,43 +6202,17 @@ vault index: ${vaultIndex}`;
       showResult(`Recovery failed: ${e instanceof Error ? e.message : String(e)}`, true);
     }
   }
-  function updateOnChainMessage() {
-    const vaultIndexRaw = $("oc-vault-index").value.trim();
+  function updateMessage() {
+    const vaultIndexRaw = $("vault-index").value.trim();
     const vaultIndex = parseInt(vaultIndexRaw, 10);
-    $("oc-message").value = Number.isInteger(vaultIndex) && vaultIndex >= 0 ? legacyOnChainUnlockMessage(vaultIndex) : "(fill in the vault index above)";
-  }
-  function switchTab(which) {
-    $("panel-fast").style.display = which === "fast" ? "block" : "none";
-    $("panel-fast-sig").style.display = which === "fast-sig" ? "block" : "none";
-    $("panel-fallback").style.display = which === "fallback" ? "block" : "none";
-    $("panel-onchain").style.display = which === "onchain" ? "block" : "none";
-    $("tab-fast").setAttribute("aria-selected", String(which === "fast"));
-    $("tab-fast-sig").setAttribute("aria-selected", String(which === "fast-sig"));
-    $("tab-fallback").setAttribute("aria-selected", String(which === "fallback"));
-    $("tab-onchain").setAttribute("aria-selected", String(which === "onchain"));
+    $("message").value = Number.isInteger(vaultIndex) && vaultIndex >= 0 ? legacyOnChainUnlockMessage(vaultIndex) : "(fill in the vault index above)";
   }
   window.addEventListener("DOMContentLoaded", () => {
-    $("tab-fast").addEventListener("click", () => switchTab("fast"));
-    $("tab-fast-sig").addEventListener("click", () => switchTab("fast-sig"));
-    $("tab-fallback").addEventListener("click", () => switchTab("fallback"));
-    $("tab-onchain").addEventListener("click", () => switchTab("onchain"));
-    $("fp-run").addEventListener("click", () => {
-      void runFastPath();
+    $("run").addEventListener("click", () => {
+      void runRecovery();
     });
-    $("fs-run").addEventListener("click", () => {
-      void runFastPathSignature();
-    });
-    $("fb-run").addEventListener("click", () => {
-      void runFallbackPath();
-    });
-    $("oc-run").addEventListener("click", () => {
-      void runOnChainPath();
-    });
-    $("fs-vault-id").addEventListener("input", updateFastPathSignatureMessage);
-    $("fs-key-role").addEventListener("input", updateFastPathSignatureMessage);
-    $("oc-vault-index").addEventListener("input", updateOnChainMessage);
-    updateFastPathSignatureMessage();
-    updateOnChainMessage();
+    $("vault-index").addEventListener("input", updateMessage);
+    updateMessage();
   });
 })();
 /*! Bundled license information:
@@ -7959,9 +6230,6 @@ vault index: ${vaultIndex}`;
 
 @scure/base/lib/esm/index.js:
   (*! scure-base - MIT License (c) 2022 Paul Miller (paulmillr.com) *)
-
-@scure/bip32/lib/esm/index.js:
-  (*! scure-bip32 - MIT License (c) 2022 Patricio Palladino, Paul Miller (paulmillr.com) *)
 
 @scure/bip39/esm/index.js:
   (*! scure-bip39 - MIT License (c) 2022 Patricio Palladino, Paul Miller (paulmillr.com) *)

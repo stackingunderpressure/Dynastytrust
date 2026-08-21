@@ -1,10 +1,9 @@
 /**
- * legacy-onchain-recovery.ts -- orchestrates legacy-recovery.ts's v2
+ * legacy-onchain-recovery.ts -- orchestrates legacy-recovery.ts's
  * on-chain crypto primitives against the actual Bitcoin transaction layer
- * (onchain-publish.ts) and mempool.space lookups. Mirrors legacy-seal.ts's
- * role for the v1 (Supabase-backed) mechanism, but v2 has no database
- * step at all -- the chain IS the storage, so this file only ever talks
- * to onchain-publish.ts and mempool.space, never api.ts/Supabase.
+ * (onchain-publish.ts) and mempool.space lookups. No database step at
+ * all -- the chain IS the storage, so this file only ever talks to
+ * onchain-publish.ts and mempool.space, never api.ts/Supabase.
  */
 
 import * as btc from '@scure/btc-signer';
@@ -33,6 +32,11 @@ function toHex(bytes: Uint8Array): string {
 /** Maps keystore.ts's Network ('mainnet'|'testnet'|'signet') to onchain-publish.ts's PublishNetwork ('bitcoin'|'testnet'|'signet'). */
 export function toPublishNetwork(network: Network): PublishNetwork {
   return network === 'mainnet' ? 'bitcoin' : network;
+}
+
+/** Maps a Vault's network field ('bitcoin'|'testnet'|'signet') to keystore.ts's Network type ('mainnet'|'testnet'|'signet'). */
+export function vaultNetworkToKeystoreNetwork(network: 'testnet' | 'signet' | 'bitcoin'): Network {
+  return network === 'bitcoin' ? 'mainnet' : network;
 }
 
 /** The one on-chain lookup address a keyholder needs for a given vaultIndex -- computable from just their mnemonic, no server involved. */

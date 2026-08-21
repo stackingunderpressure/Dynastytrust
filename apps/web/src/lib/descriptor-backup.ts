@@ -126,13 +126,14 @@ export function vaultBackupText(v: VaultBackupLike): string {
     `#   automatically when you choose the corresponding leaf.`,
     `#`,
     `# LEGACY RECOVERY (long-horizon descriptor recovery):`,
-    `#   If this vault's owner sealed Legacy Recovery for your key, you`,
-    `#   have a locked copy of this exact descriptor tied to your own`,
-    `#   key -- no separate secret to protect, and it works even if`,
-    `#   DynastyTrust is unreachable. Recover it with the standalone`,
-    `#   tool at /dynastytrust-legacy-recovery-tool.html (save a copy`,
-    `#   of that page itself -- it runs fully offline, in any browser,`,
-    `#   with nothing else installed).`,
+    `#   If a keyholder here published a Legacy Recovery share for their`,
+    `#   key, an encrypted copy of this exact descriptor already lives`,
+    `#   permanently on the Bitcoin blockchain, tied to their own key --`,
+    `#   no separate secret to protect, and it works even if DynastyTrust`,
+    `#   is unreachable. Recover it with the standalone tool at`,
+    `#   /dynastytrust-legacy-recovery-tool.html (save a copy of that`,
+    `#   page itself -- it runs fully offline, in any browser, with`,
+    `#   nothing else installed).`,
     `# ---------------------------------------------------------------`,
     ``,
   ];
@@ -156,171 +157,16 @@ export function downloadVault(v: Vault): void {
 }
 
 /**
- * Human-readable .txt recovery package for ONE keyholder's sealed Legacy
- * Recovery share (see legacy-recovery.ts's header for the underlying
- * mechanism). Operator, 2026-08-19, on why this needs to exist: "I just
- * feel like it's all too much to put on the user still... I want it
- * handed to them with explicit instructions on how to safely backup the
- * descriptor." Sealing (LegacyRecoverySetup.tsx) only ever POSTs this
- * data to Supabase -- nothing was ever handed to the keyholder directly,
- * so recovering later meant depending on DynastyTrust's own database
- * remembering it, exactly the dependency this feature exists to avoid.
- * This function turns what's already sealed into a self-contained
- * takeaway file: everything needed to recover, EXCEPT the keyholder's own
- * seed phrase (never written to a file -- they already have that in
- * their own separate cold storage, and typing it into the standalone
- * tool at recovery time is the one manual step that has to stay manual).
- */
-export interface LegacyRecoveryPackageLike {
-  vaultId: string;
-  vaultName: string;
-  network: 'testnet' | 'signet' | 'bitcoin';
-  keyRole: string;
-  roleLabel: string;
-  lockedFastShareB64: string;
-  lockedFallbackShareB64: string;
-  identityPubkeyHex: string | null;
-  lockedFastShareSigB64: string | null;
-  bundle: { nonceB64: string; ciphertextB64: string };
-  onchain: { onchainShareB64: string; txid: string | null } | null;
-  /**
-   * descriptorFingerprint(descriptor) (legacy-recovery.ts) AT THE MOMENT
-   * this package was sealed, plus when. Null/null for a package sealed
-   * before this field existed (2026-08-20). Purely a label -- if this
-   * vault is ever recompiled (new keys, same shape) after sealing, this
-   * package still recovers the OLD descriptor correctly; the fingerprint
-   * just lets whoever opens this file, possibly decades from now with no
-   * DynastyTrust left to ask, see which version of the vault they're
-   * holding a key to before assuming it still matches anything live.
-   */
-  descriptorFingerprint: string | null;
-  sealedAt: string | null;
-}
-
-export function legacyRecoveryPackageText(p: LegacyRecoveryPackageLike): string {
-  const lines = [
-    `# DynastyTrust Legacy Recovery package`,
-    `# Vault: ${p.vaultName}`,
-    `# This key's role: ${p.roleLabel}`,
-    `# Network: ${p.network}`,
-    `# Generated: ${new Date().toISOString()}`,
-    `# Descriptor version this package was sealed for: ${p.descriptorFingerprint ?? '(unknown -- sealed before this label existed)'}`,
-    `# Sealed on: ${p.sealedAt ?? '(unknown)'}`,
-    ``,
-    `# IMPORTANT -- if this vault is ever recompiled after this package was`,
-    `# sealed (a key rotation, a new leaf -- anything that changes the`,
-    `# vault's descriptor), THIS package still correctly recovers the`,
-    `# descriptor version stamped above, never a wrong one -- but it may no`,
-    `# longer be the vault's CURRENT descriptor. If DynastyTrust is still`,
-    `# reachable, compare the version stamp above against this vault's`,
-    `# Legacy Recovery page before trusting a recovered descriptor to`,
-    `# reflect where funds actually are today. If it isn't reachable, treat`,
-    `# a recovered descriptor as "definitely valid for this version, not`,
-    `# guaranteed to be the vault's most recent one."`,
-    ``,
-    `# WHAT THIS IS`,
-    `# A sealed, permanent copy of this vault's descriptor, locked so`,
-    `# only THIS key can ever open it -- no DynastyTrust account, no`,
-    `# vault ID to remember, no database lookup required. This file`,
-    `# plus your own seed phrase (never written here -- keep that in`,
-    `# your existing separate cold storage) is everything this key`,
-    `# needs to recover the full descriptor, decades from now, even if`,
-    `# DynastyTrust itself no longer exists.`,
-    ``,
-    `# HOW TO RECOVER -- three things, combined`,
-    `# 1. Your seed phrase (yours already, type it in at recovery time,`,
-    `#    never paste it anywhere it could be saved or transmitted).`,
-    `# 2. The locked share below -- useless without your seed phrase,`,
-    `#    safe to keep alongside this file.`,
-    `# 3. The on-chain share below -- published permanently to the`,
-    `#    Bitcoin blockchain, so it survives independent of any single`,
-    `#    copy of this file.`,
-    `# Open /dynastytrust-legacy-recovery-tool.html (save your own copy`,
-    `# now -- it runs fully offline, in any browser, with nothing else`,
-    `# installed) and paste the fields below into its Fast Path tab.`,
-    ``,
-    `# ---------------------------------------------------------------`,
-    `# FIELDS FOR THE STANDALONE TOOL'S "FAST PATH" TAB`,
-    `# ---------------------------------------------------------------`,
-    `Vault ID:      ${p.vaultId}`,
-    `Key role:      ${p.keyRole}`,
-    `Network:       ${p.network === 'bitcoin' ? 'mainnet' : p.network}`,
-    `Locked share:  ${p.lockedFastShareB64}`,
-    p.onchain
-      ? `On-chain share: ${p.onchain.onchainShareB64}`
-      : `On-chain share: (not published yet -- ask the vault owner to publish it, or use the fallback path below with a second keyholder's own package)`,
-    `Nonce:         ${p.bundle.nonceB64}`,
-    `Ciphertext:    ${p.bundle.ciphertextB64}`,
-    ...(p.onchain?.txid
-      ? [`On-chain publish transaction: ${p.onchain.txid}`]
-      : []),
-    ``,
-    `# ---------------------------------------------------------------`,
-    `# FALLBACK PATH -- if the on-chain share is ever unavailable`,
-    `# ---------------------------------------------------------------`,
-    `# Any TWO keyholders' own packages, combined via the standalone`,
-    `# tool's "Fallback Path" tab, recover the same descriptor without`,
-    `# needing the on-chain share at all -- real (2, N) Shamir math,`,
-    `# not a shortcut. This role's fallback share:`,
-    `Fallback share: ${p.lockedFallbackShareB64}`,
-    ``,
-    ...(p.identityPubkeyHex && p.lockedFastShareSigB64
-      ? [
-          `# ---------------------------------------------------------------`,
-          `# SIGNATURE-BASED UNLOCK -- for a key that only ever lives on a`,
-          `# hardware wallet, no seed phrase typed into anything, ever`,
-          `# ---------------------------------------------------------------`,
-          `# Works fully offline too, in the standalone tool's "Fast Path`,
-          `# (signature)" tab: sign the message it shows you (the CLASSIC`,
-          `# message-signing method, not BIP-322 or Taproot-address`,
-          `# signing) with your hardware wallet's own "Sign Message"`,
-          `# feature, against derivation path <your account>/1/0, paste`,
-          `# the signature plus the fields below, and recover.`,
-          `#`,
-          `# Or, if DynastyTrust is still running: paste your account xpub`,
-          `# into its "Retrieve a descriptor" page and it finds this exact`,
-          `# share automatically -- same signature, no fields to copy by`,
-          `# hand. This identity pubkey confirms the match either way:`,
-          `Identity pubkey: ${p.identityPubkeyHex}`,
-          `Signature-locked share: ${p.lockedFastShareSigB64}`,
-          ``,
-        ]
-      : []),
-    `# ---------------------------------------------------------------`,
-    `# This file alone never exposes the descriptor -- it's still`,
-    `# locked to your key. Losing it only matters if it falls into the`,
-    `# hands of someone who ALSO has your seed phrase, the same as any`,
-    `# other backup of yours.`,
-    `# ---------------------------------------------------------------`,
-    ``,
-  ];
-  return lines.join('\n');
-}
-
-export function downloadLegacyRecoveryPackage(p: LegacyRecoveryPackageLike): void {
-  const safeVault = p.vaultName.replace(/[^a-z0-9\-_]+/gi, '_').toLowerCase() || 'vault';
-  const safeRole = p.keyRole.replace(/[^a-z0-9\-_]+/gi, '_').toLowerCase() || 'key';
-  const blob = new Blob([legacyRecoveryPackageText(p)], { type: 'text/plain' });
-  const a = Object.assign(document.createElement('a'), {
-    href: URL.createObjectURL(blob),
-    download: `dynastytrust-${safeVault}-${safeRole}-legacy-recovery.txt`,
-  });
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-
-/**
- * Legacy Recovery v2's downloadable takeaway note (see
- * legacy-onchain-recovery.ts's header for the mechanism). Unlike
- * LegacyRecoveryPackageLike above, there is no secret in this file at
- * all -- the address, derivation path, and vault index are all public,
- * safe-to-publish values by design. That's the whole point of the fully
- * hardened derivation path: nobody who only has this note, this vault's
- * xpubs, or its descriptor can compute or watch for this address; only
- * the actual seed can. This note exists purely so a keyholder has
- * something durable to keep alongside their seed phrase, rather than
- * having to remember an arbitrary vault index and re-derive everything
- * from scratch decades later.
+ * Legacy Recovery's downloadable takeaway note (see
+ * legacy-onchain-recovery.ts's header for the mechanism). There is no
+ * secret in this file at all -- the address, derivation path, and vault
+ * index are all public, safe-to-publish values by design. That's the
+ * whole point of the fully hardened derivation path: nobody who only has
+ * this note, this vault's xpubs, or its descriptor can compute or watch
+ * for this address; only the actual seed can. This note exists purely so
+ * a keyholder has something durable to keep alongside their seed phrase,
+ * rather than having to remember an arbitrary vault index and re-derive
+ * everything from scratch decades later.
  */
 export interface LegacyOnChainRecoveryNoteLike {
   vaultName: string;
@@ -335,7 +181,7 @@ export interface LegacyOnChainRecoveryNoteLike {
 
 export function legacyOnChainRecoveryNoteText(n: LegacyOnChainRecoveryNoteLike): string {
   const lines = [
-    `# DynastyTrust Legacy Recovery v2 -- on-chain recovery note`,
+    `# DynastyTrust Legacy Recovery -- on-chain recovery note`,
     `# Vault: ${n.vaultName}`,
     `# This key's role: ${n.roleLabel}`,
     `# Network: ${n.network}`,
@@ -353,9 +199,9 @@ export function legacyOnChainRecoveryNoteText(n: LegacyOnChainRecoveryNoteLike):
     `# else's, and no DynastyTrust account required.`,
     ``,
     `# HOW TO RECOVER`,
-    `# 1. Go to DynastyTrust's "Retrieve a descriptor" page and open the`,
-    `#    "Sign to recover" section (or the standalone offline recovery`,
-    `#    tool, once it supports this path).`,
+    `# 1. Go to DynastyTrust's "Retrieve a descriptor" page (or the`,
+    `#    standalone offline recovery tool's "Sign to recover" tab --`,
+    `#    save a copy of it now, it runs fully offline).`,
     `# 2. Enter the address and vault index below.`,
     `# 3. Sign the exact message below with this same key, at derivation`,
     `#    path ${n.derivationPath} -- the CLASSIC message-signing method`,
@@ -384,7 +230,7 @@ export function downloadLegacyOnChainRecoveryNote(n: LegacyOnChainRecoveryNoteLi
   const blob = new Blob([legacyOnChainRecoveryNoteText(n)], { type: 'text/plain' });
   const a = Object.assign(document.createElement('a'), {
     href: URL.createObjectURL(blob),
-    download: `dynastytrust-${safeVault}-${safeRole}-legacy-recovery-v2.txt`,
+    download: `dynastytrust-${safeVault}-${safeRole}-legacy-recovery.txt`,
   });
   a.click();
   URL.revokeObjectURL(a.href);
