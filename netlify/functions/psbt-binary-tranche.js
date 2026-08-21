@@ -24,6 +24,7 @@
 import { requireUser, json } from './_auth.js';
 import { getSupabaseAdmin } from './_supabase.js';
 import { MEMPOOL, mempoolFetch, getFeeRate, fetchTipHeight } from './_chain.js';
+import { checkNumberBounds, MIN_FEE_RATE_SAT_VB, MAX_FEE_RATE_SAT_VB } from './_numeric.js';
 
 const COMPILER_URL    = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -32,13 +33,6 @@ const COMPILER_SECRET = process.env.COMPILER_SECRET;
 const TR_INPUT_VBYTES  = 57.5;
 const TR_OUTPUT_VBYTES = 43;
 const TX_OVERHEAD      = 10.5;
-
-// See psbt-binary.js for why this bound exists: an unbounded
-// caller-supplied fee_rate could drain most of a spend into fees --
-// this endpoint defaults to sweeping the whole tranche, so it's an
-// even bigger target than the standard vault's spend flow.
-const MIN_FEE_RATE_SAT_VB = 1;
-const MAX_FEE_RATE_SAT_VB = 1000;
 
 function estimateFee(numInputs, numOutputs, feeRate) {
   return Math.ceil((TX_OVERHEAD + numInputs * TR_INPUT_VBYTES + numOutputs * TR_OUTPUT_VBYTES) * feeRate);
@@ -82,8 +76,20 @@ export async function handler(event) {
   if (!distribution_wallet_id) return json(400, { error: 'Missing: distribution_wallet_id' });
   if (typeof tranche_index !== 'number') return json(400, { error: 'Missing: tranche_index' });
   if (!destination) return json(400, { error: 'Missing: destination' });
-  if (fee_rate != null && (fee_rate < MIN_FEE_RATE_SAT_VB || fee_rate > MAX_FEE_RATE_SAT_VB)) {
-    return json(400, { error: `fee_rate must be between ${MIN_FEE_RATE_SAT_VB} and ${MAX_FEE_RATE_SAT_VB} sat/vB` });
+  if (fee_rate != null) {
+    const feeErr = checkNumberBounds(fee_rate, { field: 'fee_rate', min: MIN_FEE_RATE_SAT_VB, max: MAX_FEE_RATE_SAT_VB });
+    if (feeErr) return json(400, { error: feeErr });
+  }
+  // amount_sats is optional here (omitting it means "sweep the whole
+  // tranche," per the isSweep branch below) -- but when it IS supplied
+  // it must be a real, in-range integer. Without this, a NaN silently
+  // fell into the sweep branch instead of the caller's intended partial
+  // claim, and other non-numeric/out-of-range values only ever surfaced
+  // as a confusing downstream "insufficient funds" or Rust serde error
+  // rather than a clear one (Kimi K3 scan Family D).
+  if (amount_sats != null) {
+    const amountErr = checkNumberBounds(amount_sats, { field: 'amount_sats', min: 546, max: Number.MAX_SAFE_INTEGER, integer: true });
+    if (amountErr) return json(400, { error: amountErr });
   }
   if (path !== 'beneficiary' && path !== 'trustee') {
     return json(400, { error: `Unknown path: ${path}` });

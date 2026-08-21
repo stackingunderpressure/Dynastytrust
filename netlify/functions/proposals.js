@@ -9,6 +9,7 @@
 import { requireUser, json } from './_auth.js';
 import { getSupabaseAdmin } from './_supabase.js';
 import { fetchTipHeight, MEMPOOL, mempoolFetch } from './_chain.js';
+import { checkNumberBounds, MIN_FEE_RATE_SAT_VB, MAX_FEE_RATE_SAT_VB } from './_numeric.js';
 
 const COMPILER_URL    = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -108,7 +109,33 @@ export async function handler(event) {
 
     if (!vault_id)    return json(400, { error: 'Missing: vault_id' });
     if (!destination) return json(400, { error: 'Missing: destination' });
-    if (!amount_sats || amount_sats < 546) return json(400, { error: 'amount_sats must be >= 546' });
+    // checkNumberBounds requires a real finite number before comparing --
+    // the previous `!x || x < 546` check let NaN/Infinity/non-numeric
+    // strings through silently (both comparisons evaluate false for
+    // them). This matters more here than at the PSBT-building endpoints:
+    // there is no Rust compiler in this endpoint's path to catch a bad
+    // value downstream -- amount_sats/fee_sats/fee_rate are written
+    // directly to the proposals table, which the audit PDF, tax
+    // summary, and activity export all treat as the permanent record of
+    // what happened (Kimi K3 scan Family D).
+    const amountErr = checkNumberBounds(amount_sats, { field: 'amount_sats', min: 546, max: Number.MAX_SAFE_INTEGER, integer: true });
+    if (amountErr) return json(400, { error: amountErr });
+    if (fee_sats !== 0) {
+      const feeSatsErr = checkNumberBounds(fee_sats, { field: 'fee_sats', min: 0, max: Number.MAX_SAFE_INTEGER, integer: true });
+      if (feeSatsErr) return json(400, { error: feeSatsErr });
+    }
+    if (fee_rate != null) {
+      const feeRateErr = checkNumberBounds(fee_rate, { field: 'fee_rate', min: MIN_FEE_RATE_SAT_VB, max: MAX_FEE_RATE_SAT_VB });
+      if (feeRateErr) return json(400, { error: feeRateErr });
+    }
+    if (utxo_age_blocks !== 0) {
+      const utxoAgeErr = checkNumberBounds(utxo_age_blocks, { field: 'utxo_age_blocks', min: 0, max: Number.MAX_SAFE_INTEGER, integer: true });
+      if (utxoAgeErr) return json(400, { error: utxoAgeErr });
+    }
+    if (total_vault_sats !== 0) {
+      const totalSatsErr = checkNumberBounds(total_vault_sats, { field: 'total_vault_sats', min: 0, max: Number.MAX_SAFE_INTEGER, integer: true });
+      if (totalSatsErr) return json(400, { error: totalSatsErr });
+    }
 
     // Load vault. Any active member may propose a spend, not just
     // the owner -- same membership check GET/PATCH already use.

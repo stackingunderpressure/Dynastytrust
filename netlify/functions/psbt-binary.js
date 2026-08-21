@@ -14,6 +14,7 @@ import { requireUser, json } from './_auth.js';
 import { getSupabaseAdmin } from './_supabase.js';
 import { pubkeyFromXpub } from './_xpub.js';
 import { MEMPOOL, mempoolFetch, getFeeRate } from './_chain.js';
+import { checkNumberBounds, MIN_FEE_RATE_SAT_VB, MAX_FEE_RATE_SAT_VB } from './_numeric.js';
 
 const COMPILER_URL    = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -30,16 +31,6 @@ const COMPILER_SECRET = process.env.COMPILER_SECRET;
 const TR_INPUT_VBYTES  = 57.5;
 const TR_OUTPUT_VBYTES = 43;
 const TX_OVERHEAD      = 10.5;
-
-// A caller-supplied fee_rate had no upper bound -- a request (or a
-// compromised coordinator forging one on a legitimate user's behalf)
-// could set an absurd sat/vB rate and drain most of a spend into miner
-// fees instead of the intended destination. 1000 sat/vB is far above
-// any real-world fee market spike and still bounds the damage to a
-// deliberately malicious request, not normal use. 1 sat/vB floor
-// rejects a zero-or-negative rate outright.
-const MIN_FEE_RATE_SAT_VB = 1;
-const MAX_FEE_RATE_SAT_VB = 1000;
 
 // Which leaf a spend path actually signs through, and how many of the
 // vault's keys sit in that leaf -- recovery reuses the founder keys
@@ -148,9 +139,18 @@ export async function handler(event) {
   const { vault_id, destination, amount_sats, fee_rate, path = 'founders_now', selected_utxos, sweep } = body;
   if (!vault_id)    return json(400, { error: 'Missing: vault_id' });
   if (!destination) return json(400, { error: 'Missing: destination' });
-  if (!sweep && (!amount_sats || amount_sats < 546)) return json(400, { error: 'amount_sats must be >= 546' });
-  if (fee_rate != null && (fee_rate < MIN_FEE_RATE_SAT_VB || fee_rate > MAX_FEE_RATE_SAT_VB)) {
-    return json(400, { error: `fee_rate must be between ${MIN_FEE_RATE_SAT_VB} and ${MAX_FEE_RATE_SAT_VB} sat/vB` });
+  // checkNumberBounds requires a real finite number before comparing --
+  // the previous inline checks (`!x`, `x < MIN || x > MAX`) let NaN,
+  // Infinity, and non-numeric strings slip through silently, since
+  // every one of those comparisons evaluates false for them (Kimi K3
+  // scan Family D).
+  if (!sweep) {
+    const amountErr = checkNumberBounds(amount_sats, { field: 'amount_sats', min: 546, max: Number.MAX_SAFE_INTEGER, integer: true });
+    if (amountErr) return json(400, { error: amountErr });
+  }
+  if (fee_rate != null) {
+    const feeErr = checkNumberBounds(fee_rate, { field: 'fee_rate', min: MIN_FEE_RATE_SAT_VB, max: MAX_FEE_RATE_SAT_VB });
+    if (feeErr) return json(400, { error: feeErr });
   }
 
   // Load vault. Any active member may build a PSBT, not just the
