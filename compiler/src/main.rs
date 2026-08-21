@@ -10,6 +10,7 @@ use bitcoin::{
     PublicKey, ScriptBuf, Transaction, TxIn, TxOut, Txid, Witness,
 };
 use bitcoin::psbt::Psbt;
+use bitcoin::sighash::TapSighashType;
 use bitcoin::taproot::LeafVersion;
 use bitcoin::secp256k1::{Secp256k1, XOnlyPublicKey};
 use dynastytrust_protocol::{
@@ -1172,6 +1173,31 @@ async fn psbt_finalize(
     if !has_sigs {
         return Err(api_err(StatusCode::BAD_REQUEST,
             "PSBT has no signatures. Sign it with your hardware wallet first, then finalize."));
+    }
+
+    // Reject any signature whose sighash type isn't Default/All before
+    // finalizing. This app's only signer (psbt-signer.ts /
+    // bip341-psbt-signer) hardcodes SIGHASH_DEFAULT and, as of the same
+    // fix, throws on any other type -- so this never fires against real
+    // traffic. It exists as the finalize-boundary half of that fix
+    // (Kimi K3 scan #10/#85): whether miniscript::psbt::Psbt::finalize_mut
+    // itself would accept a non-Default/All tapscript signature depends
+    // on that crate's own internals, not this app's code, so this check
+    // makes the acceptance boundary explicit here rather than relying on
+    // an unverified upstream guarantee.
+    for input in &psbt.inputs {
+        for sig in input.tap_script_sigs.values() {
+            if sig.hash_ty != TapSighashType::Default && sig.hash_ty != TapSighashType::All {
+                return Err(api_err(StatusCode::BAD_REQUEST,
+                    format!("Unsupported sighash type {:?} on a tapscript signature -- only SIGHASH_DEFAULT and SIGHASH_ALL are accepted.", sig.hash_ty)));
+            }
+        }
+        if let Some(sig) = &input.tap_key_sig {
+            if sig.hash_ty != TapSighashType::Default && sig.hash_ty != TapSighashType::All {
+                return Err(api_err(StatusCode::BAD_REQUEST,
+                    format!("Unsupported sighash type {:?} on a key-path signature -- only SIGHASH_DEFAULT and SIGHASH_ALL are accepted.", sig.hash_ty)));
+            }
+        }
     }
 
     // miniscript::psbt::finalize fills final_script_witness from tap_script_sigs.
