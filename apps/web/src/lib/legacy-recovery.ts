@@ -704,3 +704,54 @@ export async function recoverViaOnChainPath(
   const key = deriveLegacyOnChainKey(signature, vaultIndex);
   return unsealBundle(sealed, key);
 }
+
+// ── v2 on-chain payload framing -- what actually gets published in the
+// OP_RETURN output. A fixed magic + version header lets a scanner walking
+// a list of transactions at the keyholder's own hardened address cheaply
+// recognize "this might be a v2 Legacy Recovery payload" and skip
+// anything that isn't (someone else's data, a stray transaction, junk
+// sent to the address once it's public -- see the design conversation's
+// note that an address becomes visible, though never derivable by
+// anyone else, the moment it's first used) before ever attempting an
+// AES-GCM decrypt.
+
+const ONCHAIN_PAYLOAD_MAGIC = new Uint8Array([0x44, 0x54, 0x4c, 0x32]); // ASCII "DTL2"
+const ONCHAIN_PAYLOAD_VERSION = 1;
+const ONCHAIN_NONCE_LENGTH = 12; // matches sealBundle's fixed AES-GCM nonce length
+
+/** Packs a sealed bundle into the exact bytes published on-chain: magic + version + nonce + ciphertext. */
+export function encodeOnChainPayload(sealed: SealedBundle): Uint8Array {
+  const nonce = unb64(sealed.nonceB64);
+  const ciphertext = unb64(sealed.ciphertextB64);
+  if (nonce.length !== ONCHAIN_NONCE_LENGTH) {
+    throw new Error(`encodeOnChainPayload: expected a ${ONCHAIN_NONCE_LENGTH}-byte nonce, got ${nonce.length}`);
+  }
+  const out = new Uint8Array(ONCHAIN_PAYLOAD_MAGIC.length + 1 + nonce.length + ciphertext.length);
+  let offset = 0;
+  out.set(ONCHAIN_PAYLOAD_MAGIC, offset);
+  offset += ONCHAIN_PAYLOAD_MAGIC.length;
+  out[offset] = ONCHAIN_PAYLOAD_VERSION;
+  offset += 1;
+  out.set(nonce, offset);
+  offset += nonce.length;
+  out.set(ciphertext, offset);
+  return out;
+}
+
+/**
+ * Inverse of encodeOnChainPayload. Returns null -- never throws -- for
+ * anything that doesn't match the expected header exactly, so a scanner
+ * can cleanly skip every non-matching payload found at an address
+ * instead of treating a mismatch as an error.
+ */
+export function decodeOnChainPayload(bytes: Uint8Array): SealedBundle | null {
+  const headerLen = ONCHAIN_PAYLOAD_MAGIC.length + 1 + ONCHAIN_NONCE_LENGTH;
+  if (bytes.length <= headerLen) return null;
+  for (let i = 0; i < ONCHAIN_PAYLOAD_MAGIC.length; i++) {
+    if (bytes[i] !== ONCHAIN_PAYLOAD_MAGIC[i]) return null;
+  }
+  if (bytes[ONCHAIN_PAYLOAD_MAGIC.length] !== ONCHAIN_PAYLOAD_VERSION) return null;
+  const nonce = bytes.slice(ONCHAIN_PAYLOAD_MAGIC.length + 1, headerLen);
+  const ciphertext = bytes.slice(headerLen);
+  return { version: 1, nonceB64: b64(nonce), ciphertextB64: b64(ciphertext) };
+}
