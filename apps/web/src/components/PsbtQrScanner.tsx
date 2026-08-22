@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
-import jsQR from 'jsqr';
+import { useRef, useState } from 'react';
 import { URDecoder } from '@gandlaf21/bc-ur';
 import { colors, fonts, radii } from '../theme';
 import { Button } from './ui';
+import { useQrCameraLoop } from './useQrCameraLoop';
+import { QrScanStatus } from './QrScanStatus';
 
 /**
  * Multi-fragment UR QR scanner. Designed for the inverse of
@@ -36,143 +37,77 @@ function looksLikePsbtMagic(hex: string): boolean {
 
 export function PsbtQrScanner({ onResult, onCancel }: PsbtQrScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const decoderRef = useRef<URDecoder | null>(null);
+  const decoderRef = useRef<URDecoder>(new URDecoder());
   const seenRef = useRef<Set<string>>(new Set());
-  const [error, setError] = useState<string | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [received, setReceived] = useState(0);
   const [expected, setExpected] = useState(0);
 
-  useEffect(() => {
-    decoderRef.current = new URDecoder();
-    seenRef.current = new Set();
-    let cancelled = false;
-
-    async function start() {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        setError("Camera access isn't supported in this browser.");
-        return;
-      }
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
-          audio: false,
-        });
-        if (cancelled) {
-          stream.getTracks().forEach(t => t.stop());
-          return;
-        }
-        streamRef.current = stream;
-        const video = videoRef.current;
-        if (!video) return;
-        video.srcObject = stream;
-        await video.play();
-        tick();
-      } catch (e) {
-        setError(
-          e instanceof Error ? e.message : 'Could not access the camera. Check permissions.',
-        );
-      }
+  function handleScan(text: string): boolean {
+    if (!text) return false;
+    // Plain PSBT path: if the QR contains a hex/base64 PSBT
+    // directly (single QR, common with smaller PSBTs), shortcut.
+    const lower = text.toLowerCase();
+    if (looksLikePsbtMagic(lower)) {
+      onResult(lower.replace(/\s+/g, ''));
+      return true;
     }
-
-    function handleScan(text: string): boolean {
-      if (!text) return false;
-      // Plain PSBT path: if the QR contains a hex/base64 PSBT
-      // directly (single QR, common with smaller PSBTs), shortcut.
-      const lower = text.toLowerCase();
-      if (looksLikePsbtMagic(lower)) {
-        onResult(lower.replace(/\s+/g, ''));
+    try {
+      const decoded = atob(text.trim());
+      let hex = '';
+      for (let i = 0; i < decoded.length; i++) {
+        hex += decoded.charCodeAt(i).toString(16).padStart(2, '0');
+      }
+      if (looksLikePsbtMagic(hex)) {
+        onResult(hex);
         return true;
       }
-      try {
-        const decoded = atob(text.trim());
-        let hex = '';
-        for (let i = 0; i < decoded.length; i++) {
-          hex += decoded.charCodeAt(i).toString(16).padStart(2, '0');
-        }
-        if (looksLikePsbtMagic(hex)) {
-          onResult(hex);
-          return true;
-        }
-      } catch { /* not base64, fall through to UR */ }
+    } catch { /* not base64, fall through to UR */ }
 
-      // UR multi-fragment path.
-      if (!text.toLowerCase().startsWith('ur:')) return false;
-      // Skip duplicate fragments to avoid wasting decoder cycles.
-      if (seenRef.current.has(text)) return false;
-      seenRef.current.add(text);
-      const dec = decoderRef.current;
-      if (!dec) return false;
-      try {
-        dec.receivePart(text);
-        const est = (dec.expectedPartCount?.() ?? 0) || 0;
-        const got = dec.receivedPartIndexes?.()?.length ?? 0;
-        setExpected(est);
-        setReceived(got);
-        setProgress(dec.estimatedPercentComplete?.() ?? 0);
-        if (dec.isComplete()) {
-          if (dec.isSuccess()) {
-            const ur = dec.resultUR();
-            const decoded = ur.decodeCBOR();
-            const buf: Uint8Array = decoded instanceof Uint8Array
-              ? decoded
-              : new Uint8Array(decoded);
-            const hex = bytesToHex(buf);
-            if (looksLikePsbtMagic(hex)) {
-              onResult(hex);
-              return true;
-            }
-            setError("UR decoded but didn't look like a PSBT.");
-          } else {
-            setError("UR scan failed -- try again.");
-            decoderRef.current = new URDecoder();
-            seenRef.current = new Set();
-            setProgress(0);
-            setReceived(0);
-            setExpected(0);
+    // UR multi-fragment path.
+    if (!text.toLowerCase().startsWith('ur:')) return false;
+    // Skip duplicate fragments to avoid wasting decoder cycles.
+    if (seenRef.current.has(text)) return false;
+    seenRef.current.add(text);
+    const dec = decoderRef.current;
+    try {
+      dec.receivePart(text);
+      const est = (dec.expectedPartCount?.() ?? 0) || 0;
+      const got = dec.receivedPartIndexes?.()?.length ?? 0;
+      setExpected(est);
+      setReceived(got);
+      setProgress(dec.estimatedPercentComplete?.() ?? 0);
+      if (dec.isComplete()) {
+        if (dec.isSuccess()) {
+          const ur = dec.resultUR();
+          const decoded = ur.decodeCBOR();
+          const buf: Uint8Array = decoded instanceof Uint8Array
+            ? decoded
+            : new Uint8Array(decoded);
+          const hex = bytesToHex(buf);
+          if (looksLikePsbtMagic(hex)) {
+            onResult(hex);
+            return true;
           }
-        }
-      } catch {
-        /* malformed fragment, ignore */
-      }
-      return false;
-    }
-
-    function tick() {
-      if (cancelled) return;
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      if (video && canvas && video.readyState === video.HAVE_ENOUGH_DATA) {
-        const w = video.videoWidth;
-        const h = video.videoHeight;
-        if (w && h) {
-          canvas.width = w;
-          canvas.height = h;
-          const ctx = canvas.getContext('2d', { willReadFrequently: true });
-          if (ctx) {
-            ctx.drawImage(video, 0, 0, w, h);
-            const img = ctx.getImageData(0, 0, w, h);
-            const code = jsQR(img.data, img.width, img.height);
-            if (code?.data) {
-              const done = handleScan(code.data);
-              if (done) return;
-            }
-          }
+          setScanError("UR decoded but didn't look like a PSBT.");
+        } else {
+          setScanError("UR scan failed -- try again.");
+          decoderRef.current = new URDecoder();
+          seenRef.current = new Set();
+          setProgress(0);
+          setReceived(0);
+          setExpected(0);
         }
       }
-      rafRef.current = requestAnimationFrame(tick);
+    } catch {
+      /* malformed fragment, ignore */
     }
+    return false;
+  }
 
-    void start();
-    return () => {
-      cancelled = true;
-      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
-      streamRef.current?.getTracks().forEach(t => t.stop());
-    };
-  }, [onResult]);
+  const { error: cameraError, scanning, elapsedMs } = useQrCameraLoop(videoRef, handleScan);
+  const error = cameraError ?? scanError;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -210,7 +145,6 @@ export function PsbtQrScanner({ onResult, onCancel }: PsbtQrScannerProps) {
             playsInline
             muted
           />
-          <canvas ref={canvasRef} style={{ display: 'none' }} />
         </div>
       )}
       {expected > 0 && (
@@ -218,6 +152,7 @@ export function PsbtQrScanner({ onResult, onCancel }: PsbtQrScannerProps) {
           {received} of {expected} fragments received ({Math.round(progress * 100)}%)
         </div>
       )}
+      {scanning && !error && expected === 0 && <QrScanStatus elapsedMs={elapsedMs} />}
       {onCancel && (
         <Button variant="ghost" size="sm" onClick={onCancel}>
           Cancel

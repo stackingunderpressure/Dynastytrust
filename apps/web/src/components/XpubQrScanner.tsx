@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
-import jsQR from 'jsqr';
+import { useRef, useState } from 'react';
 import { URDecoder } from '@gandlaf21/bc-ur';
 import { parseXpubText } from '../lib/keystore';
 import { colors, fonts, radii } from '../theme';
 import { Button } from './ui';
+import { useQrCameraLoop } from './useQrCameraLoop';
+import { QrScanStatus } from './QrScanStatus';
 
 /**
  * Camera QR scanner for importing an xpub from a hardware signer
@@ -65,145 +66,79 @@ interface XpubQrScannerProps {
 
 export function XpubQrScanner({ onResult, onCancel }: XpubQrScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const decoderRef = useRef<URDecoder | null>(null);
+  const decoderRef = useRef<URDecoder>(new URDecoder());
   const seenRef = useRef<Set<string>>(new Set());
-  const [error, setError] = useState<string | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [received, setReceived] = useState(0);
   const [expected, setExpected] = useState(0);
 
-  useEffect(() => {
-    decoderRef.current = new URDecoder();
-    seenRef.current = new Set();
-    let cancelled = false;
+  function tryText(text: string): boolean {
+    const parsed = parseXpubText(text);
+    if (!parsed) return false;
+    onResult(parsed.xpub, parsed.path, parsed.fingerprint);
+    return true;
+  }
 
-    async function start() {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        setError("Camera access isn't supported in this browser.");
-        return;
-      }
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
-          audio: false,
-        });
-        if (cancelled) {
-          stream.getTracks().forEach(t => t.stop());
-          return;
-        }
-        streamRef.current = stream;
-        const video = videoRef.current;
-        if (!video) return;
-        video.srcObject = stream;
-        await video.play();
-        tick();
-      } catch (e) {
-        setError(
-          e instanceof Error ? e.message : 'Could not access the camera. Check permissions.',
-        );
-      }
-    }
+  function handleScan(text: string): boolean {
+    if (!text) return false;
+    const trimmed = text.trim();
 
-    function tryText(text: string): boolean {
-      const parsed = parseXpubText(text);
-      if (!parsed) return false;
-      onResult(parsed.xpub, parsed.path, parsed.fingerprint);
-      return true;
-    }
+    if (tryText(trimmed)) return true;
 
-    function handleScan(text: string): boolean {
-      if (!text) return false;
-      const trimmed = text.trim();
-
-      if (tryText(trimmed)) return true;
-
-      if (!trimmed.toLowerCase().startsWith('ur:')) return false;
-      if (seenRef.current.has(trimmed)) return false;
-      seenRef.current.add(trimmed);
-      const dec = decoderRef.current;
-      if (!dec) return false;
-      try {
-        dec.receivePart(trimmed);
-        const est = (dec.expectedPartCount?.() ?? 0) || 0;
-        const got = dec.receivedPartIndexes?.()?.length ?? 0;
-        setExpected(est);
-        setReceived(got);
-        setProgress(dec.estimatedPercentComplete?.() ?? 0);
-        if (dec.isComplete()) {
-          if (dec.isSuccess()) {
-            const ur = dec.resultUR();
-            // A structured BCR type (crypto-account, crypto-hdkey -- what
-            // SeedSigner's animated "UR2 / BC-UR" xpub export format sends)
-            // decodes to a nested CBOR array/map, not flat bytes -- this
-            // app doesn't parse that registry yet (see file header comment,
-            // point 4). Converting it as if it were bytes throws, and that
-            // throw used to escape to the outer catch below, which is only
-            // meant for "malformed fragment, keep scanning" -- so the whole
-            // screen went silent forever at "100% received" with the real
-            // fix (switch SeedSigner to Static QR format) never surfaced.
-            // Isolate the decode so a structured-type failure always
-            // reaches the intended error message instead of hanging.
-            try {
-              const decoded = ur.decodeCBOR();
-              const buf: Uint8Array = decoded instanceof Uint8Array ? decoded : new Uint8Array(decoded);
-              const asText = new TextDecoder().decode(buf);
-              if (tryText(asText)) return true;
-            } catch {
-              /* fall through to the "doesn't parse yet" message below */
-            }
-            setError(
-              `Scanned a "${ur.type}" QR this app doesn't parse yet -- on the signer, switch the xpub export format to "Static" (a single QR, not animated) and scan again.`,
-            );
-          } else {
-            setError('QR scan failed -- try again.');
-            decoderRef.current = new URDecoder();
-            seenRef.current = new Set();
-            setProgress(0);
-            setReceived(0);
-            setExpected(0);
+    if (!trimmed.toLowerCase().startsWith('ur:')) return false;
+    if (seenRef.current.has(trimmed)) return false;
+    seenRef.current.add(trimmed);
+    const dec = decoderRef.current;
+    try {
+      dec.receivePart(trimmed);
+      const est = (dec.expectedPartCount?.() ?? 0) || 0;
+      const got = dec.receivedPartIndexes?.()?.length ?? 0;
+      setExpected(est);
+      setReceived(got);
+      setProgress(dec.estimatedPercentComplete?.() ?? 0);
+      if (dec.isComplete()) {
+        if (dec.isSuccess()) {
+          const ur = dec.resultUR();
+          // A structured BCR type (crypto-account, crypto-hdkey -- what
+          // SeedSigner's animated "UR2 / BC-UR" xpub export format sends)
+          // decodes to a nested CBOR array/map, not flat bytes -- this
+          // app doesn't parse that registry yet (see file header comment,
+          // point 4). Converting it as if it were bytes throws, and that
+          // throw used to escape to the outer catch below, which is only
+          // meant for "malformed fragment, keep scanning" -- so the whole
+          // screen went silent forever at "100% received" with the real
+          // fix (switch SeedSigner to Static QR format) never surfaced.
+          // Isolate the decode so a structured-type failure always
+          // reaches the intended error message instead of hanging.
+          try {
+            const decoded = ur.decodeCBOR();
+            const buf: Uint8Array = decoded instanceof Uint8Array ? decoded : new Uint8Array(decoded);
+            const asText = new TextDecoder().decode(buf);
+            if (tryText(asText)) return true;
+          } catch {
+            /* fall through to the "doesn't parse yet" message below */
           }
-        }
-      } catch {
-        /* malformed fragment, ignore */
-      }
-      return false;
-    }
-
-    function tick() {
-      if (cancelled) return;
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      if (video && canvas && video.readyState === video.HAVE_ENOUGH_DATA) {
-        const w = video.videoWidth;
-        const h = video.videoHeight;
-        if (w && h) {
-          canvas.width = w;
-          canvas.height = h;
-          const ctx = canvas.getContext('2d', { willReadFrequently: true });
-          if (ctx) {
-            ctx.drawImage(video, 0, 0, w, h);
-            const img = ctx.getImageData(0, 0, w, h);
-            const code = jsQR(img.data, img.width, img.height);
-            if (code?.data) {
-              const done = handleScan(code.data);
-              if (done) return;
-            }
-          }
+          setScanError(
+            `Scanned a "${ur.type}" QR this app doesn't parse yet -- on the signer, switch the xpub export format to "Static" (a single QR, not animated) and scan again.`,
+          );
+        } else {
+          setScanError('QR scan failed -- try again.');
+          decoderRef.current = new URDecoder();
+          seenRef.current = new Set();
+          setProgress(0);
+          setReceived(0);
+          setExpected(0);
         }
       }
-      rafRef.current = requestAnimationFrame(tick);
+    } catch {
+      /* malformed fragment, ignore */
     }
+    return false;
+  }
 
-    void start();
-    return () => {
-      cancelled = true;
-      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
-      streamRef.current?.getTracks().forEach(t => t.stop());
-    };
-  }, [onResult]);
+  const { error: cameraError, scanning, elapsedMs } = useQrCameraLoop(videoRef, handleScan);
+  const error = cameraError ?? scanError;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -241,7 +176,6 @@ export function XpubQrScanner({ onResult, onCancel }: XpubQrScannerProps) {
             playsInline
             muted
           />
-          <canvas ref={canvasRef} style={{ display: 'none' }} />
         </div>
       )}
       {expected > 0 && (
@@ -249,6 +183,7 @@ export function XpubQrScanner({ onResult, onCancel }: XpubQrScannerProps) {
           {received} of {expected} fragments received ({Math.round(progress * 100)}%)
         </div>
       )}
+      {scanning && !error && expected === 0 && <QrScanStatus elapsedMs={elapsedMs} />}
       {onCancel && (
         <Button variant="ghost" size="sm" onClick={onCancel}>
           Cancel

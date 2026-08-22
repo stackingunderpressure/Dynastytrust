@@ -141,21 +141,51 @@ async function toggleMessageQr(): Promise<void> {
 
 // ── Signature QR scan -- reads the signature straight off the signer's
 // own output QR instead of it being hand-typed or copy-pasted across an
-// airgap. Grabs the back camera, paints frames to a hidden canvas, runs
-// jsQR on each frame; stops itself on the first match. Same technique
-// QrScanner.tsx uses in the live app, reimplemented here in plain DOM
-// since this tool has no React runtime -- still zero network calls, a
-// camera permission is a device capability, not a request to anywhere.
+// airgap. Grabs the back camera, paints frames to an offscreen canvas,
+// runs jsQR on each frame; stops itself on the first match. Same
+// technique QrScanner.tsx uses in the live app (now via the shared
+// useQrCameraLoop hook there), reimplemented here in plain DOM since
+// this tool has no React runtime -- still zero network calls, a camera
+// permission is a device capability, not a request to anywhere.
+// Requests a higher-resolution stream with continuous autofocus where
+// supported (falling back to a plain request if the browser rejects
+// that outright) and shows a live "Scanning... Ns" status line so a
+// silent video feed doesn't read as "is this even doing anything" --
+// the same two fixes apps/web/src/components/useQrCameraLoop.ts makes
+// for every scanner in the live app.
 let signatureScanStream: MediaStream | null = null;
 let signatureScanRaf: number | null = null;
+let signatureScanStartedAt = 0;
+let signatureScanStatusTimer: number | null = null;
 
 function stopSignatureScan(): void {
   if (signatureScanRaf != null) cancelAnimationFrame(signatureScanRaf);
   signatureScanRaf = null;
+  if (signatureScanStatusTimer != null) window.clearInterval(signatureScanStatusTimer);
+  signatureScanStatusTimer = null;
   signatureScanStream?.getTracks().forEach(t => t.stop());
   signatureScanStream = null;
   ($('signature-scan-wrap') as HTMLElement).style.display = 'none';
+  ($('signature-scan-status') as HTMLElement).style.display = 'none';
   ($('signature-scan-cancel') as HTMLElement).style.display = 'none';
+}
+
+async function requestSignatureScanStream(): Promise<MediaStream> {
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: 'environment',
+        width: { ideal: 1280 },
+        height: { ideal: 1280 },
+        advanced: [{ focusMode: 'continuous' } as MediaTrackConstraintSet],
+      },
+      audio: false,
+    });
+  } catch {
+    // Some browsers reject an unsupported `advanced` constraint outright
+    // rather than ignoring it -- fall back to the plain request.
+    return navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+  }
 }
 
 async function startSignatureScan(): Promise<void> {
@@ -165,11 +195,12 @@ async function startSignatureScan(): Promise<void> {
   }
   const wrap = $('signature-scan-wrap') as HTMLElement;
   const video = $('signature-scan-video') as HTMLVideoElement;
-  const canvas = $('signature-scan-canvas') as HTMLCanvasElement;
+  const status = $('signature-scan-status') as HTMLElement;
+  const canvas = document.createElement('canvas');
   wrap.style.display = 'block';
   ($('signature-scan-cancel') as HTMLElement).style.display = 'inline-block';
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    const stream = await requestSignatureScanStream();
     signatureScanStream = stream;
     video.srcObject = stream;
     await video.play();
@@ -178,6 +209,15 @@ async function startSignatureScan(): Promise<void> {
     stopSignatureScan();
     return;
   }
+  signatureScanStartedAt = Date.now();
+  status.style.display = 'block';
+  status.textContent = 'Scanning... 0s';
+  signatureScanStatusTimer = window.setInterval(() => {
+    const seconds = Math.floor((Date.now() - signatureScanStartedAt) / 1000);
+    status.textContent = seconds >= 5
+      ? `Scanning... ${seconds}s -- still looking, make sure the whole QR code fills the frame, hold steady, and check the lighting.`
+      : `Scanning... ${seconds}s`;
+  }, 500);
   const tick = () => {
     if (!signatureScanStream) return;
     if (video.readyState === video.HAVE_ENOUGH_DATA) {

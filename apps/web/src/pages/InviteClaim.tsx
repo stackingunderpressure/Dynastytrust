@@ -9,7 +9,7 @@ import { colors, fonts, radii, space } from '../theme';
 import { Button, Input, Label } from '../components/ui';
 import { LoadingScreen } from '../components/LoadingScreen';
 import { useToast } from '../components/toast';
-import { QrScanner } from '../components/QrScanner';
+import { XpubQrScanner } from '../components/XpubQrScanner';
 import { pubkeyFromXpub } from '../lib/xpub';
 import Auth from './Auth';
 
@@ -794,29 +794,16 @@ function HardwareKeyInput({
   );
   const [err, setErr] = useState<string | null>(null);
 
-  function applyScan(text: string) {
+  // XpubQrScanner already handles every format this page needs to accept
+  // (a BIP-380 [fingerprint/path]xpub... key-origin string, a bare
+  // xpub/tpub, JSON text, and UR-reassembled multi-fragment scans) via
+  // the same parseXpubText() the file-import and KeyManager/VaultWizard
+  // scan paths already share -- no second hand-rolled parser here.
+  function applyXpubScan(xpub: string, path: string | null, fingerprint: string | null) {
     setShowScanner(false);
-    const trimmed = text.trim();
-    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
-      try {
-        const obj = JSON.parse(trimmed) as {
-          xpub?: string;
-          xfp?: string;
-          fingerprint?: string;
-          path?: string;
-          derivation_path?: string;
-        };
-        if (obj.xpub) setRaw(obj.xpub);
-        const fpCandidate = obj.xfp ?? obj.fingerprint;
-        if (fpCandidate) setFp(fpCandidate);
-        const pathCandidate = obj.path ?? obj.derivation_path;
-        if (pathCandidate) setPath(pathCandidate);
-        return;
-      } catch {
-        /* fall through to raw-text path */
-      }
-    }
-    setRaw(trimmed);
+    setRaw(xpub);
+    if (path) setPath(path);
+    if (fingerprint) setFp(fingerprint);
   }
 
   function commit() {
@@ -856,7 +843,7 @@ function HardwareKeyInput({
   }
 
   if (showScanner) {
-    return <QrScanner onResult={applyScan} onCancel={() => setShowScanner(false)} />;
+    return <XpubQrScanner onResult={applyXpubScan} onCancel={() => setShowScanner(false)} />;
   }
 
   return (
