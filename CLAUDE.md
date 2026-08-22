@@ -609,6 +609,32 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Legacy Recovery: standalone tool silently failed to decode when given
+  the raw payload hex instead of the real scriptPubKey (2026-08-22).**
+  Caught live: the operator pasted the hex from the newly-added "Seal
+  payload" button (previous entry) into the standalone recovery tool's
+  scriptPubKey field to test the flow, and the "Message to sign" box
+  never populated -- no error, just the placeholder text sitting there.
+  Root cause: `decodeScriptPubkey()` in `tools/legacy-recovery/recover.ts`
+  only ever tried unwrapping the input as a Script (expects the OP_RETURN
+  opcode `6a` plus a push-length byte wrapped around the payload, exactly
+  what a block explorer shows) -- it had no path for the bare payload
+  bytes the "Seal payload" step hands out for pasting into OTHER wallets.
+  Those two hex strings are trivially confusable (both just look like a
+  wall of hex) and this is a recovery tool, so a silent wrong-field
+  paste failing with no explanation is exactly the kind of "mess up" the
+  whole nonce-signing/no-index redesign (earlier entries) was built to
+  eliminate. Fixed with a fallback, not a warning: `decodeScriptPubkey`
+  now tries the Script-unwrap first, and if that fails, tries
+  `decodeOnChainPayload` directly on the raw bytes before giving up --
+  so both the real scriptPubKey AND the bare "Seal payload" hex work
+  in that field, whichever one someone has on hand. Field label and the
+  "doesn't decode" error message both updated to name both accepted
+  formats. `scripts/verify-legacy-recovery-tool.mjs` extended to prove
+  BOTH input paths recover byte-identically against the same real signed
+  transaction, not just the scriptPubKey one -- rebuilt and passing. All
+  four gates green.
+
 - **Legacy Recovery: seal and publish split into two independent steps
   (2026-08-22).** Operator, working through the mechanism out loud: "we
   have to know the nuts which is when our web browser creates the

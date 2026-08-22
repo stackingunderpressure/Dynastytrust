@@ -5,7 +5,11 @@
 // bundle text -- not just that it builds without errors. Drives the
 // tool's real field order: paste the scriptPubKey first (the tool
 // decodes it and computes the message to sign from the nonce found
-// inside), then sign, then recover. Run manually:
+// inside), then sign, then recover. Also proves the tool's fallback
+// path: someone pastes the raw payload hex (what DynastyTrust's "Seal
+// payload" step shows) directly into that field instead of a real
+// scriptPubKey -- easy to do since the two hex strings look identical
+// at a glance -- and recovery still works. Run manually:
 // node --experimental-strip-types --import
 // ./scripts/register-ts-resolver.mjs scripts/verify-legacy-recovery-tool.mjs
 import playwright from '/opt/node22/lib/node_modules/playwright/index.js';
@@ -71,20 +75,41 @@ const recoverySignature = signLegacyOnChainNonce(mnemonic, network, foundNonce);
 const sigHex = Array.from(recoverySignature).map(b => b.toString(16).padStart(2, '0')).join('');
 
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
-const page = await browser.newPage();
-await page.goto('file://' + new URL('../apps/web/public/dynastytrust-legacy-recovery-tool.html', import.meta.url).pathname);
+const toolUrl = 'file://' + new URL('../apps/web/public/dynastytrust-legacy-recovery-tool.html', import.meta.url).pathname;
 
-// Paste the scriptPubKey FIRST -- the tool decodes it and computes the
-// message to sign from the nonce it finds, no vault index anywhere.
-await page.fill('#scriptpubkey', opReturnScriptHex);
-await page.fill('#signature', sigHex);
-await page.click('#run');
-await page.waitForTimeout(300);
-const result = await page.inputValue('#result');
-await browser.close();
-
-if (result !== bundleText) {
-  console.error('RECOVERY MISMATCH'); console.error('expected:', bundleText); console.error('got:     ', result);
-  process.exit(1);
+// ── Pass 1: the normal case -- paste the real scriptPubKey hex. ─────────
+{
+  const page = await browser.newPage();
+  await page.goto(toolUrl);
+  await page.fill('#scriptpubkey', opReturnScriptHex);
+  await page.fill('#signature', sigHex);
+  await page.click('#run');
+  await page.waitForTimeout(300);
+  const result = await page.inputValue('#result');
+  await page.close();
+  if (result !== bundleText) {
+    console.error('SCRIPTPUBKEY-PATH MISMATCH'); console.error('expected:', bundleText); console.error('got:     ', result);
+    process.exit(1);
+  }
 }
-console.log('standalone tool recovery verified against a real signed transaction: byte-identical match');
+
+// ── Pass 2: the easy-to-make mistake -- paste the bare payload hex
+// (what "Seal payload" shows) directly, instead of the real
+// scriptPubKey. The tool must still recover via its fallback decode. ────
+{
+  const page = await browser.newPage();
+  await page.goto(toolUrl);
+  await page.fill('#scriptpubkey', payloadHex);
+  await page.fill('#signature', sigHex);
+  await page.click('#run');
+  await page.waitForTimeout(300);
+  const result = await page.inputValue('#result');
+  await page.close();
+  if (result !== bundleText) {
+    console.error('RAW-PAYLOAD-PATH MISMATCH'); console.error('expected:', bundleText); console.error('got:     ', result);
+    process.exit(1);
+  }
+}
+
+await browser.close();
+console.log('standalone tool recovery verified against a real signed transaction (both scriptPubKey and raw-payload input): byte-identical match');
