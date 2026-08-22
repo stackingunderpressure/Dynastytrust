@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, type Vault } from '../lib/api';
 import { listKeys, revealMnemonic, type LocalKey } from '../lib/keystore';
-import { legacyOnChainDerivationPath } from '../lib/legacy-recovery';
+import { legacyOnChainDerivationPath, legacyOnChainIdentityFromXpub, legacyOnChainNonceMessage, parseUnlockSignature } from '../lib/legacy-recovery';
 import { vaultBackupText, downloadLegacyOnChainRecoveryNote } from '../lib/descriptor-backup';
 import { buildAndSignPublishTx, p2wpkhAddressForPubkey, type BuiltPublishTx } from '../lib/onchain-publish';
 import {
   legacyOnChainLookupAddress,
   sealOnChainPayload,
+  sealOnChainPayloadExternal,
   fetchLegacyOnChainCandidates,
   toPublishNetwork,
   vaultNetworkToKeystoreNetwork,
@@ -74,8 +75,20 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
   localKeys: LocalKey[];
   toast: ReturnType<typeof useToast>;
 }) {
+  // 'software' (the original path -- a key generated or imported into
+  // this browser, with a mnemonic this app can reveal) vs 'hardware' (a
+  // key whose private material never touches this browser at all -- the
+  // exact case that had no path here before: see legacyOnChainIdentityFromXpub's
+  // header comment for why sealing needs a SEPARATE xpub export from the
+  // vault's own signing xpub, and DescriptorRetrieval.tsx for the same
+  // "sign externally, paste the signature back" pattern already proven
+  // out on the recovery side).
+  const [mode, setMode] = useState<'software' | 'hardware'>('software');
   const [keyId, setKeyId] = useState('');
   const [password, setPassword] = useState('');
+  const [hwXpub, setHwXpub] = useState('');
+  const [hwNonce, setHwNonce] = useState<Uint8Array | null>(null);
+  const [hwSignatureInput, setHwSignatureInput] = useState('');
   const [checking, setChecking] = useState(false);
   const [address, setAddress] = useState<string | null>(null);
   const [candidate, setCandidate] = useState<OnChainCandidate | null>(null);
@@ -106,6 +119,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
 
   const key = localKeys.find(k => k.keyId === keyId) ?? null;
   const needsPassword = !!key && !key.testMnemonic && !!key.encryptedMnemonic;
+  const identityReady = mode === 'software' ? !!key : hwXpub.trim().length > 0;
 
   const billboardKey = localKeys.find(k => k.keyId === billboardKeyId) ?? null;
   const billboardNeedsPassword = !!billboardKey && !billboardKey.testMnemonic && !!billboardKey.encryptedMnemonic;
@@ -130,6 +144,70 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
       toast.error(e instanceof Error ? e.message : 'Could not derive or check that address');
     } finally {
       setChecking(false);
+    }
+  }
+
+  // Hardware-wallet path: no mnemonic ever touches this browser. The
+  // xpub here is a SEPARATE export from the vault's own signing key --
+  // see legacyOnChainIdentityFromXpub's header comment for why hardened
+  // derivation can't get from the vault's signing path to this fixed
+  // Legacy Recovery account without the seed.
+  async function handleDeriveHardwareAddress() {
+    const xpub = hwXpub.trim();
+    if (!xpub) return;
+    setChecking(true);
+    setCandidate(null);
+    try {
+      const network = vaultNetworkToKeystoreNetwork(vault.network);
+      const { publicKey } = legacyOnChainIdentityFromXpub(xpub, network);
+      const pubkeyHex = Array.from(publicKey).map(b => b.toString(16).padStart(2, '0')).join('');
+      const addr = p2wpkhAddressForPubkey(pubkeyHex, toPublishNetwork(network));
+      setAddress(addr);
+      setPayloadHex(null);
+      setHwNonce(null);
+      setHwSignatureInput('');
+      setFetchedUtxos(null);
+      setBuiltTx(null);
+      setBroadcastTxid(null);
+      const candidates = await fetchLegacyOnChainCandidates(addr, toPublishNetwork(network));
+      setCandidate(candidates.length > 0 ? candidates[candidates.length - 1] : null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not derive an address from that xpub -- check it is a real extended public key for the right network.');
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  // Picks the nonce that will get signed (client-side, needs no key at
+  // all) and shows the exact message to take to the hardware wallet's
+  // own "Sign Message" feature -- same digest DescriptorRetrieval.tsx's
+  // recovery side already asks a real hardware wallet to sign.
+  function handleGenerateHwNonce() {
+    setHwNonce(crypto.getRandomValues(new Uint8Array(12)));
+    setHwSignatureInput('');
+    setPayloadHex(null);
+  }
+
+  async function handleSealHardware() {
+    const xpub = hwXpub.trim();
+    if (!xpub || !hwNonce) return;
+    setSealing(true);
+    try {
+      const network = vaultNetworkToKeystoreNetwork(vault.network);
+      const signature = parseUnlockSignature(hwSignatureInput);
+      const sealed = await sealOnChainPayloadExternal({
+        bundleText: vaultBackupText(vault),
+        accountXpub: xpub,
+        nonce: hwNonce,
+        signature,
+        network,
+      });
+      setPayloadHex(sealed.payloadHex);
+      toast.success('Sealed. Copy the payload below, or use DynastyTrust\'s own builder below to publish it.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not seal with that signature -- check it was signed over the exact message shown, at the exact xpub\'s path.');
+    } finally {
+      setSealing(false);
     }
   }
 
@@ -253,23 +331,69 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
   return (
     <Card>
       <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 8 }}>{role.label}</div>
-      <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>Local key</label>
-      <select
-        value={keyId}
-        onChange={e => { setKeyId(e.target.value); setAddress(null); setCandidate(null); setPayloadHex(null); setBuiltTx(null); setBroadcastTxid(null); }}
-        style={{
-          width: '100%', padding: '10px 12px', background: colors.input,
-          border: `1px solid ${colors.border}`, borderRadius: radii.md,
-          color: colors.text, fontSize: 16, fontFamily: fonts.sans, marginBottom: 10,
-        }}
-      >
-        <option value="">Choose a local key...</option>
-        {localKeys.map(k => <option key={k.keyId} value={k.keyId}>{k.label}</option>)}
-      </select>
 
-      {key && (
+      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+        <Button
+          variant={mode === 'software' ? 'primary' : 'ghost'} size="sm"
+          onClick={() => { setMode('software'); setAddress(null); setCandidate(null); setPayloadHex(null); setBuiltTx(null); setBroadcastTxid(null); }}
+        >
+          Software key in this browser
+        </Button>
+        <Button
+          variant={mode === 'hardware' ? 'primary' : 'ghost'} size="sm"
+          onClick={() => { setMode('hardware'); setAddress(null); setCandidate(null); setPayloadHex(null); setBuiltTx(null); setBroadcastTxid(null); }}
+        >
+          Hardware wallet
+        </Button>
+      </div>
+
+      {mode === 'software' ? (
         <>
-          {needsPassword && (
+          <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>Local key</label>
+          <select
+            value={keyId}
+            onChange={e => { setKeyId(e.target.value); setAddress(null); setCandidate(null); setPayloadHex(null); setBuiltTx(null); setBroadcastTxid(null); }}
+            style={{
+              width: '100%', padding: '10px 12px', background: colors.input,
+              border: `1px solid ${colors.border}`, borderRadius: radii.md,
+              color: colors.text, fontSize: 16, fontFamily: fonts.sans, marginBottom: 10,
+            }}
+          >
+            <option value="">Choose a local key...</option>
+            {localKeys.map(k => <option key={k.keyId} value={k.keyId}>{k.label}</option>)}
+          </select>
+        </>
+      ) : (
+        <>
+          <p style={{ fontSize: 13, color: colors.sub, lineHeight: 1.6, marginBottom: 8 }}>
+            The key you used to sign this vault's spends won't show up as a "local key" -- its
+            private material never touched this browser, by design. Instead, export a SEPARATE
+            account xpub from that same hardware wallet, at this exact path (not the vault's own
+            signing path):{' '}
+            <code style={{ fontFamily: fonts.mono, color: colors.text }}>
+              m/84'/{vault.network === 'bitcoin' ? "0'" : "1'"}/900000'
+            </code>
+            . Most hardware wallets can export an xpub for any custom account number; check your
+            device's "export xpub" or "custom derivation" feature. This is a one-time export per
+            key -- it identifies the address, never the private key.
+          </p>
+          <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
+            Legacy Recovery account xpub
+          </label>
+          <Textarea
+            mono
+            value={hwXpub}
+            onChange={e => { setHwXpub(e.target.value); setAddress(null); setCandidate(null); setPayloadHex(null); setHwNonce(null); setHwSignatureInput(''); }}
+            placeholder="xpub... / tpub..."
+            rows={2}
+            style={{ marginBottom: 10 }}
+          />
+        </>
+      )}
+
+      {identityReady && (
+        <>
+          {mode === 'software' && needsPassword && (
             <input
               type="password"
               placeholder="Password for this key"
@@ -285,8 +409,9 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
           )}
 
           <Button
-            variant="ghost" size="sm" onClick={handleCheckAddress}
-            disabled={checking || (needsPassword && !password)}
+            variant="ghost" size="sm"
+            onClick={mode === 'software' ? handleCheckAddress : handleDeriveHardwareAddress}
+            disabled={mode === 'software' ? (checking || (needsPassword && !password)) : checking}
             style={{ marginBottom: 10 }}
           >
             {checking ? 'Deriving...' : 'Derive address and check the chain'}
@@ -350,13 +475,65 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
                     recover the descriptor -- nothing else has to be done.
                   </p>
 
-                  <Button
-                    variant="ghost" size="sm" onClick={handleSeal}
-                    disabled={sealing || (needsPassword && !password)}
-                    style={{ marginBottom: 10 }}
-                  >
-                    {sealing ? 'Sealing...' : payloadHex ? 'Re-seal (generates a new payload)' : 'Seal payload'}
-                  </Button>
+                  {mode === 'software' ? (
+                    <Button
+                      variant="ghost" size="sm" onClick={handleSeal}
+                      disabled={sealing || (needsPassword && !password)}
+                      style={{ marginBottom: 10 }}
+                    >
+                      {sealing ? 'Sealing...' : payloadHex ? 'Re-seal (generates a new payload)' : 'Seal payload'}
+                    </Button>
+                  ) : (
+                    <div style={{ marginBottom: 10 }}>
+                      {!hwNonce ? (
+                        <Button variant="ghost" size="sm" onClick={handleGenerateHwNonce}>
+                          Generate a message to sign
+                        </Button>
+                      ) : (
+                        <>
+                          <p style={{ fontSize: 13, color: colors.sub, lineHeight: 1.6, marginBottom: 10 }}>
+                            Sign the exact message below on your hardware wallet, at derivation path{' '}
+                            <code style={{ fontFamily: fonts.mono, color: colors.text }}>
+                              {legacyOnChainDerivationPath(vaultNetworkToKeystoreNetwork(vault.network))}
+                            </code>
+                            , using the CLASSIC message-signing method (plain ECDSA), not BIP-322 or a
+                            Taproot-address signature. Then paste the signature it produces below.
+                          </p>
+                          <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
+                            Message to sign
+                          </label>
+                          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                            <Textarea mono readOnly value={legacyOnChainNonceMessage(hwNonce)} rows={2} style={{ flex: 1 }} />
+                            <Button variant="ghost" size="sm" onClick={() => copyText(legacyOnChainNonceMessage(hwNonce), 'Message')}>
+                              Copy
+                            </Button>
+                          </div>
+                          <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
+                            Signature
+                          </label>
+                          <Textarea
+                            mono
+                            value={hwSignatureInput}
+                            onChange={e => setHwSignatureInput(e.target.value)}
+                            placeholder="Paste the signature your hardware wallet produced (base64 or hex)"
+                            rows={2}
+                            style={{ marginBottom: 10 }}
+                          />
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <Button
+                              variant="ghost" size="sm" onClick={handleSealHardware}
+                              disabled={sealing || !hwSignatureInput.trim()}
+                            >
+                              {sealing ? 'Sealing...' : payloadHex ? 'Re-seal with this signature' : 'Seal with this signature'}
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={handleGenerateHwNonce}>
+                              New message (different nonce)
+                            </Button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
 
                   {payloadHex && (
                     <div style={{ marginBottom: 14 }}>

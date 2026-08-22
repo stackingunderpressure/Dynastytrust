@@ -624,6 +624,125 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Legacy Recovery: on-chain payload framing simplified to nonce +
+  ciphertext, no magic bytes or version number (2026-08-22).** Operator,
+  working through what has to be gotten right by hand 20 years from now:
+  "I just feel like the first half of the blob is too complex to get
+  right ... The key is already the gate. I want the decryption as simple
+  as it can be safely. No reason to have versions and this and that. Just
+  need a simple public steady value that you sign ... Not take three
+  parts flour and two parts flubber and mix it for 88 mph." Landed on the
+  design after ruling out two riskier alternatives first: signing a FIXED
+  value (the lookup address itself) instead of a fresh per-seal nonce
+  would have derived the exact same encryption key for every seal
+  forever, which breaks catastrophically the moment there's ever a
+  reseal (already a real, built feature -- see the stale-seal-detection
+  entry below) or a second vault from the same seed: same key encrypting
+  different data is a hard AES-GCM break, and since the recovery
+  signature is already shown on screen as an accepted decades-out
+  tradeoff, a fixed signed value would mean ONE exposure burns every past
+  and future secret instead of just the one bundle it belongs to.
+  Splitting the payload into two genuinely separate OP_RETURN script
+  pushes (nonce push, ciphertext push) was also considered and rejected
+  once grounded against `onchain-publish.ts`'s actual
+  `btc.Script.encode(['RETURN', hexToBytes(opReturnDataHex)])` call --
+  ordinary wallets' OP_RETURN UI (Sparrow, Electrum) takes one blob and
+  emits one push, so a genuinely two-push format would silently break
+  every time someone used the "publish from any wallet" option this app
+  already ships and documents at length. The version actually built:
+  `encodeOnChainPayload`/`decodeOnChainPayload` (`legacy-recovery.ts`)
+  dropped the 4-byte magic tag and 1-byte version number entirely --
+  the on-chain bytes are now just the 12-byte nonce (AES-GCM's own fixed
+  nonce length, not an app invention) immediately followed by the
+  ciphertext, nothing else, still published as a single OP_RETURN push
+  so the "any wallet" publish path is unaffected. The magic+version
+  existed only so a scanner could cheaply guess "is this ours" before
+  attempting a decrypt; AES-GCM's own authentication tag already answers
+  that exactly as reliably (a decrypt that doesn't authenticate fails
+  cleanly, same as a wrong password), so nothing was lost by removing it
+  -- confirmed with a new test proving unrelated junk longer than a bare
+  nonce now parses as a structurally-valid-looking candidate (expected,
+  not a gap) but still fails to decrypt via the AEAD tag, never silently
+  produces wrong output. `extractOnChainCandidates` needed no change at
+  all -- it already concatenates whatever pushes a scanned OP_RETURN
+  holds into one blob before calling `decodeOnChainPayload`, so the
+  simplified single-blob framing is fully backward-compatible with that
+  call site. **Breaking, not additive: any payload already published
+  under the old magic+version framing will NOT decode under this
+  version** -- the old bytes' first 4 bytes ("DTL2") plus version now get
+  mis-read as most of what the new decoder treats as the nonce, so a
+  previously-sealed and broadcast share needs to be re-sealed and
+  re-published under the new format; nothing sealed but not yet broadcast
+  needs anything beyond re-sealing anyway, same as any other reseal.
+  Standalone offline tool rebuilt (`node tools/legacy-recovery/build.mjs`)
+  and re-verified end to end against a real signed transaction
+  (`scripts/verify-legacy-recovery-tool.mjs`) -- required no source
+  changes in `recover.ts` at all, since `decodeOnChainPayload`'s call
+  signature didn't change, only its internals. All four gates green,
+  matching the documented 10/10 baseline exactly.
+
+- **Legacy Recovery: the hardware wallet that actually signed a vault's
+  spends had no way to seal a Legacy Recovery share at all (2026-08-22).**
+  Operator: "The hardware signer I used to make the vault isn't an option
+  when trying to do long term recovery." Correct and structural, not a
+  small oversight: `LegacyOnChainV2Card`'s key picker only ever listed
+  `listKeys().filter(k => k.origin === 'software')` -- a hardware-wallet-
+  imported key (`origin: 'imported_xpub'`) has no mnemonic in this browser
+  by design, and sealing's only path (`sealBundleOnChain`) required one,
+  since it both derives the identity keypair AND signs internally. Simply
+  widening the filter would have offered a key sealing could never
+  actually use. The recovery (unsealing) side already solved the
+  equivalent problem for hardware wallets -- `DescriptorRetrieval.tsx`
+  accepts a signature produced externally by a hardware wallet's own
+  "Sign Message" feature and pasted back in, no local key needed -- but
+  sealing has one extra requirement recovery doesn't: it has to know the
+  identity PUBLIC key up front (to compute the address to publish to),
+  whereas recovery just takes a manually-entered address and lets a wrong
+  signature fail the AEAD decrypt honestly. Considered and rejected: ECDSA
+  public-key recovery from the BIP-137 signature header (skips needing an
+  xpub at all, but the header-byte convention for recovery id + compression
+  varies across wallet vendors for P2SH-segwit/bech32 signing, and getting
+  that subtly wrong in money-touching code is exactly the kind of mistake
+  this repo's engineering doctrine warns against) -- rejected as needless
+  risk when a strictly safer option existed. Built instead:
+  `legacyOnChainIdentityFromXpub` (`legacy-recovery.ts`) derives the exact
+  same identity pubkey `legacyOnChainIdentity` derives from a mnemonic, but
+  from an account-level xpub instead -- valid because only the account
+  level (`m/84'/coin'/900000'`) is hardened; the remaining `/1/0` levels are
+  plain unhardened BIP32 child derivation, so a SEPARATE xpub exported at
+  that exact account (the same kind of "export an xpub at a custom path"
+  operation hardware wallets already support, and this app already uses
+  for vault-signing-key import) reaches the identical child pubkey a
+  hardware wallet's "Sign Message" feature signs against internally --
+  with no ECDSA recovery, no header-byte parsing, reusing
+  `verifyLegacyOnChainNonceSignature`'s existing, already-tested
+  ordinary-verify check unchanged. `sealBundleOnChainExternal` seals given
+  a nonce and a signature directly (skipping the mnemonic-derivation step
+  `sealBundleOnChain` does internally); `sealOnChainPayloadExternal`
+  (`legacy-onchain-recovery.ts`) wires both together and verifies the
+  signature against the xpub-derived pubkey BEFORE sealing, so a wrong
+  xpub or a signature over the wrong nonce fails loudly there rather than
+  silently producing an unrecoverable share. `LegacyOnChainV2Card` gained a
+  mode toggle ("Software key in this browser" / "Hardware wallet"): the
+  hardware path asks for the account xpub (with the exact path spelled
+  out, explicitly NOT the vault's own signing xpub), derives the address
+  and checks the chain the same as before, then -- once ready to seal --
+  generates a nonce client-side, shows the exact message to sign (the
+  same digest DescriptorRetrieval.tsx already asks a hardware wallet to
+  sign), and accepts the pasted-back signature via the same
+  `parseUnlockSignature` the recovery side already uses (BIP-137 or bare
+  64-byte). Everything downstream of "we have an address" -- the download
+  note, the publish flow, paying-key selection, broadcast -- is unchanged
+  and now shared by both modes, since none of it cared how the identity
+  was derived. `scripts/test-legacy-onchain-recovery.mjs` extended with a
+  full round-trip proof: an xpub derived from the SAME seed used
+  elsewhere in the test produces the identical pubkey
+  `legacyOnChainIdentity` does, an externally-produced signature seals a
+  bundle that recovers byte-identical to the original, and sealing with a
+  signature over the wrong nonce is rejected up front rather than
+  producing a dead share. All four gates green, matching the documented
+  10/10 baseline exactly.
+
 - **Vault Detail phase card / role hint / spending-paths tree showed
   bogus "2 of 0" quorums and a phantom triggered inheritance path for
   generic leaf-list vaults (2026-08-22).** Operator, on a screenshot of

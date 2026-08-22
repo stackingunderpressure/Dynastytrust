@@ -244,6 +244,35 @@ export function legacyOnChainNonceMessage(nonce: Uint8Array): string {
 }
 
 /**
+ * Derives the identity PUBLIC key at legacyOnChainDerivationPath from an
+ * account-level xpub, with no seed or mnemonic at all. The account level
+ * (m/84'/coin'/900000') is hardened, but the remaining /1/0 levels are
+ * plain unhardened BIP32 child derivation -- so any xpub exported AT
+ * that exact account (a hardware wallet's ordinary "export xpub for a
+ * custom path" feature, the same kind of export this app already uses
+ * to import a vault-signing key -- see keystore.ts's importXpub) extends
+ * to the identical child pubkey a hardware wallet's "Sign Message"
+ * feature signs against internally. This is deliberately a SEPARATE
+ * export from the vault's own signing xpub: the vault key's xpub lives
+ * at the vault's own hardened path (e.g. m/48'/coin'/0'/2'), and hardened
+ * derivation can't jump from there to m/84'/coin'/900000' without the
+ * seed -- so a hardware-only keyholder (private key never leaves the
+ * device, never mind this browser) needs to export this one specific
+ * account separately, once, to seal a Legacy Recovery share at all.
+ */
+export function legacyOnChainIdentityFromXpub(
+  accountXpub: string,
+  network: Network,
+): { publicKey: Uint8Array } {
+  const hd = HDKey.fromExtendedKey(accountXpub, networkVersions(network));
+  const child = hd.deriveChild(1).deriveChild(0);
+  if (!child.publicKey) {
+    throw new Error('Could not derive a public key from that xpub -- check it is a real extended public key for the right network.');
+  }
+  return { publicKey: child.publicKey };
+}
+
+/**
  * Derives the hardened identity keypair at legacyOnChainDerivationPath.
  * Needs the raw mnemonic (or an equivalent seed) -- this is the ONE
  * moment a software-held key needs its mnemonic for this whole mechanism;
@@ -350,6 +379,27 @@ export async function sealBundleOnChain(
 }
 
 /**
+ * Seals a bundle using a signature produced OUTSIDE this browser -- a
+ * hardware wallet's own "Sign Message" feature, signing
+ * legacyOnChainNonceMessage(nonce) at legacyOnChainDerivationPath.
+ * Symmetric to sealBundleOnChain, but takes the nonce and signature as
+ * plain inputs instead of a mnemonic, so the private key never has to
+ * exist in this browser at all -- the caller already generated the
+ * nonce (to build the message the hardware wallet signed) and should
+ * already have checked verifyLegacyOnChainNonceSignature against the
+ * claimed identity pubkey before calling this; this function does not
+ * re-check that, it only derives the key and encrypts.
+ */
+export async function sealBundleOnChainExternal(
+  bundleText: string,
+  nonce: Uint8Array,
+  signature: Uint8Array,
+): Promise<SealedBundle> {
+  const key = deriveLegacyOnChainKey(signature);
+  return sealBundle(bundleText, key, nonce);
+}
+
+/**
  * Recovers a sealed bundle given the keyholder's signature over that
  * SAME sealed bundle's own nonce (however the signature was produced)
  * and the sealed bundle found on-chain. Callers should call
@@ -366,51 +416,56 @@ export async function recoverViaOnChainPath(
 }
 
 // ── On-chain payload framing -- what actually gets published in the
-// OP_RETURN output. A fixed magic + version header lets a scanner walking
-// a list of transactions at the keyholder's own hardened address cheaply
-// recognize "this might be a Legacy Recovery payload" and skip anything
-// that isn't (someone else's data, a stray transaction, junk sent to the
-// address once it's public -- an address becomes visible, though never
-// derivable by anyone else, the moment it's first used) before ever
-// attempting an AES-GCM decrypt.
+// OP_RETURN output: the nonce (a fixed 12 bytes -- AES-GCM's own nonce
+// length, a property of the cipher itself, not something this app
+// invented), immediately followed by the ciphertext. Nothing else --
+// deliberately no magic bytes and no version number. An earlier version
+// of this framing led with a 4-byte magic tag and a version byte so a
+// scanner could cheaply recognize "this might be ours" before attempting
+// a decrypt; operator, working through what has to be gotten right by
+// hand 20 years from now: "I just feel like the first half of the blob
+// is too complex to get right ... not take three parts flour and two
+// parts flubber and mix it for 88 mph." Correct call -- AES-GCM's own
+// authentication tag already answers "is this ours" exactly as reliably
+// as a magic-number check would (a decrypt that doesn't authenticate
+// fails cleanly, the same way a wrong password fails; see
+// extractOnChainCandidates' comment for how that plays out when a
+// scanner finds unrelated junk at a now-public address), and a version
+// byte that will say "1" forever added a byte-offset to get right for
+// zero real benefit. Twenty years from now the whole recipe is: the
+// first 12 bytes are what to sign, everything after is what decrypts --
+// no format spec, no header to check, just counting to twelve.
+const ONCHAIN_NONCE_LENGTH = 12;
 
-const ONCHAIN_PAYLOAD_MAGIC = new Uint8Array([0x44, 0x54, 0x4c, 0x32]); // ASCII "DTL2"
-const ONCHAIN_PAYLOAD_VERSION = 1;
-const ONCHAIN_NONCE_LENGTH = 12; // matches sealBundle's fixed AES-GCM nonce length
-
-/** Packs a sealed bundle into the exact bytes published on-chain: magic + version + nonce + ciphertext. */
+/** Packs a sealed bundle into the exact bytes published on-chain: the nonce, then the ciphertext. */
 export function encodeOnChainPayload(sealed: SealedBundle): Uint8Array {
   const nonce = unb64(sealed.nonceB64);
   const ciphertext = unb64(sealed.ciphertextB64);
   if (nonce.length !== ONCHAIN_NONCE_LENGTH) {
     throw new Error(`encodeOnChainPayload: expected a ${ONCHAIN_NONCE_LENGTH}-byte nonce, got ${nonce.length}`);
   }
-  const out = new Uint8Array(ONCHAIN_PAYLOAD_MAGIC.length + 1 + nonce.length + ciphertext.length);
-  let offset = 0;
-  out.set(ONCHAIN_PAYLOAD_MAGIC, offset);
-  offset += ONCHAIN_PAYLOAD_MAGIC.length;
-  out[offset] = ONCHAIN_PAYLOAD_VERSION;
-  offset += 1;
-  out.set(nonce, offset);
-  offset += nonce.length;
-  out.set(ciphertext, offset);
+  const out = new Uint8Array(nonce.length + ciphertext.length);
+  out.set(nonce, 0);
+  out.set(ciphertext, nonce.length);
   return out;
 }
 
 /**
- * Inverse of encodeOnChainPayload. Returns null -- never throws -- for
- * anything that doesn't match the expected header exactly, so a scanner
- * can cleanly skip every non-matching payload found at an address
- * instead of treating a mismatch as an error.
+ * Inverse of encodeOnChainPayload: the first 12 bytes are the nonce,
+ * everything after is the ciphertext. Returns null -- never throws --
+ * for anything too short to even hold a bare nonce, so a scanner can
+ * cleanly skip an obviously-unrelated OP_RETURN output. With no magic
+ * bytes to check, this will happily parse OTHER junk sent to a now-public
+ * address as a structurally-valid-looking candidate too -- that is
+ * expected and harmless, not a gap: attempting to actually recover it
+ * derives the wrong key and AES-GCM's own authentication tag rejects it
+ * during decrypt (recoverViaOnChainPath throws), exactly the same
+ * "wrong signature, or not ours" failure a real wrong candidate already
+ * produces today. The tag is the check; this function is just framing.
  */
 export function decodeOnChainPayload(bytes: Uint8Array): SealedBundle | null {
-  const headerLen = ONCHAIN_PAYLOAD_MAGIC.length + 1 + ONCHAIN_NONCE_LENGTH;
-  if (bytes.length <= headerLen) return null;
-  for (let i = 0; i < ONCHAIN_PAYLOAD_MAGIC.length; i++) {
-    if (bytes[i] !== ONCHAIN_PAYLOAD_MAGIC[i]) return null;
-  }
-  if (bytes[ONCHAIN_PAYLOAD_MAGIC.length] !== ONCHAIN_PAYLOAD_VERSION) return null;
-  const nonce = bytes.slice(ONCHAIN_PAYLOAD_MAGIC.length + 1, headerLen);
-  const ciphertext = bytes.slice(headerLen);
+  if (bytes.length <= ONCHAIN_NONCE_LENGTH) return null;
+  const nonce = bytes.slice(0, ONCHAIN_NONCE_LENGTH);
+  const ciphertext = bytes.slice(ONCHAIN_NONCE_LENGTH);
   return { version: 1, nonceB64: b64(nonce), ciphertextB64: b64(ciphertext) };
 }
