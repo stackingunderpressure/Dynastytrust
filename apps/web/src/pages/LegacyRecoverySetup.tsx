@@ -34,6 +34,25 @@ interface RoleSlot {
 
 function rolesForVault(vault: Vault): RoleSlot[] {
   const slots: RoleSlot[] = [];
+  if (Array.isArray(vault.leaves) && vault.leaves.length > 0) {
+    // Generic leaf-list ("custom builder") vault -- has no founder_keys/
+    // heir_keys/backup_keys/second_heir_keys at all (those columns sit at
+    // their bare DB defaults for this shape, same gap documented in
+    // VaultDetail.tsx's computePhase). One role slot per key in every
+    // leaf, keyed off the leaf's own id/label instead of the fixed
+    // founder/heir shape -- a key reused across leaves gets one slot per
+    // leaf it actually appears in, same pattern vault-membership grants
+    // already use for this vault shape (circle-membership-delivery.ts).
+    vault.leaves.forEach(leaf => {
+      leaf.keys.forEach((_, i) => {
+        slots.push({
+          role: `${leaf.id}_${i + 1}`,
+          label: leaf.keys.length > 1 ? `${leaf.label} ${i + 1}` : leaf.label,
+        });
+      });
+    });
+    return slots;
+  }
   vault.founder_keys.forEach((_, i) => slots.push({ role: `founder_${i + 1}`, label: `Founder ${i + 1}` }));
   (vault.backup_keys ?? []).forEach((_, i) => slots.push({ role: `backup_${i + 1}`, label: `Backup ${i + 1}` }));
   vault.heir_keys.forEach((_, i) => slots.push({ role: `heir_${i + 1}`, label: `Heir ${i + 1}` }));
@@ -283,7 +302,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
               </div>
               <Button
                 variant="ghost" size="sm" style={{ marginBottom: 10 }}
-                onClick={() => downloadLegacyOnChainRecoveryNote({
+                onClick={() => void downloadLegacyOnChainRecoveryNote({
                   vaultName: vault.name,
                   network: vault.network,
                   roleLabel: role.label,

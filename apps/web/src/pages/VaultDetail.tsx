@@ -894,7 +894,7 @@ function OverviewTab({
               variant="ghost"
               size="sm"
               style={{ padding: "3px 9px", fontSize: 11, whiteSpace: "normal" }}
-              onClick={() => downloadVault(vault)}
+              onClick={() => void downloadVault(vault)}
             >
               Download backup
             </Button>
@@ -1130,7 +1130,7 @@ function BlocOverviewTab({
             <Button variant="ghost" size="sm" style={{ padding: "3px 9px", fontSize: 11 }} disabled={!vault.descriptor} onClick={() => vault.descriptor && copy(vault.descriptor, "desc")}>
               {copied === "desc" ? "Copied" : "Copy"}
             </Button>
-            <Button variant="ghost" size="sm" style={{ padding: "3px 9px", fontSize: 11 }} onClick={() => downloadVault(vault)}>
+            <Button variant="ghost" size="sm" style={{ padding: "3px 9px", fontSize: 11 }} onClick={() => void downloadVault(vault)}>
               Download backup
             </Button>
             <Button variant="ghost" size="sm" style={{ padding: "3px 9px", fontSize: 11 }} disabled={!vault.descriptor} onClick={() => setShowDescriptorQr(v => !v)}>
@@ -4855,6 +4855,31 @@ function rolePhaseHint(
   tip: number | null,
 ): { lines: string[]; cta?: string } {
   const role = (vault as Vault & { my_role?: string }).my_role;
+
+  // Generic leaf-list vault -- the fixed owner/founder/heir/beneficiary
+  // role script below assumes founder_keys/heir_keys/recovery_after/
+  // inheritance_after are real data, which they are not for this shape
+  // (same DB-default gap as computePhase/buildVaultLeaves above). A
+  // leaf's role isn't one of the fixed enum values either (it's the
+  // leaf's own label/id), so give an honest, role-agnostic summary of
+  // what's actually open instead of guessing a persona.
+  if (Array.isArray(vault.leaves) && vault.leaves.length > 0) {
+    const leaves = buildVaultLeaves(vault, tip);
+    const available = leaves.filter(l => l.status !== "locked");
+    const locked = leaves.filter(l => l.status === "locked" && l.absHeight != null);
+    const lines: string[] = [];
+    lines.push(
+      available.length > 0
+        ? `Currently spendable: ${available.map(l => `"${l.label}" (${l.quorum} of ${l.keyPubkeys.length})`).join(", ")}.`
+        : "No spending path is open right now -- every path on this vault is still waiting on its own condition.",
+    );
+    if (locked.length > 0 && tip != null) {
+      const next = locked.sort((a, b) => (a.absHeight ?? 0) - (b.absHeight ?? 0))[0];
+      lines.push(`Next to open: "${next.label}" in ${blocksToLabel((next.absHeight ?? 0) - tip)}.`);
+    }
+    return { lines };
+  }
+
   const t = tip ?? 0;
   const recoveryOpen = vault.recovery_after > 0 && t >= vault.recovery_after;
   const inheritanceOpen = vault.inheritance_after > 0 && t >= vault.inheritance_after;
@@ -4927,6 +4952,34 @@ function computePhase(vault: Vault, tip: number | null): VaultPhase {
       paths: [],
     };
   }
+  // Generic leaf-list vault -- founder_quorum/founder_keys/inheritance_after
+  // etc. are unset DB defaults for this shape (2-of-0, 52560), not real
+  // data. Build the phase summary from the real leaf list instead; see
+  // buildVaultLeaves's header comment for the same discriminator.
+  if (Array.isArray(vault.leaves) && vault.leaves.length > 0) {
+    const leaves = buildVaultLeaves(vault, tip);
+    const available = leaves.filter(l => l.status !== "locked");
+    const openNow = leaves.filter(l => l.status === "unlocked");
+
+    const label = openNow.length > 0 && available.length === openNow.length
+      ? "Timelocked path open"
+      : "Normal operation";
+    const accent = openNow.length > 0 && available.length === openNow.length
+      ? colors.green
+      : colors.gold;
+    const description = available.length > 0
+      ? `${available.map(l => `${l.quorum} of ${l.keyPubkeys.length} "${l.label}"`).join(" or ")} can spend right now.`
+      : `No path is open right now -- this vault has ${leaves.length} spending path${leaves.length === 1 ? "" : "s"}, each waiting on its own condition.`;
+    const paths = leaves.map(l => {
+      if (l.status === "locked" && l.absHeight != null) {
+        return `${l.label} - locked until block ${l.absHeight.toLocaleString()} (${l.quorum} of ${l.keyPubkeys.length})`;
+      }
+      return `${l.label} - ${l.quorum} of ${l.keyPubkeys.length}${l.status === "unlocked" ? " - OPEN" : ""}`;
+    });
+
+    return { label, description, accent, paths };
+  }
+
   const paths: string[] = ["Trustees (Path 1) - anytime"];
   let accent = colors.gold;
   let label = "Normal operation";
@@ -5106,6 +5159,37 @@ function vaultLeafStatus(absHeight: number | null, tip: number | null): VaultLea
 }
 
 function buildVaultLeaves(vault: Vault, tip: number | null): VaultLeaf[] {
+  // Generic leaf-list ("custom builder") vault -- has no founder_keys/
+  // heir_keys etc. at all (those columns sit at their bare DB defaults,
+  // 2-of-0, for a vault created this way), so the fixed founders/recovery/
+  // backup/heirs shape below does not apply. Build directly from the real
+  // leaf list instead, same discriminator pattern as trust-doc.ts's
+  // buildLeavesTrustDoc and the PDF/audit/tax exports already use.
+  if (Array.isArray(vault.leaves) && vault.leaves.length > 0) {
+    const palette = [colors.gold, colors.blue, colors.green, colors.orange];
+    return vault.leaves.map((leaf, i) => {
+      const absHeight = leaf.unlock.type === "after" ? leaf.unlock.blocks : null;
+      const status: VaultLeafStatus =
+        leaf.unlock.type === "after" ? vaultLeafStatus(absHeight, tip) : "active";
+      const note =
+        leaf.unlock.type === "older"
+          ? `Opens if the vault sits untouched for about ${blocksToLabel(leaf.unlock.blocks)} -- any spend from any path resets this clock.`
+          : leaf.decay
+            ? `Required signers step down over time to a floor of ${leaf.decay.floor_quorum}.`
+            : undefined;
+      return {
+        id: leaf.id,
+        label: leaf.label,
+        color: palette[i % palette.length],
+        quorum: leaf.quorum,
+        keyPubkeys: leaf.keys,
+        absHeight,
+        status,
+        note,
+      };
+    });
+  }
+
   const leaves: VaultLeaf[] = [
     {
       id: "founders_now",
@@ -6960,7 +7044,7 @@ function DistributionWalletRow({
             variant="ghost"
             size="sm"
             style={{ fontSize: 11 }}
-            onClick={() => downloadDistributionWalletBackup(wallet, vault.name)}
+            onClick={() => void downloadDistributionWalletBackup(wallet, vault.name)}
           >
             Download backup
           </Button>

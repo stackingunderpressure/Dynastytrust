@@ -23,6 +23,7 @@
  */
 
 import type { Vault, DistributionWallet } from './api';
+import { downloadTextFile } from './download-file';
 
 export interface VaultBackupLike {
   name: string;
@@ -140,20 +141,14 @@ export function vaultBackupText(v: VaultBackupLike): string {
   return lines.join('\n');
 }
 
-export function downloadVaultBackup(v: VaultBackupLike): void {
+export function downloadVaultBackup(v: VaultBackupLike): Promise<boolean> {
   const safeName = v.name.replace(/[^a-z0-9\-_]+/gi, '_').toLowerCase() || 'vault';
-  const blob = new Blob([vaultBackupText(v)], { type: 'text/plain' });
-  const a = Object.assign(document.createElement('a'), {
-    href: URL.createObjectURL(blob),
-    download: `dynastytrust-${safeName}-${v.network}-backup.txt`,
-  });
-  a.click();
-  URL.revokeObjectURL(a.href);
+  return downloadTextFile(`dynastytrust-${safeName}-${v.network}-backup.txt`, vaultBackupText(v));
 }
 
 // Type-safe wrapper for the full Vault type.
-export function downloadVault(v: Vault): void {
-  downloadVaultBackup(v);
+export function downloadVault(v: Vault): Promise<boolean> {
+  return downloadVaultBackup(v);
 }
 
 /**
@@ -225,16 +220,13 @@ export function legacyOnChainRecoveryNoteText(n: LegacyOnChainRecoveryNoteLike):
   return lines.join('\n');
 }
 
-export function downloadLegacyOnChainRecoveryNote(n: LegacyOnChainRecoveryNoteLike): void {
+export function downloadLegacyOnChainRecoveryNote(n: LegacyOnChainRecoveryNoteLike): Promise<boolean> {
   const safeVault = n.vaultName.replace(/[^a-z0-9\-_]+/gi, '_').toLowerCase() || 'vault';
   const safeRole = n.roleLabel.replace(/[^a-z0-9\-_]+/gi, '_').toLowerCase() || 'key';
-  const blob = new Blob([legacyOnChainRecoveryNoteText(n)], { type: 'text/plain' });
-  const a = Object.assign(document.createElement('a'), {
-    href: URL.createObjectURL(blob),
-    download: `dynastytrust-${safeVault}-${safeRole}-legacy-recovery.txt`,
-  });
-  a.click();
-  URL.revokeObjectURL(a.href);
+  return downloadTextFile(
+    `dynastytrust-${safeVault}-${safeRole}-legacy-recovery.txt`,
+    legacyOnChainRecoveryNoteText(n),
+  );
 }
 
 /**
@@ -325,14 +317,11 @@ export function distributionWalletBackupText(
 export function downloadDistributionWalletBackup(
   w: DistributionWallet,
   parentVaultName: string,
-): void {
+): Promise<boolean> {
   const safeVaultName = parentVaultName.replace(/[^a-z0-9\-_]+/gi, '_').toLowerCase() || 'vault';
   const safeWalletName = w.name.replace(/[^a-z0-9\-_]+/gi, '_').toLowerCase() || 'tranche-wallet';
-  const blob = new Blob([distributionWalletBackupText(w, parentVaultName)], { type: 'text/plain' });
-  const a = Object.assign(document.createElement('a'), {
-    href: URL.createObjectURL(blob),
-    download: `dynastytrust-${safeVaultName}-${safeWalletName}-${w.network}-backup.txt`,
-  });
-  a.click();
-  URL.revokeObjectURL(a.href);
+  return downloadTextFile(
+    `dynastytrust-${safeVaultName}-${safeWalletName}-${w.network}-backup.txt`,
+    distributionWalletBackupText(w, parentVaultName),
+  );
 }

@@ -6,6 +6,7 @@ import {
   exportKeyring, importKeyringJson, renameKey, parseXpubText,
   type LocalKey, type Network,
 } from "../lib/keystore";
+import { downloadFile } from "../lib/download-file";
 import { useToast } from "../components/toast";
 import { useConfirm } from "../components/dialog";
 import { colors, fonts, radii, space, personaPalette } from "../theme";
@@ -917,13 +918,8 @@ export default function KeyManager() {
     setModal(null);
   }
 
-  function doExport() {
-    const a = Object.assign(document.createElement("a"), {
-      href: URL.createObjectURL(new Blob([exportKeyring()], { type: "application/json" })),
-      download: "dynastytrust-keyring-" + Date.now() + ".json",
-    });
-    a.click();
-    URL.revokeObjectURL(a.href);
+  async function doExport() {
+    await downloadFile("dynastytrust-keyring-" + Date.now() + ".json", exportKeyring(), "application/json");
   }
 
   function doImport(e: React.ChangeEvent<HTMLInputElement>) {
