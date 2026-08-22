@@ -15,7 +15,7 @@ import {
 } from '../lib/legacy-onchain-recovery';
 import { explorerTxUrl, broadcastTxUrl, EXPLORER } from '../config';
 import { colors, fonts, radii, space } from '../theme';
-import { Button, Card } from '../components/ui';
+import { Button, Card, Textarea } from '../components/ui';
 import { useToast } from '../components/toast';
 
 // Long-horizon descriptor recovery ("Legacy Recovery" -- see
@@ -60,6 +60,8 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
   const [checking, setChecking] = useState(false);
   const [address, setAddress] = useState<string | null>(null);
   const [candidate, setCandidate] = useState<OnChainCandidate | null>(null);
+  const [sealing, setSealing] = useState(false);
+  const [payloadHex, setPayloadHex] = useState<string | null>(null);
   const [fetchingUtxos, setFetchingUtxos] = useState(false);
   const [fetchedUtxos, setFetchedUtxos] = useState<Array<{ txid: string; vout: number; value: number }> | null>(null);
   const [utxoTxid, setUtxoTxid] = useState('');
@@ -99,6 +101,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
       const mnemonic = await revealMnemonic(key.keyId, needsPassword ? password : undefined);
       const addr = legacyOnChainLookupAddress(mnemonic, network);
       setAddress(addr);
+      setPayloadHex(null);
       setFetchedUtxos(null);
       setBuiltTx(null);
       setBroadcastTxid(null);
@@ -108,6 +111,49 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
       toast.error(e instanceof Error ? e.message : 'Could not derive or check that address');
     } finally {
       setChecking(false);
+    }
+  }
+
+  // Sealing (compute the OP_RETURN payload) and publishing (get it into a
+  // real, broadcast transaction) are genuinely separate steps -- sealing
+  // never touches the network at all. This function does ONLY the seal:
+  // it derives the same nonce-sign-then-encrypt payload handleBuildPublishTx
+  // below would otherwise compute inline, but stops there and shows it, so
+  // the resulting hex can be taken to ANY wallet that supports a custom
+  // OP_RETURN output -- Sparrow, Electrum, anything -- funded from anywhere,
+  // built whenever convenient, with zero further coordination with this
+  // app. The only two requirements for that outside transaction: carry
+  // this exact payload hex as an OP_RETURN output, and send at least a
+  // dust-limit amount to the address above as another output (that's what
+  // makes the transaction show up when this key's address is looked up
+  // later) -- once it confirms, nothing else has to be done.
+  async function handleSeal() {
+    if (!key) return;
+    setSealing(true);
+    try {
+      const network = vaultNetworkToKeystoreNetwork(vault.network);
+      const mnemonic = await revealMnemonic(key.keyId, needsPassword ? password : undefined);
+      const { payloadHex: sealed } = await sealOnChainPayload({
+        bundleText: vaultBackupText(vault),
+        mnemonic,
+        network,
+      });
+      setPayloadHex(sealed);
+      setBuiltTx(null);
+      toast.success('Sealed. Copy the payload below, or use DynastyTrust\'s own builder below to publish it.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not seal the payload with that key.');
+    } finally {
+      setSealing(false);
+    }
+  }
+
+  async function copyText(text: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(`${label} copied.`);
+    } catch {
+      toast.error('Copy failed -- select and copy manually.');
     }
   }
 
@@ -135,7 +181,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
   }
 
   async function handleBuildPublishTx() {
-    if (!key || !billboardKey || !address) return;
+    if (!billboardKey || !address || !payloadHex) return;
     const valueSats = parseInt(utxoValue, 10);
     const vout = parseInt(utxoVout, 10);
     const rate = parseFloat(feeRate);
@@ -147,13 +193,6 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
     if (!Number.isInteger(billboardSats) || billboardSats < 294) { toast.error('Payment amount must be at least 294 sats (below that, Bitcoin nodes treat an output as dust).'); return; }
     setBuilding(true);
     try {
-      const network = vaultNetworkToKeystoreNetwork(vault.network);
-      const identityMnemonic = await revealMnemonic(key.keyId, needsPassword ? password : undefined);
-      const { payloadHex } = await sealOnChainPayload({
-        bundleText: vaultBackupText(vault),
-        mnemonic: identityMnemonic,
-        network,
-      });
       const payerMnemonic = await revealMnemonic(billboardKey.keyId, billboardNeedsPassword ? billboardPassword : undefined);
       const built = buildAndSignPublishTx({
         mnemonic: payerMnemonic,
@@ -198,7 +237,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
       <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>Local key</label>
       <select
         value={keyId}
-        onChange={e => { setKeyId(e.target.value); setAddress(null); setCandidate(null); setBuiltTx(null); setBroadcastTxid(null); }}
+        onChange={e => { setKeyId(e.target.value); setAddress(null); setCandidate(null); setPayloadHex(null); setBuiltTx(null); setBroadcastTxid(null); }}
         style={{
           width: '100%', padding: '10px 12px', background: colors.input,
           border: `1px solid ${colors.border}`, borderRadius: radii.md,
@@ -283,10 +322,47 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
               ) : (
                 <div style={{ marginTop: 6, paddingTop: 12, borderTop: `1px solid ${colors.border}` }}>
                   <p style={{ fontSize: 13, color: colors.sub, lineHeight: 1.6, marginBottom: 10 }}>
-                    Nothing published yet. Pick any of your OTHER funded local keys below -- it pays a
-                    small, permanent amount to the address above and carries the encrypted payload,
-                    both as outputs of the SAME transaction. This key above never has to sign a
-                    transaction itself, only ever a message, later, at recovery time.
+                    Nothing published yet. First seal the payload with this key -- that never touches
+                    the network, it just produces the exact bytes to publish. Then either copy that
+                    hex into ANY wallet that supports a custom OP_RETURN output (Sparrow, Electrum,
+                    anything) and send it a small payment to the address above from wherever you
+                    already have funds, or use DynastyTrust's own builder below with any of your
+                    OTHER local keys. Either way, once that transaction confirms, this key alone can
+                    recover the descriptor -- nothing else has to be done.
+                  </p>
+
+                  <Button
+                    variant="ghost" size="sm" onClick={handleSeal}
+                    disabled={sealing || (needsPassword && !password)}
+                    style={{ marginBottom: 10 }}
+                  >
+                    {sealing ? 'Sealing...' : payloadHex ? 'Re-seal (generates a new payload)' : 'Seal payload'}
+                  </Button>
+
+                  {payloadHex && (
+                    <div style={{ marginBottom: 14 }}>
+                      <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
+                        OP_RETURN payload (hex) -- paste this exactly, as a custom OP_RETURN output, in
+                        any wallet. Re-sealing produces a DIFFERENT payload, so build from whichever
+                        copy you actually use -- don't mix an old copy with a freshly re-sealed one.
+                      </label>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <Textarea mono readOnly value={payloadHex} rows={3} style={{ flex: 1 }} />
+                        <Button variant="ghost" size="sm" onClick={() => copyText(payloadHex, 'Payload')}>
+                          Copy
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {payloadHex && (
+                  <>
+                  <p style={{ fontSize: 13, color: colors.sub, lineHeight: 1.6, marginBottom: 10 }}>
+                    Or, publish directly from DynastyTrust: pick any of your OTHER funded local keys
+                    below -- it pays a small, permanent amount to the address above and carries the
+                    sealed payload above, both as outputs of the SAME transaction. This key above
+                    never has to sign a transaction itself, only ever a message, later, at recovery
+                    time.
                   </p>
 
                   <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
@@ -431,6 +507,8 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
                       </div>
                     </div>
                   )}
+                  </>
+                  )}
                 </div>
               )}
             </div>
@@ -482,14 +560,16 @@ export default function LegacyRecoverySetup() {
   return (
     <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: space[3] }}>
       <p style={{ fontSize: 16, fontWeight: 450, color: colors.text, lineHeight: 1.6 }}>
-        All you need is your key. Each keyholder below publishes an encrypted copy of this vault's
-        descriptor to their own on-chain address -- computable only from their real seed, never
-        from this vault's xpubs, its descriptor, or anything DynastyTrust stores. Publish once, and
-        years from now recovery is nothing more than signing one fixed message with that same key
-        (a hardware wallet's own "Sign Message" feature works fine -- no seed phrase ever has to be
-        typed into a recovery tool) to unlock the full descriptor, alone, with no second key or
-        share required. No database, no separate file to protect -- the chain itself is the only
-        place this ever lives.
+        All you need is your key. Each keyholder below seals an encrypted copy of this vault's
+        descriptor for their own on-chain address -- computable only from their real seed, never
+        from this vault's xpubs, its descriptor, or anything DynastyTrust stores -- then publishes
+        it either through DynastyTrust's own builder or, since sealing never touches the network,
+        by copying the payload into any other wallet that supports a custom OP_RETURN output.
+        Publish once, and years from now recovery is nothing more than signing the exact bytes
+        found published there (a hardware wallet's own "Sign Message" feature works fine -- no
+        seed phrase ever has to be typed into a recovery tool, nothing memorized ahead of time) to
+        unlock the full descriptor, alone, with no second key or share required. No database, no
+        separate file to protect -- the chain itself is the only place this ever lives.
       </p>
 
       {roles.length === 0 ? (
