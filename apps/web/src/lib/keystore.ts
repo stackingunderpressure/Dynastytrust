@@ -23,6 +23,7 @@ import { wordlist } from '@scure/bip39/wordlists/english';
 import { HDKey } from '@scure/bip32';
 import { sha256 } from '@noble/hashes/sha256';
 import { ripemd160 } from '@noble/hashes/ripemd160';
+import { base58check } from '@scure/base';
 
 const STORE_KEY = 'dynastytrust:keyring:v1';
 
@@ -163,6 +164,64 @@ export function networkVersions(network: Network) {
     : { private: 0x0435_8394, public: 0x0435_87cf };
 }
 
+// SLIP-132 (https://github.com/satoshilabs/slips/blob/master/slip-0132.md)
+// extended-public-key version-byte prefixes. A hardware wallet's "export
+// xpub" screen often labels the script type in the prefix (zpub for a
+// BIP84 single-sig account, Zpub for the P2WSH multisig equivalent, and
+// so on) instead of the plain BIP32 default (xpub/tpub) -- the encoded
+// key data underneath (depth, parent fingerprint, child number, chain
+// code, public key) is byte-identical across every prefix; only these 4
+// leading version bytes differ. HDKey.fromExtendedKey validates the
+// encoded version bytes strictly against whatever is passed in, so an
+// alternate-prefixed string throws a version-mismatch error there unless
+// normalized to the plain xpub/tpub bytes first -- confirmed live against
+// a real SeedSigner "Zpub" export (2026-08-22).
+const SLIP132_PUBLIC_VERSIONS = new Set([
+  0x0488_b21e, // xpub -- mainnet, BIP32 default / BIP44
+  0x049d_7cb2, // ypub -- mainnet, BIP49 P2SH-P2WPKH single-sig
+  0x0295_b43f, // Ypub -- mainnet, P2WSH-P2SH multisig
+  0x04b2_4746, // zpub -- mainnet, BIP84 P2WPKH single-sig
+  0x02aa_7ed3, // Zpub -- mainnet, P2WSH multisig
+  0x0435_87cf, // tpub -- testnet/signet, BIP32 default / BIP44
+  0x044a_5262, // upub -- testnet/signet, BIP49 P2SH-P2WPKH single-sig
+  0x0242_89ef, // Upub -- testnet/signet, P2WSH-P2SH multisig
+  0x045f_1cf6, // vpub -- testnet/signet, BIP84 P2WPKH single-sig
+  0x0257_5483, // Vpub -- testnet/signet, P2WSH multisig
+]);
+
+const xpubBase58check = base58check(sha256);
+
+/**
+ * Re-encodes any SLIP-132-prefixed extended public key (zpub, Zpub,
+ * ypub, Ypub, vpub, Vpub, upub, Upub -- whatever a hardware wallet's
+ * export screen labeled the script type as) to the plain xpub/tpub form
+ * HDKey.fromExtendedKey expects for the given network. Purely notational
+ * -- the underlying key data never changes, only the 4 leading version
+ * bytes. Already-standard xpub/tpub input round-trips unchanged. Throws
+ * a clear error on anything that isn't a recognized extended PUBLIC key
+ * (wrong length, or an xprv/tprv private key pasted here by mistake --
+ * those use a disjoint set of version bytes, never mistaken for public
+ * ones).
+ */
+export function normalizeXpub(extendedKey: string, network: Network): string {
+  const trimmed = extendedKey.trim();
+  const raw = xpubBase58check.decode(trimmed);
+  if (raw.length !== 78) {
+    throw new Error(`That doesn't look like a valid extended key (expected 78 bytes, got ${raw.length}).`);
+  }
+  const version = ((raw[0] << 24) | (raw[1] << 16) | (raw[2] << 8) | raw[3]) >>> 0;
+  if (!SLIP132_PUBLIC_VERSIONS.has(version)) {
+    throw new Error('That extended key isn\'t a recognized public key (xpub/ypub/zpub/tpub/upub/vpub, or their multisig capital-letter forms) -- check it isn\'t a private key (xprv/...) pasted by mistake.');
+  }
+  const targetVersion = networkVersions(network).public;
+  const normalized = Uint8Array.from(raw);
+  normalized[0] = (targetVersion >>> 24) & 0xff;
+  normalized[1] = (targetVersion >>> 16) & 0xff;
+  normalized[2] = (targetVersion >>> 8) & 0xff;
+  normalized[3] = targetVersion & 0xff;
+  return xpubBase58check.encode(normalized);
+}
+
 function deriveAccount(mnemonic: string, network: Network) {
   const seed    = mnemonicToSeedSync(mnemonic);
   const root    = HDKey.fromMasterSeed(seed, networkVersions(network));
@@ -299,31 +358,33 @@ export function importXpub(opts: {
   persona: string;
   masterFingerprint?: string;
 }): LocalKey {
-  if (!opts.xpub.match(/^[xt]pub|^[XY]pub/)) {
-    throw new Error('Invalid xpub — expected xpub…, tpub…, Xpub…');
-  }
+  // A hardware wallet's "export xpub" screen often prefixes the result
+  // with a SLIP-132 script-type hint (zpub, Zpub, ypub, ...) instead of
+  // the plain BIP32 default -- normalizeXpub converts any of those to
+  // plain xpub/tpub (same key data, only the 4 version bytes change)
+  // before anything downstream ever sees it. Previously this function's
+  // own prefix check only accepted xpub/tpub/Xpub/Ypub -- rejecting a
+  // real zpub/Zpub/etc. outright -- and even a prefix that slipped past
+  // that check would then fail HDKey.fromExtendedKey's stricter version
+  // check below, silently landing on an empty pubkey that breaks vault
+  // compilation later. Stores the NORMALIZED xpub, not the as-typed
+  // string -- an output descriptor's script type is already carried by
+  // its outer function (wpkh(...)/wsh(...)), never by the xpub prefix,
+  // so standard xpub/tpub notation is the conventional, unambiguous form
+  // to persist.
+  const normalized = normalizeXpub(opts.xpub, opts.network);
 
   let fp = '00000000';
   let pubkey = '';
-  try {
-    // 2026-08-11 fix: this omitted the network's version bytes, so
-    // HDKey.fromExtendedKey defaulted to MAINNET-only validation --
-    // any testnet/signet "tpub..." failed that check and threw,
-    // silently landing on the '00000000' fallback below AND leaving
-    // `pubkey` empty (which breaks vault compilation for this key
-    // entirely -- toPubkeyHex throws "missing its pubkey"). Passing
-    // the real network versions fixes both for every network, not
-    // just mainnet.
-    const hd = HDKey.fromExtendedKey(opts.xpub, networkVersions(opts.network));
-    // For descriptor compilation, we need the pubkey that appears in
-    // the miniscript leaf at receive index 0: xpub/0/0. `fp` here is
-    // this xpub's OWN fingerprint (an account-level value) -- a real,
-    // deterministic display value, but NOT the master fingerprint (see
-    // this function's doc comment); use opts.masterFingerprint for that.
-    const child00 = hd.deriveChild(0).deriveChild(0);
-    if (hd.publicKey) fp = bip32Fingerprint(hd.publicKey);
-    if (child00.publicKey) pubkey = toHex(child00.publicKey);
-  } catch { /* non-standard version bytes */ }
+  const hd = HDKey.fromExtendedKey(normalized, networkVersions(opts.network));
+  // For descriptor compilation, we need the pubkey that appears in
+  // the miniscript leaf at receive index 0: xpub/0/0. `fp` here is
+  // this xpub's OWN fingerprint (an account-level value) -- a real,
+  // deterministic display value, but NOT the master fingerprint (see
+  // this function's doc comment); use opts.masterFingerprint for that.
+  const child00 = hd.deriveChild(0).deriveChild(0);
+  if (hd.publicKey) fp = bip32Fingerprint(hd.publicKey);
+  if (child00.publicKey) pubkey = toHex(child00.publicKey);
 
   const coin = opts.network === 'mainnet' ? '0' : '1';
   const key: LocalKey = {
@@ -335,7 +396,7 @@ export function importXpub(opts: {
     fingerprint:    fp,
     ...(opts.masterFingerprint ? { masterFingerprint: opts.masterFingerprint.toLowerCase() } : {}),
     derivationPath: opts.derivationPath ?? `m/48'/${coin}'/0'/2'`,
-    xpub:           opts.xpub,
+    xpub:           normalized,
     pubkey,
     status:         'active',
     createdAt:      new Date().toISOString(),

@@ -81,7 +81,7 @@ import { HDKey } from '@scure/bip32';
 import { mnemonicToSeedSync } from '@scure/bip39';
 import { sha256 } from '@noble/hashes/sha256';
 import { secp256k1 } from '@noble/curves/secp256k1';
-import { networkVersions, type Network } from './keystore';
+import { networkVersions, normalizeXpub, type Network } from './keystore';
 
 // Legacy Recovery uses the standard BIP84 (native segwit) purpose field
 // -- ordinary, not reserved -- so its derivation path is recognized by
@@ -264,7 +264,12 @@ export function legacyOnChainIdentityFromXpub(
   accountXpub: string,
   network: Network,
 ): { publicKey: Uint8Array } {
-  const hd = HDKey.fromExtendedKey(accountXpub, networkVersions(network));
+  // Accepts any SLIP-132-prefixed form (zpub, Zpub, ypub, ...), not just
+  // plain xpub/tpub -- a hardware wallet's export screen commonly labels
+  // the script type in the prefix (confirmed live against a real
+  // SeedSigner "Zpub" export, 2026-08-22, which HDKey.fromExtendedKey
+  // otherwise rejects outright as a version mismatch).
+  const hd = HDKey.fromExtendedKey(normalizeXpub(accountXpub, network), networkVersions(network));
   const child = hd.deriveChild(1).deriveChild(0);
   if (!child.publicKey) {
     throw new Error('Could not derive a public key from that xpub -- check it is a real extended public key for the right network.');

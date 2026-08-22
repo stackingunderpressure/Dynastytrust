@@ -624,6 +624,53 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **SLIP-132-prefixed xpubs (zpub, Zpub, ypub, ...) rejected outright as
+  a "version mismatch" (2026-08-22).** Operator, after exporting a
+  custom-derivation xpub from SeedSigner for the new Legacy Recovery
+  hardware flow: "It exported it as a Z pub and we were expecting an ex
+  pub and it says version mismatch." Root cause: `HDKey.fromExtendedKey`
+  (`@scure/bip32`) validates the encoded version bytes strictly against
+  whatever `networkVersions()` passes in -- always the plain BIP32
+  xpub/tpub bytes -- so any SLIP-132 script-type-prefixed form (a
+  hardware wallet's export screen commonly labels multisig/native-segwit
+  accounts as Zpub/zpub/Ypub/ypub/etc. instead of the generic default)
+  throws immediately, even though the underlying key data is
+  byte-identical -- only the 4 leading version bytes differ. This same
+  bug existed in TWO places, not just the one the operator hit:
+  `legacyOnChainIdentityFromXpub` (new this session) and `importXpub`
+  (`keystore.ts`, the vault-signing-key import path, present since that
+  function was written) -- the latter had an even narrower symptom, since
+  its own prefix regex (`/^[xt]pub|^[XY]pub/`) didn't even recognize
+  zpub/ypub/vpub/upub as valid input at all, and a prefix that DID slip
+  past that check would then fail `HDKey.fromExtendedKey` silently
+  (caught and swallowed), leaving an empty pubkey that only surfaced
+  later as a confusing "missing its pubkey" error at vault-compile time.
+  Fixed with one shared function, not two patches: `normalizeXpub`
+  (`keystore.ts`) decodes the base58check payload, checks the version
+  bytes against the full SLIP-132 public-key table (mainnet and testnet,
+  single-sig and multisig, all ten prefixes), and re-encodes with the
+  plain xpub/tpub version bytes for the target network -- a pure
+  notational conversion, never a different key, verified with a live
+  round-trip in this session (encode a real xpub as a synthetic
+  Zpub/Vpub, normalize it back, confirm byte-identical to the original,
+  and confirm each of the ten version-byte constants independently
+  encodes to its own documented SLIP-132 letter prefix). Wired into both
+  call sites: `importXpub` now normalizes before deriving (and stores
+  the normalized xpub, not the as-typed string -- an output descriptor's
+  script type is already carried by its outer function, `wpkh(...)`/
+  `wsh(...)`, never by the xpub prefix, so plain xpub/tpub is the
+  correct, unambiguous form to persist) and dropped its own narrower,
+  now-redundant prefix regex; `legacyOnChainIdentityFromXpub` normalizes
+  before deriving the identity pubkey. `importXpub`'s previous silent
+  `catch { /* non-standard version bytes */ }` around the whole
+  derivation is gone too -- a genuinely bad xpub now throws a clear error
+  at import time instead of quietly producing a broken key that fails
+  later, matching this repo's fail-loudly-not-silently standard.
+  `scripts/test-legacy-onchain-recovery.mjs` extended with a case
+  proving a SLIP-132 "Vpub"-prefixed xpub derives the identical pubkey
+  as its plain-prefixed form. All four gates green, matching the
+  documented 10/10 baseline exactly.
+
 - **Legacy Recovery: no QR scanner on the hardware-wallet xpub/signature
   fields, forcing manual retyping (2026-08-22).** Operator, after finding
   SeedSigner's custom-derivation xpub export (buried behind an Advanced
