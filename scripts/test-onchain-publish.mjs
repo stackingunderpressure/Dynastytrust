@@ -101,4 +101,53 @@ assert.throws(() => {
   });
 }, /can't cover the estimated fee/);
 
+// ── payTo case: a THIRD-PARTY address (e.g. Legacy Recovery's own
+// on-chain lookup address) gets paid in the SAME transaction as the
+// OP_RETURN -- this is what lets that address's key skip signing a
+// transaction of its own entirely; it only ever needs to appear as an
+// output. ─────────────────────────────────────────────────────────────
+// A genuine testnet P2WPKH address, derived from a second unrelated
+// mnemonic -- not the same key that pays for this transaction.
+const payToMnemonic = generateMnemonic(wordlist);
+const payToSeed = mnemonicToSeedSync(payToMnemonic);
+const payToChild00 = HDKey.fromMasterSeed(payToSeed, { private: 0x04358394, public: 0x043587cf })
+  .derive(derivationPath).deriveChild(0).deriveChild(0);
+const payToAddress = btc.p2wpkh(payToChild00.publicKey, btc.TEST_NETWORK).address;
+const payToUtxo = { txid: 'd'.repeat(64), vout: 0, valueSats: 10_000 };
+const payToBuilt = buildAndSignPublishTx({
+  mnemonic,
+  derivationPath,
+  network,
+  utxo: payToUtxo,
+  opReturnDataHex,
+  feeRateSatsPerVb: 2,
+  payTo: { address: payToAddress, amountSats: 1000 },
+});
+assert.equal(payToBuilt.payToSats, 1000, 'payToSats must reflect the requested amount');
+assert.equal(
+  payToBuilt.feeSats + payToBuilt.changeSats + payToBuilt.payToSats,
+  payToUtxo.valueSats,
+  'fee + change + payTo must account for every satoshi in',
+);
+const payToParsed = btc.Transaction.fromRaw(Uint8Array.from(Buffer.from(payToBuilt.hex, 'hex')), { allowUnknownOutputs: true });
+assert.equal(payToParsed.inputsLength, 1);
+assert.equal(payToParsed.outputsLength, 3, 'OP_RETURN + payTo + change');
+const payToOut = payToParsed.getOutput(1);
+assert.equal(payToOut.amount, 1000n);
+const expectedPayToScript = btc.OutScript.encode(btc.Address(btc.TEST_NETWORK).decode(payToAddress));
+assert.deepEqual(payToOut.script, expectedPayToScript, 'the payTo output must actually pay the requested address');
+
+// A payTo amount below the 294-sat dust threshold must be rejected outright.
+assert.throws(() => {
+  buildAndSignPublishTx({
+    mnemonic,
+    derivationPath,
+    network,
+    utxo: payToUtxo,
+    opReturnDataHex,
+    feeRateSatsPerVb: 2,
+    payTo: { address: payToAddress, amountSats: 100 },
+  });
+}, /below the 294-sat dust threshold/);
+
 console.log('onchain-publish tests passed');

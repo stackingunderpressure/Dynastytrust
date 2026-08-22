@@ -11,17 +11,30 @@ import { generateMnemonic } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english';
 import * as btc from '@scure/btc-signer';
 import { signLegacyOnChainUnlock } from '../apps/web/src/lib/legacy-recovery.ts';
-import { sealAndBuildOnChainPublishTx } from '../apps/web/src/lib/legacy-onchain-recovery.ts';
+import { sealOnChainPayload, toPublishNetwork } from '../apps/web/src/lib/legacy-onchain-recovery.ts';
+import { buildAndSignPublishTx } from '../apps/web/src/lib/onchain-publish.ts';
 
 const network = 'testnet';
 const vaultIndex = 0;
 const mnemonic = generateMnemonic(wordlist);
+const payerMnemonic = generateMnemonic(wordlist); // a totally unrelated, separately funded key
+const payerDerivationPath = "m/86'/1'/0'";
 const bundleText = 'descriptor=tr(TEST_VERIFY_PAYLOAD); policy=or(thresh(2,pk(A),pk(B)),and(after(500000),pk(C)))';
 
-// Build a real signed publish transaction, exactly as the app would.
+// Seal the payload, then build a real signed publish transaction paid
+// for by a totally separate key -- exactly as the app's guided flow
+// does. The identity key never signs a transaction, only ever the
+// message signed below for recovery.
+const { payloadHex, address } = await sealOnChainPayload({ bundleText, mnemonic, network, vaultIndex });
 const utxo = { txid: 'a'.repeat(64), vout: 0, valueSats: 20_000 };
-const { built } = await sealAndBuildOnChainPublishTx({
-  bundleText, mnemonic, network, vaultIndex, utxo, feeRateSatsPerVb: 2,
+const built = buildAndSignPublishTx({
+  mnemonic: payerMnemonic,
+  derivationPath: payerDerivationPath,
+  network: toPublishNetwork(network),
+  utxo,
+  opReturnDataHex: payloadHex,
+  feeRateSatsPerVb: 2,
+  payTo: { address, amountSats: 1000 },
 });
 
 // Extract the OP_RETURN output's scriptPubKey hex from the real signed

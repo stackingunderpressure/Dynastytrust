@@ -465,8 +465,13 @@ See `Stack` above for the layout.
   works fine -- no seed phrase ever typed into a recovery tool) and
   decrypting -- no vault ID, no second key, no combining.
   `LegacyRecoverySetup.tsx` (`/vaults/:id/legacy-recovery`) is the
-  publish side: derive the address, check the chain, fund + build +
-  sign + broadcast the publish transaction, and download a small
+  publish side: derive the address, check the chain, then pick any
+  OTHER already-funded local key to pay for one ordinary transaction
+  that carries the OP_RETURN payload and a small permanent payment to
+  the identity address as its outputs -- the identity key never signs
+  a transaction, only ever the recovery message, and the recovery
+  address only ever needs to appear as an output, never an input, so
+  there's no fund-then-respend two-step. Also downloads a small
   takeaway note (nothing secret in it -- address, vault index,
   derivation path are all public by design) to keep alongside the seed
   phrase. `DescriptorRetrieval.tsx` (`/recover-descriptor`) is the
@@ -596,6 +601,49 @@ on descriptor compile + single-source tree builder. Next phase is the trust
    is higher in the trust layer.
 
 **Recently closed:**
+
+- **Legacy Recovery on-chain publish collapsed from two transactions to
+  one (2026-08-22).** Operator: "Why do I have to fund a UTXO to that
+  address and then craft the transaction and then resend it why can't
+  I just put the op return in the first message that funds it with a
+  small amount of that that's never meant to leave just be the
+  billboard." Correct, and the original design had no real reason for
+  the two-step shape -- it just happened to route the publish
+  transaction's INPUT through the identity address, which meant that
+  address had to hold a UTXO before anything could spend from it, and
+  spending required the identity key to sign a real Bitcoin
+  transaction. Neither is necessary: the scanner
+  (`extractOnChainCandidates`) only needs the identity address to
+  appear SOMEWHERE in a transaction's outputs to find it -- it never
+  cared whether that transaction spent FROM the address too. Redesigned
+  so the identity address is purely a payee: `onchain-publish.ts`'s
+  `buildAndSignPublishTx`/`buildAndSignPublishTxFromKeypair` gained an
+  optional `payTo: { address, amountSats }` third output (dust-floor
+  checked at 294 sats, fee math and the undersized-UTXO error message
+  both updated to account for it) alongside the existing OP_RETURN
+  output and self-change. `legacy-onchain-recovery.ts`'s
+  `sealAndBuildOnChainPublishTx` (which forced the identity key to be
+  both the signer and the spender) is gone, replaced by
+  `sealOnChainPayload` -- pure sealing, no transaction, no keypair
+  beyond the identity's own signature. `LegacyOnChainV2Card`
+  (`LegacyRecoverySetup.tsx`) now asks for a SEPARATE "paying key" (any
+  other already-funded local key) alongside the existing identity-key
+  selector, fetches UTXOs at the payer's own address instead of the
+  identity address, and builds one transaction: OP_RETURN + a small,
+  editable "billboard" payment (1000 sats default, never meant to move
+  again) to the identity address + change back to the payer. Net
+  effect: one signature, one broadcast, and the identity key's only
+  remaining job across its entire lifecycle is signing the recovery
+  MESSAGE, years later -- it never touches transaction-signing logic at
+  all, which is also a smaller attack surface for that key than before.
+  `scripts/test-onchain-publish.mjs` gained payTo-path coverage
+  (correct output count/amounts, dust-floor rejection);
+  `scripts/test-legacy-onchain-recovery.mjs` and
+  `scripts/verify-legacy-recovery-tool.mjs` (the latter against a real
+  signed transaction, same as before) were both rewritten around the
+  new two-function split with a genuinely separate payer key, proving
+  the identity address only ever needs to be an output. All four gates
+  green.
 
 - **Original (v1) Legacy Recovery mechanism retired entirely
   (2026-08-21).** Operator, after the v2 on-chain mechanism shipped

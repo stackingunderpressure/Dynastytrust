@@ -4,10 +4,10 @@ import { api, type Vault } from '../lib/api';
 import { listKeys, revealMnemonic, type LocalKey } from '../lib/keystore';
 import { legacyOnChainDerivationPath, legacyOnChainUnlockMessage } from '../lib/legacy-recovery';
 import { vaultBackupText, downloadLegacyOnChainRecoveryNote } from '../lib/descriptor-backup';
-import { type BuiltPublishTx } from '../lib/onchain-publish';
+import { buildAndSignPublishTx, p2wpkhAddressForPubkey, type BuiltPublishTx } from '../lib/onchain-publish';
 import {
   legacyOnChainLookupAddress,
-  sealAndBuildOnChainPublishTx,
+  sealOnChainPayload,
   fetchLegacyOnChainCandidates,
   toPublishNetwork,
   vaultNetworkToKeystoreNetwork,
@@ -73,10 +73,26 @@ function LegacyOnChainV2Card({ vault, role, defaultVaultIndex, localKeys, toast 
   const [broadcasting, setBroadcasting] = useState(false);
   const [broadcastTxid, setBroadcastTxid] = useState<string | null>(null);
 
+  // The key that PAYS for and signs the publish transaction -- deliberately
+  // separate from the identity key above. It never needs to sign anything
+  // for the recovery mechanism itself; it just funds one ordinary
+  // transaction that happens to carry the OP_RETURN payload and a small,
+  // permanent payment to the identity address as one of its outputs. That
+  // address only ever needs to appear as an OUTPUT of some transaction --
+  // never an input -- so there's no "fund it, wait, then spend from it"
+  // dance: one key, one transaction, one signature.
+  const [billboardKeyId, setBillboardKeyId] = useState('');
+  const [billboardPassword, setBillboardPassword] = useState('');
+  const [billboardAmount, setBillboardAmount] = useState('1000');
+
   const key = localKeys.find(k => k.keyId === keyId) ?? null;
   const needsPassword = !!key && !key.testMnemonic && !!key.encryptedMnemonic;
   const parsedIndex = parseInt(vaultIndex, 10);
   const indexValid = Number.isInteger(parsedIndex) && parsedIndex >= 0;
+
+  const billboardKey = localKeys.find(k => k.keyId === billboardKeyId) ?? null;
+  const billboardNeedsPassword = !!billboardKey && !billboardKey.testMnemonic && !!billboardKey.encryptedMnemonic;
+  const billboardAddress = billboardKey ? p2wpkhAddressForPubkey(billboardKey.pubkey, vault.network) : null;
 
   async function handleCheckAddress() {
     if (!key || !indexValid) return;
@@ -100,11 +116,11 @@ function LegacyOnChainV2Card({ vault, role, defaultVaultIndex, localKeys, toast 
   }
 
   async function fetchUtxosForAddress() {
-    if (!address) return;
+    if (!billboardAddress) return;
     setFetchingUtxos(true);
     setFetchedUtxos(null);
     try {
-      const res = await fetch(`${EXPLORER[vault.network].api}/address/${address}/utxo`);
+      const res = await fetch(`${EXPLORER[vault.network].api}/address/${billboardAddress}/utxo`);
       if (!res.ok) throw new Error('mempool.space lookup failed');
       const utxos = (await res.json()) as Array<{ txid: string; vout: number; value: number }>;
       setFetchedUtxos(utxos);
@@ -123,25 +139,35 @@ function LegacyOnChainV2Card({ vault, role, defaultVaultIndex, localKeys, toast 
   }
 
   async function handleBuildPublishTx() {
-    if (!key || !indexValid) return;
+    if (!key || !billboardKey || !indexValid || !address) return;
     const valueSats = parseInt(utxoValue, 10);
     const vout = parseInt(utxoVout, 10);
     const rate = parseFloat(feeRate);
+    const billboardSats = parseInt(billboardAmount, 10);
     if (!/^[0-9a-fA-F]{64}$/.test(utxoTxid.trim())) { toast.error('UTXO txid should be 64 hex characters.'); return; }
     if (!Number.isFinite(vout) || vout < 0) { toast.error('Invalid vout.'); return; }
     if (!Number.isFinite(valueSats) || valueSats <= 0) { toast.error('Invalid UTXO value (sats).'); return; }
     if (!Number.isFinite(rate) || rate <= 0) { toast.error('Invalid fee rate.'); return; }
+    if (!Number.isInteger(billboardSats) || billboardSats < 294) { toast.error('Payment amount must be at least 294 sats (below that, Bitcoin nodes treat an output as dust).'); return; }
     setBuilding(true);
     try {
       const network = vaultNetworkToKeystoreNetwork(vault.network);
-      const mnemonic = await revealMnemonic(key.keyId, needsPassword ? password : undefined);
-      const { built } = await sealAndBuildOnChainPublishTx({
+      const identityMnemonic = await revealMnemonic(key.keyId, needsPassword ? password : undefined);
+      const { payloadHex } = await sealOnChainPayload({
         bundleText: vaultBackupText(vault),
-        mnemonic,
+        mnemonic: identityMnemonic,
         network,
         vaultIndex: parsedIndex,
+      });
+      const payerMnemonic = await revealMnemonic(billboardKey.keyId, billboardNeedsPassword ? billboardPassword : undefined);
+      const built = buildAndSignPublishTx({
+        mnemonic: payerMnemonic,
+        derivationPath: billboardKey.derivationPath,
+        network: vault.network,
         utxo: { txid: utxoTxid.trim(), vout, valueSats },
+        opReturnDataHex: payloadHex,
         feeRateSatsPerVb: rate,
+        payTo: { address, amountSats: billboardSats },
       });
       setBuiltTx(built);
     } catch (e) {
@@ -279,12 +305,63 @@ function LegacyOnChainV2Card({ vault, role, defaultVaultIndex, localKeys, toast 
               ) : (
                 <div style={{ marginTop: 6, paddingTop: 12, borderTop: `1px solid ${colors.border}` }}>
                   <p style={{ fontSize: 13, color: colors.sub, lineHeight: 1.6, marginBottom: 10 }}>
-                    Nothing published yet at this address. Fund it with a small amount from any wallet
-                    (unrelated to this vault's own funds), then build, sign, and broadcast the
-                    publish transaction below -- entirely from this browser, this key never leaves it.
+                    Nothing published yet. Pick any of your OTHER funded local keys below -- it pays a
+                    small, permanent amount to the address above and carries the encrypted payload,
+                    both as outputs of the SAME transaction. This key above never has to sign a
+                    transaction itself, only ever a message, later, at recovery time.
                   </p>
-                  <Button variant="ghost" size="sm" onClick={fetchUtxosForAddress} disabled={fetchingUtxos} style={{ marginBottom: 10 }}>
-                    {fetchingUtxos ? 'Checking...' : 'Fetch UTXOs for this address'}
+
+                  <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
+                    Paying key (any local key with spendable funds)
+                  </label>
+                  <select
+                    value={billboardKeyId}
+                    onChange={e => { setBillboardKeyId(e.target.value); setFetchedUtxos(null); setBuiltTx(null); }}
+                    style={{
+                      width: '100%', padding: '10px 12px', background: colors.input,
+                      border: `1px solid ${colors.border}`, borderRadius: radii.md,
+                      color: colors.text, fontSize: 16, fontFamily: fonts.sans, marginBottom: 10,
+                    }}
+                  >
+                    <option value="">Choose a local key...</option>
+                    {localKeys.map(k => <option key={k.keyId} value={k.keyId}>{k.label}</option>)}
+                  </select>
+                  {billboardNeedsPassword && (
+                    <input
+                      type="password"
+                      placeholder="Password for this key"
+                      value={billboardPassword}
+                      onChange={e => setBillboardPassword(e.target.value)}
+                      style={{
+                        width: '100%', padding: '10px 12px', background: colors.input,
+                        border: `1px solid ${colors.border}`, borderRadius: radii.md,
+                        color: colors.text, fontSize: 16, fontFamily: fonts.sans,
+                        boxSizing: 'border-box', marginBottom: 10,
+                      }}
+                    />
+                  )}
+                  {billboardAddress && (
+                    <div style={{ fontSize: 12, color: colors.muted, marginBottom: 10 }}>
+                      Fund this key's own address from any wallet, then fetch its UTXOs below:{' '}
+                      <span style={{ fontFamily: fonts.mono, color: colors.sub, wordBreak: 'break-all' }}>{billboardAddress}</span>
+                    </div>
+                  )}
+
+                  <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
+                    Amount to send to the address above (sats -- never meant to move again)
+                  </label>
+                  <input
+                    value={billboardAmount}
+                    onChange={e => { setBillboardAmount(e.target.value.replace(/[^0-9]/g, '')); setBuiltTx(null); }}
+                    style={{
+                      width: 140, padding: '10px 12px', background: colors.input,
+                      border: `1px solid ${colors.border}`, borderRadius: radii.md,
+                      color: colors.text, fontSize: 14, fontFamily: fonts.mono, marginBottom: 10,
+                    }}
+                  />
+
+                  <Button variant="ghost" size="sm" onClick={fetchUtxosForAddress} disabled={fetchingUtxos || !billboardKey} style={{ marginBottom: 10 }}>
+                    {fetchingUtxos ? 'Checking...' : "Fetch UTXOs for the paying key's address"}
                   </Button>
 
                   {fetchedUtxos && fetchedUtxos.length === 0 && (
@@ -359,13 +436,14 @@ function LegacyOnChainV2Card({ vault, role, defaultVaultIndex, localKeys, toast 
                   </div>
 
                   {!builtTx ? (
-                    <Button onClick={handleBuildPublishTx} disabled={building || !utxoTxid.trim() || !utxoValue}>
+                    <Button onClick={handleBuildPublishTx} disabled={building || !billboardKey || !utxoTxid.trim() || !utxoValue}>
                       {building ? 'Building...' : 'Build and sign'}
                     </Button>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                       <div style={{ fontSize: 13, color: colors.sub }}>
-                        Signed and ready. Fee: {builtTx.feeSats} sats. Change back to the same address: {builtTx.changeSats} sats.
+                        Signed and ready. Payment to the recovery address: {builtTx.payToSats ?? 0} sats. Fee: {builtTx.feeSats} sats.
+                        Change back to the paying key's own address: {builtTx.changeSats} sats.
                       </div>
                       <div style={{ display: 'flex', gap: 10 }}>
                         <Button onClick={handleBroadcastPublishTx} disabled={broadcasting}>
