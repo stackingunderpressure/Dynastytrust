@@ -624,6 +624,22 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Legacy Recovery: no "show as QR" option for the hardware-seal
+  message-to-sign box (2026-08-22).** Operator, on the hardware seal
+  flow: "This doesn't have qr for exporting message." Same class of gap
+  as the xpub/signature scanner fix just above, in the opposite
+  direction: `DescriptorRetrieval.tsx`'s recovery-side message box
+  already has a "Show as QR (scan with an airgapped signer)" toggle
+  (`QrImage`) alongside its Copy button, so a hardware wallet that
+  offers "scan a message to sign" doesn't need the message typed in by
+  hand -- `LegacyOnChainV2Card`'s equivalent seal-side box only had
+  Copy. Added the identical toggle, reusing the same `QrImage`
+  component, with the same "if it offers a scan message QR option, scan
+  the code below instead of typing it in by hand" copy the recovery
+  side already uses. Resets when a new nonce is generated, same as the
+  other per-nonce state in that card. All four gates green, matching
+  the documented 10/10 baseline exactly.
+
 - **SLIP-132-prefixed xpubs (zpub, Zpub, ypub, ...) rejected outright as
   a "version mismatch" (2026-08-22).** Operator, after exporting a
   custom-derivation xpub from SeedSigner for the new Legacy Recovery

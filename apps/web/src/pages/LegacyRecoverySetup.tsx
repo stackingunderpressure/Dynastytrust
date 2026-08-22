@@ -20,6 +20,7 @@ import { Button, Card, Textarea } from '../components/ui';
 import { useToast } from '../components/toast';
 import { XpubQrScanner } from '../components/XpubQrScanner';
 import { QrScanner } from '../components/QrScanner';
+import { QrImage } from '../components/QrImage';
 
 // Long-horizon descriptor recovery ("Legacy Recovery" -- see
 // apps/web/src/lib/legacy-recovery.ts's header for the full mechanism):
@@ -93,6 +94,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
   const [hwNonce, setHwNonce] = useState<Uint8Array | null>(null);
   const [hwSignatureInput, setHwSignatureInput] = useState('');
   const [hwScanningSignature, setHwScanningSignature] = useState(false);
+  const [hwShowMessageQr, setHwShowMessageQr] = useState(false);
   const [checking, setChecking] = useState(false);
   const [address, setAddress] = useState<string | null>(null);
   const [candidate, setCandidate] = useState<OnChainCandidate | null>(null);
@@ -190,6 +192,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
     setHwNonce(crypto.getRandomValues(new Uint8Array(12)));
     setHwSignatureInput('');
     setPayloadHex(null);
+    setHwShowMessageQr(false);
   }
 
   async function handleSealHardware() {
@@ -519,7 +522,9 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
                               {legacyOnChainDerivationPath(vaultNetworkToKeystoreNetwork(vault.network))}
                             </code>
                             , using the CLASSIC message-signing method (plain ECDSA), not BIP-322 or a
-                            Taproot-address signature. Then paste the signature it produces below.
+                            Taproot-address signature. If it offers a "scan message QR" option, scan the
+                            code below instead of typing the message in by hand. Then paste the
+                            signature it produces below.
                           </p>
                           <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
                             Message to sign
@@ -530,6 +535,14 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
                               Copy
                             </Button>
                           </div>
+                          <Button variant="ghost" size="sm" onClick={() => setHwShowMessageQr(v => !v)} style={{ marginBottom: 10 }}>
+                            {hwShowMessageQr ? 'Hide QR' : 'Show as QR (scan with an airgapped signer)'}
+                          </Button>
+                          {hwShowMessageQr && (
+                            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}>
+                              <QrImage data={legacyOnChainNonceMessage(hwNonce)} size={220} />
+                            </div>
+                          )}
                           <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
                             Signature
                           </label>
