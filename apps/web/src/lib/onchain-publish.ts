@@ -80,14 +80,19 @@ export interface BuiltPublishTx {
   txid: string;
   feeSats: number;
   changeSats: number;
+  /** Present only when opts.payTo was given -- the amount actually sent to that address. */
+  payToSats?: number;
 }
 
 /**
- * Builds and signs a 1-input, 2-output transaction: an OP_RETURN carrying
- * opReturnDataHex, and the remainder (input minus fee) sent back to the
- * same address as change -- the simplest shape that doesn't require a
- * second address from the caller. Throws if the UTXO can't cover the fee
- * at the given rate (with 0 value left for change).
+ * Builds and signs a transaction carrying an OP_RETURN payload: an
+ * OP_RETURN output, an optional payment to a THIRD-PARTY address
+ * (opts.payTo -- e.g. Legacy Recovery's own on-chain lookup address,
+ * which never needs to sign anything itself this way), and the
+ * remainder sent back to the signing key's own address as change.
+ * Without payTo this is the original 1-input/2-output shape (OP_RETURN
+ * + self-change). Throws if the UTXO can't cover the fee (+ payTo
+ * amount, if given) at the given rate.
  */
 export function buildAndSignPublishTx(opts: {
   mnemonic: string;
@@ -96,22 +101,20 @@ export function buildAndSignPublishTx(opts: {
   utxo: PublishUtxo;
   opReturnDataHex: string;
   feeRateSatsPerVb: number;
+  payTo?: { address: string; amountSats: number };
 }): BuiltPublishTx {
-  const { mnemonic, derivationPath, network, utxo, opReturnDataHex, feeRateSatsPerVb } = opts;
+  const { mnemonic, derivationPath, network, utxo, opReturnDataHex, feeRateSatsPerVb, payTo } = opts;
   const keypair = deriveChild00(mnemonic, derivationPath, network);
-  return buildAndSignPublishTxFromKeypair({ ...keypair, network, utxo, opReturnDataHex, feeRateSatsPerVb });
+  return buildAndSignPublishTxFromKeypair({ ...keypair, network, utxo, opReturnDataHex, feeRateSatsPerVb, payTo });
 }
 
 /**
  * Same transaction shape as buildAndSignPublishTx, but given an
  * already-derived keypair directly rather than deriving one internally
- * from a base path + the fixed /0/0 child convention. Legacy Recovery v2
- * (legacy-onchain-recovery.ts) uses this: its keypair comes from a fully
- * hardened path (legacyOnChainIdentity in legacy-recovery.ts) that this
- * file has no reason to know about -- the two concerns (deriving the
- * RIGHT key, and building a VALID transaction from any key) stay
- * separate. buildAndSignPublishTx above is now a thin wrapper over this
- * for the v1 pad-publish flow, unchanged in behavior.
+ * from a base path + the fixed /0/0 child convention. The two concerns
+ * (deriving the RIGHT key, and building a VALID transaction from any
+ * key) stay separate. buildAndSignPublishTx above is a thin wrapper
+ * over this.
  */
 export function buildAndSignPublishTxFromKeypair(opts: {
   privateKey: Uint8Array;
@@ -120,26 +123,37 @@ export function buildAndSignPublishTxFromKeypair(opts: {
   utxo: PublishUtxo;
   opReturnDataHex: string;
   feeRateSatsPerVb: number;
+  payTo?: { address: string; amountSats: number };
 }): BuiltPublishTx {
-  const { privateKey, publicKey, network, utxo, opReturnDataHex, feeRateSatsPerVb } = opts;
+  const { privateKey, publicKey, network, utxo, opReturnDataHex, feeRateSatsPerVb, payTo } = opts;
   const net = btcNetwork(network);
   const p2wpkh = btc.p2wpkh(publicKey, net);
   if (!p2wpkh.address) throw new Error('Could not derive address');
 
   const opReturnScript = btc.Script.encode(['RETURN', hexToBytes(opReturnDataHex)]);
 
-  // vsize estimate for 1 P2WPKH input + 1 OP_RETURN output + 1 P2WPKH
-  // change output: 1 input (~68 vbytes incl. witness) + 8-byte-overhead
-  // OP_RETURN output (payload + 11) + 31-byte P2WPKH output + ~11 byte
-  // tx overhead. Rounded up generously -- this is a one-off, non-urgent
-  // publish tx, overpaying a few sats is a non-issue.
+  // Dust threshold for a P2WPKH output is 294 sats -- a payTo amount
+  // below that would create a non-standard, likely-unrelayable output.
+  if (payTo && payTo.amountSats < 294) {
+    throw new Error(`payTo amount (${payTo.amountSats} sats) is below the 294-sat dust threshold for a P2WPKH output.`);
+  }
+
+  // vsize estimate: 1 P2WPKH input (~68 vbytes incl. witness) +
+  // 8-byte-overhead OP_RETURN output (payload + 11) + one 31-byte
+  // P2WPKH output per payTo/change output present + ~11 byte tx
+  // overhead. Rounded up generously -- these are one-off, non-urgent
+  // publish txs, overpaying a few sats is a non-issue.
   const dataLen = opReturnDataHex.length / 2;
-  const estVsize = 68 + (11 + dataLen) + 31 + 11;
+  const payToVsize = payTo ? 31 : 0;
+  const estVsize = 68 + (11 + dataLen) + payToVsize + 31 + 11;
   const feeSats = Math.ceil(estVsize * feeRateSatsPerVb);
-  const changeSats = utxo.valueSats - feeSats;
+  const payToSats = payTo?.amountSats ?? 0;
+  const changeSats = utxo.valueSats - feeSats - payToSats;
   if (changeSats < 0) {
     throw new Error(
-      `UTXO (${utxo.valueSats} sats) can't cover the estimated fee (${feeSats} sats at ${feeRateSatsPerVb} sat/vb). Fund with more, or lower the fee rate.`
+      `UTXO (${utxo.valueSats} sats) can't cover the estimated fee${payTo ? ' plus the payment amount' : ''} ` +
+      `(fee ${feeSats} sats at ${feeRateSatsPerVb} sat/vb${payTo ? `, payment ${payToSats} sats` : ''}). ` +
+      `Fund with more, lower the fee rate${payTo ? ', or lower the payment amount' : ''}.`
     );
   }
 
@@ -150,6 +164,9 @@ export function buildAndSignPublishTxFromKeypair(opts: {
     witnessUtxo: { amount: BigInt(utxo.valueSats), script: p2wpkh.script },
   });
   tx.addOutput({ script: opReturnScript, amount: 0n });
+  if (payTo) {
+    tx.addOutputAddress(payTo.address, BigInt(payToSats), net);
+  }
   // Dust threshold for a P2WPKH output is 294 sats -- if change would be
   // below that, let it go to the miner as extra fee instead of creating
   // an unspendable/non-standard output.
@@ -162,8 +179,9 @@ export function buildAndSignPublishTxFromKeypair(opts: {
   return {
     hex: tx.hex,
     txid: tx.id,
-    feeSats: changeSats >= 294 ? feeSats : utxo.valueSats,
+    feeSats: changeSats >= 294 ? feeSats : feeSats + (utxo.valueSats - feeSats - payToSats),
     changeSats: changeSats >= 294 ? changeSats : 0,
+    ...(payTo ? { payToSats } : {}),
   };
 }
 
