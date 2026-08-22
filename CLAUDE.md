@@ -516,12 +516,27 @@ See `Stack` above for the layout.
    paulmillr v2). No CVE pressure; upgrade when a specific feature or fix
    is needed, not on schedule. Cheapest path: browser libs first, then
    bitcoin 0.31 -> 0.32, then miniscript 11 -> 13.
-6. **Legacy Recovery: leaf-list ("generic") vault shape not covered yet.**
-   `LegacyRecoverySetup.tsx` only enumerates founder/backup/heir/
-   second_heir roles -- a vault built on the newer `leaves` shape has no
-   sealing UI. The crypto core (`legacy-recovery.ts`) doesn't care about
-   vault shape at all; this is purely a missing role-enumeration branch in
-   the setup page.
+6. ~~Legacy Recovery: leaf-list ("generic") vault shape not covered yet.~~
+   **Closed 2026-08-22.** Operator, on a custom-shape vault's Legacy
+   Recovery page: "keys not showing up here. Needs to be for any key in
+   the vault." Exactly the gap already named here: `rolesForVault` only
+   ever enumerated `founder_keys`/`backup_keys`/`heir_keys`/
+   `second_heir_keys`, all empty for a `leaves`-shaped vault, so the page
+   fell through to "This vault has no named roles to publish for yet."
+   Added the same `Array.isArray(vault.leaves) && vault.leaves.length > 0`
+   branch used elsewhere in this file's history: one role slot per key in
+   every leaf, keyed off the leaf's own `id`/`label` (`"${leaf.label} ${i
+   + 1}"` when a leaf has more than one key, else just the leaf's own
+   label) rather than a fixed founder/heir shape -- a key reused across
+   leaves gets one slot per leaf it actually appears in, the same pattern
+   vault-membership grants already use for this vault shape. `role` (the
+   slot's string id) was confirmed to be pure display/iteration state
+   nowhere else in the file -- never persisted or matched against a fixed
+   enum -- so widening it needed no other change: `LegacyOnChainV2Card`,
+   the derivation path, sealing, and publish flow are all already fully
+   generic per-key mechanics untouched by this fix. Named-field vaults are
+   byte-for-byte unchanged. All four gates green, matching the documented
+   10/10 baseline exactly.
 7. ~~Legacy Recovery: on-chain publication of the pad.~~ **Closed
    2026-08-18.** `LegacyRecoverySetup.tsx` now shows the on-chain share as
    an OP_RETURN-ready hex payload with instructions for embedding it via
