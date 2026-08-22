@@ -609,6 +609,66 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **QR scanning reliability + live feedback, fixed everywhere at once
+  (2026-08-22).** Operator: "When scanning qr it is very finicky is
+  there any improvements we can do to make it better and show better
+  progress or if it's even reading the xpub. Fix every where not just
+  one place." Audit found four independent hand-rolled camera-scanning
+  implementations across the app (`QrScanner.tsx`, `PsbtQrScanner.tsx`,
+  `XpubQrScanner.tsx`, plus the standalone offline tool's own copy in
+  `tools/legacy-recovery/recover.ts`) -- each with its own copy-pasted
+  `getUserMedia`/`requestAnimationFrame`/jsQR loop, no video quality
+  constraints beyond `facingMode: 'environment'`, and zero on-screen
+  feedback before a code either decoded or the whole thing errored out.
+  Two root causes, both fixed at the source instead of patched per
+  site: (1) the DEFAULT unconstrained camera stream on many phones is
+  low enough resolution that a dense QR (a descriptor-bearing xpub
+  export, a UR PSBT fragment) is genuinely too blurry for jsQR to ever
+  lock onto -- not a decoder bug; (2) a scanner that hadn't found a code
+  yet showed nothing but the raw video feed, so "is it even reading"
+  had no honest answer on screen. New `apps/web/src/components/
+  useQrCameraLoop.ts` is the ONE camera-capture-plus-decode
+  implementation now shared by all three React scanners: requests an
+  ideal 1280x1280 stream with continuous autofocus where supported,
+  falling back to a plain request if a browser rejects the richer
+  constraint set outright (some throw `OverconstrainedError` instead of
+  silently ignoring an unsupported `advanced` entry); reads its
+  `onFrame` callback via a ref rather than a `useEffect` dependency, so
+  a fresh inline handler on every parent re-render (the ordinary React
+  pattern, and what all three components were already doing) can never
+  tear down and restart the camera mid-scan; and exposes `scanning` +
+  `elapsedMs` so every caller can show a live "Scanning... Ns" line
+  (new `QrScanStatus.tsx`) that starts the moment the camera opens, not
+  only once a fragment decodes -- past 5 seconds it adds a concrete
+  nudge (fill the frame, hold steady, check the lighting) aimed at the
+  two things that actually cause most failed scans. `QrScanner.tsx`,
+  `PsbtQrScanner.tsx`, and `XpubQrScanner.tsx` were all rebuilt on the
+  shared hook, keeping each one's own decode logic (UR reassembly,
+  PSBT-magic detection, `parseXpubText`) layered on top -- the
+  duplicated camera plumbing is gone, a future camera fix now lands in
+  one file instead of three. Separately, `InviteClaim.tsx`'s hardware-
+  key-import scanner was still wired to the plain `QrScanner` (no UR
+  support, and its own hand-rolled `applyScan` didn't even parse a
+  BIP-380 `[fingerprint/path]xpub...` key-origin string, just dumped
+  whatever text it scanned into the xpub field) despite `XpubQrScanner`
+  -- built for the exact same "scan an xpub" job in `KeyManager.tsx`/
+  `VaultWizard.tsx` -- already handling key-origin strings, bare xpubs,
+  JSON, and UR-reassembled multi-fragment scans correctly. Swapped to
+  `XpubQrScanner` directly rather than teaching the dumb component UR
+  parsing a fourth time; this was very likely the direct cause of "is
+  it even reading the xpub" for that page specifically. The standalone
+  offline tool's hand-rolled scanner (no React runtime available to
+  share the hook with) got the equivalent fixes applied by hand: the
+  same resolution/autofocus constraints with the same fallback, and a
+  live status line wired into `template.html`
+  (`#signature-scan-status`, replacing the now-unused hidden
+  `#signature-scan-canvas` element -- the canvas is created offscreen
+  in JS instead, matching the hook's approach). Rebuilt and re-verified
+  against a real signed transaction (`verify-legacy-recovery-tool.mjs`,
+  unaffected by this change since it drives the non-camera decode path
+  -- camera capture itself can't be exercised headlessly). All four
+  gates green, matching the documented 10/10 baseline exactly.
+
 - **Legacy Recovery: standalone tool silently failed to decode when given
   the raw payload hex instead of the real scriptPubKey (2026-08-22).**
   Caught live: the operator pasted the hex from the newly-added "Seal

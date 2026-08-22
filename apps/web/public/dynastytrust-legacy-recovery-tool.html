@@ -95,8 +95,8 @@
     <button class="secondary" id="signature-scan-start" type="button">Scan signature QR</button>
     <div class="scan-wrap" id="signature-scan-wrap">
       <video id="signature-scan-video" playsinline muted></video>
-      <canvas id="signature-scan-canvas" style="display:none"></canvas>
     </div>
+    <div id="signature-scan-status" style="display:none; text-align:center; font-size:12px; color:#9994A8; margin-top:6px;"></div>
     <button class="secondary" id="signature-scan-cancel" type="button" style="display:none">Cancel scan</button>
   </fieldset>
   <button class="run" id="run">Recover</button>
@@ -18387,13 +18387,33 @@ nonce: ${bytesToHex2(nonce)}`;
   }
   var signatureScanStream = null;
   var signatureScanRaf = null;
+  var signatureScanStartedAt = 0;
+  var signatureScanStatusTimer = null;
   function stopSignatureScan() {
     if (signatureScanRaf != null) cancelAnimationFrame(signatureScanRaf);
     signatureScanRaf = null;
+    if (signatureScanStatusTimer != null) window.clearInterval(signatureScanStatusTimer);
+    signatureScanStatusTimer = null;
     signatureScanStream?.getTracks().forEach((t) => t.stop());
     signatureScanStream = null;
     $("signature-scan-wrap").style.display = "none";
+    $("signature-scan-status").style.display = "none";
     $("signature-scan-cancel").style.display = "none";
+  }
+  async function requestSignatureScanStream() {
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: "environment",
+          width: { ideal: 1280 },
+          height: { ideal: 1280 },
+          advanced: [{ focusMode: "continuous" }]
+        },
+        audio: false
+      });
+    } catch {
+      return navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+    }
   }
   async function startSignatureScan() {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -18402,11 +18422,12 @@ nonce: ${bytesToHex2(nonce)}`;
     }
     const wrap2 = $("signature-scan-wrap");
     const video = $("signature-scan-video");
-    const canvas = $("signature-scan-canvas");
+    const status = $("signature-scan-status");
+    const canvas = document.createElement("canvas");
     wrap2.style.display = "block";
     $("signature-scan-cancel").style.display = "inline-block";
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+      const stream = await requestSignatureScanStream();
       signatureScanStream = stream;
       video.srcObject = stream;
       await video.play();
@@ -18415,6 +18436,13 @@ nonce: ${bytesToHex2(nonce)}`;
       stopSignatureScan();
       return;
     }
+    signatureScanStartedAt = Date.now();
+    status.style.display = "block";
+    status.textContent = "Scanning... 0s";
+    signatureScanStatusTimer = window.setInterval(() => {
+      const seconds = Math.floor((Date.now() - signatureScanStartedAt) / 1e3);
+      status.textContent = seconds >= 5 ? `Scanning... ${seconds}s -- still looking, make sure the whole QR code fills the frame, hold steady, and check the lighting.` : `Scanning... ${seconds}s`;
+    }, 500);
     const tick = () => {
       if (!signatureScanStream) return;
       if (video.readyState === video.HAVE_ENOUGH_DATA) {
