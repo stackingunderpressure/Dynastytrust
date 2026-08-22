@@ -32,6 +32,20 @@
     background: #C9A84C; color: #0A0A0F; border: none; border-radius: 8px;
     padding: 12px 20px; font-size: 15px; font-weight: 700; cursor: pointer; margin-top: 16px;
   }
+  button.secondary {
+    background: #161622; color: #E8E4D8; border: 1px solid #2A2A3A; border-radius: 8px;
+    padding: 10px 16px; font-size: 14px; cursor: pointer; margin-top: 10px;
+  }
+  .qr-wrap {
+    display: none; margin-top: 10px; text-align: center;
+    background: #FFFFFF; padding: 12px; border-radius: 8px; max-width: 244px;
+  }
+  .qr-wrap img { display: block; width: 100%; height: auto; }
+  .scan-wrap {
+    display: none; margin-top: 10px; max-width: 320px; aspect-ratio: 1 / 1;
+    border-radius: 8px; overflow: hidden; border: 1px solid #2A2A3A; background: #000;
+  }
+  .scan-wrap video { width: 100%; height: 100%; object-fit: cover; display: block; }
   #result {
     width: 100%; box-sizing: border-box; min-height: 220px; margin-top: 24px;
     background: #161622; border: 1px solid #2A2A3A; border-radius: 8px;
@@ -64,6 +78,8 @@
     <input id="vault-index" placeholder="0">
     <label for="message">Message to sign (updates as you fill in the index above)</label>
     <textarea id="message" readonly></textarea>
+    <button class="secondary" id="message-qr-toggle" type="button">Show as QR (scan with an airgapped signer)</button>
+    <div class="qr-wrap" id="message-qr-wrap"><img id="message-qr-img" alt="Message QR"></div>
   </fieldset>
   <fieldset>
     <legend>The on-chain transaction</legend>
@@ -73,7 +89,13 @@
   <fieldset>
     <legend>Your signature</legend>
     <label for="signature">Signature (base64 or hex, from your hardware wallet)</label>
-    <textarea id="signature" placeholder="paste the signature your wallet produced"></textarea>
+    <textarea id="signature" placeholder="paste the signature your wallet produced, or scan its QR below"></textarea>
+    <button class="secondary" id="signature-scan-start" type="button">Scan signature QR</button>
+    <div class="scan-wrap" id="signature-scan-wrap">
+      <video id="signature-scan-video" playsinline muted></video>
+      <canvas id="signature-scan-canvas" style="display:none"></canvas>
+    </div>
+    <button class="secondary" id="signature-scan-cancel" type="button" style="display:none">Cancel scan</button>
   </fieldset>
   <button class="run" id="run">Recover</button>
 
