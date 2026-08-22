@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, type Vault } from '../lib/api';
 import { listKeys, revealMnemonic, type LocalKey } from '../lib/keystore';
-import { legacyOnChainDerivationPath, legacyOnChainIdentityFromXpub, legacyOnChainNonceMessage, parseUnlockSignature } from '../lib/legacy-recovery';
+import { legacyOnChainDerivationPath, legacyOnChainIdentityFromXpub, legacyOnChainNonceMessage, seedSignerMessageQrPayload, parseUnlockSignature } from '../lib/legacy-recovery';
 import { vaultBackupText, downloadLegacyOnChainRecoveryNote } from '../lib/descriptor-backup';
 import { buildAndSignPublishTx, p2wpkhAddressForPubkey, type BuiltPublishTx } from '../lib/onchain-publish';
 import {
@@ -540,7 +540,13 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
                           </Button>
                           {hwShowMessageQr && (
                             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}>
-                              <QrImage data={legacyOnChainNonceMessage(hwNonce)} size={220} />
+                              <QrImage
+                                data={seedSignerMessageQrPayload(
+                                  legacyOnChainDerivationPath(vaultNetworkToKeystoreNetwork(vault.network)),
+                                  legacyOnChainNonceMessage(hwNonce),
+                                )}
+                                size={220}
+                              />
                             </div>
                           )}
                           <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>

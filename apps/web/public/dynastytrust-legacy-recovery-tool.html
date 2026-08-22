@@ -78,6 +78,11 @@
 
   <fieldset>
     <legend>The on-chain transaction</legend>
+    <label for="network">Network this vault's descriptor was published on (only used to fill in the coin-type digit in the derivation path below and in the "Sign Message" QR)</label>
+    <select id="network">
+      <option value="mainnet">Mainnet</option>
+      <option value="testnet" selected>Testnet / Signet</option>
+    </select>
     <label for="scriptpubkey">OP_RETURN output's scriptPubKey (hex, from a block explorer -- starts with "6a"). If you instead have the raw payload hex from DynastyTrust's "Seal payload" step, that also works.</label>
     <textarea id="scriptpubkey" placeholder="6a4c..."></textarea>
   </fieldset>
@@ -14757,6 +14762,54 @@
     afn(fn);
     return { encode: (from) => from, decode: (to) => fn(to) };
   }
+  function convertRadix(data, from, to) {
+    if (from < 2)
+      throw new Error(`convertRadix: invalid from=${from}, base cannot be less than 2`);
+    if (to < 2)
+      throw new Error(`convertRadix: invalid to=${to}, base cannot be less than 2`);
+    aArr(data);
+    if (!data.length)
+      return [];
+    let pos = 0;
+    const res = [];
+    const digits = Array.from(data, (d) => {
+      anumber2(d);
+      if (d < 0 || d >= from)
+        throw new Error(`invalid integer: ${d}`);
+      return d;
+    });
+    const dlen = digits.length;
+    while (true) {
+      let carry = 0;
+      let done = true;
+      for (let i = pos; i < dlen; i++) {
+        const digit = digits[i];
+        const fromCarry = from * carry;
+        const digitBase = fromCarry + digit;
+        if (!Number.isSafeInteger(digitBase) || fromCarry / from !== carry || digitBase - digit !== fromCarry) {
+          throw new Error("convertRadix: carry overflow");
+        }
+        const div = digitBase / to;
+        carry = digitBase % to;
+        const rounded = Math.floor(div);
+        digits[i] = rounded;
+        if (!Number.isSafeInteger(rounded) || rounded * to + carry !== digitBase)
+          throw new Error("convertRadix: carry overflow");
+        if (!done)
+          continue;
+        else if (!rounded)
+          pos = i;
+        else
+          done = false;
+      }
+      res.push(carry);
+      if (done)
+        break;
+    }
+    for (let i = 0; i < data.length - 1 && data[i] === 0; i++)
+      res.push(0);
+    return res.reverse();
+  }
   var gcd = (a, b) => b === 0 ? a : gcd(b, a % b);
   var radix2carry = /* @__NO_SIDE_EFFECTS__ */ (from, to) => from + (to - gcd(from, to));
   var powers = /* @__PURE__ */ (() => {
@@ -14804,6 +14857,22 @@
     return res;
   }
   // @__NO_SIDE_EFFECTS__
+  function radix(num2) {
+    anumber2(num2);
+    const _256 = 2 ** 8;
+    return {
+      encode: (bytes) => {
+        if (!isBytes2(bytes))
+          throw new Error("radix.encode input should be Uint8Array");
+        return convertRadix(Array.from(bytes), _256, num2);
+      },
+      decode: (digits) => {
+        anumArr("radix.decode", digits);
+        return Uint8Array.from(convertRadix(digits, num2, _256));
+      }
+    };
+  }
+  // @__NO_SIDE_EFFECTS__
   function radix2(bits, revPadding = false) {
     anumber2(bits);
     if (bits <= 0 || bits > 32)
@@ -14822,6 +14891,36 @@
       }
     };
   }
+  function checksum(len, fn) {
+    anumber2(len);
+    afn(fn);
+    return {
+      encode(data) {
+        if (!isBytes2(data))
+          throw new Error("checksum.encode: input should be Uint8Array");
+        const sum = fn(data).slice(0, len);
+        const res = new Uint8Array(data.length + len);
+        res.set(data);
+        res.set(sum, data.length);
+        return res;
+      },
+      decode(data) {
+        if (!isBytes2(data))
+          throw new Error("checksum.decode: input should be Uint8Array");
+        const payload = data.slice(0, -len);
+        const oldChecksum = data.slice(-len);
+        const newChecksum = fn(payload).slice(0, len);
+        for (let i = 0; i < len; i++)
+          if (newChecksum[i] !== oldChecksum[i])
+            throw new Error("Invalid checksum");
+        return payload;
+      }
+    };
+  }
+  var genBase58 = /* @__NO_SIDE_EFFECTS__ */ (abc) => /* @__PURE__ */ chain(/* @__PURE__ */ radix(58), /* @__PURE__ */ alphabet(abc), /* @__PURE__ */ join(""));
+  var base58 = /* @__PURE__ */ genBase58("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz");
+  var createBase58check = (sha2563) => /* @__PURE__ */ chain(checksum(4, (data) => sha2563(sha2563(data))), base58);
+  var base58check = createBase58check;
   var hasHexBuiltin2 = /* @__PURE__ */ (() => typeof Uint8Array.from([]).toHex === "function" && typeof Uint8Array.fromHex === "function")();
   var hexBuiltin = {
     encode(data) {
@@ -16892,7 +16991,12 @@ zero
 zone
 zoo`.split("\n");
 
+  // apps/web/src/lib/keystore.ts
+  var xpubBase58check = base58check(sha2562);
+
   // apps/web/src/lib/legacy-recovery.ts
+  var LEGACY_PURPOSE = "84'";
+  var LEGACY_ACCOUNT_NUMBER = 9e5;
   function bytesToHex2(bytes) {
     return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
   }
@@ -16936,9 +17040,16 @@ zoo`.split("\n");
     );
     return new TextDecoder().decode(plain);
   }
+  function legacyOnChainDerivationPath(network) {
+    const coin = network === "mainnet" ? "0" : "1";
+    return `m/${LEGACY_PURPOSE}/${coin}'/${LEGACY_ACCOUNT_NUMBER}'/1/0`;
+  }
   function legacyOnChainNonceMessage(nonce) {
     return `DynastyTrust Legacy Recovery v2
 nonce: ${bytesToHex2(nonce)}`;
+  }
+  function seedSignerMessageQrPayload(derivationPath, message) {
+    return `signmessage ${derivationPath} ascii:${message}`;
   }
   var LEGACY_ONCHAIN_KEY_TAG = "dynastytrust-legacy-v2-key";
   function deriveLegacyOnChainKey(signature) {
@@ -18368,8 +18479,10 @@ nonce: ${bytesToHex2(nonce)}`;
       return;
     }
     const message = $("message").value;
-    if (!message || message.startsWith("(fill in")) return;
-    const url = await import_qrcode.default.toDataURL(message, {
+    if (!message || message.startsWith("(fill in") || message.startsWith("(paste")) return;
+    const network = $("network").value;
+    const qrPayload = seedSignerMessageQrPayload(legacyOnChainDerivationPath(network), message);
+    const url = await import_qrcode.default.toDataURL(qrPayload, {
       width: 220,
       margin: 3,
       errorCorrectionLevel: "L",

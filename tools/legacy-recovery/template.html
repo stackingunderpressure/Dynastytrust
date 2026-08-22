@@ -78,6 +78,11 @@
 
   <fieldset>
     <legend>The on-chain transaction</legend>
+    <label for="network">Network this vault's descriptor was published on (only used to fill in the coin-type digit in the derivation path below and in the "Sign Message" QR)</label>
+    <select id="network">
+      <option value="mainnet">Mainnet</option>
+      <option value="testnet" selected>Testnet / Signet</option>
+    </select>
     <label for="scriptpubkey">OP_RETURN output's scriptPubKey (hex, from a block explorer -- starts with "6a"). If you instead have the raw payload hex from DynastyTrust's "Seal payload" step, that also works.</label>
     <textarea id="scriptpubkey" placeholder="6a4c..."></textarea>
   </fieldset>

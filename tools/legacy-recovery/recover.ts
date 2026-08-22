@@ -38,12 +38,15 @@ import QRCode from 'qrcode';
 import jsQR from 'jsqr';
 import {
   legacyOnChainNonceMessage,
+  legacyOnChainDerivationPath,
+  seedSignerMessageQrPayload,
   parseUnlockSignature,
   recoverViaOnChainPath,
   decodeOnChainPayload,
   unb64,
 } from '../../apps/web/src/lib/legacy-recovery';
 import { extractOnChainCandidates, type OnChainCandidate } from '../../apps/web/src/lib/legacy-onchain-recovery';
+import type { Network } from '../../apps/web/src/lib/keystore';
 import { hexToBytes } from '../../apps/web/src/lib/onchain-publish';
 
 /**
@@ -130,8 +133,16 @@ async function toggleMessageQr(): Promise<void> {
     return;
   }
   const message = ($('message') as HTMLTextAreaElement).value;
-  if (!message || message.startsWith('(fill in')) return;
-  const url = await QRCode.toDataURL(message, {
+  if (!message || message.startsWith('(fill in') || message.startsWith('(paste')) return;
+  // SeedSigner's camera-scan "Sign Message" input expects a specific
+  // plain-text QR payload ("signmessage <path> ascii:<message>"), not
+  // the bare message alone -- see seedSignerMessageQrPayload's header
+  // comment. The derivation path needs a real coin-type digit, which
+  // this offline tool has no other source for besides the network
+  // select above (it never talks to the network itself).
+  const network = ($('network') as HTMLSelectElement).value as Network;
+  const qrPayload = seedSignerMessageQrPayload(legacyOnChainDerivationPath(network), message);
+  const url = await QRCode.toDataURL(qrPayload, {
     width: 220, margin: 3, errorCorrectionLevel: 'L',
     color: { dark: '#000000', light: '#FFFFFF' },
   });

@@ -244,6 +244,23 @@ export function legacyOnChainNonceMessage(nonce: Uint8Array): string {
 }
 
 /**
+ * SeedSigner's camera-scan "Sign Message" input expects a specific
+ * plain-text QR payload, not the bare message alone -- confirmed live
+ * against a real device (2026-08-22, "that QR form format for the
+ * message is not supported") and against SeedSigner's own QR decoder
+ * (DecodeQR.detect_segment_type / SignMessageQrDecoder.add): the whole
+ * QR content must read exactly `signmessage <derivation path>
+ * ascii:<message>` -- no UR/CBOR framing, no other wrapper, and
+ * `derivationPath` may use either apostrophe or trailing-'h' hardened
+ * notation (SeedSigner accepts both). A QR holding only the bare
+ * message -- what every "show as QR" toggle in this app generated
+ * before this fix -- reads as an unrecognized format on real hardware.
+ */
+export function seedSignerMessageQrPayload(derivationPath: string, message: string): string {
+  return `signmessage ${derivationPath} ascii:${message}`;
+}
+
+/**
  * Derives the identity PUBLIC key at legacyOnChainDerivationPath from an
  * account-level xpub, with no seed or mnemonic at all. The account level
  * (m/84'/coin'/900000') is hardened, but the remaining /1/0 levels are

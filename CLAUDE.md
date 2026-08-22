@@ -624,6 +624,33 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Legacy Recovery: message-to-sign QR used the bare message text,
+  which SeedSigner's camera-scan "Sign Message" input rejects outright
+  (2026-08-22).** Operator, scanning the QR added in the previous fix:
+  "It says on the seed signer that that QR form format for the message
+  is not supported." Grounded directly against SeedSigner's actual QR
+  decoder rather than guessing: `DecodeQR.detect_segment_type` and
+  `SignMessageQrDecoder.add` (SeedSigner source) require the QR's exact
+  literal content to be `signmessage <derivation path> ascii:<message>`
+  -- no UR/CBOR framing, no other wrapper -- and every "show as QR"
+  toggle this app has (`DescriptorRetrieval.tsx`'s recovery side, the
+  new hardware-seal card, and the standalone offline tool) was encoding
+  only the bare message, which SeedSigner's decoder doesn't recognize at
+  all (it isn't a lenient parser -- an unmatched format is rejected, not
+  passed through). New `seedSignerMessageQrPayload(derivationPath,
+  message)` (`legacy-recovery.ts`) builds the exact wire string; wired
+  into all three QR sites so a fix in one place can't drift from the
+  other two again. The standalone tool's `recover.ts` had no notion of
+  which network a share was published on at all (it never makes a
+  network call, so nothing needed it before) -- gained a small Mainnet/
+  Testnet select in `template.html` used only to fill in the derivation
+  path's coin-type digit for the QR. `scripts/test-legacy-recovery.mjs`
+  extended to lock the exact wire format in place, including a check
+  that the message's own embedded newline survives the wrapper
+  unmodified. Rebuilt the standalone tool and re-verified it end to end
+  against a real signed transaction. All four gates green, matching the
+  documented 10/10 baseline exactly.
+
 - **Legacy Recovery: no "show as QR" option for the hardware-seal
   message-to-sign box (2026-08-22).** Operator, on the hardware seal
   flow: "This doesn't have qr for exporting message." Same class of gap

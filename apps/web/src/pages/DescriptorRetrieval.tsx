@@ -3,6 +3,7 @@ import { listAllKeys, revealMnemonic } from '../lib/keystore';
 import {
   legacyOnChainNonceMessage,
   legacyOnChainDerivationPath,
+  seedSignerMessageQrPayload,
   signLegacyOnChainNonce,
   recoverViaOnChainPath,
   parseUnlockSignature,
@@ -253,7 +254,13 @@ export default function DescriptorRetrieval() {
           </Button>
           {showMessageQr && (
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 14 }}>
-              <QrImage data={legacyOnChainNonceMessage(nonce)} size={220} />
+              <QrImage
+                data={seedSignerMessageQrPayload(
+                  legacyOnChainDerivationPath(vaultNetworkToKeystoreNetwork(network)),
+                  legacyOnChainNonceMessage(nonce),
+                )}
+                size={220}
+              />
             </div>
           )}
 
