@@ -25,8 +25,9 @@ const network = 'testnet';
 const pathA = legacyOnChainDerivationPath(network, 0);
 assert.equal(pathA, legacyOnChainDerivationPath(network, 0), 'same (network, vaultIndex) must always derive the same path');
 assert.notEqual(pathA, legacyOnChainDerivationPath(network, 1), 'different vaultIndex must derive a different path');
-assert.equal(pathA, "m/9999'/1'/0'/1'");
-assert.equal(legacyOnChainDerivationPath('mainnet', 0), "m/9999'/0'/0'/1'");
+assert.equal(pathA, "m/84'/1'/900000'/1/0");
+assert.equal(legacyOnChainDerivationPath('mainnet', 0), "m/84'/0'/900000'/1/0");
+assert.equal(legacyOnChainDerivationPath(network, 1), "m/84'/1'/900001'/1/0");
 assert.throws(() => legacyOnChainDerivationPath(network, -1), /non-negative/, 'negative vaultIndex must be rejected');
 assert.throws(() => legacyOnChainDerivationPath(network, 1.5), /whole number/, 'non-integer vaultIndex must be rejected');
 

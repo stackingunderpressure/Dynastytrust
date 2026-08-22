@@ -454,10 +454,12 @@ See `Stack` above for the layout.
   ever running again -- "all you need is your key," no database, no
   shares to combine (see `apps/web/src/lib/legacy-recovery.ts`'s header
   for the full mechanism and CLAUDE.md's "Recently closed" entry below
-  for the design history). Each keyholder derives a fully hardened
-  on-chain address (`m/9999'/coin'/vault-index'/1'` -- computable only
-  from their own seed, never from this vault's xpubs, its descriptor, or
-  anything DynastyTrust stores) and publishes an encrypted copy of the
+  for the design history). Each keyholder derives an on-chain address at
+  a standard-shaped, offset-account path (`m/84'/coin'/(900000+vault
+  index)'/1/0` -- the account level is still hardened, so it's computable
+  only from their own seed, never from this vault's xpubs, its
+  descriptor, or anything DynastyTrust stores) and publishes an encrypted
+  copy of the
   vault's descriptor there via a single OP_RETURN transaction, keyed
   directly by a deterministic signature over one fixed message. Years
   later, recovery is signing that same message again (a hardware
@@ -601,6 +603,69 @@ on descriptor compile + single-source tree builder. Next phase is the trust
    is higher in the trust layer.
 
 **Recently closed:**
+
+- **Legacy Recovery: derivation path reshaped from fully-hardened to
+  standard-shaped with an offset account (2026-08-22).** Operator asked
+  to confirm a described recovery flow ("you put the derivation path at
+  9999... it will show an address, you sign, then you have your
+  descriptor -- is that correct?"). Grounding against SeedSigner's actual
+  source (not memory) found the described flow does NOT work: SeedSigner's
+  message-signing UI (`parse_derivation_path()`) only recognizes the
+  ordinary 5-level BIP44/49/84/86-shaped path (hardened purpose/coin/
+  account, then UNHARDENED change/index) and hard-rejects a custom
+  hardened path like the old `m/9999'/coin'/N'/1'` with "Signing messages
+  for custom derivation paths not supported" -- before ever showing an
+  address or accepting a signature. The underlying signing math is
+  path-agnostic; the rejection is purely a UI-layer whitelist gate, but
+  that gate meant the mechanism's own worked example couldn't actually be
+  carried out on the hardware it exists to support. Operator's follow-up,
+  "what's the downside to moving to a regular derivation path, still
+  hardened but normal," got a direct answer: an unhardened change/index
+  level means anyone holding the ACCOUNT-level xpub (not the master) can
+  compute that address, unlike the old fully-hardened path where nothing
+  short of the seed could. Operator then asked about forking SeedSigner
+  instead to accept the custom path -- researched and found technically
+  feasible (~30-60 lines: a whitelist-gate fix plus deriving through the
+  full hardened private-key chain instead of extending a cached xpub,
+  testable without hardware via SeedSigner's own pytest suite) but
+  recommended against as the FOUNDATION of recovery: reshaping the
+  canonical path and forking firmware to accept the old shape are
+  mutually exclusive fixes (only one path shape can be the one actually
+  published on-chain), and depending on a specific patched firmware fork
+  surviving decades is a worse fit for "works decades from now regardless
+  of what still exists" than closing the narrower xpub-exposure risk
+  directly. Operator agreed ("Yes") to the standard-shaped path.
+  `legacy-recovery.ts`'s `legacyOnChainDerivationPath` now returns
+  `m/84'/coin'/(900000+N)'/1/0` -- the ordinary BIP84 (native segwit)
+  5-level shape, hardened purpose/coin/account and unhardened change/index,
+  recognized by any hardware wallet's message-signing feature as a normal
+  account. The fixed `LEGACY_ACCOUNT_OFFSET` (900,000) is the mitigation
+  for the xpub-exposure question above: it keeps this "recovery account"
+  far outside any real wallet's actively-used low account numbers
+  (routinely exported to watch-only trackers/tax tools) or typical
+  account-level gap-limit auto-discovery ranges, so an attacker would need
+  the SPECIFIC account-level xpub at that exact offset+index, not just
+  "some xpub from this wallet." Change=1 (the internal chain, never a
+  normal receive address) is a further, minor precaution. The old
+  `LEGACY_PURPOSE = "9999'"` reserved-purpose constant is gone (private,
+  now `"84'"` -- a real BIP84 purpose, not a reserved one).
+  `scripts/test-legacy-recovery.mjs`'s hardcoded path assertions,
+  `DescriptorRetrieval.tsx`'s displayed path (now computed via
+  `legacyOnChainDerivationPath` instead of a hardcoded string, so it can't
+  drift from the real function again), and `tools/legacy-recovery/
+  template.html`'s warning-box copy were all updated to match; the
+  standalone offline tool was rebuilt (`node tools/legacy-recovery/
+  build.mjs`) and re-verified end to end against a real signed transaction
+  (byte-identical recovery). `LegacyRecoverySetup.tsx` needed no change --
+  it already computed the path via the function, never hardcoded it.
+  Nothing else about the mechanism changed: the unlock message, the
+  AES-256-GCM sealing, the OP_RETURN payload framing, and the one-
+  transaction billboard-payment publish flow (previous entry) are all
+  untouched -- only the path SHAPE moved, not the account-level hardening
+  that still requires the seed (not the master xpub) to derive. All four
+  gates green; typecheck/lint match the documented pre-existing baseline
+  exactly (10 pre-existing typecheck errors, 10 pre-existing lint
+  warnings), none in any file this change touched.
 
 - **Legacy Recovery on-chain publish collapsed from two transactions to
   one (2026-08-22).** Operator: "Why do I have to fund a UTXO to that
