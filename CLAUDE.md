@@ -624,6 +624,25 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Legacy Recovery: no QR scanner on the hardware-wallet xpub/signature
+  fields, forcing manual retyping (2026-08-22).** Operator, after finding
+  SeedSigner's custom-derivation xpub export (buried behind an Advanced
+  settings toggle -- see the entry below): "I got it on static and then
+  it just wants you to copy and paste. There's actually no scanner mode
+  there." Correct and simple: `LegacyOnChainV2Card`'s hardware-mode xpub
+  field and signature field were both built as plain `<Textarea>` paste
+  boxes with no camera option, even though this app already has two
+  tested, working scanner components built for exactly this -- `XpubQrScanner`
+  (used in `VaultWizard.tsx`/`KeyManager.tsx`/`InviteClaim.tsx`) and
+  `QrScanner` (used in `DescriptorRetrieval.tsx`'s equivalent signature
+  field on the recovery side). Wired both in: a "Scan xpub QR" button
+  toggles `XpubQrScanner` in place of the xpub textarea, and a "Scan
+  signature QR" button does the same for the signature field with the
+  plain `QrScanner`, matching the exact pattern `DescriptorRetrieval.tsx`
+  already established. No new scanning logic -- this was purely a missing
+  wire-up in one page, not a gap in the scanning infrastructure itself.
+  All four gates green, matching the documented 10/10 baseline exactly.
+
 - **Legacy Recovery: on-chain payload framing simplified to nonce +
   ciphertext, no magic bytes or version number (2026-08-22).** Operator,
   working through what has to be gotten right by hand 20 years from now:
