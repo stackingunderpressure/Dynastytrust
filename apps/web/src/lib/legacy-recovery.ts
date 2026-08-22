@@ -244,6 +244,35 @@ export function legacyOnChainNonceMessage(nonce: Uint8Array): string {
 }
 
 /**
+ * Derives the identity PUBLIC key at legacyOnChainDerivationPath from an
+ * account-level xpub, with no seed or mnemonic at all. The account level
+ * (m/84'/coin'/900000') is hardened, but the remaining /1/0 levels are
+ * plain unhardened BIP32 child derivation -- so any xpub exported AT
+ * that exact account (a hardware wallet's ordinary "export xpub for a
+ * custom path" feature, the same kind of export this app already uses
+ * to import a vault-signing key -- see keystore.ts's importXpub) extends
+ * to the identical child pubkey a hardware wallet's "Sign Message"
+ * feature signs against internally. This is deliberately a SEPARATE
+ * export from the vault's own signing xpub: the vault key's xpub lives
+ * at the vault's own hardened path (e.g. m/48'/coin'/0'/2'), and hardened
+ * derivation can't jump from there to m/84'/coin'/900000' without the
+ * seed -- so a hardware-only keyholder (private key never leaves the
+ * device, never mind this browser) needs to export this one specific
+ * account separately, once, to seal a Legacy Recovery share at all.
+ */
+export function legacyOnChainIdentityFromXpub(
+  accountXpub: string,
+  network: Network,
+): { publicKey: Uint8Array } {
+  const hd = HDKey.fromExtendedKey(accountXpub, networkVersions(network));
+  const child = hd.deriveChild(1).deriveChild(0);
+  if (!child.publicKey) {
+    throw new Error('Could not derive a public key from that xpub -- check it is a real extended public key for the right network.');
+  }
+  return { publicKey: child.publicKey };
+}
+
+/**
  * Derives the hardened identity keypair at legacyOnChainDerivationPath.
  * Needs the raw mnemonic (or an equivalent seed) -- this is the ONE
  * moment a software-held key needs its mnemonic for this whole mechanism;
@@ -347,6 +376,27 @@ export async function sealBundleOnChain(
   const key = deriveLegacyOnChainKey(signature);
   const sealed = await sealBundle(bundleText, key, nonce);
   return { sealed, identityPubkey: publicKey };
+}
+
+/**
+ * Seals a bundle using a signature produced OUTSIDE this browser -- a
+ * hardware wallet's own "Sign Message" feature, signing
+ * legacyOnChainNonceMessage(nonce) at legacyOnChainDerivationPath.
+ * Symmetric to sealBundleOnChain, but takes the nonce and signature as
+ * plain inputs instead of a mnemonic, so the private key never has to
+ * exist in this browser at all -- the caller already generated the
+ * nonce (to build the message the hardware wallet signed) and should
+ * already have checked verifyLegacyOnChainNonceSignature against the
+ * claimed identity pubkey before calling this; this function does not
+ * re-check that, it only derives the key and encrypts.
+ */
+export async function sealBundleOnChainExternal(
+  bundleText: string,
+  nonce: Uint8Array,
+  signature: Uint8Array,
+): Promise<SealedBundle> {
+  const key = deriveLegacyOnChainKey(signature);
+  return sealBundle(bundleText, key, nonce);
 }
 
 /**

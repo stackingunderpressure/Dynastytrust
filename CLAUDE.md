@@ -624,6 +624,68 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Legacy Recovery: the hardware wallet that actually signed a vault's
+  spends had no way to seal a Legacy Recovery share at all (2026-08-22).**
+  Operator: "The hardware signer I used to make the vault isn't an option
+  when trying to do long term recovery." Correct and structural, not a
+  small oversight: `LegacyOnChainV2Card`'s key picker only ever listed
+  `listKeys().filter(k => k.origin === 'software')` -- a hardware-wallet-
+  imported key (`origin: 'imported_xpub'`) has no mnemonic in this browser
+  by design, and sealing's only path (`sealBundleOnChain`) required one,
+  since it both derives the identity keypair AND signs internally. Simply
+  widening the filter would have offered a key sealing could never
+  actually use. The recovery (unsealing) side already solved the
+  equivalent problem for hardware wallets -- `DescriptorRetrieval.tsx`
+  accepts a signature produced externally by a hardware wallet's own
+  "Sign Message" feature and pasted back in, no local key needed -- but
+  sealing has one extra requirement recovery doesn't: it has to know the
+  identity PUBLIC key up front (to compute the address to publish to),
+  whereas recovery just takes a manually-entered address and lets a wrong
+  signature fail the AEAD decrypt honestly. Considered and rejected: ECDSA
+  public-key recovery from the BIP-137 signature header (skips needing an
+  xpub at all, but the header-byte convention for recovery id + compression
+  varies across wallet vendors for P2SH-segwit/bech32 signing, and getting
+  that subtly wrong in money-touching code is exactly the kind of mistake
+  this repo's engineering doctrine warns against) -- rejected as needless
+  risk when a strictly safer option existed. Built instead:
+  `legacyOnChainIdentityFromXpub` (`legacy-recovery.ts`) derives the exact
+  same identity pubkey `legacyOnChainIdentity` derives from a mnemonic, but
+  from an account-level xpub instead -- valid because only the account
+  level (`m/84'/coin'/900000'`) is hardened; the remaining `/1/0` levels are
+  plain unhardened BIP32 child derivation, so a SEPARATE xpub exported at
+  that exact account (the same kind of "export an xpub at a custom path"
+  operation hardware wallets already support, and this app already uses
+  for vault-signing-key import) reaches the identical child pubkey a
+  hardware wallet's "Sign Message" feature signs against internally --
+  with no ECDSA recovery, no header-byte parsing, reusing
+  `verifyLegacyOnChainNonceSignature`'s existing, already-tested
+  ordinary-verify check unchanged. `sealBundleOnChainExternal` seals given
+  a nonce and a signature directly (skipping the mnemonic-derivation step
+  `sealBundleOnChain` does internally); `sealOnChainPayloadExternal`
+  (`legacy-onchain-recovery.ts`) wires both together and verifies the
+  signature against the xpub-derived pubkey BEFORE sealing, so a wrong
+  xpub or a signature over the wrong nonce fails loudly there rather than
+  silently producing an unrecoverable share. `LegacyOnChainV2Card` gained a
+  mode toggle ("Software key in this browser" / "Hardware wallet"): the
+  hardware path asks for the account xpub (with the exact path spelled
+  out, explicitly NOT the vault's own signing xpub), derives the address
+  and checks the chain the same as before, then -- once ready to seal --
+  generates a nonce client-side, shows the exact message to sign (the
+  same digest DescriptorRetrieval.tsx already asks a hardware wallet to
+  sign), and accepts the pasted-back signature via the same
+  `parseUnlockSignature` the recovery side already uses (BIP-137 or bare
+  64-byte). Everything downstream of "we have an address" -- the download
+  note, the publish flow, paying-key selection, broadcast -- is unchanged
+  and now shared by both modes, since none of it cared how the identity
+  was derived. `scripts/test-legacy-onchain-recovery.mjs` extended with a
+  full round-trip proof: an xpub derived from the SAME seed used
+  elsewhere in the test produces the identical pubkey
+  `legacyOnChainIdentity` does, an externally-produced signature seals a
+  bundle that recovers byte-identical to the original, and sealing with a
+  signature over the wrong nonce is rejected up front rather than
+  producing a dead share. All four gates green, matching the documented
+  10/10 baseline exactly.
+
 - **Vault Detail phase card / role hint / spending-paths tree showed
   bogus "2 of 0" quorums and a phantom triggered inheritance path for
   generic leaf-list vaults (2026-08-22).** Operator, on a screenshot of

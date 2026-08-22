@@ -16,23 +16,31 @@
 // flow any more -- one seed, one fixed address, the nonce alone
 // separates one seal from the next.
 import assert from 'node:assert/strict';
-import { generateMnemonic } from '@scure/bip39';
+import { generateMnemonic, mnemonicToSeedSync } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english';
+import { HDKey } from '@scure/bip32';
 import * as btc from '@scure/btc-signer';
 import {
   legacyOnChainLookupAddress,
   sealOnChainPayload,
+  sealOnChainPayloadExternal,
   extractOnChainCandidates,
   toPublishNetwork,
 } from '../apps/web/src/lib/legacy-onchain-recovery.ts';
 import {
   legacyOnChainIdentity,
+  legacyOnChainIdentityFromXpub,
+  legacyOnChainDerivationPath,
+  legacyOnChainNonceMessage,
   signLegacyOnChainNonce,
   verifyLegacyOnChainNonceSignature,
   recoverViaOnChainPath,
+  bitcoinMessageDigest,
   unb64,
 } from '../apps/web/src/lib/legacy-recovery.ts';
 import { p2wpkhAddressForPubkey, buildAndSignPublishTx } from '../apps/web/src/lib/onchain-publish.ts';
+import { secp256k1 } from '@noble/curves/secp256k1';
+import { networkVersions } from '../apps/web/src/lib/keystore.ts';
 
 const network = 'testnet';
 const mnemonic = generateMnemonic(wordlist); // the keyholder whose vault descriptor this seals
@@ -137,6 +145,75 @@ assert.deepEqual(
   extractOnChainCandidates([...junkTxs, ...mempoolShapedTxs]).map(c => c.txid),
   [built.txid],
   'a mixed list of junk and a real payload must surface only the real one',
+);
+
+// ── Hardware-wallet seal path: no mnemonic touches sealOnChainPayloadExternal
+// at all -- only an account-level xpub (what a hardware wallet exports for
+// legacyOnChainDerivationPath's parent account, m/84'/coin'/900000') and a
+// signature "produced" externally (simulated here by signing with the same
+// keypair, standing in for a hardware wallet's own "Sign Message" feature --
+// the point being proven is that the LIBRARY needs nothing but the xpub and
+// the signature, not that this specific signature came from real hardware).
+const seed = mnemonicToSeedSync(mnemonic);
+const root = HDKey.fromMasterSeed(seed, networkVersions(network));
+const coin = network === 'mainnet' ? '0' : '1';
+const accountXpub = root.derive(`m/84'/${coin}'/900000'`).publicExtendedKey;
+
+// legacyOnChainIdentityFromXpub must derive the exact same child pubkey as
+// the mnemonic-based legacyOnChainIdentity -- same key, two different ways
+// to get there (with vs. without the seed).
+const { publicKey: xpubDerivedPubkey } = legacyOnChainIdentityFromXpub(accountXpub, network);
+assert.deepEqual(
+  Array.from(xpubDerivedPubkey),
+  Array.from(identityPubkey),
+  'an xpub exported at the fixed Legacy Recovery account must derive the identical child pubkey the mnemonic-based path derives',
+);
+
+const hwNonce = crypto.getRandomValues(new Uint8Array(12));
+// Stand-in for "sign this message on your hardware wallet's screen":
+// the exact same classic-message-signing digest DescriptorRetrieval.tsx
+// asks a real hardware wallet to sign, produced here with the identity
+// keypair's own private key rather than real hardware.
+const hwDigest = bitcoinMessageDigest(legacyOnChainNonceMessage(hwNonce));
+const { privateKey: identityPrivateKey } = legacyOnChainIdentity(mnemonic, network);
+const hwSignature = secp256k1.sign(hwDigest, identityPrivateKey).toCompactRawBytes();
+assert.equal(
+  verifyLegacyOnChainNonceSignature(hwSignature, xpubDerivedPubkey, hwNonce),
+  true,
+  'a signature produced externally over the correct nonce must verify against the xpub-derived pubkey',
+);
+
+const externalSealed = await sealOnChainPayloadExternal({
+  bundleText, accountXpub, nonce: hwNonce, signature: hwSignature, network,
+});
+assert.equal(externalSealed.address, lookupAddress, 'the hardware-sealed payload\'s address must match the same fixed lookup address');
+assert.equal(externalSealed.identityPubkeyHex, identityPubkeyHex);
+
+// Recovery doesn't care how a share was sealed -- decode the external
+// payload the same way a real scanner would and recover it with an
+// independently re-signed nonce, same as the mnemonic-sealed case above.
+// Uses btc.Script.encode (the exact inverse of extractOnChainCandidates'
+// own btc.Script.decode) to build the OP_RETURN script, rather than
+// hand-computing push-length bytes, which would risk a framing bug in
+// the TEST rather than proving anything about the real code.
+const externalOpReturnScript = btc.Script.encode(['RETURN', Uint8Array.from(Buffer.from(externalSealed.payloadHex, 'hex'))]);
+const externalScanned = extractOnChainCandidates([{
+  txid: 'd'.repeat(64),
+  vout: [{ scriptpubkey_type: 'op_return', scriptpubkey: Array.from(externalOpReturnScript).map(b => b.toString(16).padStart(2, '0')).join('') }],
+}]);
+assert.equal(externalScanned.length, 1, 'a hardware-sealed payload must scan the same way a software-sealed one does');
+const externalFoundNonce = unb64(externalScanned[0].sealed.nonceB64);
+const externalRecoverySignature = signLegacyOnChainNonce(mnemonic, network, externalFoundNonce);
+const externalRecovered = await recoverViaOnChainPath(externalRecoverySignature, externalScanned[0].sealed);
+assert.equal(externalRecovered, bundleText, 'a bundle sealed via the hardware-wallet (xpub + external signature) path must recover byte-identical to the original');
+
+// Sealing with a signature over the WRONG nonce must fail loudly, not
+// silently produce an unrecoverable share.
+const wrongNonce = crypto.getRandomValues(new Uint8Array(12));
+await assert.rejects(
+  sealOnChainPayloadExternal({ bundleText, accountXpub, nonce: wrongNonce, signature: hwSignature, network }),
+  /does not match/,
+  'sealing with a signature over a different nonce than the one being sealed must be rejected up front',
 );
 
 console.log('legacy-onchain-recovery tests passed');

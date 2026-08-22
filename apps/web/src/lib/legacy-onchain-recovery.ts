@@ -9,9 +9,12 @@
 import * as btc from '@scure/btc-signer';
 import {
   legacyOnChainIdentity,
+  legacyOnChainIdentityFromXpub,
   encodeOnChainPayload,
   decodeOnChainPayload,
   sealBundleOnChain,
+  sealBundleOnChainExternal,
+  verifyLegacyOnChainNonceSignature,
   type SealedBundle,
 } from './legacy-recovery';
 import {
@@ -78,6 +81,40 @@ export async function sealOnChainPayload(opts: {
     payloadHex: bytesToHex(payload),
     address: p2wpkhAddressForPubkey(toHex(identityPubkey), publishNetwork),
     identityPubkeyHex: toHex(identityPubkey),
+  };
+}
+
+/**
+ * Hardware-wallet seal path: the identity keypair's public half comes
+ * from an account-level xpub exported at legacyOnChainDerivationPath (no
+ * mnemonic ever touches this browser), and the signature over the nonce
+ * is produced externally by the hardware wallet's own "Sign Message"
+ * feature and pasted back in -- symmetric to how DescriptorRetrieval.tsx
+ * already recovers a bundle using only an externally-produced signature
+ * and no local key at all. Verifies the signature actually matches the
+ * given xpub for this nonce BEFORE sealing, so a wrong xpub or a
+ * signature over the wrong message fails clearly here rather than
+ * silently producing a share nobody can ever recover.
+ */
+export async function sealOnChainPayloadExternal(opts: {
+  bundleText: string;
+  accountXpub: string;
+  nonce: Uint8Array;
+  signature: Uint8Array;
+  network: Network;
+}): Promise<LegacyOnChainPayload> {
+  const { bundleText, accountXpub, nonce, signature, network } = opts;
+  const { publicKey } = legacyOnChainIdentityFromXpub(accountXpub, network);
+  if (!verifyLegacyOnChainNonceSignature(signature, publicKey, nonce)) {
+    throw new Error('That signature does not match this xpub for this nonce -- check the xpub, the derivation path, and that you signed the exact message shown, not a different one.');
+  }
+  const sealed = await sealBundleOnChainExternal(bundleText, nonce, signature);
+  const payload = encodeOnChainPayload(sealed);
+  const publishNetwork = toPublishNetwork(network);
+  return {
+    payloadHex: bytesToHex(payload),
+    address: p2wpkhAddressForPubkey(toHex(publicKey), publishNetwork),
+    identityPubkeyHex: toHex(publicKey),
   };
 }
 
