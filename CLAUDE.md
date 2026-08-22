@@ -609,6 +609,55 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **File downloads (vault backup, Tranche backup, Legacy Recovery note,
+  keyring export, descriptor QR PNG) unreliable on mobile, blocking
+  vault creation (2026-08-22).** Operator: "When creating a vault, the
+  download backup file will not fire and is not working and then it
+  will not let you continue because it's not firing." The operator is
+  on an iPhone (confirmed from an earlier screenshot's status bar), and
+  this is a well-known iOS Safari gap: a `Blob` + `URL.createObjectURL`
+  + synthetic `<a download>` click is unreliable there in particular --
+  it often opens the raw content in a new tab instead of saving a file,
+  or does nothing at all -- and every one of the five download sites in
+  this app hand-rolled that exact pattern independently, with the
+  anchor never attached to the DOM before `.click()` and the object URL
+  revoked synchronously right after (before some engines have actually
+  started reading the blob). `VaultWizard.tsx`'s vault-creation
+  "Backup" step was the one that actually blocked forward progress:
+  `Continue to funding` stays disabled until `downloaded` is true, and
+  the old code set `downloaded = true` synchronously the instant the
+  button was clicked, regardless of whether anything actually
+  downloaded -- so on a phone where the download silently failed, nothing
+  told the operator why, but critically the button SHOULD have already
+  looked "Downloaded" and let them continue; the fact that it visibly
+  didn't states the failure was deeper than "no feedback," matching the
+  report of it "not firing" at all. New `apps/web/src/lib/
+  download-file.ts` is the one download implementation now used
+  everywhere (`downloadVault`/`downloadVaultBackup`,
+  `downloadDistributionWalletBackup`, `downloadLegacyOnChainRecoveryNote`
+  in `descriptor-backup.ts`; `KeyManager.tsx`'s keyring export;
+  `DescriptorQr.tsx`'s PNG download): where the Web Share API supports
+  file shares (most modern phones, iOS included), it hands the file to
+  the native share sheet -- far more reliable than a blob download on
+  iOS, and gives a real "Save to Files" option -- falling back to the
+  classic anchor-click download (now DOM-attached before the click, with
+  the object URL revoke delayed rather than immediate) everywhere else.
+  All five functions are now async and return whether the save actually
+  happened (false only when a user explicitly cancels a share sheet;
+  the anchor fallback has no way to detect success and always resolves
+  true, same as its old fire-and-forget behavior). `BackupStep` now
+  awaits the real result: `downloaded` is only set true on an actual
+  success, a genuine failure surfaces a toast with a way to retry
+  instead of a silently stuck button, and the button shows
+  "Downloading..." while a share sheet is up. Every other call site
+  (VaultDetail's two backup-download buttons, the Tranche backup
+  button, the Legacy Recovery note button) just needed the `void`
+  prefix already used elsewhere in this codebase for a fire-and-forget
+  async call in an onClick handler -- none of them gate forward
+  progress, so no behavior change beyond "more reliably actually
+  downloads." All four gates green, matching the documented 10/10
+  baseline exactly.
+
 - **QR scanning reliability + live feedback, fixed everywhere at once
   (2026-08-22).** Operator: "When scanning qr it is very finicky is
   there any improvements we can do to make it better and show better

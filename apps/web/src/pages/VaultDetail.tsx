@@ -894,7 +894,7 @@ function OverviewTab({
               variant="ghost"
               size="sm"
               style={{ padding: "3px 9px", fontSize: 11, whiteSpace: "normal" }}
-              onClick={() => downloadVault(vault)}
+              onClick={() => void downloadVault(vault)}
             >
               Download backup
             </Button>
@@ -1130,7 +1130,7 @@ function BlocOverviewTab({
             <Button variant="ghost" size="sm" style={{ padding: "3px 9px", fontSize: 11 }} disabled={!vault.descriptor} onClick={() => vault.descriptor && copy(vault.descriptor, "desc")}>
               {copied === "desc" ? "Copied" : "Copy"}
             </Button>
-            <Button variant="ghost" size="sm" style={{ padding: "3px 9px", fontSize: 11 }} onClick={() => downloadVault(vault)}>
+            <Button variant="ghost" size="sm" style={{ padding: "3px 9px", fontSize: 11 }} onClick={() => void downloadVault(vault)}>
               Download backup
             </Button>
             <Button variant="ghost" size="sm" style={{ padding: "3px 9px", fontSize: 11 }} disabled={!vault.descriptor} onClick={() => setShowDescriptorQr(v => !v)}>
@@ -6960,7 +6960,7 @@ function DistributionWalletRow({
             variant="ghost"
             size="sm"
             style={{ fontSize: 11 }}
-            onClick={() => downloadDistributionWalletBackup(wallet, vault.name)}
+            onClick={() => void downloadDistributionWalletBackup(wallet, vault.name)}
           >
             Download backup
           </Button>

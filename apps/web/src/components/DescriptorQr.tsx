@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 import { colors, fonts, radii } from '../theme';
 import { Button } from './ui';
+import { downloadFile } from '../lib/download-file';
 
 /**
  * DescriptorQr -- render a vault's output descriptor as a QR code
@@ -47,13 +48,10 @@ export function DescriptorQr({ descriptor, size = 260, label }: DescriptorQrProp
     return () => { cancelled = true; };
   }, [descriptor, size]);
 
-  function download() {
+  async function download() {
     if (!src) return;
-    const a = Object.assign(document.createElement('a'), {
-      href: src,
-      download: 'dynastytrust-descriptor-qr.png',
-    });
-    a.click();
+    const blob = await (await fetch(src)).blob();
+    await downloadFile('dynastytrust-descriptor-qr.png', blob);
   }
 
   return (

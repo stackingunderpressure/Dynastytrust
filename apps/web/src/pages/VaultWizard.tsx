@@ -2071,7 +2071,34 @@ function BackupStep({
 }: {
   vault: Vault; metalBackedUp: boolean; setMetalBackedUp: (b: boolean) => void; onContinue: () => void;
 }) {
+  const toast = useToast();
   const [downloaded, setDownloaded] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  // downloadVault is async now (see lib/download-file.ts): on a phone it
+  // may hand off to the native share sheet and wait for that to resolve,
+  // and it can genuinely fail (or be cancelled) rather than always
+  // succeeding the instant it's called the way the old synchronous
+  // blob-download version silently assumed. Only mark this step done on
+  // an actual success -- and surface a real error with a way to retry
+  // instead of leaving this button looking like it did nothing, which is
+  // exactly the stuck-and-can't-continue failure this is fixing.
+  async function handleDownload() {
+    setDownloading(true);
+    try {
+      const ok = await downloadVault(vault);
+      if (ok) {
+        setDownloaded(true);
+      } else {
+        toast.error('Download cancelled -- tap again and choose a save location to continue.');
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not download the backup file -- try again.');
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <Card>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -2091,8 +2118,8 @@ function BackupStep({
             </div>
           </details>
         )}
-        <Button variant="ghost" onClick={() => { downloadVault(vault); setDownloaded(true); }}>
-          {downloaded ? 'Downloaded' : 'Download backup file'}
+        <Button variant="ghost" disabled={downloading} onClick={() => void handleDownload()}>
+          {downloading ? 'Downloading...' : downloaded ? 'Downloaded' : 'Download backup file'}
         </Button>
         <label style={{ display: 'flex', gap: 10, alignItems: 'center', cursor: 'pointer', padding: 12, background: colors.raised, borderRadius: radii.md }}>
           <input type="checkbox" checked={metalBackedUp} onChange={e => setMetalBackedUp(e.target.checked)} />

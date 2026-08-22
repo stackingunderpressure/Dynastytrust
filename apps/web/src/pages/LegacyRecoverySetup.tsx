@@ -283,7 +283,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
               </div>
               <Button
                 variant="ghost" size="sm" style={{ marginBottom: 10 }}
-                onClick={() => downloadLegacyOnChainRecoveryNote({
+                onClick={() => void downloadLegacyOnChainRecoveryNote({
                   vaultName: vault.name,
                   network: vault.network,
                   roleLabel: role.label,
