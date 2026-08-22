@@ -216,4 +216,27 @@ await assert.rejects(
   'sealing with a signature over a different nonce than the one being sealed must be rejected up front',
 );
 
+// ── The simplified on-chain framing (nonce, then ciphertext -- no magic
+// bytes, no version) has a deliberate consequence: with nothing left to
+// reject junk at the SCAN step, any unrelated OP_RETURN data longer than
+// a bare 12-byte nonce now parses as a structurally-valid-looking
+// candidate. That's expected, not a gap -- AES-GCM's own authentication
+// tag is the real check, exercised at DECRYPT time, and it must reject
+// this cleanly rather than silently producing garbage.
+const longJunkTxs = [{
+  txid: 'e'.repeat(64),
+  vout: [{
+    scriptpubkey_type: 'op_return',
+    scriptpubkey: Array.from(btc.Script.encode(['RETURN', new Uint8Array(40).fill(0x42)]))
+      .map(b => b.toString(16).padStart(2, '0')).join(''),
+  }],
+}];
+const longJunkCandidates = extractOnChainCandidates(longJunkTxs);
+assert.equal(longJunkCandidates.length, 1, 'unrelated OP_RETURN data longer than a bare nonce now parses as a structural candidate -- expected under the simplified framing');
+await assert.rejects(
+  recoverViaOnChainPath(signLegacyOnChainNonce(mnemonic, network, unb64(longJunkCandidates[0].sealed.nonceB64)), longJunkCandidates[0].sealed),
+  Error,
+  'a structurally-valid-looking candidate that is not real Legacy Recovery ciphertext must still fail to decrypt -- AES-GCM\'s own tag is the actual check, not the framing',
+);
+
 console.log('legacy-onchain-recovery tests passed');

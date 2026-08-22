@@ -416,51 +416,56 @@ export async function recoverViaOnChainPath(
 }
 
 // ── On-chain payload framing -- what actually gets published in the
-// OP_RETURN output. A fixed magic + version header lets a scanner walking
-// a list of transactions at the keyholder's own hardened address cheaply
-// recognize "this might be a Legacy Recovery payload" and skip anything
-// that isn't (someone else's data, a stray transaction, junk sent to the
-// address once it's public -- an address becomes visible, though never
-// derivable by anyone else, the moment it's first used) before ever
-// attempting an AES-GCM decrypt.
+// OP_RETURN output: the nonce (a fixed 12 bytes -- AES-GCM's own nonce
+// length, a property of the cipher itself, not something this app
+// invented), immediately followed by the ciphertext. Nothing else --
+// deliberately no magic bytes and no version number. An earlier version
+// of this framing led with a 4-byte magic tag and a version byte so a
+// scanner could cheaply recognize "this might be ours" before attempting
+// a decrypt; operator, working through what has to be gotten right by
+// hand 20 years from now: "I just feel like the first half of the blob
+// is too complex to get right ... not take three parts flour and two
+// parts flubber and mix it for 88 mph." Correct call -- AES-GCM's own
+// authentication tag already answers "is this ours" exactly as reliably
+// as a magic-number check would (a decrypt that doesn't authenticate
+// fails cleanly, the same way a wrong password fails; see
+// extractOnChainCandidates' comment for how that plays out when a
+// scanner finds unrelated junk at a now-public address), and a version
+// byte that will say "1" forever added a byte-offset to get right for
+// zero real benefit. Twenty years from now the whole recipe is: the
+// first 12 bytes are what to sign, everything after is what decrypts --
+// no format spec, no header to check, just counting to twelve.
+const ONCHAIN_NONCE_LENGTH = 12;
 
-const ONCHAIN_PAYLOAD_MAGIC = new Uint8Array([0x44, 0x54, 0x4c, 0x32]); // ASCII "DTL2"
-const ONCHAIN_PAYLOAD_VERSION = 1;
-const ONCHAIN_NONCE_LENGTH = 12; // matches sealBundle's fixed AES-GCM nonce length
-
-/** Packs a sealed bundle into the exact bytes published on-chain: magic + version + nonce + ciphertext. */
+/** Packs a sealed bundle into the exact bytes published on-chain: the nonce, then the ciphertext. */
 export function encodeOnChainPayload(sealed: SealedBundle): Uint8Array {
   const nonce = unb64(sealed.nonceB64);
   const ciphertext = unb64(sealed.ciphertextB64);
   if (nonce.length !== ONCHAIN_NONCE_LENGTH) {
     throw new Error(`encodeOnChainPayload: expected a ${ONCHAIN_NONCE_LENGTH}-byte nonce, got ${nonce.length}`);
   }
-  const out = new Uint8Array(ONCHAIN_PAYLOAD_MAGIC.length + 1 + nonce.length + ciphertext.length);
-  let offset = 0;
-  out.set(ONCHAIN_PAYLOAD_MAGIC, offset);
-  offset += ONCHAIN_PAYLOAD_MAGIC.length;
-  out[offset] = ONCHAIN_PAYLOAD_VERSION;
-  offset += 1;
-  out.set(nonce, offset);
-  offset += nonce.length;
-  out.set(ciphertext, offset);
+  const out = new Uint8Array(nonce.length + ciphertext.length);
+  out.set(nonce, 0);
+  out.set(ciphertext, nonce.length);
   return out;
 }
 
 /**
- * Inverse of encodeOnChainPayload. Returns null -- never throws -- for
- * anything that doesn't match the expected header exactly, so a scanner
- * can cleanly skip every non-matching payload found at an address
- * instead of treating a mismatch as an error.
+ * Inverse of encodeOnChainPayload: the first 12 bytes are the nonce,
+ * everything after is the ciphertext. Returns null -- never throws --
+ * for anything too short to even hold a bare nonce, so a scanner can
+ * cleanly skip an obviously-unrelated OP_RETURN output. With no magic
+ * bytes to check, this will happily parse OTHER junk sent to a now-public
+ * address as a structurally-valid-looking candidate too -- that is
+ * expected and harmless, not a gap: attempting to actually recover it
+ * derives the wrong key and AES-GCM's own authentication tag rejects it
+ * during decrypt (recoverViaOnChainPath throws), exactly the same
+ * "wrong signature, or not ours" failure a real wrong candidate already
+ * produces today. The tag is the check; this function is just framing.
  */
 export function decodeOnChainPayload(bytes: Uint8Array): SealedBundle | null {
-  const headerLen = ONCHAIN_PAYLOAD_MAGIC.length + 1 + ONCHAIN_NONCE_LENGTH;
-  if (bytes.length <= headerLen) return null;
-  for (let i = 0; i < ONCHAIN_PAYLOAD_MAGIC.length; i++) {
-    if (bytes[i] !== ONCHAIN_PAYLOAD_MAGIC[i]) return null;
-  }
-  if (bytes[ONCHAIN_PAYLOAD_MAGIC.length] !== ONCHAIN_PAYLOAD_VERSION) return null;
-  const nonce = bytes.slice(ONCHAIN_PAYLOAD_MAGIC.length + 1, headerLen);
-  const ciphertext = bytes.slice(headerLen);
+  if (bytes.length <= ONCHAIN_NONCE_LENGTH) return null;
+  const nonce = bytes.slice(0, ONCHAIN_NONCE_LENGTH);
+  const ciphertext = bytes.slice(ONCHAIN_NONCE_LENGTH);
   return { version: 1, nonceB64: b64(nonce), ciphertextB64: b64(ciphertext) };
 }

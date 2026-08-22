@@ -16952,18 +16952,11 @@ nonce: ${bytesToHex2(nonce)}`;
     const key = deriveLegacyOnChainKey(signature);
     return unsealBundle(sealed, key);
   }
-  var ONCHAIN_PAYLOAD_MAGIC = new Uint8Array([68, 84, 76, 50]);
-  var ONCHAIN_PAYLOAD_VERSION = 1;
   var ONCHAIN_NONCE_LENGTH = 12;
   function decodeOnChainPayload(bytes) {
-    const headerLen = ONCHAIN_PAYLOAD_MAGIC.length + 1 + ONCHAIN_NONCE_LENGTH;
-    if (bytes.length <= headerLen) return null;
-    for (let i = 0; i < ONCHAIN_PAYLOAD_MAGIC.length; i++) {
-      if (bytes[i] !== ONCHAIN_PAYLOAD_MAGIC[i]) return null;
-    }
-    if (bytes[ONCHAIN_PAYLOAD_MAGIC.length] !== ONCHAIN_PAYLOAD_VERSION) return null;
-    const nonce = bytes.slice(ONCHAIN_PAYLOAD_MAGIC.length + 1, headerLen);
-    const ciphertext = bytes.slice(headerLen);
+    if (bytes.length <= ONCHAIN_NONCE_LENGTH) return null;
+    const nonce = bytes.slice(0, ONCHAIN_NONCE_LENGTH);
+    const ciphertext = bytes.slice(ONCHAIN_NONCE_LENGTH);
     return { version: 1, nonceB64: b64(nonce), ciphertextB64: b64(ciphertext) };
   }
 
