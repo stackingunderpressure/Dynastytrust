@@ -11,6 +11,8 @@ import { type PublishNetwork } from '../lib/onchain-publish';
 import { colors, fonts, radii, space } from '../theme';
 import { Button, Card, Textarea } from '../components/ui';
 import { useToast } from '../components/toast';
+import { QrImage } from '../components/QrImage';
+import { QrScanner } from '../components/QrScanner';
 
 function toHex(bytes: Uint8Array): string {
   return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -51,6 +53,8 @@ export default function DescriptorRetrieval() {
   const [signatureInput, setSignatureInput] = useState('');
   const [unlocking, setUnlocking] = useState(false);
   const [recoveredBundle, setRecoveredBundle] = useState<string | null>(null);
+  const [showMessageQr, setShowMessageQr] = useState(false);
+  const [scanningSignature, setScanningSignature] = useState(false);
 
   const localKey = localKeys.find(k => k.keyId === localKeyId) ?? null;
   const localNeedsPassword = !!localKey && !localKey.testMnemonic && !!localKey.encryptedMnemonic;
@@ -227,17 +231,26 @@ export default function DescriptorRetrieval() {
           <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
             Message to sign
           </label>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
             <Textarea mono readOnly value={legacyOnChainUnlockMessage(parsedIndex)} rows={2} style={{ flex: 1 }} />
             <Button variant="ghost" size="sm" onClick={() => copyText(legacyOnChainUnlockMessage(parsedIndex), 'Message')}>
               Copy
             </Button>
           </div>
+          <Button variant="ghost" size="sm" onClick={() => setShowMessageQr(v => !v)} style={{ marginBottom: 14 }}>
+            {showMessageQr ? 'Hide QR' : 'Show as QR (scan with an airgapped signer)'}
+          </Button>
+          {showMessageQr && (
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 14 }}>
+              <QrImage data={legacyOnChainUnlockMessage(parsedIndex)} size={220} />
+            </div>
+          )}
 
           <p style={{ fontSize: 13, color: colors.red, lineHeight: 1.6, marginBottom: 14 }}>
             Use the CLASSIC message-signing method (plain ECDSA), not BIP-322 or a Taproot-address
             signature -- most hardware wallets' "Sign Message" feature against a custom
-            derivation path does this natively.
+            derivation path does this natively. If it offers a "scan message QR" option, scan the
+            code above instead of typing the message in by hand.
           </p>
 
           <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
@@ -247,10 +260,22 @@ export default function DescriptorRetrieval() {
             mono
             value={signatureInput}
             onChange={e => setSignatureInput(e.target.value)}
-            placeholder="Paste the signature your wallet produced (base64 or hex), or derive locally above"
+            placeholder="Paste the signature your wallet produced (base64 or hex), scan its QR below, or derive locally above"
             rows={2}
             style={{ marginBottom: 12 }}
           />
+          {scanningSignature ? (
+            <div style={{ marginBottom: 12 }}>
+              <QrScanner
+                onResult={text => { setSignatureInput(text); setScanningSignature(false); toast.success('Signature scanned.'); }}
+                onCancel={() => setScanningSignature(false)}
+              />
+            </div>
+          ) : (
+            <Button variant="ghost" size="sm" onClick={() => setScanningSignature(true)} style={{ marginBottom: 12 }}>
+              Scan signature QR
+            </Button>
+          )}
 
           <Button onClick={handleUnlock} disabled={unlocking || !signatureInput.trim()}>
             {unlocking ? 'Unlocking...' : 'Unlock'}
