@@ -40,15 +40,34 @@ import {
   legacyOnChainNonceMessage,
   parseUnlockSignature,
   recoverViaOnChainPath,
+  decodeOnChainPayload,
   unb64,
 } from '../../apps/web/src/lib/legacy-recovery';
 import { extractOnChainCandidates, type OnChainCandidate } from '../../apps/web/src/lib/legacy-onchain-recovery';
+import { hexToBytes } from '../../apps/web/src/lib/onchain-publish';
 
-function decodeScriptPubkey(scriptPubkeyHex: string): OnChainCandidate | null {
-  const candidates = extractOnChainCandidates([
-    { txid: '0'.repeat(64), vout: [{ scriptpubkey_type: 'op_return', scriptpubkey: scriptPubkeyHex }] },
+/**
+ * Accepts either of two hex strings people paste here, since they look
+ * identical at a glance but aren't: a block explorer's "scriptPubKey"
+ * for the OP_RETURN output (the OP_RETURN opcode + a push-length byte
+ * wrapped around the payload) -- the normal case -- or the bare payload
+ * hex DynastyTrust's "Seal payload" step shows to copy into another
+ * wallet, if someone pastes that directly here instead by mistake. Tries
+ * the scriptPubKey unwrap first; if that doesn't decode as a Legacy
+ * Recovery payload, falls back to treating the input as the raw payload
+ * bytes themselves before giving up.
+ */
+function decodeScriptPubkey(input: string): OnChainCandidate | null {
+  const scriptCandidates = extractOnChainCandidates([
+    { txid: '0'.repeat(64), vout: [{ scriptpubkey_type: 'op_return', scriptpubkey: input }] },
   ]);
-  return candidates.length > 0 ? candidates[0] : null;
+  if (scriptCandidates.length > 0) return scriptCandidates[0];
+  try {
+    const sealed = decodeOnChainPayload(hexToBytes(input));
+    return sealed ? { txid: '0'.repeat(64), sealed } : null;
+  } catch {
+    return null;
+  }
 }
 
 function $(id: string): HTMLElement {
@@ -75,7 +94,7 @@ async function runRecovery(): Promise<void> {
 
     const candidate = decodeScriptPubkey(scriptPubkeyHex);
     if (!candidate) {
-      showResult("That doesn't decode as a Legacy Recovery payload -- double check you copied the OP_RETURN output's full scriptPubKey (hex), not just the address or the txid.", true);
+      showResult("That doesn't decode as a Legacy Recovery payload -- double check you copied the OP_RETURN output's full scriptPubKey (hex) from a block explorer (or the raw payload hex from DynastyTrust's Seal step), not just the address or the txid.", true);
       return;
     }
 

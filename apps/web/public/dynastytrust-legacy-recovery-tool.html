@@ -78,7 +78,7 @@
 
   <fieldset>
     <legend>The on-chain transaction</legend>
-    <label for="scriptpubkey">OP_RETURN output's scriptPubKey (hex, from a block explorer)</label>
+    <label for="scriptpubkey">OP_RETURN output's scriptPubKey (hex, from a block explorer -- starts with "6a"). If you instead have the raw payload hex from DynastyTrust's "Seal payload" step, that also works.</label>
     <textarea id="scriptpubkey" placeholder="6a4c..."></textarea>
   </fieldset>
   <fieldset>
@@ -18318,11 +18318,17 @@ nonce: ${bytesToHex2(nonce)}`;
   }
 
   // tools/legacy-recovery/recover.ts
-  function decodeScriptPubkey(scriptPubkeyHex) {
-    const candidates = extractOnChainCandidates([
-      { txid: "0".repeat(64), vout: [{ scriptpubkey_type: "op_return", scriptpubkey: scriptPubkeyHex }] }
+  function decodeScriptPubkey(input) {
+    const scriptCandidates = extractOnChainCandidates([
+      { txid: "0".repeat(64), vout: [{ scriptpubkey_type: "op_return", scriptpubkey: input }] }
     ]);
-    return candidates.length > 0 ? candidates[0] : null;
+    if (scriptCandidates.length > 0) return scriptCandidates[0];
+    try {
+      const sealed = decodeOnChainPayload(hexToBytes2(input));
+      return sealed ? { txid: "0".repeat(64), sealed } : null;
+    } catch {
+      return null;
+    }
   }
   function $(id) {
     const el = document.getElementById(id);
@@ -18344,7 +18350,7 @@ nonce: ${bytesToHex2(nonce)}`;
       }
       const candidate = decodeScriptPubkey(scriptPubkeyHex);
       if (!candidate) {
-        showResult("That doesn't decode as a Legacy Recovery payload -- double check you copied the OP_RETURN output's full scriptPubKey (hex), not just the address or the txid.", true);
+        showResult("That doesn't decode as a Legacy Recovery payload -- double check you copied the OP_RETURN output's full scriptPubKey (hex) from a block explorer (or the raw payload hex from DynastyTrust's Seal step), not just the address or the txid.", true);
         return;
       }
       const signature = parseUnlockSignature(signatureRaw);
