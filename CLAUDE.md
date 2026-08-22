@@ -609,6 +609,56 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Vault Detail phase card / role hint / spending-paths tree showed
+  bogus "2 of 0" quorums and a phantom triggered inheritance path for
+  generic leaf-list vaults (2026-08-22).** Operator, on a screenshot of
+  a custom-shape "Onchain descriptor test" vault: "Key info is off here
+  I think." Grounded the report against the actual data: `founder_quorum`
+  (DB default 2), `founder_keys` (default `[]`), `heir_quorum` (default
+  2), `heir_keys` (default `[]`), and `inheritance_after` (DB default
+  52560) are never set at all for a vault created via `mode:
+  "leaves-draft"` (`vaults.js`'s `isLeavesDraft` branch only ever writes
+  `leaves`/`consent_keys`/`consent_quorum` -- every named-field column
+  sits at its bare `20260615232213_vaults.sql` default). Three functions
+  in `VaultDetail.tsx` -- `computePhase` (the phase banner), `rolePhaseHint`
+  ("Your role"), and `buildVaultLeaves` (the `VaultStructureTree`
+  "Spending Paths" cards) -- read those named-field columns unconditionally
+  with no branch for a `vault.leaves`-shaped vault, unlike every other
+  surface this codebase already retrofitted for the leaf-list shape (PDF/
+  audit/tax exports, `trust-doc.ts`'s `buildLeavesTrustDoc`, Tapit
+  circle-membership invites -- see the closed entries below). The result
+  matched exactly what the screenshot showed: `founder_quorum=2` with
+  `founder_keys.length=0` renders as "2 of 0" in both the phase banner and
+  the role-hint line; `inheritance_after=52560` being less than the
+  vault's real chain tip made the "INHERITANCE TRIGGERED" banner fire and
+  reference "Heirs (Path 3)" even though `heir_keys` is empty, while
+  `buildVaultLeaves` only ever pushes that leaf when `heir_keys.length >
+  0` -- so it never actually appeared in the Spending Paths list the
+  banner referenced. The Trust Document section's "1 of 1" was the one
+  correct number in the screenshot, since `buildLeavesTrustDoc` already
+  reads the real `leaves` array. Fixed all three functions with the same
+  `Array.isArray(vault.leaves) && vault.leaves.length > 0` discriminator
+  already used elsewhere: `buildVaultLeaves` now maps each real `LeafSpec`
+  to a `VaultLeaf` directly (an `after`-type leaf's stored absolute height
+  drives the existing `vaultLeafStatus` locked/unlocked logic same as
+  before; an `older`-type leaf is duration-relative-to-last-spend, which
+  this view has no chain data to evaluate, so it's shown as available with
+  an explanatory note rather than guessed at). `computePhase` and
+  `rolePhaseHint` both call the fixed `buildVaultLeaves` to build an
+  honest summary from the real leaves instead of the phantom founder/heir
+  numbers -- `rolePhaseHint` drops the personalized owner/heir/beneficiary
+  persona text for this vault shape (a leaf's role is its own label, not
+  one of the fixed `VaultRole` values, so guessing a persona would just
+  trade one wrong guess for another) in favor of a plain "currently
+  spendable" / "next to open" summary, which is honest rather than
+  personalized. Named-field and Bloc vaults are byte-for-byte unchanged --
+  this only adds the missing branch ahead of the existing logic, no
+  existing rendering path was touched. All four gates green, matching the
+  documented 10/10 baseline exactly (the two pre-existing VaultDetail.tsx
+  typecheck errors that happen to sit inside `computePhase`'s color-literal
+  assignments merely shifted line numbers, confirmed via a stash/typecheck/
+  pop comparison against the unmodified file).
+
 - **File downloads (vault backup, Tranche backup, Legacy Recovery note,
   keyring export, descriptor QR PNG) unreliable on mobile, blocking
   vault creation (2026-08-22).** Operator: "When creating a vault, the
