@@ -41,6 +41,8 @@ import {
 import { p2wpkhAddressForPubkey, buildAndSignPublishTx } from '../apps/web/src/lib/onchain-publish.ts';
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { networkVersions } from '../apps/web/src/lib/keystore.ts';
+import { base58check } from '@scure/base';
+import { sha256 } from '@noble/hashes/sha256';
 
 const network = 'testnet';
 const mnemonic = generateMnemonic(wordlist); // the keyholder whose vault descriptor this seals
@@ -167,6 +169,28 @@ assert.deepEqual(
   Array.from(xpubDerivedPubkey),
   Array.from(identityPubkey),
   'an xpub exported at the fixed Legacy Recovery account must derive the identical child pubkey the mnemonic-based path derives',
+);
+
+// A hardware wallet's export screen commonly SLIP-132-prefixes the same
+// xpub by script type (zpub for single-sig, Zpub for multisig, ...)
+// instead of the plain BIP32 default -- confirmed live against a real
+// SeedSigner "Zpub" export. The underlying key data is byte-identical;
+// only the version bytes differ, so re-prefixing must still derive the
+// exact same pubkey.
+const accountXpubRaw = base58check(sha256).decode(accountXpub);
+const vpubVersion = 0x02575483; // SLIP-132 testnet P2WSH multisig ("Vpub")
+const reprefixed = Uint8Array.from(accountXpubRaw);
+reprefixed[0] = (vpubVersion >>> 24) & 0xff;
+reprefixed[1] = (vpubVersion >>> 16) & 0xff;
+reprefixed[2] = (vpubVersion >>> 8) & 0xff;
+reprefixed[3] = vpubVersion & 0xff;
+const vpubForm = base58check(sha256).encode(reprefixed);
+assert.ok(vpubForm.startsWith('Vpub'), `expected the re-prefixed xpub to read as Vpub..., got ${vpubForm.slice(0, 4)}...`);
+const { publicKey: vpubDerivedPubkey } = legacyOnChainIdentityFromXpub(vpubForm, network);
+assert.deepEqual(
+  Array.from(vpubDerivedPubkey),
+  Array.from(identityPubkey),
+  'a SLIP-132 "Vpub"-prefixed xpub must derive the identical pubkey as the plain-prefixed form -- same key, different label',
 );
 
 const hwNonce = crypto.getRandomValues(new Uint8Array(12));
