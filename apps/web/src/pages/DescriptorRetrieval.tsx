@@ -2,11 +2,17 @@ import { useMemo, useState } from 'react';
 import { listAllKeys, revealMnemonic } from '../lib/keystore';
 import {
   legacyOnChainUnlockMessage,
+  legacyOnChainDerivationPath,
   signLegacyOnChainUnlock,
   recoverViaOnChainPath,
   parseUnlockSignature,
 } from '../lib/legacy-recovery';
-import { fetchLegacyOnChainCandidates, legacyOnChainLookupAddress, type OnChainCandidate } from '../lib/legacy-onchain-recovery';
+import {
+  fetchLegacyOnChainCandidates,
+  legacyOnChainLookupAddress,
+  vaultNetworkToKeystoreNetwork,
+  type OnChainCandidate,
+} from '../lib/legacy-onchain-recovery';
 import { type PublishNetwork } from '../lib/onchain-publish';
 import { colors, fonts, radii, space } from '../theme';
 import { Button, Card, Textarea } from '../components/ui';
@@ -224,8 +230,10 @@ export default function DescriptorRetrieval() {
           <p style={{ fontSize: 14, color: colors.sub, lineHeight: 1.6, marginBottom: 14 }}>
             Prove you hold this key by signing the exact message below, at derivation path{' '}
             <code style={{ fontFamily: fonts.mono, color: colors.text }}>
-              m/9999&apos;/{network === 'bitcoin' ? '0' : '1'}&apos;/{parsedIndex}&apos;/1&apos;
-            </code>.
+              {legacyOnChainDerivationPath(vaultNetworkToKeystoreNetwork(network), parsedIndex)}
+            </code>{' '}
+            (a standard account path, same shape most hardware wallets already recognize for
+            message signing).
           </p>
 
           <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>

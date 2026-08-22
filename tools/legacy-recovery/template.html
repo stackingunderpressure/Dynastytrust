@@ -66,10 +66,11 @@
     the OP_RETURN transaction's full scriptPubKey hex, found on any block explorer by searching the
     address from your recovery note (most explorers show this on the transaction's output details,
     sometimes labeled "Script pubkey (hex)" or similar). Then sign the exact message below with the
-    SAME key, at derivation path <code>m/9999'/&lt;coin&gt;'/&lt;vault index&gt;'/1'</code>, using the
-    CLASSIC message-signing method (plain ECDSA) -- not BIP-322 or a Taproot-address signature, those
-    use a different scheme and will not match. Most hardware wallets' "Sign Message" feature supports
-    signing against a custom derivation path directly.
+    SAME key, at derivation path <code>m/84'/&lt;coin&gt;'/(900000+&lt;vault index&gt;)'/1/0</code>
+    -- an ordinary standard-shaped account path (not a custom one), using the CLASSIC message-signing
+    method (plain ECDSA) -- not BIP-322 or a Taproot-address signature, those use a different scheme
+    and will not match. Most hardware wallets' "Sign Message" feature accepts this path directly,
+    the same as signing for any normal account.
   </div>
 
   <fieldset>

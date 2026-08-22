@@ -13,10 +13,27 @@
  * is ever needed to recover.
  *
  * Design constraints this satisfies:
- *   1. UNLINKABLE: the derivation path is fully hardened
- *      (m/9999'/coin'/N'/1'), so nobody who has this vault's own xpubs,
- *      descriptor, or DynastyTrust's whole database can compute or watch
- *      for the address this gets published to -- only the seed can.
+ *   1. STANDARD-SHAPED, OFFSET-ACCOUNT PATH: the derivation path
+ *      (m/84'/coin'/(900000+N)'/1/0) is the ordinary 5-level BIP84 shape
+ *      -- hardened purpose/coin/account, unhardened change/index --
+ *      exactly what any off-the-shelf hardware wallet's "Sign Message"
+ *      feature already expects. An earlier design used a fully hardened
+ *      4-level path (m/9999'/coin'/N'/1') for maximum unlinkability, but
+ *      real message-signing firmware (confirmed against SeedSigner's
+ *      source) only recognizes the standard 5-level shape and rejects a
+ *      custom hardened path outright -- so the fully-hardened version
+ *      couldn't actually be signed on the hardware this mechanism exists
+ *      to support. Reshaping the path to standard form and forking
+ *      signer firmware to accept a custom path are mutually exclusive
+ *      fixes (only one path shape can be the canonical, on-chain one);
+ *      depending on a patched firmware fork surviving decades is a worse
+ *      fit for "works decades from now regardless of what still exists"
+ *      than the large, fixed account-offset (900000) below, which keeps
+ *      the account number far outside any real wallet's actively-used
+ *      low account numbers (routinely exported to watch-only trackers)
+ *      or typical account-level gap-limit scanning ranges -- closing the
+ *      practical version of the xpub-exposure risk an unhardened
+ *      change/index level otherwise reopens.
  *   2. SIGN, DON'T TYPE A SEED: recovery is "sign this fixed message,
  *      then that signature decrypts" -- a hardware wallet's ordinary
  *      "Sign Message" feature, never a raw private key or seed pasted
@@ -49,13 +66,19 @@ import { sha256 } from '@noble/hashes/sha256';
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { networkVersions, type Network } from './keystore';
 
-// Reserved purpose field for the legacy-recovery derivation path. Not a
-// registered BIP (44/49/84/86/48 are all taken) -- a DynastyTrust-wide
-// constant, deliberately public and identical for every vault. Publicness
-// is safe: hardened derivation means nobody can compute this path's
-// resulting key from an xpub alone, only from the actual private key, so
-// naming the convention openly leaks nothing.
-export const LEGACY_PURPOSE = "9999'";
+// Legacy Recovery uses the standard BIP84 (native segwit) purpose field
+// -- ordinary, not reserved -- so its derivation path is recognized by
+// any hardware wallet's message-signing feature as a normal account, not
+// a custom path. The large, fixed account-number offset below is what
+// keeps this "recovery account" from colliding with a real wallet's own
+// actively-used low account numbers or falling inside typical
+// account-level gap-limit auto-discovery ranges -- deliberately public
+// and identical for every vault, same as the old reserved-purpose
+// constant it replaces: publishing the convention openly costs nothing,
+// since knowing the account number alone still doesn't let anyone derive
+// the resulting address without the account-level xpub or the seed.
+const LEGACY_PURPOSE = "84'";
+export const LEGACY_ACCOUNT_OFFSET = 900_000;
 
 /**
  * The classic Bitcoin Signed Message digest ("\x18Bitcoin Signed
@@ -161,13 +184,23 @@ export async function unsealBundle(sealed: SealedBundle, secret: Uint8Array): Pr
   return new TextDecoder().decode(plain);
 }
 
-/** m/9999'/coin'/N'/1' -- N = this person's own small per-vault index. */
+/**
+ * m/84'/coin'/(900000+N)'/1/0 -- N = this person's own small per-vault
+ * index. Standard BIP84 5-level shape (hardened purpose/coin/account,
+ * unhardened change/index) so any hardware wallet's message-signing
+ * feature recognizes it as an ordinary account, not a custom path. The
+ * fixed 900,000 account offset keeps it far outside any real wallet's
+ * actively-used low account numbers or typical gap-limit scan range.
+ * Change=1 (the internal chain) is a further, minor precaution -- it's
+ * not where a normal wallet would ever show or watch a receive address.
+ */
 export function legacyOnChainDerivationPath(network: Network, vaultIndex: number): string {
   if (!Number.isSafeInteger(vaultIndex) || vaultIndex < 0) {
     throw new Error(`legacyOnChainDerivationPath: vaultIndex must be a non-negative whole number, got ${vaultIndex}`);
   }
   const coin = network === 'mainnet' ? '0' : '1';
-  return `m/${LEGACY_PURPOSE}/${coin}'/${vaultIndex}'/1'`;
+  const account = LEGACY_ACCOUNT_OFFSET + vaultIndex;
+  return `m/${LEGACY_PURPOSE}/${coin}'/${account}'/1/0`;
 }
 
 /** The fixed, domain-separated text a keyholder signs -- both to prove key ownership and to derive the decryption key. Plain ASCII, has to survive being retyped by hand decades from now. */
