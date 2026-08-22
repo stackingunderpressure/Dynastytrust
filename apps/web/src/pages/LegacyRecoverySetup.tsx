@@ -18,6 +18,8 @@ import { explorerTxUrl, broadcastTxUrl, EXPLORER } from '../config';
 import { colors, fonts, radii, space } from '../theme';
 import { Button, Card, Textarea } from '../components/ui';
 import { useToast } from '../components/toast';
+import { XpubQrScanner } from '../components/XpubQrScanner';
+import { QrScanner } from '../components/QrScanner';
 
 // Long-horizon descriptor recovery ("Legacy Recovery" -- see
 // apps/web/src/lib/legacy-recovery.ts's header for the full mechanism):
@@ -87,8 +89,10 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
   const [keyId, setKeyId] = useState('');
   const [password, setPassword] = useState('');
   const [hwXpub, setHwXpub] = useState('');
+  const [hwScanning, setHwScanning] = useState(false);
   const [hwNonce, setHwNonce] = useState<Uint8Array | null>(null);
   const [hwSignatureInput, setHwSignatureInput] = useState('');
+  const [hwScanningSignature, setHwScanningSignature] = useState(false);
   const [checking, setChecking] = useState(false);
   const [address, setAddress] = useState<string | null>(null);
   const [candidate, setCandidate] = useState<OnChainCandidate | null>(null);
@@ -380,14 +384,32 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
           <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
             Legacy Recovery account xpub
           </label>
-          <Textarea
-            mono
-            value={hwXpub}
-            onChange={e => { setHwXpub(e.target.value); setAddress(null); setCandidate(null); setPayloadHex(null); setHwNonce(null); setHwSignatureInput(''); }}
-            placeholder="xpub... / tpub..."
-            rows={2}
-            style={{ marginBottom: 10 }}
-          />
+          {hwScanning ? (
+            <div style={{ marginBottom: 10 }}>
+              <XpubQrScanner
+                onResult={xpub => {
+                  setHwXpub(xpub);
+                  setAddress(null); setCandidate(null); setPayloadHex(null); setHwNonce(null); setHwSignatureInput('');
+                  setHwScanning(false);
+                }}
+                onCancel={() => setHwScanning(false)}
+              />
+            </div>
+          ) : (
+            <>
+              <Textarea
+                mono
+                value={hwXpub}
+                onChange={e => { setHwXpub(e.target.value); setAddress(null); setCandidate(null); setPayloadHex(null); setHwNonce(null); setHwSignatureInput(''); }}
+                placeholder="xpub... / tpub..."
+                rows={2}
+                style={{ marginBottom: 10 }}
+              />
+              <Button variant="ghost" size="sm" onClick={() => setHwScanning(true)} style={{ marginBottom: 10 }}>
+                Scan xpub QR
+              </Button>
+            </>
+          )}
         </>
       )}
 
@@ -515,10 +537,22 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
                             mono
                             value={hwSignatureInput}
                             onChange={e => setHwSignatureInput(e.target.value)}
-                            placeholder="Paste the signature your hardware wallet produced (base64 or hex)"
+                            placeholder="Paste the signature your hardware wallet produced (base64 or hex), or scan its QR below"
                             rows={2}
                             style={{ marginBottom: 10 }}
                           />
+                          {hwScanningSignature ? (
+                            <div style={{ marginBottom: 10 }}>
+                              <QrScanner
+                                onResult={text => { setHwSignatureInput(text); setHwScanningSignature(false); toast.success('Signature scanned.'); }}
+                                onCancel={() => setHwScanningSignature(false)}
+                              />
+                            </div>
+                          ) : (
+                            <Button variant="ghost" size="sm" onClick={() => setHwScanningSignature(true)} style={{ marginBottom: 10 }}>
+                              Scan signature QR
+                            </Button>
+                          )}
                           <div style={{ display: 'flex', gap: 8 }}>
                             <Button
                               variant="ghost" size="sm" onClick={handleSealHardware}
