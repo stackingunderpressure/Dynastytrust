@@ -9,12 +9,15 @@
  * copy, so there is only one implementation of this math to ever get
  * right.
  *
- * The mechanism: no vault ID, no shares to combine, no database --
- * one key's own on-chain address IS the lookup. Find the OP_RETURN
- * transaction on any block explorer beforehand (using the address from
- * your recovery note), paste its scriptPubKey hex here along with the
- * vault index, then sign the exact message shown with the SAME key to
- * unlock the full descriptor.
+ * The mechanism: no vault ID, no shares to combine, no database -- one
+ * key's own on-chain address IS the lookup, and it's the SAME single
+ * address for every vault that key ever publishes Legacy Recovery for --
+ * no index to remember. Find the OP_RETURN transaction on any block
+ * explorer beforehand (using the address from your recovery note), paste
+ * its scriptPubKey hex here -- the tool decodes it and shows the exact
+ * message to sign, built from the nonce already published right there,
+ * nothing memorized or typed from a note -- then sign it with the SAME
+ * key to unlock the full descriptor.
  *
  * The message can also be shown as a QR code and scanned straight into
  * an airgapped signer's "Sign Message" feature (SeedSigner, Krux, and
@@ -34,11 +37,19 @@
 import QRCode from 'qrcode';
 import jsQR from 'jsqr';
 import {
-  legacyOnChainUnlockMessage,
+  legacyOnChainNonceMessage,
   parseUnlockSignature,
   recoverViaOnChainPath,
+  unb64,
 } from '../../apps/web/src/lib/legacy-recovery';
-import { extractOnChainCandidates } from '../../apps/web/src/lib/legacy-onchain-recovery';
+import { extractOnChainCandidates, type OnChainCandidate } from '../../apps/web/src/lib/legacy-onchain-recovery';
+
+function decodeScriptPubkey(scriptPubkeyHex: string): OnChainCandidate | null {
+  const candidates = extractOnChainCandidates([
+    { txid: '0'.repeat(64), vout: [{ scriptpubkey_type: 'op_return', scriptpubkey: scriptPubkeyHex }] },
+  ]);
+  return candidates.length > 0 ? candidates[0] : null;
+}
 
 function $(id: string): HTMLElement {
   const el = document.getElementById(id);
@@ -54,30 +65,22 @@ function showResult(text: string, isError: boolean): void {
 
 async function runRecovery(): Promise<void> {
   try {
-    const vaultIndexRaw = ($('vault-index') as HTMLInputElement).value.trim();
     const scriptPubkeyHex = ($('scriptpubkey') as HTMLTextAreaElement).value.trim();
     const signatureRaw = ($('signature') as HTMLTextAreaElement).value.trim();
 
-    const vaultIndex = parseInt(vaultIndexRaw, 10);
-    if (!Number.isInteger(vaultIndex) || vaultIndex < 0) {
-      showResult('Vault index must be a whole number, 0 or greater.', true);
-      return;
-    }
     if (!scriptPubkeyHex || !signatureRaw) {
       showResult('Fill in every field above before recovering.', true);
       return;
     }
 
-    const candidates = extractOnChainCandidates([
-      { txid: '0'.repeat(64), vout: [{ scriptpubkey_type: 'op_return', scriptpubkey: scriptPubkeyHex }] },
-    ]);
-    if (candidates.length === 0) {
+    const candidate = decodeScriptPubkey(scriptPubkeyHex);
+    if (!candidate) {
       showResult("That doesn't decode as a Legacy Recovery payload -- double check you copied the OP_RETURN output's full scriptPubKey (hex), not just the address or the txid.", true);
       return;
     }
 
     const signature = parseUnlockSignature(signatureRaw);
-    const bundle = await recoverViaOnChainPath(signature, vaultIndex, candidates[0].sealed);
+    const bundle = await recoverViaOnChainPath(signature, candidate.sealed);
     showResult(bundle, false);
   } catch (e) {
     showResult(`Recovery failed: ${e instanceof Error ? e.message : String(e)}`, true);
@@ -85,12 +88,11 @@ async function runRecovery(): Promise<void> {
 }
 
 function updateMessage(): void {
-  const vaultIndexRaw = ($('vault-index') as HTMLInputElement).value.trim();
-  const vaultIndex = parseInt(vaultIndexRaw, 10);
-  ($('message') as HTMLTextAreaElement).value =
-    Number.isInteger(vaultIndex) && vaultIndex >= 0
-      ? legacyOnChainUnlockMessage(vaultIndex)
-      : '(fill in the vault index above)';
+  const scriptPubkeyHex = ($('scriptpubkey') as HTMLTextAreaElement).value.trim();
+  const candidate = scriptPubkeyHex ? decodeScriptPubkey(scriptPubkeyHex) : null;
+  ($('message') as HTMLTextAreaElement).value = candidate
+    ? legacyOnChainNonceMessage(unb64(candidate.sealed.nonceB64))
+    : '(paste the on-chain scriptPubKey hex above)';
   // Any change to the message invalidates a previously shown QR --
   // hide it rather than leave a stale code on screen.
   ($('message-qr-wrap') as HTMLElement).style.display = 'none';
@@ -184,7 +186,7 @@ async function startSignatureScan(): Promise<void> {
 
 window.addEventListener('DOMContentLoaded', () => {
   $('run').addEventListener('click', () => { void runRecovery(); });
-  $('vault-index').addEventListener('input', updateMessage);
+  $('scriptpubkey').addEventListener('input', updateMessage);
   $('message-qr-toggle').addEventListener('click', () => { void toggleMessageQr(); });
   $('signature-scan-start').addEventListener('click', () => { void startSignatureScan(); });
   $('signature-scan-cancel').addEventListener('click', stopSignatureScan);

@@ -36,9 +36,9 @@ export function vaultNetworkToKeystoreNetwork(network: 'testnet' | 'signet' | 'b
   return network === 'bitcoin' ? 'mainnet' : network;
 }
 
-/** The one on-chain lookup address a keyholder needs for a given vaultIndex -- computable from just their mnemonic, no server involved. */
-export function legacyOnChainLookupAddress(mnemonic: string, network: Network, vaultIndex: number): string {
-  const { publicKey } = legacyOnChainIdentity(mnemonic, network, vaultIndex);
+/** The one on-chain lookup address a keyholder needs -- computable from just their mnemonic, no server involved. One fixed address per seed (see legacy-recovery.ts's legacyOnChainDerivationPath). */
+export function legacyOnChainLookupAddress(mnemonic: string, network: Network): string {
+  const { publicKey } = legacyOnChainIdentity(mnemonic, network);
   return p2wpkhAddressForPubkey(toHex(publicKey), toPublishNetwork(network));
 }
 
@@ -55,23 +55,23 @@ export interface LegacyOnChainPayload {
  * exact OP_RETURN payload plus the address to pay it to -- nothing else.
  * Deliberately does NOT build or sign a transaction: the recovery
  * identity key never needs to sign a Bitcoin transaction at all, only
- * ever a MESSAGE (see legacy-recovery.ts's signLegacyOnChainUnlock).
- * Publishing is one ordinary transaction from ANY already-funded key --
- * an OP_RETURN output carrying payloadHex, plus a small payment to
- * `address` in the SAME transaction (the caller passes both to
- * onchain-publish.ts's buildAndSignPublishTx via its `payTo` option) --
- * not two transactions where the identity address has to be funded
- * first and then spend from itself. The identity address only ever
- * needs to appear as an OUTPUT of some transaction, never an input.
+ * ever a MESSAGE, over the random nonce this seal generates (see
+ * legacy-recovery.ts's signLegacyOnChainNonce). Publishing is one
+ * ordinary transaction from ANY already-funded key -- an OP_RETURN
+ * output carrying payloadHex, plus a small payment to `address` in the
+ * SAME transaction (the caller passes both to onchain-publish.ts's
+ * buildAndSignPublishTx via its `payTo` option) -- not two transactions
+ * where the identity address has to be funded first and then spend from
+ * itself. The identity address only ever needs to appear as an OUTPUT of
+ * some transaction, never an input.
  */
 export async function sealOnChainPayload(opts: {
   bundleText: string;
   mnemonic: string;
   network: Network;
-  vaultIndex: number;
 }): Promise<LegacyOnChainPayload> {
-  const { bundleText, mnemonic, network, vaultIndex } = opts;
-  const { sealed, identityPubkey } = await sealBundleOnChain(bundleText, mnemonic, network, vaultIndex);
+  const { bundleText, mnemonic, network } = opts;
+  const { sealed, identityPubkey } = await sealBundleOnChain(bundleText, mnemonic, network);
   const payload = encodeOnChainPayload(sealed);
   const publishNetwork = toPublishNetwork(network);
   return {

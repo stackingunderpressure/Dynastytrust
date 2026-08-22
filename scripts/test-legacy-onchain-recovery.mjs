@@ -2,16 +2,19 @@
 // apps/web/src/lib/legacy-onchain-recovery.ts). Imports the real app
 // source via Node's native TS type-stripping, same convention as the
 // other test-*.mjs scripts. Proves the FULL loop end to end: seal a
-// bundle for a keyholder (sealOnChainPayload -- no transaction), build
-// + sign a REAL publish transaction paid for by a totally separate key
-// (buildAndSignPublishTx's payTo option -- the identity key never signs
-// a transaction, only ever a message), simulate what mempool.space would
-// hand back for the identity address (parsed straight from the actual
-// signed tx, not a hand-typed fixture), extract the payload the way a
-// real scanner would, and recover the exact original bundle text using
-// an INDEPENDENTLY re-derived signature (not the one used to seal) --
-// exactly what a real recovery does decades later with nothing but a
-// seed and the chain.
+// bundle for a keyholder (sealOnChainPayload -- picks its own random
+// nonce, signs it, no transaction), build + sign a REAL publish
+// transaction paid for by a totally separate key (buildAndSignPublishTx's
+// payTo option -- the identity key never signs a transaction, only ever
+// a message over that nonce), simulate what mempool.space would hand
+// back for the identity address (parsed straight from the actual signed
+// tx, not a hand-typed fixture), extract the payload the way a real
+// scanner would, and recover the exact original bundle text using an
+// INDEPENDENTLY re-derived signature over the found nonce (not the one
+// used to seal) -- exactly what a real recovery does decades later with
+// nothing but a seed and the chain. No vault index anywhere in this
+// flow any more -- one seed, one fixed address, the nonce alone
+// separates one seal from the next.
 import assert from 'node:assert/strict';
 import { generateMnemonic } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english';
@@ -24,14 +27,14 @@ import {
 } from '../apps/web/src/lib/legacy-onchain-recovery.ts';
 import {
   legacyOnChainIdentity,
-  signLegacyOnChainUnlock,
-  verifyLegacyOnChainSignature,
+  signLegacyOnChainNonce,
+  verifyLegacyOnChainNonceSignature,
   recoverViaOnChainPath,
+  unb64,
 } from '../apps/web/src/lib/legacy-recovery.ts';
 import { p2wpkhAddressForPubkey, buildAndSignPublishTx } from '../apps/web/src/lib/onchain-publish.ts';
 
 const network = 'testnet';
-const vaultIndex = 0;
 const mnemonic = generateMnemonic(wordlist); // the keyholder whose vault descriptor this seals
 const payerMnemonic = generateMnemonic(wordlist); // a totally unrelated key that just pays the fee
 const payerDerivationPath = "m/86'/1'/0'";
@@ -40,21 +43,20 @@ const bundleText = 'descriptor=tr(...); policy=or(thresh(2,pk(A),pk(B)),and(afte
 // ── legacyOnChainLookupAddress matches the address independently derived
 // from the same hardened identity keypair -- the recovering keyholder and
 // the sealing keyholder (same person, different moments) must land on
-// the identical address every time.
-const { publicKey: identityPubkey } = legacyOnChainIdentity(mnemonic, network, vaultIndex);
+// the identical address every time, with no index of any kind involved.
+const { publicKey: identityPubkey } = legacyOnChainIdentity(mnemonic, network);
 const expectedAddress = p2wpkhAddressForPubkey(
   Array.from(identityPubkey).map(b => b.toString(16).padStart(2, '0')).join(''),
   toPublishNetwork(network),
 );
-const lookupAddress = legacyOnChainLookupAddress(mnemonic, network, vaultIndex);
+const lookupAddress = legacyOnChainLookupAddress(mnemonic, network);
 assert.equal(lookupAddress, expectedAddress, 'lookup address must match the identity keypair\'s own P2WPKH address');
+assert.equal(lookupAddress, legacyOnChainLookupAddress(mnemonic, network), 'the lookup address must be the exact same every time -- no index to vary it');
 assert.ok(lookupAddress.startsWith('tb1q'), `expected a testnet P2WPKH address, got ${lookupAddress}`);
 
 // ── Seal the payload -- no transaction involved, no keypair beyond the
-// identity's own signature. ─────────────────────────────────────────────
-const { payloadHex, address, identityPubkeyHex } = await sealOnChainPayload({
-  bundleText, mnemonic, network, vaultIndex,
-});
+// identity's own signature over a freshly-generated random nonce. ───────
+const { payloadHex, address, identityPubkeyHex } = await sealOnChainPayload({ bundleText, mnemonic, network });
 assert.equal(address, lookupAddress, 'the sealed payload\'s target address must be the exact same address a recovering keyholder would derive');
 assert.equal(
   identityPubkeyHex,
@@ -103,15 +105,17 @@ const candidates = extractOnChainCandidates(mempoolShapedTxs);
 assert.equal(candidates.length, 1, 'must find exactly one payload at this address\'s (simulated) transaction history');
 assert.equal(candidates[0].txid, built.txid);
 
-// ── Recover using an INDEPENDENTLY re-derived signature -- not reused
-// from sealing -- exactly what a real recovery does.
-const recoverySignature = signLegacyOnChainUnlock(mnemonic, network, vaultIndex);
+// ── Recover by reading the nonce straight off the found candidate and
+// INDEPENDENTLY re-signing it -- not reused from sealing -- exactly what
+// a real recovery does. Nothing here needed a vault index at any point.
+const foundNonce = unb64(candidates[0].sealed.nonceB64);
+const recoverySignature = signLegacyOnChainNonce(mnemonic, network, foundNonce);
 assert.equal(
-  verifyLegacyOnChainSignature(recoverySignature, identityPubkey, vaultIndex),
+  verifyLegacyOnChainNonceSignature(recoverySignature, identityPubkey, foundNonce),
   true,
   'the independently re-derived recovery signature must verify against the identity pubkey found on-chain',
 );
-const recoveredBundle = await recoverViaOnChainPath(recoverySignature, vaultIndex, candidates[0].sealed);
+const recoveredBundle = await recoverViaOnChainPath(recoverySignature, candidates[0].sealed);
 assert.equal(recoveredBundle, bundleText, 'bundle recovered end-to-end (seal -> publish tx -> scan -> decrypt) must byte-match the original');
 
 // ── Negative cases: extractOnChainCandidates must cleanly skip non-

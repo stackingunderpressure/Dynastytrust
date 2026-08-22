@@ -13,33 +13,39 @@
  * is ever needed to recover.
  *
  * Design constraints this satisfies:
- *   1. STANDARD-SHAPED, OFFSET-ACCOUNT PATH: the derivation path
- *      (m/84'/coin'/(900000+N)'/1/0) is the ordinary 5-level BIP84 shape
- *      -- hardened purpose/coin/account, unhardened change/index --
- *      exactly what any off-the-shelf hardware wallet's "Sign Message"
- *      feature already expects. An earlier design used a fully hardened
- *      4-level path (m/9999'/coin'/N'/1') for maximum unlinkability, but
- *      real message-signing firmware (confirmed against SeedSigner's
- *      source) only recognizes the standard 5-level shape and rejects a
- *      custom hardened path outright -- so the fully-hardened version
- *      couldn't actually be signed on the hardware this mechanism exists
- *      to support. Reshaping the path to standard form and forking
- *      signer firmware to accept a custom path are mutually exclusive
- *      fixes (only one path shape can be the canonical, on-chain one);
- *      depending on a patched firmware fork surviving decades is a worse
- *      fit for "works decades from now regardless of what still exists"
- *      than the large, fixed account-offset (900000) below, which keeps
- *      the account number far outside any real wallet's actively-used
- *      low account numbers (routinely exported to watch-only trackers)
- *      or typical account-level gap-limit scanning ranges -- closing the
- *      practical version of the xpub-exposure risk an unhardened
- *      change/index level otherwise reopens.
- *   2. SIGN, DON'T TYPE A SEED: recovery is "sign this fixed message,
- *      then that signature decrypts" -- a hardware wallet's ordinary
- *      "Sign Message" feature, never a raw private key or seed pasted
- *      into the recovery tool. A software/mnemonic-held key can produce
- *      the same deterministic signature locally when no hardware wallet
- *      is available.
+ *   1. STANDARD-SHAPED, FIXED-ACCOUNT PATH: the derivation path
+ *      (m/84'/coin'/900000'/1/0) is the ordinary 5-level BIP84 shape --
+ *      hardened purpose/coin/account, unhardened change/index -- exactly
+ *      what any off-the-shelf hardware wallet's "Sign Message" feature
+ *      already expects. An earlier design used a fully hardened 4-level
+ *      path (m/9999'/coin'/N'/1') for maximum unlinkability, but real
+ *      message-signing firmware (confirmed against SeedSigner's source)
+ *      only recognizes the standard 5-level shape and rejects a custom
+ *      hardened path outright -- so the fully-hardened version couldn't
+ *      actually be signed on the hardware this mechanism exists to
+ *      support. The account number (900000) is fixed, not offset by a
+ *      per-vault index -- see point 5 below for why -- and stays far
+ *      outside any real wallet's actively-used low account numbers
+ *      (routinely exported to watch-only trackers) or typical
+ *      account-level gap-limit scanning ranges, closing the practical
+ *      version of the xpub-exposure risk an unhardened change/index
+ *      level otherwise reopens.
+ *   2. SIGN A NONCE, NOT A REMEMBERED SENTENCE: recovery needs nothing
+ *      memorized or hand-transcribed at all. The thing that gets signed
+ *      is the random 12-byte AES-GCM nonce that's already published in
+ *      plain sight as part of the on-chain payload (right before the
+ *      ciphertext -- see the payload framing below), not a fixed
+ *      sentence the recovering keyholder has to reconstruct correctly
+ *      from memory. At recovery time you read the nonce straight off
+ *      the transaction you already found and sign THAT -- there is
+ *      nothing to get wrong. This also answers the obvious follow-up,
+ *      "why not just sign the whole OP_RETURN": the ciphertext is the
+ *      OUTPUT of encrypting with the key that signing produces, so at
+ *      sealing time the ciphertext (and therefore the full OP_RETURN)
+ *      doesn't exist yet -- nothing that depends on it can be the thing
+ *      you sign to derive it. The nonce is chosen before encryption, so
+ *      it's the one piece of the eventual payload that's actually
+ *      available to sign up front, at both sealing and recovery time.
  *   3. ONE MECHANISM: the same signature both proves key ownership AND
  *      directly derives the decryption key.
  *   4. NO ECDH: unlinkability already forces one on-chain publish PER
@@ -48,11 +54,22 @@
  *      could all find), so each keyholder's own deterministic signature
  *      directly derives the symmetric key for their own copy of the
  *      bundle -- no multi-recipient envelope to build.
- *   5. `vaultIndex` (0, 1, 2, ...) is this PERSON's own small sequential
- *      count of how many vaults they've published a share for -- never a
- *      vault UUID. A human can plausibly remember or just try "0, then
- *      1, then 2" decades from now; nobody is expected to remember a
- *      UUID with nothing to check it against.
+ *   5. NO VAULT INDEX: the derivation path and the AES key's domain tag
+ *      are both fixed, single constants per seed -- there is no per-
+ *      vault index number to enter, remember, or get wrong at recovery
+ *      time. Operator's call: the overwhelming common case is one
+ *      recovery key doing one job for one vault, and the mechanism is
+ *      optimized against user error in a last-resort, decades-later
+ *      recovery scenario, not against the rare case of the SAME seed
+ *      being reused to publish Legacy Recovery for a SECOND, different
+ *      vault. That rare case still degrades gracefully rather than
+ *      breaking silently: both publishes land at the same address as
+ *      separate on-chain transactions, and each one's own nonce still
+ *      only unlocks its own ciphertext (nonce -> signature -> key is a
+ *      1:1 chain), so nothing decrypts to the wrong vault's data --
+ *      recovery just needs to know which transaction it wants, the same
+ *      way it already has to disambiguate a re-sealed vault's older vs.
+ *      newer publish.
  *
  * Every primitive here is a published, permanent standard -- BIP32
  * derivation, deterministic ECDSA (RFC 6979), SHA-256, AES-256-GCM -- not
@@ -69,31 +86,36 @@ import { networkVersions, type Network } from './keystore';
 // Legacy Recovery uses the standard BIP84 (native segwit) purpose field
 // -- ordinary, not reserved -- so its derivation path is recognized by
 // any hardware wallet's message-signing feature as a normal account, not
-// a custom path. The large, fixed account-number offset below is what
-// keeps this "recovery account" from colliding with a real wallet's own
+// a custom path. The large, fixed account number below is what keeps
+// this "recovery account" from colliding with a real wallet's own
 // actively-used low account numbers or falling inside typical
 // account-level gap-limit auto-discovery ranges -- deliberately public
-// and identical for every vault, same as the old reserved-purpose
-// constant it replaces: publishing the convention openly costs nothing,
-// since knowing the account number alone still doesn't let anyone derive
-// the resulting address without the account-level xpub or the seed.
+// and identical for every vault: publishing the convention openly costs
+// nothing, since knowing the account number alone still doesn't let
+// anyone derive the resulting address without the account-level xpub or
+// the seed. Fixed, not offset by a vault index -- see the header's point
+// 5 for why there is no per-vault index at all any more.
 const LEGACY_PURPOSE = "84'";
-export const LEGACY_ACCOUNT_OFFSET = 900_000;
+export const LEGACY_ACCOUNT_NUMBER = 900_000;
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
 /**
  * The classic Bitcoin Signed Message digest ("\x18Bitcoin Signed
  * Message:\n" + varint(len) + message, double-SHA256) -- the same format
  * Sparrow/Electrum/Coldcard/every hardware wallet's "Sign Message"
  * feature already produces. Using this exact digest means a real
- * hardware wallet can sign legacyOnChainUnlockMessage() directly with
+ * hardware wallet can sign legacyOnChainNonceMessage() directly with
  * its own UI; nothing here is DynastyTrust-specific.
  */
 export function bitcoinMessageDigest(message: string): Uint8Array {
   const magic = new TextEncoder().encode('\x18Bitcoin Signed Message:\n');
   const msgBytes = new TextEncoder().encode(message);
   // Bitcoin's varint: single byte for lengths under 0xfd, which every
-  // legacyOnChainUnlockMessage() text is (well under 253 bytes for any
-  // realistic vaultIndex).
+  // legacyOnChainNonceMessage() text is (well under 253 bytes -- a fixed
+  // prefix plus a 12-byte nonce as 24 hex characters).
   if (msgBytes.length >= 0xfd) {
     throw new Error(`bitcoinMessageDigest: message too long for single-byte varint (${msgBytes.length} bytes)`);
   }
@@ -169,10 +191,20 @@ function asBufferSource(bytes: Uint8Array): BufferSource {
   return bytes as BufferSource;
 }
 
-export async function sealBundle(bundleText: string, secret: Uint8Array): Promise<SealedBundle> {
-  const nonce = crypto.getRandomValues(new Uint8Array(12));
+/**
+ * secret is the AES-256-GCM key. nonce defaults to a fresh random value
+ * (the ordinary case), but the on-chain mechanism below needs to choose
+ * the nonce FIRST -- before the key even exists -- so it can sign that
+ * nonce to derive the key; passing one in explicitly makes that possible
+ * without a second encryption implementation.
+ */
+export async function sealBundle(
+  bundleText: string,
+  secret: Uint8Array,
+  nonce: Uint8Array = crypto.getRandomValues(new Uint8Array(12)),
+): Promise<SealedBundle> {
   const key = await crypto.subtle.importKey('raw', asBufferSource(secret), 'AES-GCM', false, ['encrypt']);
-  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, key, new TextEncoder().encode(bundleText));
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: asBufferSource(nonce) }, key, new TextEncoder().encode(bundleText));
   return { version: 1, nonceB64: b64(nonce), ciphertextB64: b64(new Uint8Array(ct)) };
 }
 
@@ -185,27 +217,30 @@ export async function unsealBundle(sealed: SealedBundle, secret: Uint8Array): Pr
 }
 
 /**
- * m/84'/coin'/(900000+N)'/1/0 -- N = this person's own small per-vault
- * index. Standard BIP84 5-level shape (hardened purpose/coin/account,
- * unhardened change/index) so any hardware wallet's message-signing
- * feature recognizes it as an ordinary account, not a custom path. The
- * fixed 900,000 account offset keeps it far outside any real wallet's
- * actively-used low account numbers or typical gap-limit scan range.
- * Change=1 (the internal chain) is a further, minor precaution -- it's
- * not where a normal wallet would ever show or watch a receive address.
+ * m/84'/coin'/900000'/1/0 -- one fixed path, the same for every vault
+ * this seed ever publishes Legacy Recovery for. Standard BIP84 5-level
+ * shape (hardened purpose/coin/account, unhardened change/index) so any
+ * hardware wallet's message-signing feature recognizes it as an ordinary
+ * account, not a custom path. The fixed 900,000 account number keeps it
+ * far outside any real wallet's actively-used low account numbers or
+ * typical gap-limit scan range. Change=1 (the internal chain) is a
+ * further, minor precaution -- it's not where a normal wallet would ever
+ * show or watch a receive address.
  */
-export function legacyOnChainDerivationPath(network: Network, vaultIndex: number): string {
-  if (!Number.isSafeInteger(vaultIndex) || vaultIndex < 0) {
-    throw new Error(`legacyOnChainDerivationPath: vaultIndex must be a non-negative whole number, got ${vaultIndex}`);
-  }
+export function legacyOnChainDerivationPath(network: Network): string {
   const coin = network === 'mainnet' ? '0' : '1';
-  const account = LEGACY_ACCOUNT_OFFSET + vaultIndex;
-  return `m/${LEGACY_PURPOSE}/${coin}'/${account}'/1/0`;
+  return `m/${LEGACY_PURPOSE}/${coin}'/${LEGACY_ACCOUNT_NUMBER}'/1/0`;
 }
 
-/** The fixed, domain-separated text a keyholder signs -- both to prove key ownership and to derive the decryption key. Plain ASCII, has to survive being retyped by hand decades from now. */
-export function legacyOnChainUnlockMessage(vaultIndex: number): string {
-  return `DynastyTrust Legacy Recovery v2\nvault index: ${vaultIndex}`;
+/**
+ * The fixed-prefix, nonce-specific text a keyholder signs -- both to
+ * prove key ownership and to derive the decryption key. There is
+ * nothing here to memorize: the nonce is read straight off the on-chain
+ * transaction (it's published in plain sight, right before the
+ * ciphertext), never composed or recalled by a person.
+ */
+export function legacyOnChainNonceMessage(nonce: Uint8Array): string {
+  return `DynastyTrust Legacy Recovery v2\nnonce: ${bytesToHex(nonce)}`;
 }
 
 /**
@@ -218,11 +253,10 @@ export function legacyOnChainUnlockMessage(vaultIndex: number): string {
 export function legacyOnChainIdentity(
   mnemonic: string,
   network: Network,
-  vaultIndex: number,
 ): { privateKey: Uint8Array; publicKey: Uint8Array } {
   const seed = mnemonicToSeedSync(mnemonic);
   const root = HDKey.fromMasterSeed(seed, networkVersions(network));
-  const child = root.derive(legacyOnChainDerivationPath(network, vaultIndex));
+  const child = root.derive(legacyOnChainDerivationPath(network));
   if (!child.privateKey || !child.publicKey) {
     throw new Error('legacy on-chain identity derivation produced no keypair (hardened path requires the seed, not an xpub)');
   }
@@ -230,8 +264,8 @@ export function legacyOnChainIdentity(
 }
 
 /**
- * Signs legacyOnChainUnlockMessage(vaultIndex) with the hardened identity
- * key, using deterministic ECDSA (RFC 6979 -- @noble/curves' default, no
+ * Signs legacyOnChainNonceMessage(nonce) with the hardened identity key,
+ * using deterministic ECDSA (RFC 6979 -- @noble/curves' default, no
  * random nonce) over the classic Bitcoin-signed-message digest.
  * Determinism is the whole point: the same key signing the same message
  * always produces the same signature, so the signature itself can serve
@@ -240,30 +274,30 @@ export function legacyOnChainIdentity(
  * held key -- this function exists so a software-held key can do the
  * same thing without one.
  */
-export function signLegacyOnChainUnlock(
+export function signLegacyOnChainNonce(
   mnemonic: string,
   network: Network,
-  vaultIndex: number,
+  nonce: Uint8Array,
 ): Uint8Array {
-  const { privateKey } = legacyOnChainIdentity(mnemonic, network, vaultIndex);
-  const digest = bitcoinMessageDigest(legacyOnChainUnlockMessage(vaultIndex));
+  const { privateKey } = legacyOnChainIdentity(mnemonic, network);
+  const digest = bitcoinMessageDigest(legacyOnChainNonceMessage(nonce));
   return secp256k1.sign(digest, privateKey).toCompactRawBytes();
 }
 
 /**
  * Verifies a signature -- however it was produced, software key or real
  * hardware wallet -- actually matches the identity pubkey it claims to,
- * over the exact legacyOnChainUnlockMessage digest. Callers should check
- * this BEFORE attempting to decrypt, so a wrong or garbled signature
- * fails with a clear "that signature doesn't match this key" instead of
- * a confusing AEAD failure three steps later.
+ * over the exact legacyOnChainNonceMessage digest for this nonce.
+ * Callers should check this BEFORE attempting to decrypt, so a wrong or
+ * garbled signature fails with a clear "that signature doesn't match
+ * this key" instead of a confusing AEAD failure three steps later.
  */
-export function verifyLegacyOnChainSignature(
+export function verifyLegacyOnChainNonceSignature(
   signature: Uint8Array,
   identityPubkey: Uint8Array,
-  vaultIndex: number,
+  nonce: Uint8Array,
 ): boolean {
-  const digest = bitcoinMessageDigest(legacyOnChainUnlockMessage(vaultIndex));
+  const digest = bitcoinMessageDigest(legacyOnChainNonceMessage(nonce));
   try {
     return secp256k1.verify(signature, digest, identityPubkey);
   } catch {
@@ -276,12 +310,14 @@ const LEGACY_ONCHAIN_KEY_TAG = 'dynastytrust-legacy-v2-key';
 /**
  * Derives the 32-byte AES-256-GCM key straight from the deterministic
  * signature -- this IS the encryption key, not just a value that locks
- * some other secret. Domain-separated by vaultIndex so the same
- * signature-producing key, reused across a person's different vaults,
- * never derives the same encryption key twice.
+ * some other secret. The signature is already unique per seal (it's over
+ * a fresh random nonce each time), so no further per-vault domain
+ * separation is needed here -- the fixed tag exists only so this
+ * specific derived value can never collide with some other, unrelated
+ * use of the same signature.
  */
-export function deriveLegacyOnChainKey(signature: Uint8Array, vaultIndex: number): Uint8Array {
-  const tag = new TextEncoder().encode(`${LEGACY_ONCHAIN_KEY_TAG}:${vaultIndex}`);
+export function deriveLegacyOnChainKey(signature: Uint8Array): Uint8Array {
+  const tag = new TextEncoder().encode(LEGACY_ONCHAIN_KEY_TAG);
   const input = new Uint8Array(signature.length + tag.length);
   input.set(signature, 0);
   input.set(tag, signature.length);
@@ -289,38 +325,43 @@ export function deriveLegacyOnChainKey(signature: Uint8Array, vaultIndex: number
 }
 
 /**
- * Seals a bundle for this mechanism: derive this keyholder's
- * deterministic signature, use it directly as the AES-256-GCM key
- * (reusing sealBundle as-is -- it already accepts any 32-byte key), and
- * return both the sealed bundle and the identity pubkey (safe to publish
- * -- it's what the on-chain address is derived from, and never reveals
- * the private key or the signature).
+ * Seals a bundle for this mechanism: pick a fresh random nonce FIRST,
+ * sign that nonce with this keyholder's deterministic identity key, use
+ * the resulting signature directly as the AES-256-GCM key, then encrypt
+ * with that exact key and nonce. The order matters -- the nonce has to
+ * exist before the key does, and the key has to exist before the
+ * ciphertext does, which is exactly why the nonce (not the ciphertext,
+ * not the whole eventual OP_RETURN) is the thing that gets signed.
+ * Returns the sealed bundle and the identity pubkey (safe to publish --
+ * it's what the on-chain address is derived from, and never reveals the
+ * private key or the signature).
  */
 export async function sealBundleOnChain(
   bundleText: string,
   mnemonic: string,
   network: Network,
-  vaultIndex: number,
 ): Promise<{ sealed: SealedBundle; identityPubkey: Uint8Array }> {
-  const { publicKey } = legacyOnChainIdentity(mnemonic, network, vaultIndex);
-  const signature = signLegacyOnChainUnlock(mnemonic, network, vaultIndex);
-  const key = deriveLegacyOnChainKey(signature, vaultIndex);
-  const sealed = await sealBundle(bundleText, key);
+  const { publicKey } = legacyOnChainIdentity(mnemonic, network);
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const signature = signLegacyOnChainNonce(mnemonic, network, nonce);
+  const key = deriveLegacyOnChainKey(signature);
+  const sealed = await sealBundle(bundleText, key, nonce);
   return { sealed, identityPubkey: publicKey };
 }
 
 /**
- * Recovers a sealed bundle given the keyholder's signature (however it
- * was produced) and the sealed bundle found on-chain. Callers should
- * call verifyLegacyOnChainSignature first for a clear error on a wrong
- * signature rather than a confusing AEAD failure here.
+ * Recovers a sealed bundle given the keyholder's signature over that
+ * SAME sealed bundle's own nonce (however the signature was produced)
+ * and the sealed bundle found on-chain. Callers should call
+ * verifyLegacyOnChainNonceSignature first, against sealed's nonce, for a
+ * clear error on a wrong signature rather than a confusing AEAD failure
+ * here.
  */
 export async function recoverViaOnChainPath(
   signature: Uint8Array,
-  vaultIndex: number,
   sealed: SealedBundle,
 ): Promise<string> {
-  const key = deriveLegacyOnChainKey(signature, vaultIndex);
+  const key = deriveLegacyOnChainKey(signature);
   return unsealBundle(sealed, key);
 }
 

@@ -8,94 +8,97 @@ import { generateMnemonic } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english';
 import {
   legacyOnChainDerivationPath,
-  legacyOnChainUnlockMessage,
+  legacyOnChainNonceMessage,
   legacyOnChainIdentity,
-  signLegacyOnChainUnlock,
-  verifyLegacyOnChainSignature,
+  signLegacyOnChainNonce,
+  verifyLegacyOnChainNonceSignature,
   deriveLegacyOnChainKey,
   sealBundleOnChain,
   recoverViaOnChainPath,
   bitcoinMessageDigest,
+  unb64,
 } from '../apps/web/src/lib/legacy-recovery.ts';
 
 const network = 'testnet';
 
-// ── Path is fixed for a given (network, vaultIndex); different index ->
-// different path. ───────────────────────────────────────────────────────
-const pathA = legacyOnChainDerivationPath(network, 0);
-assert.equal(pathA, legacyOnChainDerivationPath(network, 0), 'same (network, vaultIndex) must always derive the same path');
-assert.notEqual(pathA, legacyOnChainDerivationPath(network, 1), 'different vaultIndex must derive a different path');
-assert.equal(pathA, "m/84'/1'/900000'/1/0");
-assert.equal(legacyOnChainDerivationPath('mainnet', 0), "m/84'/0'/900000'/1/0");
-assert.equal(legacyOnChainDerivationPath(network, 1), "m/84'/1'/900001'/1/0");
-assert.throws(() => legacyOnChainDerivationPath(network, -1), /non-negative/, 'negative vaultIndex must be rejected');
-assert.throws(() => legacyOnChainDerivationPath(network, 1.5), /whole number/, 'non-integer vaultIndex must be rejected');
+// ── The path is one fixed constant per network -- no vault index at all
+// any more, so the same seed always lands on the same single address
+// regardless of how many vaults it publishes Legacy Recovery for. ───────
+const path = legacyOnChainDerivationPath(network);
+assert.equal(path, legacyOnChainDerivationPath(network), 'the path must always be the exact same string for a given network');
+assert.equal(path, "m/84'/1'/900000'/1/0");
+assert.equal(legacyOnChainDerivationPath('mainnet'), "m/84'/0'/900000'/1/0");
 
-// ── The signed message is fixed per vaultIndex, human-readable, and
-// ASCII. ───────────────────────────────────────────────────────────────
-assert.equal(legacyOnChainUnlockMessage(0), legacyOnChainUnlockMessage(0));
-assert.notEqual(legacyOnChainUnlockMessage(0), legacyOnChainUnlockMessage(1));
+// ── The signed message is a function of the nonce, not anything
+// memorized -- different nonces produce different messages, and the
+// same nonce always produces the exact same message. ────────────────────
+const nonceA = new Uint8Array(12).fill(1);
+const nonceB = new Uint8Array(12).fill(2);
+assert.equal(legacyOnChainNonceMessage(nonceA), legacyOnChainNonceMessage(nonceA));
+assert.notEqual(legacyOnChainNonceMessage(nonceA), legacyOnChainNonceMessage(nonceB));
 
 // bitcoinMessageDigest must be a plain function of the message text.
 assert.deepEqual(
-  bitcoinMessageDigest(legacyOnChainUnlockMessage(0)),
-  bitcoinMessageDigest(legacyOnChainUnlockMessage(0)),
+  bitcoinMessageDigest(legacyOnChainNonceMessage(nonceA)),
+  bitcoinMessageDigest(legacyOnChainNonceMessage(nonceA)),
 );
 
-// ── Deterministic signature: same mnemonic + network + vaultIndex -> the
+// ── Deterministic signature: same mnemonic + network + nonce -> the
 // exact same signature every time (RFC 6979, no random nonce) -- this is
 // what lets the signature itself double as a reproducible decryption
 // key. ────────────────────────────────────────────────────────────────
 const mnemonic = generateMnemonic(wordlist);
-const vaultIndex = 0;
-const sigA = signLegacyOnChainUnlock(mnemonic, network, vaultIndex);
-const sigB = signLegacyOnChainUnlock(mnemonic, network, vaultIndex);
+const sigA = signLegacyOnChainNonce(mnemonic, network, nonceA);
+const sigB = signLegacyOnChainNonce(mnemonic, network, nonceA);
 assert.deepEqual(sigA, sigB, 'signing the same message with the same key twice must produce byte-identical signatures');
 assert.equal(sigA.length, 64, 'compact ECDSA signature must be 64 bytes (r || s)');
-const sigDifferentIndex = signLegacyOnChainUnlock(mnemonic, network, 1);
-assert.notDeepEqual(sigA, sigDifferentIndex, 'a different vaultIndex must sign a different message and produce a different signature');
+const sigDifferentNonce = signLegacyOnChainNonce(mnemonic, network, nonceB);
+assert.notDeepEqual(sigA, sigDifferentNonce, 'a different nonce must sign a different message and produce a different signature');
 
-// ── verifyLegacyOnChainSignature: true only for the right signature,
-// pubkey, and index all matching -- a hardware wallet reproducing the
-// signature later must verify against the same identity pubkey derived
-// at seal time. ──────────────────────────────────────────────────────
-const { publicKey: identityPubkey } = legacyOnChainIdentity(mnemonic, network, vaultIndex);
-assert.equal(verifyLegacyOnChainSignature(sigA, identityPubkey, vaultIndex), true, 'the real signature must verify against its own identity pubkey');
-assert.equal(verifyLegacyOnChainSignature(sigDifferentIndex, identityPubkey, vaultIndex), false, 'a signature over the WRONG vaultIndex message must not verify');
+// ── verifyLegacyOnChainNonceSignature: true only for the right
+// signature, pubkey, and nonce all matching -- a hardware wallet
+// reproducing the signature later must verify against the same identity
+// pubkey derived at seal time. ──────────────────────────────────────────
+const { publicKey: identityPubkey } = legacyOnChainIdentity(mnemonic, network);
+assert.equal(verifyLegacyOnChainNonceSignature(sigA, identityPubkey, nonceA), true, 'the real signature must verify against its own identity pubkey');
+assert.equal(verifyLegacyOnChainNonceSignature(sigDifferentNonce, identityPubkey, nonceA), false, 'a signature over the WRONG nonce message must not verify');
 const wrongMnemonic = generateMnemonic(wordlist);
-const sigWrongKey = signLegacyOnChainUnlock(wrongMnemonic, network, vaultIndex);
-assert.equal(verifyLegacyOnChainSignature(sigWrongKey, identityPubkey, vaultIndex), false, 'a signature from a DIFFERENT key must not verify against this identity pubkey');
+const sigWrongKey = signLegacyOnChainNonce(wrongMnemonic, network, nonceA);
+assert.equal(verifyLegacyOnChainNonceSignature(sigWrongKey, identityPubkey, nonceA), false, 'a signature from a DIFFERENT key must not verify against this identity pubkey');
 
-// ── deriveLegacyOnChainKey: deterministic, and domain-separated by
-// vaultIndex so the same signature-producing key reused across a
-// person's different vaults never derives the same encryption key
-// twice. ──────────────────────────────────────────────────────────────
-const keyA = deriveLegacyOnChainKey(sigA, vaultIndex);
-const keyB = deriveLegacyOnChainKey(sigA, vaultIndex);
-assert.deepEqual(keyA, keyB, 'the same signature + vaultIndex must always derive the same key');
+// ── deriveLegacyOnChainKey: deterministic. Domain separation now comes
+// from the nonce baked into the SIGNATURE itself (a different nonce
+// signs a different message and so produces a different signature),
+// not from a separate index tag. ────────────────────────────────────────
+const keyA = deriveLegacyOnChainKey(sigA);
+const keyB = deriveLegacyOnChainKey(sigA);
+assert.deepEqual(keyA, keyB, 'the same signature must always derive the same key');
 assert.equal(keyA.length, 32, 'derived key must be 32 bytes (AES-256)');
-const keyDifferentIndex = deriveLegacyOnChainKey(sigA, 1);
-assert.notDeepEqual(keyA, keyDifferentIndex, 'the same signature under a different vaultIndex tag must derive a different key');
+const keyFromDifferentNonceSig = deriveLegacyOnChainKey(sigDifferentNonce);
+assert.notDeepEqual(keyA, keyFromDifferentNonceSig, 'a signature over a different nonce must derive a different key');
 
-// ── Full round trip: seal, then INDEPENDENTLY re-derive the signature
-// (as a real recovery would -- sign again, don't reuse the seal-time
-// value) and recover. Proves this is genuinely reproducible from just
-// the key, not only internally self-consistent within one call. ────────
+// ── Full round trip: seal (which picks its own random nonce, signs it,
+// and encrypts with the resulting key), then find that SAME nonce in
+// the sealed bundle, INDEPENDENTLY re-sign it (as a real recovery would
+// -- sign again, don't reuse the seal-time signature) and recover.
+// Proves this is genuinely reproducible from just the key and the
+// on-chain data, not only internally self-consistent within one call. ──
 const bundleText = 'descriptor=tr(...); policy=or(thresh(2,pk(A),pk(B)),and(after(500000),pk(C)))';
-const { sealed, identityPubkey: sealedIdentityPubkey } =
-  await sealBundleOnChain(bundleText, mnemonic, network, vaultIndex);
+const { sealed, identityPubkey: sealedIdentityPubkey } = await sealBundleOnChain(bundleText, mnemonic, network);
 assert.deepEqual(sealedIdentityPubkey, identityPubkey, 'sealBundleOnChain must expose the same identity pubkey legacyOnChainIdentity derives');
 
-const recoverySignature = signLegacyOnChainUnlock(mnemonic, network, vaultIndex); // re-derived independently, not reused
-assert.equal(verifyLegacyOnChainSignature(recoverySignature, sealedIdentityPubkey, vaultIndex), true, 'recovery-time signature must verify before attempting to decrypt');
-const recoveredBundle = await recoverViaOnChainPath(recoverySignature, vaultIndex, sealed);
+const sealedNonce = unb64(sealed.nonceB64);
+assert.equal(sealedNonce.length, 12, 'the AES-GCM nonce must be 12 bytes');
+const recoverySignature = signLegacyOnChainNonce(mnemonic, network, sealedNonce); // re-derived independently, not reused
+assert.equal(verifyLegacyOnChainNonceSignature(recoverySignature, sealedIdentityPubkey, sealedNonce), true, 'recovery-time signature must verify before attempting to decrypt');
+const recoveredBundle = await recoverViaOnChainPath(recoverySignature, sealed);
 assert.equal(recoveredBundle, bundleText, 'bundle recovered via the on-chain path must byte-match the original');
 
 // ── Wrong key must fail closed (AEAD failure), never produce a
 // wrong-but-plausible plaintext. ─────────────────────────────────────
-const wrongKeySignature = signLegacyOnChainUnlock(wrongMnemonic, network, vaultIndex);
+const wrongKeySignature = signLegacyOnChainNonce(wrongMnemonic, network, sealedNonce);
 await assert.rejects(
-  recoverViaOnChainPath(wrongKeySignature, vaultIndex, sealed),
+  recoverViaOnChainPath(wrongKeySignature, sealed),
   'decrypting with a signature from the wrong key must fail, not silently succeed',
 );
 
@@ -104,7 +107,7 @@ await assert.rejects(
 // confidential. ──────────────────────────────────────────────────────
 const tampered = { ...sealed, ciphertextB64: sealed.ciphertextB64.slice(0, -4) + 'AAAA' };
 await assert.rejects(
-  recoverViaOnChainPath(recoverySignature, vaultIndex, tampered),
+  recoverViaOnChainPath(recoverySignature, tampered),
   'a tampered ciphertext must fail AEAD verification, never decrypt to a different valid plaintext',
 );
 

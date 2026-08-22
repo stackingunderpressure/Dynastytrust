@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, type Vault } from '../lib/api';
 import { listKeys, revealMnemonic, type LocalKey } from '../lib/keystore';
-import { legacyOnChainDerivationPath, legacyOnChainUnlockMessage } from '../lib/legacy-recovery';
+import { legacyOnChainDerivationPath } from '../lib/legacy-recovery';
 import { vaultBackupText, downloadLegacyOnChainRecoveryNote } from '../lib/descriptor-backup';
 import { buildAndSignPublishTx, p2wpkhAddressForPubkey, type BuiltPublishTx } from '../lib/onchain-publish';
 import {
@@ -21,11 +21,11 @@ import { useToast } from '../components/toast';
 // Long-horizon descriptor recovery ("Legacy Recovery" -- see
 // apps/web/src/lib/legacy-recovery.ts's header for the full mechanism):
 // no shares, no combining, no database at all. Each keyholder publishes
-// an encrypted copy of this vault's descriptor to their own fully
-// hardened on-chain address -- computable only from their real seed,
-// never from this vault's xpubs, descriptor, or anything DynastyTrust
-// stores -- and years from now recovers it alone with nothing but a
-// signature over one fixed message.
+// an encrypted copy of this vault's descriptor to their own on-chain
+// address -- computable only from their real seed, never from this
+// vault's xpubs, descriptor, or anything DynastyTrust stores -- and
+// years from now recovers it alone by signing the random nonce found
+// published right alongside the encrypted data, nothing memorized.
 
 interface RoleSlot {
   role: string;      // e.g. "founder_1"
@@ -42,23 +42,21 @@ function rolesForVault(vault: Vault): RoleSlot[] {
 }
 
 // Each role gets its own card because each keyholder derives their own
-// address (a fully hardened path -- see legacy-recovery.ts's
+// address (an account-level-hardened path -- see legacy-recovery.ts's
 // legacyOnChainDerivationPath -- so it can only ever be computed from
 // that person's real seed, never from this vault's xpubs or descriptor,
 // and nobody can link one keyholder's address to another's or to this
 // vault). State here is deliberately local to the card, not lifted to
 // the page -- the password is kept only long enough to derive what's
 // needed and is never cached.
-function LegacyOnChainV2Card({ vault, role, defaultVaultIndex, localKeys, toast }: {
+function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
   vault: Vault;
   role: RoleSlot;
-  defaultVaultIndex: number;
   localKeys: LocalKey[];
   toast: ReturnType<typeof useToast>;
 }) {
   const [keyId, setKeyId] = useState('');
   const [password, setPassword] = useState('');
-  const [vaultIndex, setVaultIndex] = useState(String(defaultVaultIndex));
   const [checking, setChecking] = useState(false);
   const [address, setAddress] = useState<string | null>(null);
   const [candidate, setCandidate] = useState<OnChainCandidate | null>(null);
@@ -87,21 +85,19 @@ function LegacyOnChainV2Card({ vault, role, defaultVaultIndex, localKeys, toast 
 
   const key = localKeys.find(k => k.keyId === keyId) ?? null;
   const needsPassword = !!key && !key.testMnemonic && !!key.encryptedMnemonic;
-  const parsedIndex = parseInt(vaultIndex, 10);
-  const indexValid = Number.isInteger(parsedIndex) && parsedIndex >= 0;
 
   const billboardKey = localKeys.find(k => k.keyId === billboardKeyId) ?? null;
   const billboardNeedsPassword = !!billboardKey && !billboardKey.testMnemonic && !!billboardKey.encryptedMnemonic;
   const billboardAddress = billboardKey ? p2wpkhAddressForPubkey(billboardKey.pubkey, vault.network) : null;
 
   async function handleCheckAddress() {
-    if (!key || !indexValid) return;
+    if (!key) return;
     setChecking(true);
     setCandidate(null);
     try {
       const network = vaultNetworkToKeystoreNetwork(vault.network);
       const mnemonic = await revealMnemonic(key.keyId, needsPassword ? password : undefined);
-      const addr = legacyOnChainLookupAddress(mnemonic, network, parsedIndex);
+      const addr = legacyOnChainLookupAddress(mnemonic, network);
       setAddress(addr);
       setFetchedUtxos(null);
       setBuiltTx(null);
@@ -139,7 +135,7 @@ function LegacyOnChainV2Card({ vault, role, defaultVaultIndex, localKeys, toast 
   }
 
   async function handleBuildPublishTx() {
-    if (!key || !billboardKey || !indexValid || !address) return;
+    if (!key || !billboardKey || !address) return;
     const valueSats = parseInt(utxoValue, 10);
     const vout = parseInt(utxoVout, 10);
     const rate = parseFloat(feeRate);
@@ -157,7 +153,6 @@ function LegacyOnChainV2Card({ vault, role, defaultVaultIndex, localKeys, toast 
         bundleText: vaultBackupText(vault),
         mnemonic: identityMnemonic,
         network,
-        vaultIndex: parsedIndex,
       });
       const payerMnemonic = await revealMnemonic(billboardKey.keyId, billboardNeedsPassword ? billboardPassword : undefined);
       const built = buildAndSignPublishTx({
@@ -216,21 +211,6 @@ function LegacyOnChainV2Card({ vault, role, defaultVaultIndex, localKeys, toast 
 
       {key && (
         <>
-          <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
-            Vault index -- a small number unique to this person if they hold a key in more than one
-            DynastyTrust vault (0 for their first, 1 for their second, and so on). Nothing to write
-            down for this alone -- recovery just tries 0, 1, 2... until it finds the right address.
-          </label>
-          <input
-            value={vaultIndex}
-            onChange={e => { setVaultIndex(e.target.value.replace(/[^0-9]/g, '')); setAddress(null); setCandidate(null); }}
-            style={{
-              width: 100, padding: '10px 12px', background: colors.input,
-              border: `1px solid ${colors.border}`, borderRadius: radii.md,
-              color: colors.text, fontSize: 14, fontFamily: fonts.mono, marginBottom: 10,
-            }}
-          />
-
           {needsPassword && (
             <input
               type="password"
@@ -248,7 +228,7 @@ function LegacyOnChainV2Card({ vault, role, defaultVaultIndex, localKeys, toast 
 
           <Button
             variant="ghost" size="sm" onClick={handleCheckAddress}
-            disabled={checking || !indexValid || (needsPassword && !password)}
+            disabled={checking || (needsPassword && !password)}
             style={{ marginBottom: 10 }}
           >
             {checking ? 'Deriving...' : 'Derive address and check the chain'}
@@ -257,7 +237,7 @@ function LegacyOnChainV2Card({ vault, role, defaultVaultIndex, localKeys, toast 
           {address && (
             <div style={{ marginTop: 4 }}>
               <div style={{ fontSize: 12, color: colors.muted, marginBottom: 4 }}>
-                This key's on-chain lookup address for index {parsedIndex}:
+                This key's on-chain lookup address:
               </div>
               <div style={{ fontFamily: fonts.mono, fontSize: 13, color: colors.text, wordBreak: 'break-all', marginBottom: 10 }}>
                 {address}
@@ -268,10 +248,8 @@ function LegacyOnChainV2Card({ vault, role, defaultVaultIndex, localKeys, toast 
                   vaultName: vault.name,
                   network: vault.network,
                   roleLabel: role.label,
-                  vaultIndex: parsedIndex,
                   address,
-                  derivationPath: legacyOnChainDerivationPath(vaultNetworkToKeystoreNetwork(vault.network), parsedIndex),
-                  unlockMessage: legacyOnChainUnlockMessage(parsedIndex),
+                  derivationPath: legacyOnChainDerivationPath(vaultNetworkToKeystoreNetwork(vault.network)),
                   txid: candidate?.txid ?? broadcastTxid,
                 })}
               >
@@ -517,8 +495,8 @@ export default function LegacyRecoverySetup() {
       {roles.length === 0 ? (
         <Card><p style={{ color: colors.muted }}>This vault has no named roles to publish for yet.</p></Card>
       ) : (
-        roles.map((r, i) => (
-          <LegacyOnChainV2Card key={r.role} vault={vault} role={r} defaultVaultIndex={i} localKeys={localKeys} toast={toast} />
+        roles.map(r => (
+          <LegacyOnChainV2Card key={r.role} vault={vault} role={r} localKeys={localKeys} toast={toast} />
         ))
       )}
 
