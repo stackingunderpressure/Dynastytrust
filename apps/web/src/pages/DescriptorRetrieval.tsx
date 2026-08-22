@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
 import { listAllKeys, revealMnemonic } from '../lib/keystore';
 import {
-  legacyOnChainUnlockMessage,
+  legacyOnChainNonceMessage,
   legacyOnChainDerivationPath,
-  signLegacyOnChainUnlock,
+  signLegacyOnChainNonce,
   recoverViaOnChainPath,
   parseUnlockSignature,
+  unb64,
 } from '../lib/legacy-recovery';
 import {
   fetchLegacyOnChainCandidates,
@@ -28,9 +29,10 @@ function toHex(bytes: Uint8Array): string {
 // header for the full mechanism): no vault ID, no DynastyTrust database
 // lookup at all -- the Bitcoin blockchain is the only place this ever
 // lived. A keyholder needs the address this key published to (from
-// their own recovery note, or re-derived here from a local key) plus a
-// signature over one fixed message, and that's the whole recovery -- no
-// second key, no share to combine with anyone else.
+// their own recovery note, or re-derived here from a local key), and
+// once that address's on-chain transaction is found, a signature over
+// the exact nonce published there -- nothing memorized, nothing typed
+// from a recovery note but the address itself.
 
 export default function DescriptorRetrieval() {
   const toast = useToast();
@@ -46,7 +48,6 @@ export default function DescriptorRetrieval() {
   }
 
   const [network, setNetwork] = useState<PublishNetwork>('testnet');
-  const [vaultIndex, setVaultIndex] = useState('0');
   const [address, setAddress] = useState('');
   const [checking, setChecking] = useState(false);
   const [candidate, setCandidate] = useState<OnChainCandidate | null>(null);
@@ -55,6 +56,7 @@ export default function DescriptorRetrieval() {
   const [localKeyId, setLocalKeyId] = useState('');
   const [localPassword, setLocalPassword] = useState('');
   const [deriving, setDeriving] = useState(false);
+  const [signingLocally, setSigningLocally] = useState(false);
 
   const [signatureInput, setSignatureInput] = useState('');
   const [unlocking, setUnlocking] = useState(false);
@@ -64,23 +66,21 @@ export default function DescriptorRetrieval() {
 
   const localKey = localKeys.find(k => k.keyId === localKeyId) ?? null;
   const localNeedsPassword = !!localKey && !localKey.testMnemonic && !!localKey.encryptedMnemonic;
-  const parsedIndex = parseInt(vaultIndex, 10);
-  const indexValid = Number.isInteger(parsedIndex) && parsedIndex >= 0;
+  const nonce = candidate ? unb64(candidate.sealed.nonceB64) : null;
 
   async function handleDeriveLocally() {
-    if (!localKey || !indexValid) return;
+    if (!localKey) return;
     setDeriving(true);
     try {
       const keyNetwork = localKey.network;
       const mnemonic = await revealMnemonic(localKey.keyId, localNeedsPassword ? localPassword : undefined);
-      const addr = legacyOnChainLookupAddress(mnemonic, keyNetwork, parsedIndex);
-      const signature = signLegacyOnChainUnlock(mnemonic, keyNetwork, parsedIndex);
+      const addr = legacyOnChainLookupAddress(mnemonic, keyNetwork);
       setAddress(addr);
-      setSignatureInput(toHex(signature));
       setNetwork(keyNetwork === 'mainnet' ? 'bitcoin' : keyNetwork);
       setCandidate(null);
       setChecked(false);
-      toast.success('Address and signature derived from this key. Check the chain next.');
+      setSignatureInput('');
+      toast.success('Address derived from this key. Check the chain next.');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not derive from that key.');
     } finally {
@@ -89,7 +89,7 @@ export default function DescriptorRetrieval() {
   }
 
   async function handleCheck() {
-    if (!address.trim() || !indexValid) return;
+    if (!address.trim()) return;
     setChecking(true);
     setCandidate(null);
     setChecked(false);
@@ -105,16 +105,31 @@ export default function DescriptorRetrieval() {
     }
   }
 
+  async function handleSignLocally() {
+    if (!localKey || !nonce) return;
+    setSigningLocally(true);
+    try {
+      const mnemonic = await revealMnemonic(localKey.keyId, localNeedsPassword ? localPassword : undefined);
+      const signature = signLegacyOnChainNonce(mnemonic, localKey.network, nonce);
+      setSignatureInput(toHex(signature));
+      toast.success('Signed locally with this key.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not sign with that key.');
+    } finally {
+      setSigningLocally(false);
+    }
+  }
+
   async function handleUnlock() {
-    if (!candidate || !indexValid) return;
+    if (!candidate) return;
     setUnlocking(true);
     try {
       const signature = parseUnlockSignature(signatureInput);
-      const text = await recoverViaOnChainPath(signature, parsedIndex, candidate.sealed);
+      const text = await recoverViaOnChainPath(signature, candidate.sealed);
       setRecoveredBundle(text);
       toast.success('Unlocked. This one key, alone, was everything this recovery needed.');
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Unlock failed -- wrong signature, wrong vault index, or this address published for a different key.');
+      toast.error(e instanceof Error ? e.message : 'Unlock failed -- wrong signature, or this address published for a different key.');
     } finally {
       setUnlocking(false);
     }
@@ -125,9 +140,9 @@ export default function DescriptorRetrieval() {
       <p style={{ fontSize: 16, fontWeight: 450, color: colors.text, lineHeight: 1.6 }}>
         No vault ID, no DynastyTrust account, no database lookup -- this key's own on-chain address
         IS the lookup. If you have the address from your recovery note (or this key is in this
-        browser), enter it below with the vault index, check the chain, then sign the message shown
-        to unlock. One key, alone, recovers the full descriptor -- nothing to combine with anyone
-        else.
+        browser), enter it below, check the chain, then sign the exact bytes shown -- found straight
+        off the transaction, nothing to remember -- to unlock. One key, alone, recovers the full
+        descriptor -- nothing to combine with anyone else.
       </p>
 
       <Card>
@@ -147,19 +162,6 @@ export default function DescriptorRetrieval() {
           <option value="testnet">Testnet</option>
           <option value="signet">Signet</option>
         </select>
-
-        <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
-          Vault index (from your recovery note)
-        </label>
-        <input
-          value={vaultIndex}
-          onChange={e => { setVaultIndex(e.target.value.replace(/[^0-9]/g, '')); setCandidate(null); setChecked(false); }}
-          style={{
-            width: 100, padding: '10px 12px', background: colors.input,
-            border: `1px solid ${colors.border}`, borderRadius: radii.md,
-            color: colors.text, fontSize: 14, fontFamily: fonts.mono, marginBottom: 10,
-          }}
-        />
 
         <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
           Address (from your recovery note)
@@ -204,33 +206,34 @@ export default function DescriptorRetrieval() {
           )}
           <Button
             variant="ghost" size="sm" onClick={handleDeriveLocally}
-            disabled={!localKey || !indexValid || deriving || (localNeedsPassword && !localPassword)}
+            disabled={!localKey || deriving || (localNeedsPassword && !localPassword)}
           >
-            {deriving ? 'Deriving...' : 'Derive address & sign'}
+            {deriving ? 'Deriving...' : 'Derive address'}
           </Button>
         </div>
 
-        <Button onClick={handleCheck} disabled={checking || !address.trim() || !indexValid}>
+        <Button onClick={handleCheck} disabled={checking || !address.trim()}>
           {checking ? 'Checking...' : 'Check the chain'}
         </Button>
 
         {checked && !candidate && (
           <div style={{ marginTop: 12, fontSize: 14, color: colors.sub }}>
-            Nothing published at that address for this vault index yet. Double-check the address
-            and index came from the same recovery note, and that you picked the right network.
+            Nothing published at that address yet. Double-check the address came from the same
+            recovery note, and that you picked the right network.
           </div>
         )}
       </Card>
 
-      {candidate && (
+      {candidate && nonce && (
         <Card>
           <div style={{ fontSize: 15, fontWeight: 600, color: colors.gold, marginBottom: 4 }}>
             Found it.
           </div>
           <p style={{ fontSize: 14, color: colors.sub, lineHeight: 1.6, marginBottom: 14 }}>
-            Prove you hold this key by signing the exact message below, at derivation path{' '}
+            Prove you hold this key by signing the exact message below -- built from the nonce
+            published in this transaction, nothing memorized -- at derivation path{' '}
             <code style={{ fontFamily: fonts.mono, color: colors.text }}>
-              {legacyOnChainDerivationPath(vaultNetworkToKeystoreNetwork(network), parsedIndex)}
+              {legacyOnChainDerivationPath(vaultNetworkToKeystoreNetwork(network))}
             </code>{' '}
             (a standard account path, same shape most hardware wallets already recognize for
             message signing).
@@ -240,8 +243,8 @@ export default function DescriptorRetrieval() {
             Message to sign
           </label>
           <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-            <Textarea mono readOnly value={legacyOnChainUnlockMessage(parsedIndex)} rows={2} style={{ flex: 1 }} />
-            <Button variant="ghost" size="sm" onClick={() => copyText(legacyOnChainUnlockMessage(parsedIndex), 'Message')}>
+            <Textarea mono readOnly value={legacyOnChainNonceMessage(nonce)} rows={2} style={{ flex: 1 }} />
+            <Button variant="ghost" size="sm" onClick={() => copyText(legacyOnChainNonceMessage(nonce), 'Message')}>
               Copy
             </Button>
           </div>
@@ -250,7 +253,7 @@ export default function DescriptorRetrieval() {
           </Button>
           {showMessageQr && (
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 14 }}>
-              <QrImage data={legacyOnChainUnlockMessage(parsedIndex)} size={220} />
+              <QrImage data={legacyOnChainNonceMessage(nonce)} size={220} />
             </div>
           )}
 
@@ -261,6 +264,16 @@ export default function DescriptorRetrieval() {
             code above instead of typing the message in by hand.
           </p>
 
+          {localKey && (
+            <Button
+              variant="ghost" size="sm" onClick={handleSignLocally}
+              disabled={signingLocally || (localNeedsPassword && !localPassword)}
+              style={{ marginBottom: 12 }}
+            >
+              {signingLocally ? 'Signing...' : `Sign locally with ${localKey.label}`}
+            </Button>
+          )}
+
           <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
             Signature
           </label>
@@ -268,7 +281,7 @@ export default function DescriptorRetrieval() {
             mono
             value={signatureInput}
             onChange={e => setSignatureInput(e.target.value)}
-            placeholder="Paste the signature your wallet produced (base64 or hex), scan its QR below, or derive locally above"
+            placeholder="Paste the signature your wallet produced (base64 or hex), scan its QR below, or sign locally above"
             rows={2}
             style={{ marginBottom: 12 }}
           />
@@ -310,9 +323,9 @@ export default function DescriptorRetrieval() {
         }}
       >
         DynastyTrust is doing the chain lookup and the decrypt here as a convenience -- nothing on
-        this page needs this app specifically. A signature over a fixed message plus the data
-        already sitting on the Bitcoin blockchain is all this mechanism actually is; anyone with
-        the address and the signature could do the same recovery by hand.
+        this page needs this app specifically. A signature over the nonce already sitting on the
+        Bitcoin blockchain, right next to the data it unlocks, is all this mechanism actually is;
+        anyone with the address and the signature could do the same recovery by hand.
       </div>
     </div>
   );

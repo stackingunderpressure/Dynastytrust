@@ -452,34 +452,39 @@ See `Stack` above for the layout.
   broadcast to mempool.space, proposal history
 - Legacy Recovery: long-horizon descriptor recovery independent of this app
   ever running again -- "all you need is your key," no database, no
-  shares to combine (see `apps/web/src/lib/legacy-recovery.ts`'s header
-  for the full mechanism and CLAUDE.md's "Recently closed" entry below
-  for the design history). Each keyholder derives an on-chain address at
-  a standard-shaped, offset-account path (`m/84'/coin'/(900000+vault
-  index)'/1/0` -- the account level is still hardened, so it's computable
-  only from their own seed, never from this vault's xpubs, its
-  descriptor, or anything DynastyTrust stores) and publishes an encrypted
-  copy of the
-  vault's descriptor there via a single OP_RETURN transaction, keyed
-  directly by a deterministic signature over one fixed message. Years
-  later, recovery is signing that same message again (a hardware
-  wallet's own "Sign Message" feature against a custom derivation path
-  works fine -- no seed phrase ever typed into a recovery tool) and
-  decrypting -- no vault ID, no second key, no combining.
-  `LegacyRecoverySetup.tsx` (`/vaults/:id/legacy-recovery`) is the
-  publish side: derive the address, check the chain, then pick any
-  OTHER already-funded local key to pay for one ordinary transaction
-  that carries the OP_RETURN payload and a small permanent payment to
-  the identity address as its outputs -- the identity key never signs
-  a transaction, only ever the recovery message, and the recovery
-  address only ever needs to appear as an output, never an input, so
-  there's no fund-then-respend two-step. Also downloads a small
-  takeaway note (nothing secret in it -- address, vault index,
-  derivation path are all public by design) to keep alongside the seed
-  phrase. `DescriptorRetrieval.tsx` (`/recover-descriptor`) is the
-  recovery side: enter the address + vault index, check the chain, sign,
-  unlock. `apps/web/src/lib/legacy-onchain-recovery.ts` orchestrates
-  both against `onchain-publish.ts` (P2WPKH build/sign/broadcast, via
+  shares to combine, no number to remember (see
+  `apps/web/src/lib/legacy-recovery.ts`'s header for the full mechanism
+  and CLAUDE.md's "Recently closed" entries below for the design
+  history). Each keyholder derives ONE fixed on-chain address per seed
+  (`m/84'/coin'/900000'/1/0` -- the account level is still hardened, so
+  it's computable only from their own seed, never from this vault's
+  xpubs, its descriptor, or anything DynastyTrust stores; the same
+  address for every vault that seed ever publishes Legacy Recovery for,
+  so there is no per-vault index to track) and publishes an encrypted
+  copy of the vault's descriptor there via a single OP_RETURN
+  transaction, keyed directly by a deterministic signature over the
+  random AES-GCM nonce chosen at seal time -- not a remembered sentence.
+  Years later, recovery is: find that transaction, read the nonce it
+  already carries in plain sight, sign THAT (a hardware wallet's own
+  "Sign Message" feature works fine -- no seed phrase ever typed into a
+  recovery tool, nothing to memorize or transcribe wrong), and decrypt --
+  no vault ID, no second key, no combining, no index. `LegacyRecoverySetup.tsx`
+  (`/vaults/:id/legacy-recovery`) is the publish side: derive the
+  address, check the chain, then pick any OTHER already-funded local key
+  to pay for one ordinary transaction that carries the OP_RETURN payload
+  and a small permanent payment to the identity address as its outputs
+  -- the identity key never signs a transaction, only ever the recovery
+  message, and the recovery address only ever needs to appear as an
+  output, never an input, so there's no fund-then-respend two-step. Also
+  downloads a small takeaway note (nothing secret in it -- address and
+  derivation path are public by design; no message or index printed,
+  since the exact bytes to sign are only knowable once the on-chain
+  transaction is found) to keep alongside the seed phrase.
+  `DescriptorRetrieval.tsx` (`/recover-descriptor`) is the recovery
+  side: enter the address, check the chain, sign the bytes it shows
+  (or sign locally with a loaded key), unlock.
+  `apps/web/src/lib/legacy-onchain-recovery.ts` orchestrates both
+  against `onchain-publish.ts` (P2WPKH build/sign/broadcast, via
   `@scure/btc-signer`) and mempool.space. A standalone, offline,
   single-HTML-file recovery tool ships at
   `/dynastytrust-legacy-recovery-tool.html`
@@ -603,6 +608,88 @@ on descriptor compile + single-source tree builder. Next phase is the trust
    is higher in the trust layer.
 
 **Recently closed:**
+
+- **Legacy Recovery: sign the on-chain nonce instead of a remembered
+  sentence, and drop the vault index entirely (2026-08-22).** Two
+  connected operator design calls, same session as the path-reshape
+  above. First: "Why do I have to... why can't I just put the op return
+  in the first message... Why cant the first part of op return be the
+  numbers you sign and the other part be the part you decrypt" -- correct
+  read of the wire format (magic+version, then the nonce, then the
+  ciphertext -- the nonce genuinely IS "the first part," the ciphertext
+  genuinely IS "the second part"), and correct diagnosis of the actual
+  design flaw: the fixed sentence
+  (`DynastyTrust Legacy Recovery v2\nvault index: N`) had to be
+  correctly reconstructed by a person, by hand, possibly decades later,
+  when the AES-GCM nonce that already had to be published on-chain
+  anyway could serve as the signed content instead -- read straight off
+  the found transaction, nothing to get wrong. Answered directly why
+  signing the WHOLE OP_RETURN can't work (raised as the natural
+  follow-up): the ciphertext is the OUTPUT of encrypting with the key
+  that signing produces, so at sealing time the ciphertext doesn't exist
+  yet -- nothing that depends on it can be the thing signed to derive it.
+  The nonce is chosen before encryption, so it's the one piece of the
+  eventual payload actually available to sign up front, at both sealing
+  and recovery time. Second, on confirming the build: "Yes top one but
+  we need to drop having to put a number with it. 99.999999% of the time
+  those one keys have one job one vault not ten per backup. I want no
+  mess ups from user in last case recovery scenario" -- read as: optimize
+  the mechanism against user error in a last-resort, decades-later
+  recovery scenario, not against the rare case of one seed publishing
+  Legacy Recovery for more than one vault. `legacy-recovery.ts`'s
+  derivation path is now ONE fixed constant per network
+  (`legacyOnChainDerivationPath(network)`, no index parameter --
+  `m/84'/coin'/900000'/1/0`, `LEGACY_ACCOUNT_NUMBER` replacing the old
+  `LEGACY_ACCOUNT_OFFSET`), so a seed always lands on the same single
+  address regardless of how many vaults it publishes for.
+  `legacyOnChainUnlockMessage(vaultIndex)` is gone, replaced by
+  `legacyOnChainNonceMessage(nonce)` (a fixed prefix plus the nonce as
+  hex); `signLegacyOnChainUnlock`/`verifyLegacyOnChainSignature` became
+  `signLegacyOnChainNonce`/`verifyLegacyOnChainNonceSignature`, both
+  taking the nonce bytes instead of a vault index;
+  `deriveLegacyOnChainKey` dropped its index-tag parameter entirely (the
+  signature is already unique per seal, since it's over a fresh random
+  nonce each time -- no further domain separation needed).
+  `sealBundle` gained an optional third `nonce` parameter (defaults to a
+  fresh random value, same as before, when omitted) so
+  `sealBundleOnChain` can generate the nonce FIRST, sign it, derive the
+  key from that signature, and only then encrypt with that exact
+  key+nonce -- the order the chicken-and-egg problem above actually
+  requires. `legacyOnChainLookupAddress`/`sealOnChainPayload` both
+  dropped their `vaultIndex` parameters to match. Degrades gracefully
+  in the rare multi-vault-per-seed case rather than breaking silently:
+  both publishes land at the same address as separate transactions, and
+  because the key is nonce-specific (not vault-specific), each
+  transaction's own nonce still only ever unlocks its own ciphertext --
+  nothing decrypts to the wrong vault's data, recovery just needs to
+  find the right transaction, the same way it already has to for a
+  re-sealed vault's older vs. newer publish. Frontend:
+  `LegacyRecoverySetup.tsx` lost its entire "vault index" field and
+  `defaultVaultIndex` role-position guess; `DescriptorRetrieval.tsx`
+  lost its vault-index field too and gained a real sequencing change --
+  since the message to sign now depends on the nonce found ON the
+  transaction, "derive address" and "sign" are no longer one combined
+  step; deriving the address happens first, checking the chain finds
+  the nonce, and only then can a "Sign locally with this key" button
+  (new) or an external hardware wallet actually sign anything.
+  `descriptor-backup.ts`'s recovery note dropped `vaultIndex` and
+  `unlockMessage` fields entirely -- there's no message to print ahead of
+  time any more, only the address and path, with instructions to let the
+  chain lookup compute the message at recovery time. The standalone
+  offline tool (`tools/legacy-recovery/`) had its field order flipped:
+  paste the scriptPubKey FIRST, the tool decodes it and computes the
+  message from the nonce it finds, then sign -- previously vault index
+  came first and drove the message. All three test scripts
+  (`test-legacy-recovery.mjs`, `test-legacy-onchain-recovery.mjs`,
+  `verify-legacy-recovery-tool.mjs`) rewritten around the new nonce-first
+  API and the fixed single address; the last one re-verified against a
+  real signed transaction, byte-identical. One typecheck regression
+  surfaced and fixed during this pass: `sealBundle`'s new explicit
+  `nonce: Uint8Array` parameter annotation widened to the
+  `Uint8Array<ArrayBufferLike>` variance this file already has a
+  documented pattern for (`asBufferSource()`); applying that same
+  pattern to the new `iv: nonce` call site restored the exact 10/10
+  pre-existing typecheck/lint baseline. All four gates green.
 
 - **Legacy Recovery: derivation path reshaped from fully-hardened to
   standard-shaped with an offset account (2026-08-22).** Operator asked

@@ -159,23 +159,24 @@ export function downloadVault(v: Vault): void {
 /**
  * Legacy Recovery's downloadable takeaway note (see
  * legacy-onchain-recovery.ts's header for the mechanism). There is no
- * secret in this file at all -- the address, derivation path, and vault
- * index are all public, safe-to-publish values by design. That's the
- * whole point of the fully hardened derivation path: nobody who only has
- * this note, this vault's xpubs, or its descriptor can compute or watch
- * for this address; only the actual seed can. This note exists purely so
- * a keyholder has something durable to keep alongside their seed phrase,
- * rather than having to remember an arbitrary vault index and re-derive
- * everything from scratch decades later.
+ * secret in this file at all -- the address and derivation path are
+ * both public, safe-to-publish values by design. That's the whole point
+ * of the hardened derivation path: nobody who only has this note, this
+ * vault's xpubs, or its descriptor can compute or watch for this
+ * address; only the actual seed can. There is deliberately no "message
+ * to sign" or vault index printed here -- the exact bytes to sign are
+ * read straight off the on-chain transaction at recovery time (see the
+ * instructions below), not memorized or transcribed ahead of time, and
+ * this key's on-chain address is the same single one for every vault
+ * this seed ever publishes Legacy Recovery for, so there is no index to
+ * write down or get wrong either.
  */
 export interface LegacyOnChainRecoveryNoteLike {
   vaultName: string;
   network: 'testnet' | 'signet' | 'bitcoin';
   roleLabel: string;
-  vaultIndex: number;
   address: string;
   derivationPath: string;
-  unlockMessage: string;
   txid: string | null;
 }
 
@@ -188,33 +189,33 @@ export function legacyOnChainRecoveryNoteText(n: LegacyOnChainRecoveryNoteLike):
     `# Generated: ${new Date().toISOString()}`,
     ``,
     `# WHAT THIS IS`,
-    `# Nothing below is secret. This note just says where to look and`,
-    `# what to sign -- the encrypted descriptor itself already lives`,
-    `# permanently on the Bitcoin blockchain. Combined with your own`,
-    `# seed phrase (never written here -- keep that in your existing`,
-    `# separate cold storage, or use a hardware wallet's own "Sign`,
-    `# Message" feature so the seed never has to be typed into anything),`,
-    `# this is everything needed to recover the full descriptor, decades`,
-    `# from now, with no other key, no share to combine with anyone`,
-    `# else's, and no DynastyTrust account required.`,
+    `# Nothing below is secret. This note just says where to look --`,
+    `# the encrypted descriptor itself already lives permanently on the`,
+    `# Bitcoin blockchain. Combined with your own seed phrase (never`,
+    `# written here -- keep that in your existing separate cold`,
+    `# storage, or use a hardware wallet's own "Sign Message" feature`,
+    `# so the seed never has to be typed into anything), this is`,
+    `# everything needed to recover the full descriptor, decades from`,
+    `# now, with no other key, no share to combine with anyone else's,`,
+    `# and no DynastyTrust account required.`,
     ``,
     `# HOW TO RECOVER`,
     `# 1. Go to DynastyTrust's "Retrieve a descriptor" page (or the`,
-    `#    standalone offline recovery tool's "Sign to recover" tab --`,
-    `#    save a copy of it now, it runs fully offline).`,
-    `# 2. Enter the address and vault index below.`,
-    `# 3. Sign the exact message below with this same key, at derivation`,
+    `#    standalone offline recovery tool -- save a copy of it now,`,
+    `#    it runs fully offline).`,
+    `# 2. Enter the address below and check the chain -- it finds the`,
+    `#    on-chain transaction and shows you the EXACT bytes to sign.`,
+    `#    There is nothing to remember or transcribe: the tool reads`,
+    `#    it straight off the transaction it just found.`,
+    `# 3. Sign what it shows you with this same key, at derivation`,
     `#    path ${n.derivationPath} -- the CLASSIC message-signing method`,
     `#    (plain ECDSA), not BIP-322 or a Taproot-address signature. Most`,
-    `#    hardware wallets' "Sign Message" feature does this natively,`,
-    `#    against a custom derivation path.`,
-    `# 4. Paste the signature. That's it -- no combining, no second key.`,
+    `#    hardware wallets' "Sign Message" feature does this natively.`,
+    `# 4. Paste the signature. That's it -- no combining, no second key,`,
+    `#    no number to remember.`,
     ``,
-    `Vault index:      ${n.vaultIndex}`,
     `Address:          ${n.address}`,
     `Derivation path:  ${n.derivationPath}`,
-    `Message to sign:`,
-    n.unlockMessage,
     ...(n.txid ? [``, `On-chain publish transaction: ${n.txid}`] : []),
     ``,
     `# This note alone recovers nothing -- it only works together with`,
