@@ -624,6 +624,50 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Legacy Recovery: the standalone offline tool had no way to sign with
+  a software-held mnemonic, only a pasted-in signature -- and a design
+  question this surfaced about whether software keys should offer
+  Legacy Recovery at all (2026-08-23).** Operator, after sealing a
+  payload and testing recovery: "I sealed payload but when I go to test
+  it in the recovery tool that software wallet can't sign and return
+  the encryption key." Diagnosed precisely: the standalone tool
+  (`tools/legacy-recovery/recover.ts`) deliberately imports nothing from
+  `keystore.ts` -- no `listKeys`, no `revealMnemonic` -- since its whole
+  point is working even if DynastyTrust's app and storage are both gone.
+  That's correct for its stated purpose, but left a real hole: a
+  software-held key (no hardware wallet at all) had no way to produce
+  the recovery signature from inside that same tool, only the in-app
+  "Retrieve a descriptor" page's "Sign locally with..." button could.
+  Follow-up design question, put directly rather than assumed: should
+  software keys even be allowed to seal a Legacy Recovery share, given
+  this exact gap? Answered no -- the real requirement isn't "hardware
+  vs. software," it's "does this exact seed still exist somewhere
+  independent of wherever it currently lives" -- true of hardware wallets
+  too (a Coldcard with no separately-written seed has the identical
+  problem). Landed on: keep software keys eligible, close the actual
+  gap, and be honest about the requirement at the point it matters.
+  `recover.ts` gained a "sign locally with this seed phrase" field
+  (mnemonic textarea, network reused from the existing select) that
+  calls `signLegacyOnChainNonce` -- the exact same pure function the
+  live app's seal step and recovery page already call -- decodes the
+  scriptPubKey already pasted in to find the nonce, signs, and fills
+  the signature field automatically. Nothing new stored anywhere: the
+  standalone tool holds no state at all beyond the current tab, same as
+  before. `LegacyOnChainV2Card`'s software-mode seal step
+  (`LegacyRecoverySetup.tsx`) gained a warning directly above the
+  "Seal payload" button: this only recovers later if the seed phrase
+  still exists independent of this browser, and if it doesn't yet,
+  write it down first -- since losing this browser already breaks the
+  ability to spend from that key at all, not just Legacy Recovery.
+  `scripts/verify-legacy-recovery-tool.mjs` extended with a third,
+  real-browser Playwright pass driving the new field end to end (types
+  a real mnemonic in, clicks sign, confirms the filled signature
+  byte-matches an independently-computed one, then confirms recovery
+  from it matches the original bundle exactly) -- not just type-checked,
+  actually exercised in a headless Chromium against the rebuilt tool.
+  Standalone tool rebuilt (`node tools/legacy-recovery/build.mjs`). All
+  four gates green, matching the documented 10/10 baseline exactly.
+
 - **Legacy Recovery's seal/publish progress had no durability at all --
   every field reset the instant the page unmounted (2026-08-23).**
   Operator: "it seems like it just disappears and then acts like you
