@@ -114,8 +114,8 @@ export function bitcoinMessageDigest(message: string): Uint8Array {
   const magic = new TextEncoder().encode('\x18Bitcoin Signed Message:\n');
   const msgBytes = new TextEncoder().encode(message);
   // Bitcoin's varint: single byte for lengths under 0xfd, which every
-  // legacyOnChainNonceMessage() text is (well under 253 bytes -- a fixed
-  // prefix plus a 12-byte nonce as 24 hex characters).
+  // legacyOnChainNonceMessage() text is (24 hex characters -- a bare
+  // 12-byte nonce, nothing else).
   if (msgBytes.length >= 0xfd) {
     throw new Error(`bitcoinMessageDigest: message too long for single-byte varint (${msgBytes.length} bytes)`);
   }
@@ -233,14 +233,24 @@ export function legacyOnChainDerivationPath(network: Network): string {
 }
 
 /**
- * The fixed-prefix, nonce-specific text a keyholder signs -- both to
- * prove key ownership and to derive the decryption key. There is
- * nothing here to memorize: the nonce is read straight off the on-chain
- * transaction (it's published in plain sight, right before the
- * ciphertext), never composed or recalled by a person.
+ * The exact text a keyholder signs -- both to prove key ownership and
+ * to derive the decryption key. Nothing but the nonce itself: no app
+ * name, no label, no prefix. Operator (2026-08-22), after the on-chain
+ * payload framing was already stripped to nonce + ciphertext with no
+ * header: "The text in the message should only be the 12 bytes no
+ * other text or characters nothing but nonce." No domain-separation
+ * label is needed here because legacyOnChainDerivationPath's fixed,
+ * otherwise-unused account number (900,000) already IS the domain
+ * separator -- nothing else ever asks a keyholder to sign anything at
+ * that account, so there is no other message this signature could be
+ * confused with or replayed against. There is nothing here to
+ * memorize: the nonce is read straight off the on-chain transaction
+ * (it's published in plain sight, right before the ciphertext), never
+ * composed or recalled by a person -- just hex-encoded so it's a plain
+ * ASCII string a hardware wallet's "Sign Message" feature can sign.
  */
 export function legacyOnChainNonceMessage(nonce: Uint8Array): string {
-  return `DynastyTrust Legacy Recovery v2\nnonce: ${bytesToHex(nonce)}`;
+  return bytesToHex(nonce);
 }
 
 /**

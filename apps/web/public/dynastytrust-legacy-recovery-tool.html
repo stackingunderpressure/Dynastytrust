@@ -17045,8 +17045,7 @@ zoo`.split("\n");
     return `m/${LEGACY_PURPOSE}/${coin}'/${LEGACY_ACCOUNT_NUMBER}'/1/0`;
   }
   function legacyOnChainNonceMessage(nonce) {
-    return `DynastyTrust Legacy Recovery v2
-nonce: ${bytesToHex2(nonce)}`;
+    return bytesToHex2(nonce);
   }
   function seedSignerMessageQrPayload(derivationPath, message) {
     return `signmessage ${derivationPath} ascii:${message}`;

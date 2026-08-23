@@ -624,6 +624,35 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Legacy Recovery: the signed message stripped down to nothing but
+  the nonce itself (2026-08-22).** Direct follow-up to simplifying the
+  on-chain payload framing (same session, entry below): operator, after
+  confirming the on-chain bytes were now genuinely just nonce +
+  ciphertext, spotted the SEPARATE signed-message text still carried a
+  label: "The text in the message should only be the 12 bytes no other
+  text or characters nothing but nonce." Correct distinction to draw --
+  the on-chain payload and the signed message are two different things,
+  and this closes the same "no versions and this and that" gap in the
+  second one. `legacyOnChainNonceMessage(nonce)` (`legacy-recovery.ts`)
+  dropped its `"DynastyTrust Legacy Recovery v2\nnonce: "` prefix
+  entirely -- the signed text is now just the nonce, hex-encoded, 24
+  characters, nothing else. No domain-separation label is needed to stay
+  safe: `legacyOnChainDerivationPath`'s fixed, otherwise-unused account
+  number (900,000) already IS the domain separator, since nothing else
+  ever asks a keyholder to sign anything at that account, so there's no
+  other message this signature could be confused with or replayed
+  against. `bitcoinMessageDigest`, `seedSignerMessageQrPayload`, and
+  every UI call site needed no changes at all -- they all already treat
+  the message as an opaque string built from the nonce, never assumed
+  anything about its internal shape. **Breaking, same as the payload-
+  framing change:** the exact bytes being signed changed, so a share
+  already sealed under the old message text needs re-sealing; nothing
+  else about the mechanism moved. `scripts/test-legacy-recovery.mjs`
+  updated to assert the message is byte-for-byte the hex nonce and
+  nothing more. Standalone tool rebuilt and re-verified end to end
+  against a real signed transaction. All four gates green, matching the
+  documented 10/10 baseline exactly.
+
 - **Legacy Recovery: message-to-sign QR used the bare message text,
   which SeedSigner's camera-scan "Sign Message" input rejects outright
   (2026-08-22).** Operator, scanning the QR added in the previous fix:
