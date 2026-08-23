@@ -9,6 +9,7 @@ import { wordlist } from '@scure/bip39/wordlists/english';
 import {
   legacyOnChainDerivationPath,
   legacyOnChainNonceMessage,
+  seedSignerMessageQrPayload,
   legacyOnChainIdentity,
   signLegacyOnChainNonce,
   verifyLegacyOnChainNonceSignature,
@@ -110,5 +111,25 @@ await assert.rejects(
   recoverViaOnChainPath(recoverySignature, tampered),
   'a tampered ciphertext must fail AEAD verification, never decrypt to a different valid plaintext',
 );
+
+// ── SeedSigner's "Sign Message" camera-scan input rejects a plain-text
+// QR holding just the bare message -- confirmed live against a real
+// device ("that QR form format for the message is not supported") and
+// against SeedSigner's own decoder (DecodeQR.detect_segment_type /
+// SignMessageQrDecoder.add): it requires the exact literal wire format
+// "signmessage <path> ascii:<message>", nothing else, no UR/CBOR.
+const testNonce = new Uint8Array(12).fill(0xab);
+const testMessage = legacyOnChainNonceMessage(testNonce);
+assert.equal(testMessage, 'abababababababababababab', 'the signed message must be nothing but the nonce, hex-encoded -- no label, no prefix, no other text');
+assert.equal(testMessage.length, 24, 'a 12-byte nonce hex-encodes to exactly 24 characters, and the message must be exactly that, nothing more');
+const qrPayload = seedSignerMessageQrPayload(path, testMessage);
+assert.equal(
+  qrPayload,
+  `signmessage ${path} ascii:${testMessage}`,
+  'the QR payload handed to a hardware signer must be exactly "signmessage <path> ascii:<message>"',
+);
+assert.ok(qrPayload.startsWith('signmessage '), 'must start with the literal keyword SeedSigner\'s decoder matches on');
+assert.ok(qrPayload.includes(' ascii:'), 'must mark the message as ascii-encoded, the only format SeedSigner\'s decoder accepts');
+assert.equal(qrPayload.split('ascii:')[1], testMessage, 'the message must survive the wrapper verbatim');
 
 console.log('legacy-recovery tests passed');
