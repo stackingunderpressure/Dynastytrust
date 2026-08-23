@@ -22,7 +22,7 @@
  * family holding several of these files needs to tell them apart.
  */
 
-import type { Vault, DistributionWallet } from './api';
+import type { Vault, DistributionWallet, LeafSpec } from './api';
 import { downloadTextFile } from './download-file';
 
 export interface VaultBackupLike {
@@ -49,9 +49,33 @@ export interface VaultBackupLike {
   second_heir_keys?: string[];
   second_heir_quorum?: number | null;
   second_inheritance_after?: number | null;
+  /** Generic leaf-list ("custom builder") vault -- present only for a
+   *  vault built via the custom leaf-list builder, null/absent for a
+   *  plain founders/heirs vault. Presence, not a separate flag, is the
+   *  discriminator, same pattern VaultDetail.tsx's computePhase/
+   *  buildVaultLeaves and trust-doc.ts's buildLeavesTrustDoc already use.
+   *  founder_quorum/founder_keys/heir_quorum/heir_keys/recovery_after/
+   *  inheritance_after are meaningless DB defaults for this shape (see
+   *  computePhase's header comment in VaultDetail.tsx) -- the real
+   *  spending rules live here instead. */
+  leaves?: LeafSpec[] | null;
+}
+
+// A leaf's timing + decay, in the same plain-English style the rest of
+// this file already uses -- shared by the spending-rules summary below.
+function leafTimingText(leaf: LeafSpec): string {
+  const timing =
+    leaf.unlock.type === 'immediate' ? 'no waiting'
+    : leaf.unlock.type === 'after' ? `after ${leaf.unlock.blocks.toLocaleString()} blocks (absolute)`
+    : `if untouched for ${leaf.unlock.blocks.toLocaleString()} blocks (resets on any spend from any path)`;
+  const decay = leaf.decay ? ` -- required signers step down to ${leaf.decay.floor_quorum} over time` : '';
+  return `${timing}${decay}`;
 }
 
 export function vaultBackupText(v: VaultBackupLike): string {
+  const isLeafShape = Array.isArray(v.leaves) && v.leaves.length > 0;
+  const leaves = v.leaves ?? [];
+
   const consentKeys = v.consent_keys ?? [];
   const hasConsent = consentKeys.length > 0 && v.consent_quorum != null;
   const backupKeys = v.backup_keys ?? [];
@@ -59,6 +83,31 @@ export function vaultBackupText(v: VaultBackupLike): string {
   const secondHeirKeys = v.second_heir_keys ?? [];
   const hasSecondInheritance =
     secondHeirKeys.length > 0 && v.second_heir_quorum != null && v.second_inheritance_after != null;
+
+  const spendingRulesLines = isLeafShape
+    ? leaves.map(leaf => `${leaf.label}: ${leaf.quorum} of ${leaf.keys.length} -- ${leafTimingText(leaf)}`)
+    : [
+        `Founders:       ${v.founder_quorum} of ${v.founder_keys.length} -- no waiting`,
+        ...(hasConsent ? [`  + beneficiary consent: ${v.consent_quorum} of ${consentKeys.length} (required on every founders spend)`] : []),
+        ...(hasBackup
+          ? [`Backup:         ${v.backup_quorum} of ${backupKeys.length} -- separate key set, no waiting`]
+          : [`Recovery after: ${v.recovery_after.toLocaleString()} blocks -- same founder keys as above`]),
+        `Heirs:          ${v.heir_quorum} of ${v.heir_keys.length}`,
+        `Inheritance after: ${v.inheritance_after.toLocaleString()} blocks`,
+        ...(hasSecondInheritance
+          ? [`Second inheritance: ${v.second_heir_quorum} of ${secondHeirKeys.length} -- after ${v.second_inheritance_after!.toLocaleString()} blocks (independent heir group)`]
+          : []),
+      ];
+
+  const keyListingLines = isLeafShape
+    ? leaves.flatMap(leaf => [``, `# ${leaf.label} xpubs`, ...leaf.keys])
+    : [
+        ``, `# Founder xpubs`, ...v.founder_keys,
+        ``, `# Heir xpubs`, ...v.heir_keys,
+        ...(hasConsent ? [``, `# Beneficiary-consent xpubs`, ...consentKeys] : []),
+        ...(hasBackup ? [``, `# Backup xpubs (separate from founders -- keep these apart)`, ...backupKeys] : []),
+        ...(hasSecondInheritance ? [``, `# Second inheritance xpubs (independent heir group)`, ...secondHeirKeys] : []),
+      ];
 
   const lines = [
     `# DynastyTrust vault backup`,
@@ -77,25 +126,8 @@ export function vaultBackupText(v: VaultBackupLike): string {
     v.miniscript_policy ?? '(not compiled yet)',
     ``,
     `# Spending rules`,
-    `Founders:       ${v.founder_quorum} of ${v.founder_keys.length} -- no waiting`,
-    ...(hasConsent ? [`  + beneficiary consent: ${v.consent_quorum} of ${consentKeys.length} (required on every founders spend)`] : []),
-    ...(hasBackup
-      ? [`Backup:         ${v.backup_quorum} of ${backupKeys.length} -- separate key set, no waiting`]
-      : [`Recovery after: ${v.recovery_after.toLocaleString()} blocks -- same founder keys as above`]),
-    `Heirs:          ${v.heir_quorum} of ${v.heir_keys.length}`,
-    `Inheritance after: ${v.inheritance_after.toLocaleString()} blocks`,
-    ...(hasSecondInheritance
-      ? [`Second inheritance: ${v.second_heir_quorum} of ${secondHeirKeys.length} -- after ${v.second_inheritance_after!.toLocaleString()} blocks (independent heir group)`]
-      : []),
-    ``,
-    `# Founder xpubs`,
-    ...v.founder_keys,
-    ``,
-    `# Heir xpubs`,
-    ...v.heir_keys,
-    ...(hasConsent ? [``, `# Beneficiary-consent xpubs`, ...consentKeys] : []),
-    ...(hasBackup ? [``, `# Backup xpubs (separate from founders -- keep these apart)`, ...backupKeys] : []),
-    ...(hasSecondInheritance ? [``, `# Second inheritance xpubs (independent heir group)`, ...secondHeirKeys] : []),
+    ...spendingRulesLines,
+    ...keyListingLines,
     ``,
     `# ---------------------------------------------------------------`,
     `# RECOVERY INSTRUCTIONS (if DynastyTrust ever goes offline)`,

@@ -624,6 +624,37 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **The downloadable vault backup -- and therefore every Legacy Recovery
+  bundle sealed from it -- showed bogus "Founders: 2 of 0" / "Heirs: 2
+  of 0" spending rules for a leaf-list vault (2026-08-23).** Caught while
+  reviewing a real mainnet vault's backup text during the Legacy Recovery
+  hardware-signing debugging above: a 2-leaf custom vault (`thresh(1,
+  pk(A))` immediate, `thresh(1,pk(B))` after a fixed block) showed
+  "Founders: 2 of 0 -- no waiting" and "Heirs: 2 of 0" in its "Spending
+  rules" section -- the exact same DB-default-driven bug already fixed
+  in `VaultDetail.tsx`'s `computePhase`/`rolePhaseHint`/`buildVaultLeaves`
+  a few entries below, just never carried over to `descriptor-backup.ts`'s
+  `vaultBackupText()`. This one mattered more than a display glitch: this
+  exact function's output is `sealOnChainPayload`'s `bundleText` -- the
+  content that gets encrypted and PERMANENTLY published on-chain as a
+  Legacy Recovery share. Sealing before this fix would have baked the
+  wrong spending-rules summary into an unchangeable, decades-durable
+  record (the descriptor and miniscript policy text were always correct,
+  independent of this bug -- only the human-readable summary was wrong).
+  `VaultBackupLike` gained an optional `leaves` field (typed via the real
+  `LeafSpec[]`), and `vaultBackupText` now branches with the same
+  `Array.isArray(v.leaves) && v.leaves.length > 0` discriminator used
+  everywhere else this shape needed one: `spendingRulesLines` lists each
+  leaf's own label/quorum/key-count/timing (a new `leafTimingText`
+  helper covers immediate/after/older + decay, matching the phrasing
+  `buildLeavesTrustDoc` already established), and `keyListingLines` lists
+  each leaf's own xpubs under its own heading instead of the fixed
+  Founder/Heir sections. Named-field vaults are byte-for-byte unchanged.
+  Verified directly against the real vault's actual leaf data (2 leaves,
+  quorum 1 each) -- output now reads the real labels and the real block
+  height instead of the phantom defaults. All four gates green, matching
+  the documented 10/10 baseline exactly.
+
 - **Legacy Recovery: the signed message stripped down to nothing but
   the nonce itself (2026-08-22).** Direct follow-up to simplifying the
   on-chain payload framing (same session, entry below): operator, after
