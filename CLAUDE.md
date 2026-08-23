@@ -624,6 +624,63 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Legacy Recovery's on-chain payload shrunk from the full downloadable
+  backup to just the descriptor -- roughly 70% smaller, cutting the
+  publish fee by about two-thirds (2026-08-23).** Operator, after asking
+  for a cost estimate on the on-chain OP_RETURN payload: "do you think we
+  should drop it down to the descriptor only and the person can figure
+  out how to recover the descriptor and we can save money by not having
+  such a large job return." Measured first, not guessed: `vaultBackupText()`
+  -- what `sealOnChainPayload`/`sealOnChainPayloadExternal` were encrypting
+  and publishing -- carries a ~2,450-byte fixed block (headers plus the
+  Sparrow/Nunchuk/timelock/Legacy-Recovery instructions paragraph,
+  identical on every seal, vault-agnostic) on top of vault-specific data
+  that ALSO duplicates every xpub a second time in a flat listing already
+  redundant with the xpubs embedded in the descriptor's own key
+  expressions. For a realistic 9-key vault (3 founders/3 backup/3 heirs)
+  that's a ~5,330-byte plaintext bundle; for the operator's own small
+  2-leaf "Onchain descriptor test" vault, ~2,760 bytes. This file's own
+  RECOVERY INSTRUCTIONS text already states the real minimum needed to
+  monitor and spend a vault: "1. The output descriptor. 2. At least one
+  signer's seed phrase" -- everything else in the bundle is either
+  redundant with the descriptor or generic boilerplate that doesn't need
+  to be paid for and permanently written to the blockchain, since it can
+  live for free in channels that already exist and already get saved
+  locally ahead of time (the same durability assumption the on-chain
+  share itself depends on). New `legacyOnChainDescriptorPayload()`
+  (`descriptor-backup.ts`) returns just `vault.descriptor`, nothing else
+  -- network doesn't need a separate field either, since it's already
+  encoded in the descriptor's own xpub-vs-tpub key-version bytes, which
+  Sparrow reads directly. Wired into both of `LegacyRecoverySetup.tsx`'s
+  seal call sites (`handleSeal`, `handleSealHardware`) in place of
+  `vaultBackupText(vault)` -- the downloadable full-bundle backup
+  (`downloadVaultBackup`/`downloadVault`) is untouched, this only changes
+  what gets encrypted and sent on-chain. No change needed to the
+  encoding/encryption layer at all (`encodeOnChainPayload`/
+  `decodeOnChainPayload`/AES-GCM) -- `bundleText` was always an opaque
+  string as far as sealing and recovery are concerned, so a smaller
+  string just produces a smaller payload, with zero format version to
+  track (per the operator's earlier, explicit "no versions and this and
+  that" instruction on this same mechanism). The instructions that used
+  to ride along inside the encrypted payload moved to the two places that
+  are already free and already meant to be saved ahead of time: a new
+  "ONCE YOU HAVE THE DESCRIPTOR" section in `legacyOnChainRecoveryNoteText()`
+  (the downloadable takeaway note) and matching static copy added to the
+  standalone offline tool's `template.html`, both covering the same
+  Sparrow-import / Nunchuk-BSMS / timelock guidance the on-chain bundle
+  used to carry. `DescriptorRetrieval.tsx`'s result box was relabeled
+  "Recovered descriptor" (was "Recovered descriptor bundle" -- now
+  literally accurate) with a short explanatory line, matching what it now
+  actually decrypts to. Cost effect, measured against the same 9-key
+  vault: payload dropped from 5,361 bytes to 1,513 bytes (72% smaller),
+  cutting the estimated publish cost (fee + the standard 1,000-sat
+  billboard payment to the identity address) by roughly two-thirds at any
+  fee rate -- e.g. from about 28,565 to 9,325 sats at 5 sat/vB, or 83,695
+  to 25,975 sats at 15 sat/vB. Standalone tool rebuilt
+  (`node tools/legacy-recovery/build.mjs`) and re-verified end to end
+  against a real signed transaction. All four gates green, matching the
+  documented 10/10 baseline exactly.
+
 - **The downloadable vault backup -- and therefore every Legacy Recovery
   bundle sealed from it -- showed bogus "Founders: 2 of 0" / "Heirs: 2
   of 0" spending rules for a leaf-list vault (2026-08-23).** Caught while

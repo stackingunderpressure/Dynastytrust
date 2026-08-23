@@ -106,8 +106,28 @@
   </fieldset>
   <button class="run" id="run">Recover</button>
 
-  <label for="result">Recovered descriptor bundle</label>
+  <label for="result">Recovered descriptor</label>
   <textarea id="result" readonly placeholder="Recovered text will appear here."></textarea>
+
+  <div class="warning" style="margin-top:16px;">
+    <strong>Once you have the descriptor:</strong> it alone reconstructs
+    every address this vault can receive on and, combined with at least
+    one signer's seed phrase, everything needed to spend from it -- no
+    DynastyTrust account or server required for either step.<br><br>
+    <strong>Sparrow (recommended for Taproot multileaf):</strong> File &gt;
+    Import Wallet &gt; paste or scan the descriptor above. To spend: File
+    &gt; New Transaction, sign with your seed, export a partial PSBT.
+    Collect PSBTs from co-signers via any channel (a PSBT is safe to
+    share publicly), then merge, finalize, and broadcast from any Sparrow
+    instance.<br><br>
+    <strong>Nunchuk:</strong> imports BSMS, not raw descriptors -- import
+    the descriptor into Sparrow first, then use Sparrow's own File &gt;
+    Export Wallet &gt; BSMS to hand off to Nunchuk.<br><br>
+    <strong>Timelocked paths:</strong> a leaf with an absolute-block
+    timelock requires tx.lock_time to be at or above that leaf's block
+    height -- Sparrow sets this automatically when you choose the
+    corresponding leaf.
+  </div>
 
   <script>(() => {
   var __create = Object.create;

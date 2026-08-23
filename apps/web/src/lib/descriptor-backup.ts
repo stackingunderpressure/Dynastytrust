@@ -173,6 +173,31 @@ export function vaultBackupText(v: VaultBackupLike): string {
   return lines.join('\n');
 }
 
+/**
+ * The minimal on-chain Legacy Recovery payload -- just the output
+ * descriptor, nothing else. This file's own RECOVERY INSTRUCTIONS text
+ * above states the real minimum needed to monitor and spend a vault:
+ * "1. The output descriptor. 2. At least one signer's seed phrase."
+ * Everything else vaultBackupText() assembles for the downloadable
+ * backup -- the spending-rules prose, the flat xpub listing (already
+ * redundant with the xpubs embedded in the descriptor's own key
+ * expressions), the Sparrow/Nunchuk/timelock/Legacy-Recovery how-to
+ * paragraphs -- is either derivable from the descriptor or generic
+ * boilerplate identical across every vault. None of that needs to be
+ * paid for and permanently written to the blockchain: the downloadable
+ * takeaway note (legacyOnChainRecoveryNoteText below) and the
+ * standalone offline recovery tool already carry the how-to-recover
+ * instructions for free, saved locally ahead of time the same way the
+ * on-chain share itself depends on being found later. Network is not a
+ * separate field here -- it's already encoded in the descriptor's own
+ * xpub-vs-tpub key-version bytes, which Sparrow reads directly.
+ * Throws if the vault hasn't compiled yet -- there is nothing to seal.
+ */
+export function legacyOnChainDescriptorPayload(v: { descriptor: string | null }): string {
+  if (!v.descriptor) throw new Error('This vault has not compiled yet -- there is no descriptor to seal.');
+  return v.descriptor;
+}
+
 export function downloadVaultBackup(v: VaultBackupLike): Promise<boolean> {
   const safeName = v.name.replace(/[^a-z0-9\-_]+/gi, '_').toLowerCase() || 'vault';
   return downloadTextFile(`dynastytrust-${safeName}-${v.network}-backup.txt`, vaultBackupText(v));
@@ -239,7 +264,32 @@ export function legacyOnChainRecoveryNoteText(n: LegacyOnChainRecoveryNoteLike):
     `#    (plain ECDSA), not BIP-322 or a Taproot-address signature. Most`,
     `#    hardware wallets' "Sign Message" feature does this natively.`,
     `# 4. Paste the signature. That's it -- no combining, no second key,`,
-    `#    no number to remember.`,
+    `#    no number to remember. The tool decrypts and shows you the`,
+    `#    vault's output descriptor -- nothing else is stored on-chain.`,
+    ``,
+    `# ONCE YOU HAVE THE DESCRIPTOR`,
+    `# The descriptor alone is enough to reconstruct every address this`,
+    `# vault can receive on and, combined with at least one signer's`,
+    `# seed phrase, to spend from it. No DynastyTrust account or server`,
+    `# is needed for either step.`,
+    `#`,
+    `# SPARROW (recommended for Taproot multileaf):`,
+    `#   File > Import Wallet > Paste or scan the descriptor. Sparrow`,
+    `#   reconstructs every address the vault can receive on. To spend:`,
+    `#   File > New Transaction, sign with your seed, export a partial`,
+    `#   PSBT. Collect PSBTs from co-signers via any channel (Signal,`,
+    `#   USB, QR, email -- a PSBT is safe to share publicly). Merge +`,
+    `#   finalize + broadcast from any Sparrow instance.`,
+    `#`,
+    `# NUNCHUK:`,
+    `#   Nunchuk imports BSMS (Bitcoin Secure Multisig Setup), not raw`,
+    `#   descriptors. Import the descriptor into Sparrow first, then use`,
+    `#   Sparrow's own File > Export Wallet > BSMS to hand off to Nunchuk.`,
+    `#`,
+    `# TIMELOCKED PATHS:`,
+    `#   Any leaf with an absolute-block timelock requires tx.lock_time`,
+    `#   to be >= that leaf's block height. Sparrow sets this`,
+    `#   automatically when you choose the corresponding leaf.`,
     ``,
     `Address:          ${n.address}`,
     `Derivation path:  ${n.derivationPath}`,
