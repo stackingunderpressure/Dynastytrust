@@ -624,6 +624,49 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Dashboard vault cards showed the same bogus "2/0 founders, 2/0
+  heirs" quorum summary for a leaf-list vault -- same bug class,
+  different file (2026-08-23).** Operator, screenshot of the live
+  dashboard: "Key counts off in pic again." The "Onchain descriptor
+  test" card (a real 2-leaf custom vault, "Grantor" quorum 1/1
+  immediate, "Successor" quorum 1/1 after ~19yr) showed "2/0 founders,
+  2/0 heirs, Recovery ~6mo" -- `founder_quorum`/`heir_quorum` (DB
+  default 2) with empty `founder_keys`/`heir_keys` arrays and
+  `recovery_after`'s bare default, the identical DB-default-driven
+  pattern already fixed in `VaultDetail.tsx`'s `computePhase`/
+  `rolePhaseHint`/`buildVaultLeaves`, `descriptor-backup.ts`'s
+  `vaultBackupText`, and `LegacyRecoverySetup.tsx`'s `rolesForVault` --
+  just never carried over to `Dashboard.tsx`'s own card summary, which
+  reads those same named-field columns unconditionally with no branch
+  for `vault.leaves`. Fixed with the same `Array.isArray(v.leaves) &&
+  v.leaves.length > 0` discriminator: the card now renders one span per
+  real leaf (`{label}: {quorum}/{keys.length}`, plus a compact
+  `blocksToLabel`'d timing hint for an `after`-type leaf), matching the
+  two-span pattern the file's own Bloc-vault branch already uses right
+  above it. Two smaller instances of the same root cause caught in the
+  same file while grounding this: `roleStatus`'s heir case computed
+  "Inheritance unlocks in ~6mo" from the same bogus `inheritance_after`
+  default for a leaf-list vault's heir-role member -- now falls back to
+  the honest "Successor on standby" text for that shape instead of a
+  countdown from a number that was never configured; and the dashboard
+  summary cards' "soonest inheritance" figure (aggregated across every
+  vault where the caller holds a heir role) now excludes leaf-list
+  vaults from that comparison entirely rather than letting a bogus
+  default win against a real named-field vault's real number.
+  Deliberately NOT touched in this pass: `PendingRow`'s signed/quorum
+  badge (`item.vault.founder_quorum`) for a pending proposal, which has
+  the same class of gap but needs more than a frontend branch to fix
+  correctly -- the `proposals-mine` endpoint's joined `vault` object
+  only ever selects `founder_quorum`/`heir_quorum`, never `leaves`, and
+  `Proposal.path`'s type is a closed union of the five named-field/
+  Bloc/tranche path names with no room for an arbitrary leaf id, even
+  though a leaf-list vault's proposals actually use the leaf's own id
+  as `path` (per this vault shape's existing convention, see the
+  Tapit circle-membership entry below). Not visible in the reported
+  screenshot and not fixed blind -- noted here as a known follow-up
+  rather than silently patched without the backend grounding it needs.
+  All four gates green, matching the documented 10/10 baseline exactly.
+
 - **Legacy Recovery: the standalone offline tool had no way to sign with
   a software-held mnemonic, only a pasted-in signature -- and a design
   question this surfaced about whether software keys should offer
