@@ -314,12 +314,17 @@ export default function DescriptorRetrieval() {
       {recoveredBundle && (
         <Card>
           <div style={{ fontSize: 15, fontWeight: 600, color: colors.gold, marginBottom: 8 }}>
-            Recovered descriptor bundle
+            Recovered descriptor
           </div>
           <Textarea mono readOnly value={recoveredBundle} rows={14} style={{ marginBottom: 10 }} />
-          <Button variant="ghost" size="sm" onClick={() => copyText(recoveredBundle, 'Bundle')}>
+          <Button variant="ghost" size="sm" onClick={() => copyText(recoveredBundle, 'Descriptor')}>
             Copy
           </Button>
+          <div style={{ fontSize: 12, color: colors.sub, marginTop: 8, lineHeight: 1.6 }}>
+            This is the vault's output descriptor -- import it into Sparrow
+            (File &gt; Import Wallet) to reconstruct every address and, with
+            at least one signer's seed phrase, spend from it.
+          </div>
         </Card>
       )}
 

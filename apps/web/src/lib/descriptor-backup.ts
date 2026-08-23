@@ -22,7 +22,7 @@
  * family holding several of these files needs to tell them apart.
  */
 
-import type { Vault, DistributionWallet } from './api';
+import type { Vault, DistributionWallet, LeafSpec } from './api';
 import { downloadTextFile } from './download-file';
 
 export interface VaultBackupLike {
@@ -49,9 +49,33 @@ export interface VaultBackupLike {
   second_heir_keys?: string[];
   second_heir_quorum?: number | null;
   second_inheritance_after?: number | null;
+  /** Generic leaf-list ("custom builder") vault -- present only for a
+   *  vault built via the custom leaf-list builder, null/absent for a
+   *  plain founders/heirs vault. Presence, not a separate flag, is the
+   *  discriminator, same pattern VaultDetail.tsx's computePhase/
+   *  buildVaultLeaves and trust-doc.ts's buildLeavesTrustDoc already use.
+   *  founder_quorum/founder_keys/heir_quorum/heir_keys/recovery_after/
+   *  inheritance_after are meaningless DB defaults for this shape (see
+   *  computePhase's header comment in VaultDetail.tsx) -- the real
+   *  spending rules live here instead. */
+  leaves?: LeafSpec[] | null;
+}
+
+// A leaf's timing + decay, in the same plain-English style the rest of
+// this file already uses -- shared by the spending-rules summary below.
+function leafTimingText(leaf: LeafSpec): string {
+  const timing =
+    leaf.unlock.type === 'immediate' ? 'no waiting'
+    : leaf.unlock.type === 'after' ? `after ${leaf.unlock.blocks.toLocaleString()} blocks (absolute)`
+    : `if untouched for ${leaf.unlock.blocks.toLocaleString()} blocks (resets on any spend from any path)`;
+  const decay = leaf.decay ? ` -- required signers step down to ${leaf.decay.floor_quorum} over time` : '';
+  return `${timing}${decay}`;
 }
 
 export function vaultBackupText(v: VaultBackupLike): string {
+  const isLeafShape = Array.isArray(v.leaves) && v.leaves.length > 0;
+  const leaves = v.leaves ?? [];
+
   const consentKeys = v.consent_keys ?? [];
   const hasConsent = consentKeys.length > 0 && v.consent_quorum != null;
   const backupKeys = v.backup_keys ?? [];
@@ -59,6 +83,31 @@ export function vaultBackupText(v: VaultBackupLike): string {
   const secondHeirKeys = v.second_heir_keys ?? [];
   const hasSecondInheritance =
     secondHeirKeys.length > 0 && v.second_heir_quorum != null && v.second_inheritance_after != null;
+
+  const spendingRulesLines = isLeafShape
+    ? leaves.map(leaf => `${leaf.label}: ${leaf.quorum} of ${leaf.keys.length} -- ${leafTimingText(leaf)}`)
+    : [
+        `Founders:       ${v.founder_quorum} of ${v.founder_keys.length} -- no waiting`,
+        ...(hasConsent ? [`  + beneficiary consent: ${v.consent_quorum} of ${consentKeys.length} (required on every founders spend)`] : []),
+        ...(hasBackup
+          ? [`Backup:         ${v.backup_quorum} of ${backupKeys.length} -- separate key set, no waiting`]
+          : [`Recovery after: ${v.recovery_after.toLocaleString()} blocks -- same founder keys as above`]),
+        `Heirs:          ${v.heir_quorum} of ${v.heir_keys.length}`,
+        `Inheritance after: ${v.inheritance_after.toLocaleString()} blocks`,
+        ...(hasSecondInheritance
+          ? [`Second inheritance: ${v.second_heir_quorum} of ${secondHeirKeys.length} -- after ${v.second_inheritance_after!.toLocaleString()} blocks (independent heir group)`]
+          : []),
+      ];
+
+  const keyListingLines = isLeafShape
+    ? leaves.flatMap(leaf => [``, `# ${leaf.label} xpubs`, ...leaf.keys])
+    : [
+        ``, `# Founder xpubs`, ...v.founder_keys,
+        ``, `# Heir xpubs`, ...v.heir_keys,
+        ...(hasConsent ? [``, `# Beneficiary-consent xpubs`, ...consentKeys] : []),
+        ...(hasBackup ? [``, `# Backup xpubs (separate from founders -- keep these apart)`, ...backupKeys] : []),
+        ...(hasSecondInheritance ? [``, `# Second inheritance xpubs (independent heir group)`, ...secondHeirKeys] : []),
+      ];
 
   const lines = [
     `# DynastyTrust vault backup`,
@@ -77,25 +126,8 @@ export function vaultBackupText(v: VaultBackupLike): string {
     v.miniscript_policy ?? '(not compiled yet)',
     ``,
     `# Spending rules`,
-    `Founders:       ${v.founder_quorum} of ${v.founder_keys.length} -- no waiting`,
-    ...(hasConsent ? [`  + beneficiary consent: ${v.consent_quorum} of ${consentKeys.length} (required on every founders spend)`] : []),
-    ...(hasBackup
-      ? [`Backup:         ${v.backup_quorum} of ${backupKeys.length} -- separate key set, no waiting`]
-      : [`Recovery after: ${v.recovery_after.toLocaleString()} blocks -- same founder keys as above`]),
-    `Heirs:          ${v.heir_quorum} of ${v.heir_keys.length}`,
-    `Inheritance after: ${v.inheritance_after.toLocaleString()} blocks`,
-    ...(hasSecondInheritance
-      ? [`Second inheritance: ${v.second_heir_quorum} of ${secondHeirKeys.length} -- after ${v.second_inheritance_after!.toLocaleString()} blocks (independent heir group)`]
-      : []),
-    ``,
-    `# Founder xpubs`,
-    ...v.founder_keys,
-    ``,
-    `# Heir xpubs`,
-    ...v.heir_keys,
-    ...(hasConsent ? [``, `# Beneficiary-consent xpubs`, ...consentKeys] : []),
-    ...(hasBackup ? [``, `# Backup xpubs (separate from founders -- keep these apart)`, ...backupKeys] : []),
-    ...(hasSecondInheritance ? [``, `# Second inheritance xpubs (independent heir group)`, ...secondHeirKeys] : []),
+    ...spendingRulesLines,
+    ...keyListingLines,
     ``,
     `# ---------------------------------------------------------------`,
     `# RECOVERY INSTRUCTIONS (if DynastyTrust ever goes offline)`,
@@ -139,6 +171,31 @@ export function vaultBackupText(v: VaultBackupLike): string {
     ``,
   ];
   return lines.join('\n');
+}
+
+/**
+ * The minimal on-chain Legacy Recovery payload -- just the output
+ * descriptor, nothing else. This file's own RECOVERY INSTRUCTIONS text
+ * above states the real minimum needed to monitor and spend a vault:
+ * "1. The output descriptor. 2. At least one signer's seed phrase."
+ * Everything else vaultBackupText() assembles for the downloadable
+ * backup -- the spending-rules prose, the flat xpub listing (already
+ * redundant with the xpubs embedded in the descriptor's own key
+ * expressions), the Sparrow/Nunchuk/timelock/Legacy-Recovery how-to
+ * paragraphs -- is either derivable from the descriptor or generic
+ * boilerplate identical across every vault. None of that needs to be
+ * paid for and permanently written to the blockchain: the downloadable
+ * takeaway note (legacyOnChainRecoveryNoteText below) and the
+ * standalone offline recovery tool already carry the how-to-recover
+ * instructions for free, saved locally ahead of time the same way the
+ * on-chain share itself depends on being found later. Network is not a
+ * separate field here -- it's already encoded in the descriptor's own
+ * xpub-vs-tpub key-version bytes, which Sparrow reads directly.
+ * Throws if the vault hasn't compiled yet -- there is nothing to seal.
+ */
+export function legacyOnChainDescriptorPayload(v: { descriptor: string | null }): string {
+  if (!v.descriptor) throw new Error('This vault has not compiled yet -- there is no descriptor to seal.');
+  return v.descriptor;
 }
 
 export function downloadVaultBackup(v: VaultBackupLike): Promise<boolean> {
@@ -207,7 +264,32 @@ export function legacyOnChainRecoveryNoteText(n: LegacyOnChainRecoveryNoteLike):
     `#    (plain ECDSA), not BIP-322 or a Taproot-address signature. Most`,
     `#    hardware wallets' "Sign Message" feature does this natively.`,
     `# 4. Paste the signature. That's it -- no combining, no second key,`,
-    `#    no number to remember.`,
+    `#    no number to remember. The tool decrypts and shows you the`,
+    `#    vault's output descriptor -- nothing else is stored on-chain.`,
+    ``,
+    `# ONCE YOU HAVE THE DESCRIPTOR`,
+    `# The descriptor alone is enough to reconstruct every address this`,
+    `# vault can receive on and, combined with at least one signer's`,
+    `# seed phrase, to spend from it. No DynastyTrust account or server`,
+    `# is needed for either step.`,
+    `#`,
+    `# SPARROW (recommended for Taproot multileaf):`,
+    `#   File > Import Wallet > Paste or scan the descriptor. Sparrow`,
+    `#   reconstructs every address the vault can receive on. To spend:`,
+    `#   File > New Transaction, sign with your seed, export a partial`,
+    `#   PSBT. Collect PSBTs from co-signers via any channel (Signal,`,
+    `#   USB, QR, email -- a PSBT is safe to share publicly). Merge +`,
+    `#   finalize + broadcast from any Sparrow instance.`,
+    `#`,
+    `# NUNCHUK:`,
+    `#   Nunchuk imports BSMS (Bitcoin Secure Multisig Setup), not raw`,
+    `#   descriptors. Import the descriptor into Sparrow first, then use`,
+    `#   Sparrow's own File > Export Wallet > BSMS to hand off to Nunchuk.`,
+    `#`,
+    `# TIMELOCKED PATHS:`,
+    `#   Any leaf with an absolute-block timelock requires tx.lock_time`,
+    `#   to be >= that leaf's block height. Sparrow sets this`,
+    `#   automatically when you choose the corresponding leaf.`,
     ``,
     `Address:          ${n.address}`,
     `Derivation path:  ${n.derivationPath}`,

@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { api, type Vault } from '../lib/api';
 import { listKeys, revealMnemonic, type LocalKey } from '../lib/keystore';
 import { legacyOnChainDerivationPath, legacyOnChainIdentityFromXpub, legacyOnChainNonceMessage, seedSignerMessageQrPayload, parseUnlockSignature } from '../lib/legacy-recovery';
-import { vaultBackupText, downloadLegacyOnChainRecoveryNote } from '../lib/descriptor-backup';
+import { legacyOnChainDescriptorPayload, downloadLegacyOnChainRecoveryNote } from '../lib/descriptor-backup';
 import { buildAndSignPublishTx, p2wpkhAddressForPubkey, type BuiltPublishTx } from '../lib/onchain-publish';
 import {
   legacyOnChainLookupAddress,
@@ -203,7 +203,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
       const network = vaultNetworkToKeystoreNetwork(vault.network);
       const signature = parseUnlockSignature(hwSignatureInput);
       const sealed = await sealOnChainPayloadExternal({
-        bundleText: vaultBackupText(vault),
+        bundleText: legacyOnChainDescriptorPayload(vault),
         accountXpub: xpub,
         nonce: hwNonce,
         signature,
@@ -238,7 +238,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
       const network = vaultNetworkToKeystoreNetwork(vault.network);
       const mnemonic = await revealMnemonic(key.keyId, needsPassword ? password : undefined);
       const { payloadHex: sealed } = await sealOnChainPayload({
-        bundleText: vaultBackupText(vault),
+        bundleText: legacyOnChainDescriptorPayload(vault),
         mnemonic,
         network,
       });
