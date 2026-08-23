@@ -17,7 +17,13 @@
  * its scriptPubKey hex here -- the tool decodes it and shows the exact
  * message to sign, built from the nonce already published right there,
  * nothing memorized or typed from a note -- then sign it with the SAME
- * key to unlock the full descriptor.
+ * key to unlock the full descriptor. For a hardware wallet, sign there
+ * and paste (or scan) the result back in. For a software-held key with
+ * no hardware wallet, the seed phrase can be typed directly into this
+ * page and signed locally -- same signLegacyOnChainNonce the live app's
+ * "Sign locally with..." button already uses, just without any of the
+ * app's own encrypted key storage, since this standalone page holds no
+ * state at all beyond the current tab.
  *
  * The message can also be shown as a QR code and scanned straight into
  * an airgapped signer's "Sign Message" feature (SeedSigner, Krux, and
@@ -43,11 +49,12 @@ import {
   parseUnlockSignature,
   recoverViaOnChainPath,
   decodeOnChainPayload,
+  signLegacyOnChainNonce,
   unb64,
 } from '../../apps/web/src/lib/legacy-recovery';
 import { extractOnChainCandidates, type OnChainCandidate } from '../../apps/web/src/lib/legacy-onchain-recovery';
 import type { Network } from '../../apps/web/src/lib/keystore';
-import { hexToBytes } from '../../apps/web/src/lib/onchain-publish';
+import { hexToBytes, bytesToHex } from '../../apps/web/src/lib/onchain-publish';
 
 /**
  * Accepts either of two hex strings people paste here, since they look
@@ -148,6 +155,50 @@ async function toggleMessageQr(): Promise<void> {
   });
   ($('message-qr-img') as HTMLImageElement).src = url;
   wrap.style.display = 'block';
+}
+
+// ── Local mnemonic signing -- for a software-held key with no hardware
+// wallet at all: type the seed phrase in and sign right here, entirely
+// client-side, using the exact same signLegacyOnChainNonce this tool
+// already imports for nothing else. Needs the scriptPubKey decoded
+// first (to know which nonce to sign) -- same nonce updateMessage()
+// already computes for display, re-decoded here rather than cached so
+// this function has no dependency on call order. Nothing typed into
+// the mnemonic field is ever sent anywhere or written to storage; it
+// only ever exists in this page's memory for as long as the tab stays
+// open. ──────────────────────────────────────────────────────────────
+function signWithMnemonic(): void {
+  const status = $('mnemonic-sign-status') as HTMLElement;
+  status.textContent = '';
+  try {
+    const scriptPubkeyHex = ($('scriptpubkey') as HTMLTextAreaElement).value.trim();
+    const mnemonic = ($('sign-mnemonic') as HTMLTextAreaElement).value.trim();
+    if (!scriptPubkeyHex) {
+      status.textContent = 'Paste the on-chain scriptPubKey hex above first -- signing needs the nonce found in it.';
+      status.style.color = '#c0392b';
+      return;
+    }
+    if (!mnemonic) {
+      status.textContent = 'Enter the seed phrase to sign with.';
+      status.style.color = '#c0392b';
+      return;
+    }
+    const candidate = decodeScriptPubkey(scriptPubkeyHex);
+    if (!candidate) {
+      status.textContent = "That scriptPubKey doesn't decode as a Legacy Recovery payload -- double check it above before signing.";
+      status.style.color = '#c0392b';
+      return;
+    }
+    const network = ($('network') as HTMLSelectElement).value as Network;
+    const nonce = unb64(candidate.sealed.nonceB64);
+    const signature = signLegacyOnChainNonce(mnemonic, network, nonce);
+    ($('signature') as HTMLTextAreaElement).value = bytesToHex(signature);
+    status.textContent = 'Signed locally. Nothing was sent anywhere -- computed entirely in this page.';
+    status.style.color = '#2f9e44';
+  } catch (e) {
+    status.textContent = `Could not sign: ${e instanceof Error ? e.message : String(e)}`;
+    status.style.color = '#c0392b';
+  }
 }
 
 // ── Signature QR scan -- reads the signature straight off the signer's
@@ -258,6 +309,7 @@ window.addEventListener('DOMContentLoaded', () => {
   $('run').addEventListener('click', () => { void runRecovery(); });
   $('scriptpubkey').addEventListener('input', updateMessage);
   $('message-qr-toggle').addEventListener('click', () => { void toggleMessageQr(); });
+  $('sign-mnemonic-button').addEventListener('click', signWithMnemonic);
   $('signature-scan-start').addEventListener('click', () => { void startSignatureScan(); });
   $('signature-scan-cancel').addEventListener('click', stopSignatureScan);
   updateMessage();

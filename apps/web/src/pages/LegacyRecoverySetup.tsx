@@ -605,13 +605,23 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
                   </p>
 
                   {mode === 'software' ? (
-                    <Button
-                      variant="ghost" size="sm" onClick={handleSeal}
-                      disabled={sealing || (needsPassword && !password)}
-                      style={{ marginBottom: 10 }}
-                    >
-                      {sealing ? 'Sealing...' : payloadHex ? 'Re-seal (generates a new payload)' : 'Seal payload'}
-                    </Button>
+                    <>
+                      <p style={{ fontSize: 12, color: colors.gold, lineHeight: 1.6, marginBottom: 10 }}>
+                        This only recovers anything later if this exact key's seed phrase still
+                        exists somewhere independent of this browser -- written down on paper or
+                        steel, the same as you'd treat any real seed. If this key's only copy
+                        lives in this browser's own storage, write the seed phrase down separately
+                        before relying on this: losing this browser or device would already break
+                        the ability to spend from this key at all, not just Legacy Recovery.
+                      </p>
+                      <Button
+                        variant="ghost" size="sm" onClick={handleSeal}
+                        disabled={sealing || (needsPassword && !password)}
+                        style={{ marginBottom: 10 }}
+                      >
+                        {sealing ? 'Sealing...' : payloadHex ? 'Re-seal (generates a new payload)' : 'Seal payload'}
+                      </Button>
+                    </>
                   ) : (
                     <div style={{ marginBottom: 10 }}>
                       {!hwNonce ? (

@@ -95,8 +95,12 @@
   </fieldset>
   <fieldset>
     <legend>Your signature</legend>
-    <label for="signature">Signature (base64 or hex, from your hardware wallet)</label>
-    <textarea id="signature" placeholder="paste the signature your wallet produced, or scan its QR below"></textarea>
+    <label for="sign-mnemonic">Have the seed phrase instead of a hardware wallet? Sign locally, right here (12 or 24 words, space-separated -- computed entirely in this page, never sent anywhere, gone the moment you close this tab)</label>
+    <textarea id="sign-mnemonic" placeholder="seed word one, seed word two, ..."></textarea>
+    <button class="secondary" id="sign-mnemonic-button" type="button">Sign locally with this seed phrase</button>
+    <div id="mnemonic-sign-status" style="font-size:12px; margin-top:6px;"></div>
+    <label for="signature" style="margin-top:14px;">Signature (base64 or hex, from your hardware wallet, or filled in above)</label>
+    <textarea id="signature" placeholder="paste the signature your wallet produced, sign locally above, or scan its QR below"></textarea>
     <button class="secondary" id="signature-scan-start" type="button">Scan signature QR</button>
     <div class="scan-wrap" id="signature-scan-wrap">
       <video id="signature-scan-video" playsinline muted></video>

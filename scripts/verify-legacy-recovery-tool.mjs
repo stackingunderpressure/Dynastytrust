@@ -111,5 +111,30 @@ const toolUrl = 'file://' + new URL('../apps/web/public/dynastytrust-legacy-reco
   }
 }
 
+// ── Pass 3: sign locally with a typed-in mnemonic instead of pasting a
+// pre-computed signature -- the new "sign locally with this seed
+// phrase" field, for a software-held key with no hardware wallet. ─────
+{
+  const page = await browser.newPage();
+  await page.goto(toolUrl);
+  await page.fill('#scriptpubkey', opReturnScriptHex);
+  await page.fill('#sign-mnemonic', mnemonic);
+  await page.click('#sign-mnemonic-button');
+  await page.waitForTimeout(300);
+  const filledSignature = await page.inputValue('#signature');
+  if (filledSignature.toLowerCase() !== sigHex.toLowerCase()) {
+    console.error('MNEMONIC-SIGN MISMATCH'); console.error('expected:', sigHex); console.error('got:     ', filledSignature);
+    process.exit(1);
+  }
+  await page.click('#run');
+  await page.waitForTimeout(300);
+  const result = await page.inputValue('#result');
+  await page.close();
+  if (result !== bundleText) {
+    console.error('MNEMONIC-SIGN-PATH RECOVERY MISMATCH'); console.error('expected:', bundleText); console.error('got:     ', result);
+    process.exit(1);
+  }
+}
+
 await browser.close();
-console.log('standalone tool recovery verified against a real signed transaction (both scriptPubKey and raw-payload input): byte-identical match');
+console.log('standalone tool recovery verified against a real signed transaction (scriptPubKey, raw-payload, and local mnemonic-sign input): byte-identical match');
