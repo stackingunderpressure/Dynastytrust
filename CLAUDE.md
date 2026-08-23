@@ -624,6 +624,51 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Legacy Recovery's seal/publish progress had no durability at all --
+  every field reset the instant the page unmounted (2026-08-23).**
+  Operator: "it seems like it just disappears and then acts like you
+  need to do it again ... we need to have it more durable where you can
+  see all of the info ... and it's stay there until deleted or
+  whatever." Grounded directly against `LegacyOnChainV2Card`
+  (`LegacyRecoverySetup.tsx`): every piece of state -- which key,
+  the derived address, the sealed OP_RETURN payload, a built-but-not-
+  yet-broadcast publish transaction, even the xpub typed in for the
+  hardware path -- was plain `useState` with zero persistence, so
+  navigating away or reloading wiped it back to a blank form even
+  though the underlying seal/publish had already succeeded. This was
+  never about the recovery MECHANISM needing a database (the chain is
+  still the only place the actual secret lives -- see
+  legacy-onchain-recovery.ts's header), it was purely the UI's own
+  in-progress state having nowhere to live between visits. New
+  `apps/web/src/lib/legacy-recovery-progress.ts` persists that
+  progress to `localStorage`, scoped per vault id + per role slot
+  (`dynastytrust:legacy-recovery:<vaultId>:<role>`), with save/load/
+  clear functions. Deliberately does NOT persist secret material: no
+  password, no revealed mnemonic (already durable in keystore.ts's own
+  encrypted store, never touched by this module), and critically no
+  pasted hardware signature -- a signature is the exact input
+  `deriveLegacyOnChainKey` turns into the AES decryption key, so
+  keeping one around next to its already-persisted nonce and
+  ciphertext would let anyone with browser storage access decrypt the
+  sealed payload without the real key, defeating the mechanism's whole
+  point. Once a seal succeeds the signature that produced it is simply
+  never saved -- `payloadHex` is the artifact that matters from then
+  on, and it's already meant to be public. `LegacyOnChainV2Card` now
+  hydrates from storage on mount (re-checking the chain for an
+  already-found candidate if an address was saved) and writes back on
+  every meaningful change, guarded by a `hydratedRef` so the initial
+  blank state can't clobber what was already saved before the load
+  effect runs. A new "Start over" link (visible once there's anything
+  to clear) calls `clearLegacyRecoveryProgress` and resets every field
+  to its default -- the explicit "until deleted" the operator asked
+  for -- with copy clarifying it only clears this browser's local
+  record, never anything already published on-chain. Verified with a
+  standalone round-trip script (save/load/clear, scoping confirmed
+  per-vault and per-role) since exercising the full click-through
+  needs a live authenticated vault this environment doesn't have --
+  noted here rather than claimed as browser-verified. All four gates
+  green, matching the documented 10/10 baseline exactly.
+
 - **Legacy Recovery's on-chain payload shrunk from the full downloadable
   backup to just the descriptor -- roughly 70% smaller, cutting the
   publish fee by about two-thirds (2026-08-23).** Operator, after asking

@@ -1,9 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, type Vault } from '../lib/api';
 import { listKeys, revealMnemonic, type LocalKey } from '../lib/keystore';
-import { legacyOnChainDerivationPath, legacyOnChainIdentityFromXpub, legacyOnChainNonceMessage, seedSignerMessageQrPayload, parseUnlockSignature } from '../lib/legacy-recovery';
+import { legacyOnChainDerivationPath, legacyOnChainIdentityFromXpub, legacyOnChainNonceMessage, seedSignerMessageQrPayload, parseUnlockSignature, b64, unb64 } from '../lib/legacy-recovery';
 import { legacyOnChainDescriptorPayload, downloadLegacyOnChainRecoveryNote } from '../lib/descriptor-backup';
+import {
+  loadLegacyRecoveryProgress,
+  saveLegacyRecoveryProgress,
+  clearLegacyRecoveryProgress,
+} from '../lib/legacy-recovery-progress';
 import { buildAndSignPublishTx, p2wpkhAddressForPubkey, type BuiltPublishTx } from '../lib/onchain-publish';
 import {
   legacyOnChainLookupAddress,
@@ -122,6 +127,91 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
   const [billboardKeyId, setBillboardKeyId] = useState('');
   const [billboardPassword, setBillboardPassword] = useState('');
   const [billboardAmount, setBillboardAmount] = useState('1000');
+
+  // Restore whatever this card's progress looked like last time -- see
+  // legacy-recovery-progress.ts's header for exactly what is and isn't
+  // persisted (never a password or a pasted signature, always safe to
+  // reload). hydratedRef guards the save-effect below from firing (and
+  // clobbering saved progress with blank initial state) before this
+  // one-time load has actually run.
+  const hydratedRef = useRef(false);
+  useEffect(() => {
+    const saved = loadLegacyRecoveryProgress(vault.id, role.role);
+    if (saved) {
+      setMode(saved.mode);
+      if (saved.keyId) setKeyId(saved.keyId);
+      if (saved.hwXpub) setHwXpub(saved.hwXpub);
+      if (saved.address) setAddress(saved.address);
+      if (saved.hwNonceB64) setHwNonce(unb64(saved.hwNonceB64));
+      if (saved.payloadHex) setPayloadHex(saved.payloadHex);
+      if (saved.billboardKeyId) setBillboardKeyId(saved.billboardKeyId);
+      if (saved.billboardAmount) setBillboardAmount(saved.billboardAmount);
+      if (saved.utxoTxid) setUtxoTxid(saved.utxoTxid);
+      if (saved.utxoVout) setUtxoVout(saved.utxoVout);
+      if (saved.utxoValue) setUtxoValue(saved.utxoValue);
+      if (saved.feeRate) setFeeRate(saved.feeRate);
+      if (saved.builtTx) setBuiltTx(saved.builtTx);
+      if (saved.broadcastTxid) setBroadcastTxid(saved.broadcastTxid);
+      if (saved.address) {
+        const network = vaultNetworkToKeystoreNetwork(vault.network);
+        fetchLegacyOnChainCandidates(saved.address, toPublishNetwork(network))
+          .then(candidates => setCandidate(candidates.length > 0 ? candidates[candidates.length - 1] : null))
+          .catch(() => {});
+      }
+    }
+    hydratedRef.current = true;
+    // Runs once per card identity (vault + role) -- deliberately not
+    // re-run when the restored fields themselves change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vault.id, role.role]);
+
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    saveLegacyRecoveryProgress(vault.id, role.role, {
+      mode,
+      keyId: keyId || undefined,
+      hwXpub: hwXpub || undefined,
+      address: address ?? undefined,
+      hwNonceB64: hwNonce ? b64(hwNonce) : undefined,
+      payloadHex: payloadHex ?? undefined,
+      billboardKeyId: billboardKeyId || undefined,
+      billboardAmount,
+      utxoTxid: utxoTxid || undefined,
+      utxoVout,
+      utxoValue: utxoValue || undefined,
+      feeRate,
+      builtTx: builtTx ?? undefined,
+      broadcastTxid: broadcastTxid ?? undefined,
+    });
+  }, [
+    vault.id, vault.network, role.role, mode, keyId, hwXpub, address, hwNonce, payloadHex,
+    billboardKeyId, billboardAmount, utxoTxid, utxoVout, utxoValue, feeRate, builtTx, broadcastTxid,
+  ]);
+
+  function handleStartOver() {
+    clearLegacyRecoveryProgress(vault.id, role.role);
+    setMode('software');
+    setKeyId('');
+    setPassword('');
+    setHwXpub('');
+    setHwNonce(null);
+    setHwSignatureInput('');
+    setHwShowMessageQr(false);
+    setAddress(null);
+    setCandidate(null);
+    setPayloadHex(null);
+    setFetchedUtxos(null);
+    setUtxoTxid('');
+    setUtxoVout('0');
+    setUtxoValue('');
+    setFeeRate('2');
+    setBuiltTx(null);
+    setBroadcastTxid(null);
+    setBillboardKeyId('');
+    setBillboardPassword('');
+    setBillboardAmount('1000');
+    toast.success('Cleared. This only removes what was saved in this browser -- anything already published on-chain is unaffected.');
+  }
 
   const key = localKeys.find(k => k.keyId === keyId) ?? null;
   const needsPassword = !!key && !key.testMnemonic && !!key.encryptedMnemonic;
@@ -337,7 +427,21 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
 
   return (
     <Card>
-      <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 8 }}>{role.label}</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>{role.label}</div>
+        {(address || payloadHex || broadcastTxid) && (
+          <button
+            type="button"
+            onClick={handleStartOver}
+            style={{ background: 'none', border: 'none', color: colors.muted, cursor: 'pointer', fontSize: 12, padding: 0, fontFamily: fonts.sans }}
+          >
+            Start over
+          </button>
+        )}
+      </div>
+      <div style={{ fontSize: 12, color: colors.muted, marginBottom: 10 }}>
+        Saved in this browser as you go -- reopening this page picks up right where you left off.
+      </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
         <Button
