@@ -659,6 +659,24 @@ function OverviewTab({
   const navigate = useNavigate();
   const isBloc = vault.bloc_policy != null;
 
+  // A custom leaf-list vault never populates founder_keys/heir_keys/
+  // recovery_after/inheritance_after at all -- those columns sit at their
+  // bare DB defaults (founder_quorum 2, founder_keys [], recovery_after
+  // 26000, etc.), the exact same discriminator VaultPhaseCard/
+  // VaultStructureTree/buildVaultLeaves already use. Those two components
+  // are already gated `{!plain && ...}` below and correctly show this
+  // vault's real per-leaf spending paths; the legacy `paths`/"Details"
+  // block further down was never given the same gate, so a leaf-list
+  // vault showed BOTH the correct leaf-aware summary above AND a bogus
+  // "2 of 0 trustee signatures" / "Recovery unlocks at block 26,000"
+  // block below it, reading straight off the unpopulated named-field
+  // defaults. Operator, pasting the live page: the "PATH 1/2/3" and
+  // "Details" block under the correct VaultStructureTree output showed
+  // exactly that -- "2 of 0", "after 0 blocks", "unlocks at block
+  // 26,000" for a vault whose real leaves are "Everyday signers 1 of 1"
+  // and "Path 2 1 of 1 after ~6 months."
+  const isLeafList = Array.isArray(vault.leaves) && vault.leaves.length > 0;
+
   // Inheritance vaults get all three spending paths; plain vaults
   // (no heirs, no timelocks) get only the trustee-now path.
   const plain =
@@ -792,72 +810,80 @@ function OverviewTab({
         <UtxosSection vault={vault} onSendPrefill={onSendPrefill} />
       )}
 
-      {/* Spending paths */}
-      {paths.map(p => (
-        <div
-          key={p.num}
-          style={{
-            background: colors.surface,
-            border: `1px solid ${colors.border}`,
-            borderRadius: 12,
-            padding: "14px 16px",
-            borderLeft: `3px solid ${p.color}`,
-          }}
-        >
-          <div
-            style={{
-              fontSize: 10,
-              fontWeight: 700,
-              letterSpacing: "0.1em",
-              color: p.color,
-              marginBottom: 4,
-            }}
-          >
-            PATH {p.num}
-          </div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
-            {p.title}
-          </div>
-          <div style={{ fontSize: 12, color: colors.sub, lineHeight: 1.5 }}>{p.body}</div>
-        </div>
-      ))}
+      {/* Spending paths + Details: named-field vault only -- a leaf-list
+          vault's real paths are already shown above by VaultStructureTree
+          (and its phase by VaultPhaseCard), built from the real vault.leaves
+          array. Rendering this block too for a leaf-list vault would read
+          straight off its unpopulated founder_keys/heir_keys/recovery_after/
+          inheritance_after defaults -- see isLeafList's header comment. */}
+      {!isLeafList && (
+        <>
+          {paths.map(p => (
+            <div
+              key={p.num}
+              style={{
+                background: colors.surface,
+                border: `1px solid ${colors.border}`,
+                borderRadius: 12,
+                padding: "14px 16px",
+                borderLeft: `3px solid ${p.color}`,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: "0.1em",
+                  color: p.color,
+                  marginBottom: 4,
+                }}
+              >
+                PATH {p.num}
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+                {p.title}
+              </div>
+              <div style={{ fontSize: 12, color: colors.sub, lineHeight: 1.5 }}>{p.body}</div>
+            </div>
+          ))}
 
-      {/* Details */}
-      <div
-        style={{
-          background: colors.surface,
-          border: `1px solid ${colors.border}`,
-          borderRadius: 12,
-          overflow: "hidden",
-        }}
-      >
-        {[
-          ["Address type", vault.address_type.toUpperCase()],
-          ["Trustee quorum", `${vault.founder_quorum} of ${vault.founder_keys.length}`],
-          ...(hasInheritancePath
-            ? [["Successor quorum", `${vault.heir_quorum} of ${vault.heir_keys.length}`]]
-            : []),
-          ...(hasRecoveryPath
-            ? [["Recovery", `unlocks at block ${vault.recovery_after.toLocaleString()} (${blocksToLabel(blocksFromNow(vault.recovery_after))})`]]
-            : []),
-          ...(hasInheritancePath
-            ? [["Inheritance", `unlocks at block ${vault.inheritance_after.toLocaleString()} (${blocksToLabel(blocksFromNow(vault.inheritance_after))})`]]
-            : []),
-        ].map(([k, v]) => (
           <div
-            key={k}
             style={{
-              display: "flex",
-              justifyContent: "space-between",
-              padding: "11px 16px",
-              borderBottom: `1px solid ${colors.border}`,
+              background: colors.surface,
+              border: `1px solid ${colors.border}`,
+              borderRadius: 12,
+              overflow: "hidden",
             }}
           >
-            <span style={{ fontSize: 13, color: colors.muted }}>{k}</span>
-            <span style={{ fontSize: 13, color: colors.text }}>{v}</span>
+            {[
+              ["Address type", vault.address_type.toUpperCase()],
+              ["Trustee quorum", `${vault.founder_quorum} of ${vault.founder_keys.length}`],
+              ...(hasInheritancePath
+                ? [["Successor quorum", `${vault.heir_quorum} of ${vault.heir_keys.length}`]]
+                : []),
+              ...(hasRecoveryPath
+                ? [["Recovery", `unlocks at block ${vault.recovery_after.toLocaleString()} (${blocksToLabel(blocksFromNow(vault.recovery_after))})`]]
+                : []),
+              ...(hasInheritancePath
+                ? [["Inheritance", `unlocks at block ${vault.inheritance_after.toLocaleString()} (${blocksToLabel(blocksFromNow(vault.inheritance_after))})`]]
+                : []),
+            ].map(([k, v]) => (
+              <div
+                key={k}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  padding: "11px 16px",
+                  borderBottom: `1px solid ${colors.border}`,
+                }}
+              >
+                <span style={{ fontSize: 13, color: colors.muted }}>{k}</span>
+                <span style={{ fontSize: 13, color: colors.text }}>{v}</span>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </>
+      )}
 
       {/* Descriptor */}
       <div
@@ -1240,18 +1266,42 @@ function SendTab({ vault, balance, onDone, prefill }: {
   const [blocPath, setBlocPath] = useState<"parents_now" | "coparent_kids" | "parent_solo" | "kids_decay">("parents_now");
   const [blocRungIdx, setBlocRungIdx] = useState(0);
 
+  // A custom leaf-list vault never populates founder_keys/heir_keys/
+  // recovery_after/inheritance_after -- those sit at their bare DB
+  // defaults (same discriminator VaultPhaseCard/VaultStructureTree
+  // already use). Operator, pasting the live Send tab for exactly this
+  // vault shape: the "Spend path" dropdown offered "Founders now (2 of
+  // 0)" / "Recovery (2 of 0 founders)" -- both read off those unpopulated
+  // defaults -- and attempting to sign with "founders_now" hit "Compiler
+  // error: Unknown path: founders_now", since psbt-binary.js's leaf-list
+  // branch (leafListSignerCounts) only recognizes a real vault.leaves[].id
+  // as a valid path, never the five named-field path ids. This was never
+  // a display-only bug like the others in this history -- a leaf-list
+  // vault could not actually be spent from through this tab at all.
+  const isLeafList = Array.isArray(vault.leaves) && vault.leaves.length > 0;
+
   // Standard (non-Bloc) vault: which leaf this proposal spends through.
   // founders_now is always available; the rest only show up once the
   // vault actually has that leaf configured (psbt-binary.js's
   // leafSignerCounts/leafCountForTree only know how to size these five).
-  const hasRecovery = vault.recovery_after > 0;
-  const hasInheritance = vault.heir_keys.length > 0 && vault.inheritance_after > 0;
-  const hasBackup = vault.backup_keys.length > 0 && vault.backup_quorum != null;
+  // None of this applies to a leaf-list vault -- see isLeafList above.
+  const hasRecovery = !isLeafList && vault.recovery_after > 0;
+  const hasInheritance = !isLeafList && vault.heir_keys.length > 0 && vault.inheritance_after > 0;
+  const hasBackup = !isLeafList && vault.backup_keys.length > 0 && vault.backup_quorum != null;
   const hasSecondInheritance =
-    vault.second_heir_keys.length > 0 && vault.second_heir_quorum != null && vault.second_inheritance_after != null;
-  const [standardPath, setStandardPath] = useState<
-    "founders_now" | "recovery" | "inheritance" | "backup" | "second_inheritance"
-  >("founders_now");
+    !isLeafList && vault.second_heir_keys.length > 0 && vault.second_heir_quorum != null && vault.second_inheritance_after != null;
+  // Leaf-list vaults use the leaf's own id as `path` (psbt-binary.js's
+  // leafListSignerCounts); default to the first immediately-spendable
+  // leaf, matching founders_now's "always available" role for the
+  // named-field shape. Falls back to the first leaf if none is
+  // immediate, rather than crashing on an edge-case vault.
+  const [standardPath, setStandardPath] = useState<string>(() => {
+    if (isLeafList) {
+      const leaves = vault.leaves!;
+      return leaves.find(l => l.unlock.type === "immediate")?.id ?? leaves[0].id;
+    }
+    return "founders_now";
+  });
 
   const confirmedSats = balance?.confirmed_sats ?? 0;
   const amountSats = Math.round(parseFloat(amountBtc || "0") * 1e8);
@@ -1451,6 +1501,18 @@ function SendTab({ vault, balance, onDone, prefill }: {
           : blocPath === "coparent_kids" ? bp.coparent_quorum + bp.kids_with_parent_quorum
           : blocPath === "parent_solo" ? bp.parent_solo_quorum
           : (blocRungQuorum ?? bp.kids_decay_floor_quorum);
+      } else if (isLeafList) {
+        // vault.leaves[].keys are xpubs (or, on a legacy row, raw pubkey
+        // hex) -- addKey already handles both shapes. standardPath here
+        // is a real leaf id (see its useState initializer above), so
+        // this is just "find the leaf the picker chose."
+        const leaf = vault.leaves!.find(l => l.id === standardPath);
+        if (leaf) {
+          leaf.keys.forEach(addKey);
+          requiredSignatures = leaf.quorum;
+        } else {
+          requiredSignatures = 0;
+        }
       } else {
         // 2026-08-11 fix (operator: tested a single-key backup leaf with
         // no timelock and the signing screen said "0 of 2 signatures
@@ -2309,6 +2371,39 @@ function SendTab({ vault, balance, onDone, prefill }: {
                 : standardPath === "second_inheritance"
                   ? "This path is a separate heir group from the main inheritance path, with its own timelock -- only spendable once that timelock has passed."
                   : "This path is only spendable once its timelock has passed -- the compiler will reject the build otherwise."}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Leaf-list vault: the path picker uses each leaf's own id, not the
+          named-field ids above -- see isLeafList's header comment. Hidden
+          entirely for a single-leaf vault, matching the named-field
+          dropdown's own "only show a picker once there's a real choice"
+          behavior. */}
+      {!bp && isLeafList && vault.leaves!.length > 1 && (
+        <div>
+          <Label>Spend path</Label>
+          <select
+            value={standardPath}
+            onChange={e => setStandardPath(e.target.value)}
+            style={selectStyle}
+          >
+            {vault.leaves!.map(leaf => (
+              <option key={leaf.id} value={leaf.id}>
+                {leaf.label} ({leaf.quorum} of {leaf.keys.length})
+                {leaf.unlock.type === "immediate"
+                  ? " -- no waiting"
+                  : leaf.unlock.type === "after"
+                    ? ` -- after block ${leaf.unlock.blocks.toLocaleString()}`
+                    : " -- once untouched for a while"}
+              </option>
+            ))}
+          </select>
+          {vault.leaves!.find(l => l.id === standardPath)?.unlock.type !== "immediate" && (
+            <div style={{ fontSize: 11, color: colors.muted, marginTop: 5 }}>
+              This path is only spendable once its timelock has passed -- the compiler will reject
+              the build otherwise.
             </div>
           )}
         </div>

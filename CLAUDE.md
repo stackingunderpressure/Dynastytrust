@@ -624,6 +624,98 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Send tab: a leaf-list vault could not actually be spent from at all --
+  "Compiler error: Unknown path: founders_now" (2026-08-25).** Operator,
+  pasting the live Send tab: the "Spend path" dropdown offered "Founders
+  now (2 of 0) -- no waiting" and "Recovery (2 of 0 founders) -- after
+  timelock" for a real 2-leaf vault ("Everyday signers" 1 of 1,
+  "Path 2" 1 of 1) -- same bogus-default display bug as every other
+  entry in this history for this vault shape, but this instance was
+  functional, not cosmetic: hitting "Review & sign" with the default
+  selection failed outright, since `psbt-binary.js`'s leaf-list branch
+  (`leafListSignerCounts`) only ever recognizes a real `vault.leaves[]`
+  entry's own `id` as a valid `path` -- never the five named-field path
+  ids ("founders_now" etc.) `SendTab`'s `standardPath` state was hard-
+  typed to and defaulted to. The backend has supported arbitrary leaf-id
+  paths since the leaf-list generalization (`policy_compiler.rs`,
+  `psbt_builder.rs`, `compiler/main.rs` -- all already generic); the gap
+  was entirely that `SendTab` never grew a leaf-list branch of its own.
+  Fixed with the same `isLeafList` discriminator now hoisted at the top
+  of `SendTab`: `hasRecovery`/`hasInheritance`/`hasBackup`/
+  `hasSecondInheritance` all gained a `!isLeafList &&` guard so the old
+  named-field dropdown can never show for this vault shape again;
+  `standardPath`'s type widened from the closed 5-value union to `string`
+  and its initial value now defaults to the vault's first immediately-
+  spendable leaf id (falling back to the first leaf) instead of the
+  literal `"founders_now"`; a new leaf-list-only dropdown (hidden for a
+  single-leaf vault, same "only show a picker once there's a real choice"
+  rule the named-field one already follows) lists each real leaf by its
+  own label/quorum/timing; and the signer-discovery `if (bp) {...} else
+  {...}` in `buildAndSign` gained an `else if (isLeafList)` branch that
+  finds the leaf by `id === standardPath` and pulls its real `keys`/
+  `quorum` instead of falling through to the `founders_now` case's
+  `vault.founder_keys` (empty for this shape). Named-field and Bloc
+  vaults are byte-for-byte unchanged. All four gates green, matching the
+  documented 10/10 baseline exactly (the file's known pre-existing
+  typecheck errors merely shifted line numbers).
+
+- **VaultDetail: a leaf-list vault showed the correct spending paths at
+  the top of the page AND a bogus, stale duplicate below them
+  (2026-08-25).** Operator, pasting the live page for a 2-leaf custom
+  vault: the top correctly showed "Everyday signers 1 of 1" / "Path 2
+  1 of 1, locked until block 990,193" via `VaultStructureTree`, but
+  further down a second, older block read "PATH 1 Trustees - Now: 2 of
+  0 trustee signatures required," "PATH 2 Recovery: Trustees can
+  recover after 0 blocks," "PATH 3 Inheritance: 2 of 0 successor
+  signatures after 0 blocks," and a "Details" table showing "Trustee
+  quorum: 2 of 0" and "Recovery: unlocks at block 26,000." Same root
+  cause as every other entry in this history for this vault shape --
+  `founder_keys`/`heir_keys` sit empty and `founder_quorum`/
+  `recovery_after`/`inheritance_after` sit at their bare DB defaults
+  for a leaf-list vault -- but a NEW instance of it: this `paths`/
+  "Details" block is older code that predates `VaultStructureTree`'s
+  own leaf-list branch and was simply never given the same
+  `Array.isArray(vault.leaves) && vault.leaves.length > 0` gate that
+  already wraps `VaultPhaseCard`/`VaultStructureTree` two lines above
+  it -- so for a leaf-list vault both the correct, newer summary AND
+  the stale, older one rendered on the same page, one right under the
+  other. Fixed by wrapping the entire `paths.map(...)` block and the
+  "Details" table in a new `!isLeafList` check, the same discriminator
+  now hoisted once at the top of the component (`const isLeafList =
+  Array.isArray(vault.leaves) && vault.leaves.length > 0`) rather than
+  inlined again. Named-field and Bloc vaults are byte-for-byte
+  unchanged -- this only hides a block that was already fully redundant
+  with `VaultStructureTree` for the one vault shape it was wrong for.
+  All four gates green, matching the documented 10/10 baseline exactly
+  (the file's known pre-existing typecheck errors merely shifted line
+  numbers).
+
+- **Custom leaf-list builder pruned to the Revocable living trust story
+  only -- every other shape story and the "Common paths to add" checkbox
+  menu removed (2026-08-25).** Operator, on the checkbox-menu-plus-story-
+  cards redesign from the day before: "the only one that I want in there
+  is the revocable trust... anything to do with the normal four leaves
+  and configuration of those four leaves leave it off. I don't want
+  suggestions. Only the revocable trust one." Read precisely against
+  `LEAF_SHAPE_TABS`: "the four different leaves" is the four non-trust
+  shape stories (`simple`, `deep-recovery`, `self-refreshing`,
+  `long-horizon-family-vault`) and "the different checkboxes" is the
+  three `COMMON_PATH_TEMPLATES` entries (Recovery / Heirs / Heirs-
+  decaying) added the day before -- both removed entirely, along with
+  the now-dead `mainTabs`/`moreTabs` grouping, `toggleCommonPath`, the
+  `CommonPathTemplate` interface, and the "Common paths to add" card.
+  `LEAF_SHAPE_TABS` now holds exactly one entry, Revocable living trust,
+  kept because it does something none of the removed ones did -- it
+  drives the "Use trust wording" (Grantor / Successor Trustee /
+  Beneficiary) relabeling toggle, a real behavior difference, not just a
+  numbers preset. The underlying generic leaf editor (primary/secondary
+  `LeafCard`s, "+ Add another path") and the trust-wording toggle are
+  both untouched and still fully available -- removing the presets
+  doesn't remove the ability to hand-build any shape, it only removes
+  the suggestion layer on top. All four gates green, matching the
+  documented 10/10 baseline exactly, zero new errors or warnings in
+  `VaultWizard.tsx`.
+
 - **Cross-device transaction-fingerprint check: coordinator and air-gapped
   signer show a matching short hash before signing (2026-08-24).** Operator,
   thinking through a vault with a lot of leaves and a small hardware-signer
