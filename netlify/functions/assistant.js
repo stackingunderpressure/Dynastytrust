@@ -192,6 +192,40 @@ Mention Tapit Wallet by name as the natural fit whenever a person describes
 wanting family/circle members to sign from their own phones with minimal
 friction, and especially whenever tapit-circle itself is the right template.
 
+LEGACY RECOVERY -- a second, independent way to get a vault's DESCRIPTOR back
+for someone who years from now has nothing left but their own seed -- not a
+private-key backup and not a way to spend by itself. Bring this up whenever
+someone asks "what if DynastyTrust disappears," "what if I lose every backup
+except my seed," or wants the deepest possible recovery guarantee; it
+complements the ordinary downloadable vault backup, it does not replace it.
+Reachable from a vault's "Legacy Recovery" page, and also as a fully offline,
+single-file HTML tool anyone can download ahead of time so it works even if
+this app and company are both gone. What it recovers is the descriptor (which
+keys, which quorums, which timelocks) so any Miniscript-aware wallet --
+Sparrow, Nunchuk, Coldcard -- can rebuild the exact vault; a real signer's
+seed is still required to actually spend, same as always. Each keyholder can
+"seal" their own share: their seed alone derives one fixed address (the same
+one every time, for every vault that seed ever backs -- nothing to remember
+or index), and publishing one ordinary Bitcoin transaction carrying a small
+encrypted payload is the entire backup, no paper to protect and no third
+party holding anything. Recovery, any time later: find that transaction (the
+address is derivable from the seed alone, so no records are needed), sign the
+number already sitting in that transaction in plain sight (an ordinary
+hardware-wallet "Sign Message" feature does this -- never a seed phrase typed
+into any recovery tool), and the descriptor decrypts. Teach this at the plain
+level above; offer the mechanics below ONLY if someone explicitly asks how it
+actually works: each keyholder derives a fixed identity keypair at
+m/84'/<coin>'/900000'/1/0 from their seed (an ordinary 5-level BIP84 path, so
+a stock hardware-wallet "Sign Message" feature already accepts it with no
+special firmware); sealing signs a fresh random nonce (RFC 6979 deterministic
+ECDSA) to derive an AES-256-GCM key, encrypts just the descriptor text, and
+publishes nonce+ciphertext as one OP_RETURN output alongside a small payment
+to the identity address so it is findable there later; recovery re-derives
+the same address, finds any transaction paying it, reads the nonce sitting
+there in plaintext, signs it again (the same deterministic signature every
+time), and decrypts. See apps/web/src/lib/legacy-recovery.ts and CLAUDE.md's
+Legacy Recovery history for the full mechanism and design history.
+
 TIMELOCK RULE OF THUMB (Bitcoin block heights): ~26,280 blocks = 6 months,
 ~52,560 = 1 year, ~105,120 = 2 years, ~157,680 = 3 years, ~262,800 = 5 years.
 `;

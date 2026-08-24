@@ -1,9 +1,60 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { Buffer } from 'buffer';
 import { encode as cborEncode } from 'cborg';
 import { UR, UREncoder } from '@gandlaf21/bc-ur';
+import * as btc from '@scure/btc-signer';
+import { sha256 } from '@noble/hashes/sha256';
 import { colors, fonts, radii } from '../theme';
+
+/**
+ * A short, deterministic fingerprint of exactly which transaction is
+ * about to be signed -- meant to be compared, digit by digit, against
+ * the same value SeedSigner (or any other air-gapped signer) shows on
+ * its own screen before trusting anything else there. Operator, on a
+ * vault with a lot of leaves and a small signer screen: "the first few
+ * digits of the hash of the transaction you're signing and then the
+ * coordinator has that same hash on its screen... as long as the hash
+ * is the same... there's no way they can fake the wrong hash."
+ *
+ * The fingerprint is the standard Bitcoin txid -- double-SHA256 over
+ * version/inputs/outputs/locktime, byte-reversed for display -- which
+ * deliberately excludes witness data. That's exactly why it works as a
+ * cross-device check for this app's Taproot-only vaults: a signature
+ * only ever lives in the witness, so this hash is identical whether
+ * zero, some, or all required signatures are present yet.
+ * Cross-checked byte-for-byte against SeedSigner's own embit-based
+ * computation (Transaction.txid()) on a real PSBT -- same algorithm,
+ * same result, independent of which library computes it.
+ *
+ * Uses Transaction.unsignedTx, not the .id getter -- .id throws
+ * ("Transaction is not finalized") for anything short of a fully
+ * signed PSBT, which is every PSBT this component is ever asked to
+ * display (its whole job is showing an UNSIGNED or partially-signed
+ * one for someone to go sign).
+ *
+ * What a match proves: this signer parsed byte-for-byte the same
+ * transaction shown here -- catches a corrupted QR transfer, a stale
+ * cached frame, or a swapped-in different proposal. What it does NOT
+ * prove: that the transaction is honest -- a compromised coordinator
+ * could show a fake amount/destination on ITS OWN screen while sending
+ * the real transaction here, and the fingerprint would still match,
+ * since both sides would be hashing the same (malicious) bytes. This
+ * is a fast supplementary check, never a substitute for reading the
+ * real amounts and addresses SeedSigner's own review screens show.
+ */
+export function psbtTransactionFingerprint(psbtHex: string): string | null {
+  try {
+    const bytes = hexToBytes(psbtHex);
+    const tx = btc.Transaction.fromPSBT(bytes, { allowUnknownOutputs: true, allowLegacyWitnessUtxo: true });
+    const hash = sha256(sha256(tx.unsignedTx));
+    const reversed = Uint8Array.from(hash).reverse();
+    const hex = Array.from(reversed).map(b => b.toString(16).padStart(2, '0')).join('');
+    return hex.slice(0, 8);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Animated UR-encoded PSBT QR. Splits the binary PSBT into UR
@@ -87,6 +138,7 @@ export function PsbtQrDisplay({
   const [paused, setPaused] = useState(false);
   const [speed, setSpeed] = useState<Speed>('normal');
   const intervalMs = SPEED_PRESETS[speed];
+  const fingerprint = useMemo(() => psbtTransactionFingerprint(psbtHex), [psbtHex]);
 
   // Build the UR encoder once per PSBT.
   useEffect(() => {
@@ -181,6 +233,32 @@ export function PsbtQrDisplay({
           ? `frame ${(frame % totalFragments) + 1} of ${totalFragments}`
           : 'single QR'}
       </div>
+      {fingerprint && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 2,
+            padding: '8px 14px',
+            border: `1px solid ${colors.gold}`,
+            borderRadius: radii.md,
+            maxWidth: size,
+          }}
+        >
+          <span style={{ fontSize: 10, color: colors.muted, fontFamily: fonts.sans, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            Transaction check
+          </span>
+          <span style={{ fontSize: 18, color: colors.gold, fontFamily: fonts.mono, letterSpacing: 2 }}>
+            {fingerprint.slice(0, 4)} {fingerprint.slice(4, 8)}
+          </span>
+          <span style={{ fontSize: 10, color: colors.muted, fontFamily: fonts.sans, textAlign: 'center' }}>
+            Compare this to what your signer shows before signing. A mismatch means
+            don't trust the QR transfer -- rescan. A match only proves it's the same
+            transaction -- still read the amount, address, and path on your signer.
+          </span>
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
         <span style={{ fontSize: 11, color: colors.muted, fontFamily: fonts.sans }}>Speed:</span>
         {(Object.keys(SPEED_PRESETS) as Speed[]).map(s => (

@@ -624,6 +624,52 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Cross-device transaction-fingerprint check: coordinator and air-gapped
+  signer show a matching short hash before signing (2026-08-24).** Operator,
+  thinking through a vault with a lot of leaves and a small hardware-signer
+  screen: "is there a way to have a verification of like saying the first
+  few digits of the hash of the transaction you're signing and then the
+  coordinator has that same hash on its screen and then when it goes over
+  to the signer, you could almost just verify that same hash... there's no
+  way they can fake the wrong hash." Correct and cheap to add: the fingerprint
+  is the ordinary Bitcoin txid -- double-SHA256 over version/inputs/outputs/
+  locktime, byte-reversed -- which deliberately excludes witness data, so for
+  this app's Taproot-only vaults it's identical whether zero, some, or all
+  required signatures are present yet, meaning the coordinator can show it
+  for an unsigned PSBT and it still matches what the signer computes after
+  signing. Verified byte-for-byte identical between the two independent
+  implementations on a real PSBT fixture before shipping either side.
+  DynastyTrust (`apps/web/src/components/PsbtQrDisplay.tsx`): new exported
+  `psbtTransactionFingerprint(psbtHex)` parses the PSBT via
+  `@scure/btc-signer`, hashes `Transaction.unsignedTx` (NOT the `.id` getter,
+  which throws "Transaction is not finalized" for anything short of a fully
+  signed PSBT -- exactly every PSBT this component ever displays, since its
+  whole job is showing an unsigned or partially-signed one for someone to go
+  sign), and returns the first 8 hex chars. Wired into the QR display via
+  `useMemo`, rendered as two 4-char groups ("abcd efgh") in a gold-bordered
+  box under the QR with copy naming both what a match proves (same bytes,
+  catches a corrupted/swapped QR transfer) and what it doesn't (a compromised
+  coordinator could show a false amount/address on its own screen while
+  sending the real, matching bytes here -- this is a fast supplementary
+  check, never a substitute for reading the real transaction details).
+  SeedSigner fork (`stackingunderpressure/seedsigner`, same branch): new
+  `PSBTTransactionCheckView`/`PSBTTransactionCheckScreen` inserted into the
+  PSBT review flow immediately after `PSBTOverviewView`, computing
+  `psbt_parser.psbt.tx.txid().hex()` via embit and showing the same first-8
+  grouping with "Compare this to what your coordinator shows before
+  continuing," then proceeding into the existing, unchanged leaf/spend-path
+  routing. `tests/test_flows_psbt.py` updated at 5 call sites; full suite
+  (273 tests) and the psbt/taproot/multisig-scoped subset (112 tests) both
+  verified passing in that repo's actual test venv (which is wired to a
+  second clone at a different path -- edits were made only in the correct
+  branch's clone, temporarily mirrored into the test venv's clone to run
+  pytest, then reverted there so nothing landed in the wrong place). All
+  four DynastyTrust gates green, matching the documented 10/10 baseline
+  exactly (one new intentional lint warning on `PsbtQrDisplay.tsx` --
+  `react-refresh/only-export-components`, the same accepted pattern already
+  used for `ToastProvider.tsx`/`KeyPicker.tsx`/`DialogProvider.tsx` when a
+  component file also exports a plain function -- 0 lint errors either way).
+
 - **Custom leaf-list builder: shape tabs became full readable stories
   with a "Build it" button, plus an always-visible checkbox menu of
   common paths (2026-08-24).** Operator: "all of the leaves are visible
