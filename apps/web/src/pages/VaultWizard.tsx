@@ -131,121 +131,35 @@ function leafDraftToSpec(l: LeafDraft, keys: string[]): LeafSpec {
 // one-shot prefill" refinement: switchable at any time, not fired once
 // and forgotten.
 //
-// `group` splits the row into "4 main options" shown up front and "more
-// tabs for crazy extra leafs or specialty leafs" tucked into a second,
-// clearly-secondary row (2026-08-19 redesign, operator's own phrasing).
-// The four `main` entries are the common-case shapes; `more` holds the
-// two decay/timelock-ladder-driven ones that match the "crafty, specialty"
-// framing `vault-education.ts`'s backstop layer already uses.
+// 2026-08-25, operator: "the only one that I want in there is the
+// revocable trust... anything to do with the normal four leaves and
+// configuration of those four leaves leave it off. I don't want
+// suggestions. Only the revocable trust one." Every other shape story
+// (simple / deep-recovery / self-refreshing / long-horizon-family-vault)
+// and the "Common paths to add" checkbox menu that used to sit alongside
+// this were removed for that reason -- they were all just presets over
+// the same generic leaf editor below, which stays fully available via
+// "+ Add another path" regardless. Revocable living trust stays because
+// it is genuinely different: it drives real trust terminology (Grantor /
+// Successor Trustee / Beneficiary) via the "Use trust wording" toggle
+// below, not just a numbers preset.
 interface LeafShapeTab {
   id: string;
   title: string;
   why: string;
-  group: 'main' | 'more';
   build: () => LeafDraft[];
 }
 
 const LEAF_SHAPE_TABS: LeafShapeTab[] = [
   {
-    id: 'simple',
-    title: 'Just the essentials',
-    why: 'One group of signers, nothing else. The fewest moving parts -- add a path below any time you want more.',
-    group: 'main',
-    build: () => [defaultPrimaryLeaf()],
-  },
-  {
-    id: 'deep-recovery',
-    title: 'A long-term fallback',
-    why: 'Your everyday signers, plus a single fallback that only opens after a long wait -- for the "everyone is gone or unreachable" case, not day-to-day use.',
-    group: 'main',
-    build: () => [
-      defaultPrimaryLeaf(),
-      { ...defaultSecondaryLeaf('Long-term fallback'), plannedKeys: 1, quorum: 1, unlockType: 'after', afterBlocks: 157_680 },
-    ],
-  },
-  {
-    id: 'self-refreshing',
-    title: 'Active use, stays strong unless I go quiet',
-    why: 'For a vault you actually use. Every signer is needed as long as it stays active. Only if it sits completely untouched for about 13 months does it relax to needing one fewer -- and any normal spend resets the clock back to full strength, so using the vault the way you already do is what keeps it at full strength. Best for frequent spending, not a vault you plan to fund once and leave alone for years -- see "A long-term family vault" below for that.',
-    group: 'more',
-    build: () => [
-      { ...defaultPrimaryLeaf(), plannedKeys: 3, quorum: 3 },
-      { ...defaultSecondaryLeaf('If untouched for a while'), plannedKeys: 3, quorum: 2, unlockType: 'older', olderBlocks: MAX_RELATIVE_BLOCKS },
-    ],
-  },
-  {
-    id: 'long-horizon-family-vault',
-    title: 'A long-term family vault',
-    why: 'For a vault you fund once and may not touch again for years. Every stage opens on a fixed calendar date no matter what -- nothing has to be refreshed or maintained to keep the earlier stages locked, so nobody forgetting to do something ever opens a path early. An emergency path after 3 years, a full hand-off to heirs after a longer wait, and a last-resort path after 20 years in case everything else has failed by then.',
-    group: 'more',
-    build: () => [
-      defaultPrimaryLeaf(),
-      { ...defaultSecondaryLeaf('Emergency'), plannedKeys: 2, quorum: 2, unlockType: 'after', afterBlocks: 157_680 },
-      { ...defaultSecondaryLeaf('Inheritance'), plannedKeys: 2, quorum: 2, unlockType: 'after', afterBlocks: 525_600 },
-      { ...defaultSecondaryLeaf('Ultimate recovery'), plannedKeys: 1, quorum: 1, unlockType: 'after', afterBlocks: 1_051_200 },
-    ],
-  },
-  {
     id: 'revocable-living-trust',
     title: 'Revocable living trust',
     why: 'The most common estate-planning trust used in US courts, mapped onto this vault. The Grantor(s) can spend at any time -- no waiting, and "revocable" means they can change or unwind the whole arrangement whenever they want by simply building a new vault. If the Grantor(s) go quiet for a stretch, a Successor Trustee path opens as an incapacity backstop -- but going quiet on-chain is only ever a stand-in for a real incapacity determination (a doctor\'s letter, whatever process the actual trust document names), not the same thing. Treat it as a safety net, and hand off deliberately -- rotating the vault to the Successor Trustee\'s own keys -- the moment a real determination is made, rather than waiting out the on-chain clock. A third path lets the Successor Trustee distribute to the Beneficiaries after a much longer wait with no activity at all -- again a backstop for "everyone with day-to-day keys is provably gone," not a substitute for administering the trust properly once a death certificate exists. Turn on "Use trust wording" below to also relabel any paths you hand-build with these same terms.',
-    group: 'main',
     build: () => [
       { ...defaultPrimaryLeaf(), label: 'Grantor(s)' },
       { ...defaultSecondaryLeaf('Successor Trustee (incapacity backstop)'), unlockType: 'older', olderBlocks: MAX_RELATIVE_BLOCKS },
       { ...defaultSecondaryLeaf('Successor Trustee distributes to Beneficiaries'), unlockType: 'after', afterBlocks: 157_680 },
     ],
-  },
-];
-
-// A fixed, always-visible menu of single-path additions -- the pieces
-// that used to be locked inside "Family inheritance" and "Passing it to
-// my kids" (both retired below, since they were exactly primary + one
-// or two of these with no leaf unique to that tab). Checking one drops
-// it onto the canvas as a normal, fully editable LeafCard with the SAME
-// numbers those two tabs used -- nothing invented, nothing rounded off.
-// A stable `id`, not a counter-based one, is what lets the checkbox
-// track "is this exact template currently on the canvas" -- renaming
-// the resulting path's label doesn't affect that, only removing it
-// (or removing the whole card) does. 2026-08-24, operator: "make sure
-// that they are the correct checkboxes and not pull up some weird
-// pattern" -- every default below traces to a real, previously-shipped
-// tab, not a new guess.
-interface CommonPathTemplate {
-  id: string;
-  title: string;
-  why: string;
-  build: () => LeafDraft;
-}
-
-const COMMON_PATH_TEMPLATES: CommonPathTemplate[] = [
-  {
-    id: 'tmpl_recovery',
-    title: 'Recovery',
-    why: 'A shorter-wait fallback if your everyday signers go quiet -- same numbers "Family inheritance" used to bundle in.',
-    build: () => ({
-      ...defaultSecondaryLeaf('Recovery'), id: 'tmpl_recovery',
-      plannedKeys: 2, quorum: 2, unlockType: 'after', afterBlocks: 26_280,
-    }),
-  },
-  {
-    id: 'tmpl_heirs',
-    title: 'Heirs / Inheritance',
-    why: 'Hands off to heirs entirely after a longer wait with no activity -- same numbers "Family inheritance" used to bundle in.',
-    build: () => ({
-      ...defaultSecondaryLeaf('Heirs'), id: 'tmpl_heirs',
-      plannedKeys: 2, quorum: 2, unlockType: 'after', afterBlocks: 52_560,
-    }),
-  },
-  {
-    id: 'tmpl_decaying_heirs',
-    title: 'Heirs, decaying over time',
-    why: 'Starts needing everyone; if it sits untouched, quietly needs one fewer every so often, so losing a key over the years doesn\'t lock anyone out -- same numbers "Passing it to my kids" used to bundle in.',
-    build: () => ({
-      ...defaultSecondaryLeaf('Heirs, decaying over time'), id: 'tmpl_decaying_heirs',
-      plannedKeys: 5, quorum: 5, unlockType: 'after', afterBlocks: 52_560,
-      decayEnabled: true, decayStepBlocks: 26_280, decayFloorQ: 2,
-    }),
   },
 ];
 
@@ -1370,8 +1284,6 @@ function LeavesConfigureFields({
   const secondaries = leafDrafts.slice(1);
   const hasImmediate = leafDrafts.some(l => l.enabled && l.unlockType === 'immediate');
   const hasUnsetAfter = leafDrafts.some(l => l.enabled && l.unlockType === 'after' && l.afterBlocks <= 0);
-  const mainTabs = LEAF_SHAPE_TABS.filter(t => t.group === 'main');
-  const moreTabs = LEAF_SHAPE_TABS.filter(t => t.group === 'more');
   // 2026-08-24, operator: reading a story then hitting "Build it" should
   // land you looking at what actually got built, not still scrolled up
   // at the story list -- "make sure it takes you to the right place or
@@ -1393,16 +1305,6 @@ function LeavesConfigureFields({
   function requestApplyTab(tab: LeafShapeTab) {
     if (dirty && activeTab !== tab.id) setPendingTab(tab.id);
     else applyTab(tab);
-  }
-
-  // Checking a common-path box adds that exact template's leaf;
-  // unchecking removes whichever leaf currently has that template's
-  // fixed id. Renaming or re-tuning the leaf afterward doesn't affect
-  // this -- the checkbox tracks "did this template's leaf get added,"
-  // not "does a leaf still look like the template's original numbers."
-  function toggleCommonPath(tmpl: CommonPathTemplate, checked: boolean) {
-    setLeafDrafts(list => (checked ? [...list, tmpl.build()] : list.filter(l => l.id !== tmpl.id)));
-    setDirty(true);
   }
 
   function toggleTrustLabels(next: boolean) {
@@ -1428,22 +1330,14 @@ function LeavesConfigureFields({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <Card>
         <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
-          Read a whole story, then build it
+          Read the story, then build it
         </div>
         <p style={{ fontSize: 12, color: colors.sub, marginTop: 0, marginBottom: 14, lineHeight: 1.5 }}>
-          Each one below replaces everything you have with its own complete set of paths. Rather
-          combine pieces yourself instead of taking a whole story? Skip down to "Common paths to add."
+          Building it replaces everything you have with its own complete set of paths. Every path
+          it builds stays fully editable below, and you can add more with "+ Add another path."
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {mainTabs.map(tab => (
-            <ShapeStoryCard key={tab.id} tab={tab} active={activeTab === tab.id} onBuild={() => requestApplyTab(tab)} />
-          ))}
-        </div>
-        <div style={{ fontSize: 12, color: colors.sub, marginTop: 16, marginBottom: 10 }}>
-          More: crafty or specialty paths
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {moreTabs.map(tab => (
+          {LEAF_SHAPE_TABS.map(tab => (
             <ShapeStoryCard key={tab.id} tab={tab} active={activeTab === tab.id} onBuild={() => requestApplyTab(tab)} />
           ))}
         </div>
@@ -1460,40 +1354,6 @@ function LeavesConfigureFields({
             </div>
           </div>
         )}
-      </Card>
-
-      <Card>
-        <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
-          Common paths to add
-        </div>
-        <p style={{ fontSize: 12, color: colors.sub, marginTop: 0, marginBottom: 12, lineHeight: 1.5 }}>
-          Check any that fit -- each one drops in a fully editable path below with a sensible
-          starting point. Change the keys, quorum, or timing on it once it's there, same as any
-          other path.
-        </p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {COMMON_PATH_TEMPLATES.map(tmpl => {
-            const on = leafDrafts.some(l => l.id === tmpl.id);
-            return (
-              <label key={tmpl.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={on}
-                  onChange={e => toggleCommonPath(tmpl, e.target.checked)}
-                  style={{ width: 18, height: 18, marginTop: 2, flexShrink: 0 }}
-                />
-                <span>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: colors.text, display: 'block' }}>
-                    {tmpl.title}
-                  </span>
-                  <span style={{ fontSize: 12, color: colors.sub, lineHeight: 1.5, display: 'block', marginTop: 2 }}>
-                    {tmpl.why}
-                  </span>
-                </span>
-              </label>
-            );
-          })}
-        </div>
       </Card>
 
       <Card>

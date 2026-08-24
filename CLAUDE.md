@@ -624,6 +624,32 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Custom leaf-list builder pruned to the Revocable living trust story
+  only -- every other shape story and the "Common paths to add" checkbox
+  menu removed (2026-08-25).** Operator, on the checkbox-menu-plus-story-
+  cards redesign from the day before: "the only one that I want in there
+  is the revocable trust... anything to do with the normal four leaves
+  and configuration of those four leaves leave it off. I don't want
+  suggestions. Only the revocable trust one." Read precisely against
+  `LEAF_SHAPE_TABS`: "the four different leaves" is the four non-trust
+  shape stories (`simple`, `deep-recovery`, `self-refreshing`,
+  `long-horizon-family-vault`) and "the different checkboxes" is the
+  three `COMMON_PATH_TEMPLATES` entries (Recovery / Heirs / Heirs-
+  decaying) added the day before -- both removed entirely, along with
+  the now-dead `mainTabs`/`moreTabs` grouping, `toggleCommonPath`, the
+  `CommonPathTemplate` interface, and the "Common paths to add" card.
+  `LEAF_SHAPE_TABS` now holds exactly one entry, Revocable living trust,
+  kept because it does something none of the removed ones did -- it
+  drives the "Use trust wording" (Grantor / Successor Trustee /
+  Beneficiary) relabeling toggle, a real behavior difference, not just a
+  numbers preset. The underlying generic leaf editor (primary/secondary
+  `LeafCard`s, "+ Add another path") and the trust-wording toggle are
+  both untouched and still fully available -- removing the presets
+  doesn't remove the ability to hand-build any shape, it only removes
+  the suggestion layer on top. All four gates green, matching the
+  documented 10/10 baseline exactly, zero new errors or warnings in
+  `VaultWizard.tsx`.
+
 - **Cross-device transaction-fingerprint check: coordinator and air-gapped
   signer show a matching short hash before signing (2026-08-24).** Operator,
   thinking through a vault with a lot of leaves and a small hardware-signer
