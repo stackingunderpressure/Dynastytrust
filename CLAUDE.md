@@ -624,6 +624,41 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Send tab: a leaf-list vault could not actually be spent from at all --
+  "Compiler error: Unknown path: founders_now" (2026-08-25).** Operator,
+  pasting the live Send tab: the "Spend path" dropdown offered "Founders
+  now (2 of 0) -- no waiting" and "Recovery (2 of 0 founders) -- after
+  timelock" for a real 2-leaf vault ("Everyday signers" 1 of 1,
+  "Path 2" 1 of 1) -- same bogus-default display bug as every other
+  entry in this history for this vault shape, but this instance was
+  functional, not cosmetic: hitting "Review & sign" with the default
+  selection failed outright, since `psbt-binary.js`'s leaf-list branch
+  (`leafListSignerCounts`) only ever recognizes a real `vault.leaves[]`
+  entry's own `id` as a valid `path` -- never the five named-field path
+  ids ("founders_now" etc.) `SendTab`'s `standardPath` state was hard-
+  typed to and defaulted to. The backend has supported arbitrary leaf-id
+  paths since the leaf-list generalization (`policy_compiler.rs`,
+  `psbt_builder.rs`, `compiler/main.rs` -- all already generic); the gap
+  was entirely that `SendTab` never grew a leaf-list branch of its own.
+  Fixed with the same `isLeafList` discriminator now hoisted at the top
+  of `SendTab`: `hasRecovery`/`hasInheritance`/`hasBackup`/
+  `hasSecondInheritance` all gained a `!isLeafList &&` guard so the old
+  named-field dropdown can never show for this vault shape again;
+  `standardPath`'s type widened from the closed 5-value union to `string`
+  and its initial value now defaults to the vault's first immediately-
+  spendable leaf id (falling back to the first leaf) instead of the
+  literal `"founders_now"`; a new leaf-list-only dropdown (hidden for a
+  single-leaf vault, same "only show a picker once there's a real choice"
+  rule the named-field one already follows) lists each real leaf by its
+  own label/quorum/timing; and the signer-discovery `if (bp) {...} else
+  {...}` in `buildAndSign` gained an `else if (isLeafList)` branch that
+  finds the leaf by `id === standardPath` and pulls its real `keys`/
+  `quorum` instead of falling through to the `founders_now` case's
+  `vault.founder_keys` (empty for this shape). Named-field and Bloc
+  vaults are byte-for-byte unchanged. All four gates green, matching the
+  documented 10/10 baseline exactly (the file's known pre-existing
+  typecheck errors merely shifted line numbers).
+
 - **VaultDetail: a leaf-list vault showed the correct spending paths at
   the top of the page AND a bogus, stale duplicate below them
   (2026-08-25).** Operator, pasting the live page for a 2-leaf custom
