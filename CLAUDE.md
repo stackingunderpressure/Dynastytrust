@@ -624,6 +624,37 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **VaultDetail: a leaf-list vault showed the correct spending paths at
+  the top of the page AND a bogus, stale duplicate below them
+  (2026-08-25).** Operator, pasting the live page for a 2-leaf custom
+  vault: the top correctly showed "Everyday signers 1 of 1" / "Path 2
+  1 of 1, locked until block 990,193" via `VaultStructureTree`, but
+  further down a second, older block read "PATH 1 Trustees - Now: 2 of
+  0 trustee signatures required," "PATH 2 Recovery: Trustees can
+  recover after 0 blocks," "PATH 3 Inheritance: 2 of 0 successor
+  signatures after 0 blocks," and a "Details" table showing "Trustee
+  quorum: 2 of 0" and "Recovery: unlocks at block 26,000." Same root
+  cause as every other entry in this history for this vault shape --
+  `founder_keys`/`heir_keys` sit empty and `founder_quorum`/
+  `recovery_after`/`inheritance_after` sit at their bare DB defaults
+  for a leaf-list vault -- but a NEW instance of it: this `paths`/
+  "Details" block is older code that predates `VaultStructureTree`'s
+  own leaf-list branch and was simply never given the same
+  `Array.isArray(vault.leaves) && vault.leaves.length > 0` gate that
+  already wraps `VaultPhaseCard`/`VaultStructureTree` two lines above
+  it -- so for a leaf-list vault both the correct, newer summary AND
+  the stale, older one rendered on the same page, one right under the
+  other. Fixed by wrapping the entire `paths.map(...)` block and the
+  "Details" table in a new `!isLeafList` check, the same discriminator
+  now hoisted once at the top of the component (`const isLeafList =
+  Array.isArray(vault.leaves) && vault.leaves.length > 0`) rather than
+  inlined again. Named-field and Bloc vaults are byte-for-byte
+  unchanged -- this only hides a block that was already fully redundant
+  with `VaultStructureTree` for the one vault shape it was wrong for.
+  All four gates green, matching the documented 10/10 baseline exactly
+  (the file's known pre-existing typecheck errors merely shifted line
+  numbers).
+
 - **Custom leaf-list builder pruned to the Revocable living trust story
   only -- every other shape story and the "Common paths to add" checkbox
   menu removed (2026-08-25).** Operator, on the checkbox-menu-plus-story-

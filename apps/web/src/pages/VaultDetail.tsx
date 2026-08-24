@@ -659,6 +659,24 @@ function OverviewTab({
   const navigate = useNavigate();
   const isBloc = vault.bloc_policy != null;
 
+  // A custom leaf-list vault never populates founder_keys/heir_keys/
+  // recovery_after/inheritance_after at all -- those columns sit at their
+  // bare DB defaults (founder_quorum 2, founder_keys [], recovery_after
+  // 26000, etc.), the exact same discriminator VaultPhaseCard/
+  // VaultStructureTree/buildVaultLeaves already use. Those two components
+  // are already gated `{!plain && ...}` below and correctly show this
+  // vault's real per-leaf spending paths; the legacy `paths`/"Details"
+  // block further down was never given the same gate, so a leaf-list
+  // vault showed BOTH the correct leaf-aware summary above AND a bogus
+  // "2 of 0 trustee signatures" / "Recovery unlocks at block 26,000"
+  // block below it, reading straight off the unpopulated named-field
+  // defaults. Operator, pasting the live page: the "PATH 1/2/3" and
+  // "Details" block under the correct VaultStructureTree output showed
+  // exactly that -- "2 of 0", "after 0 blocks", "unlocks at block
+  // 26,000" for a vault whose real leaves are "Everyday signers 1 of 1"
+  // and "Path 2 1 of 1 after ~6 months."
+  const isLeafList = Array.isArray(vault.leaves) && vault.leaves.length > 0;
+
   // Inheritance vaults get all three spending paths; plain vaults
   // (no heirs, no timelocks) get only the trustee-now path.
   const plain =
@@ -792,72 +810,80 @@ function OverviewTab({
         <UtxosSection vault={vault} onSendPrefill={onSendPrefill} />
       )}
 
-      {/* Spending paths */}
-      {paths.map(p => (
-        <div
-          key={p.num}
-          style={{
-            background: colors.surface,
-            border: `1px solid ${colors.border}`,
-            borderRadius: 12,
-            padding: "14px 16px",
-            borderLeft: `3px solid ${p.color}`,
-          }}
-        >
-          <div
-            style={{
-              fontSize: 10,
-              fontWeight: 700,
-              letterSpacing: "0.1em",
-              color: p.color,
-              marginBottom: 4,
-            }}
-          >
-            PATH {p.num}
-          </div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
-            {p.title}
-          </div>
-          <div style={{ fontSize: 12, color: colors.sub, lineHeight: 1.5 }}>{p.body}</div>
-        </div>
-      ))}
+      {/* Spending paths + Details: named-field vault only -- a leaf-list
+          vault's real paths are already shown above by VaultStructureTree
+          (and its phase by VaultPhaseCard), built from the real vault.leaves
+          array. Rendering this block too for a leaf-list vault would read
+          straight off its unpopulated founder_keys/heir_keys/recovery_after/
+          inheritance_after defaults -- see isLeafList's header comment. */}
+      {!isLeafList && (
+        <>
+          {paths.map(p => (
+            <div
+              key={p.num}
+              style={{
+                background: colors.surface,
+                border: `1px solid ${colors.border}`,
+                borderRadius: 12,
+                padding: "14px 16px",
+                borderLeft: `3px solid ${p.color}`,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: "0.1em",
+                  color: p.color,
+                  marginBottom: 4,
+                }}
+              >
+                PATH {p.num}
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+                {p.title}
+              </div>
+              <div style={{ fontSize: 12, color: colors.sub, lineHeight: 1.5 }}>{p.body}</div>
+            </div>
+          ))}
 
-      {/* Details */}
-      <div
-        style={{
-          background: colors.surface,
-          border: `1px solid ${colors.border}`,
-          borderRadius: 12,
-          overflow: "hidden",
-        }}
-      >
-        {[
-          ["Address type", vault.address_type.toUpperCase()],
-          ["Trustee quorum", `${vault.founder_quorum} of ${vault.founder_keys.length}`],
-          ...(hasInheritancePath
-            ? [["Successor quorum", `${vault.heir_quorum} of ${vault.heir_keys.length}`]]
-            : []),
-          ...(hasRecoveryPath
-            ? [["Recovery", `unlocks at block ${vault.recovery_after.toLocaleString()} (${blocksToLabel(blocksFromNow(vault.recovery_after))})`]]
-            : []),
-          ...(hasInheritancePath
-            ? [["Inheritance", `unlocks at block ${vault.inheritance_after.toLocaleString()} (${blocksToLabel(blocksFromNow(vault.inheritance_after))})`]]
-            : []),
-        ].map(([k, v]) => (
           <div
-            key={k}
             style={{
-              display: "flex",
-              justifyContent: "space-between",
-              padding: "11px 16px",
-              borderBottom: `1px solid ${colors.border}`,
+              background: colors.surface,
+              border: `1px solid ${colors.border}`,
+              borderRadius: 12,
+              overflow: "hidden",
             }}
           >
-            <span style={{ fontSize: 13, color: colors.muted }}>{k}</span>
-            <span style={{ fontSize: 13, color: colors.text }}>{v}</span>
+            {[
+              ["Address type", vault.address_type.toUpperCase()],
+              ["Trustee quorum", `${vault.founder_quorum} of ${vault.founder_keys.length}`],
+              ...(hasInheritancePath
+                ? [["Successor quorum", `${vault.heir_quorum} of ${vault.heir_keys.length}`]]
+                : []),
+              ...(hasRecoveryPath
+                ? [["Recovery", `unlocks at block ${vault.recovery_after.toLocaleString()} (${blocksToLabel(blocksFromNow(vault.recovery_after))})`]]
+                : []),
+              ...(hasInheritancePath
+                ? [["Inheritance", `unlocks at block ${vault.inheritance_after.toLocaleString()} (${blocksToLabel(blocksFromNow(vault.inheritance_after))})`]]
+                : []),
+            ].map(([k, v]) => (
+              <div
+                key={k}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  padding: "11px 16px",
+                  borderBottom: `1px solid ${colors.border}`,
+                }}
+              >
+                <span style={{ fontSize: 13, color: colors.muted }}>{k}</span>
+                <span style={{ fontSize: 13, color: colors.text }}>{v}</span>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </>
+      )}
 
       {/* Descriptor */}
       <div
