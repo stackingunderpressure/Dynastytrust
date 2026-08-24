@@ -164,31 +164,6 @@ const LEAF_SHAPE_TABS: LeafShapeTab[] = [
     ],
   },
   {
-    id: 'family-inheritance',
-    title: 'Family inheritance',
-    why: 'Everyday signers now, a shorter-wait recovery path if they go quiet, and a longer-wait path that hands off to heirs entirely.',
-    group: 'main',
-    build: () => [
-      defaultPrimaryLeaf(),
-      { ...defaultSecondaryLeaf('Recovery'), plannedKeys: 2, quorum: 2, unlockType: 'after', afterBlocks: 26_280 },
-      { ...defaultSecondaryLeaf('Heirs'), plannedKeys: 2, quorum: 2, unlockType: 'after', afterBlocks: 52_560 },
-    ],
-  },
-  {
-    id: 'passing-it-on',
-    title: 'Passing it to my kids',
-    why: 'Everyday signers now; a group of heirs that starts needing everyone and, if it sits untouched, quietly needs one fewer every so often -- so losing a key over the years doesn’t lock anyone out.',
-    group: 'main',
-    build: () => [
-      defaultPrimaryLeaf(),
-      {
-        ...defaultSecondaryLeaf('Heirs, decaying over time'),
-        plannedKeys: 5, quorum: 5, unlockType: 'after', afterBlocks: 52_560,
-        decayEnabled: true, decayStepBlocks: 26_280, decayFloorQ: 2,
-      },
-    ],
-  },
-  {
     id: 'self-refreshing',
     title: 'Active use, stays strong unless I go quiet',
     why: 'For a vault you actually use. Every signer is needed as long as it stays active. Only if it sits completely untouched for about 13 months does it relax to needing one fewer -- and any normal spend resets the clock back to full strength, so using the vault the way you already do is what keeps it at full strength. Best for frequent spending, not a vault you plan to fund once and leave alone for years -- see "A long-term family vault" below for that.',
@@ -220,6 +195,57 @@ const LEAF_SHAPE_TABS: LeafShapeTab[] = [
       { ...defaultSecondaryLeaf('Successor Trustee (incapacity backstop)'), unlockType: 'older', olderBlocks: MAX_RELATIVE_BLOCKS },
       { ...defaultSecondaryLeaf('Successor Trustee distributes to Beneficiaries'), unlockType: 'after', afterBlocks: 157_680 },
     ],
+  },
+];
+
+// A fixed, always-visible menu of single-path additions -- the pieces
+// that used to be locked inside "Family inheritance" and "Passing it to
+// my kids" (both retired below, since they were exactly primary + one
+// or two of these with no leaf unique to that tab). Checking one drops
+// it onto the canvas as a normal, fully editable LeafCard with the SAME
+// numbers those two tabs used -- nothing invented, nothing rounded off.
+// A stable `id`, not a counter-based one, is what lets the checkbox
+// track "is this exact template currently on the canvas" -- renaming
+// the resulting path's label doesn't affect that, only removing it
+// (or removing the whole card) does. 2026-08-24, operator: "make sure
+// that they are the correct checkboxes and not pull up some weird
+// pattern" -- every default below traces to a real, previously-shipped
+// tab, not a new guess.
+interface CommonPathTemplate {
+  id: string;
+  title: string;
+  why: string;
+  build: () => LeafDraft;
+}
+
+const COMMON_PATH_TEMPLATES: CommonPathTemplate[] = [
+  {
+    id: 'tmpl_recovery',
+    title: 'Recovery',
+    why: 'A shorter-wait fallback if your everyday signers go quiet -- same numbers "Family inheritance" used to bundle in.',
+    build: () => ({
+      ...defaultSecondaryLeaf('Recovery'), id: 'tmpl_recovery',
+      plannedKeys: 2, quorum: 2, unlockType: 'after', afterBlocks: 26_280,
+    }),
+  },
+  {
+    id: 'tmpl_heirs',
+    title: 'Heirs / Inheritance',
+    why: 'Hands off to heirs entirely after a longer wait with no activity -- same numbers "Family inheritance" used to bundle in.',
+    build: () => ({
+      ...defaultSecondaryLeaf('Heirs'), id: 'tmpl_heirs',
+      plannedKeys: 2, quorum: 2, unlockType: 'after', afterBlocks: 52_560,
+    }),
+  },
+  {
+    id: 'tmpl_decaying_heirs',
+    title: 'Heirs, decaying over time',
+    why: 'Starts needing everyone; if it sits untouched, quietly needs one fewer every so often, so losing a key over the years doesn\'t lock anyone out -- same numbers "Passing it to my kids" used to bundle in.',
+    build: () => ({
+      ...defaultSecondaryLeaf('Heirs, decaying over time'), id: 'tmpl_decaying_heirs',
+      plannedKeys: 5, quorum: 5, unlockType: 'after', afterBlocks: 52_560,
+      decayEnabled: true, decayStepBlocks: 26_280, decayFloorQ: 2,
+    }),
   },
 ];
 
@@ -1342,11 +1368,17 @@ function LeavesConfigureFields({
   const [trustLabeled, setTrustLabeled] = useState(false);
   const [preTrustLabels, setPreTrustLabels] = useState<Record<string, string> | null>(null);
   const secondaries = leafDrafts.slice(1);
-  const activeTabInfo = LEAF_SHAPE_TABS.find(t => t.id === activeTab);
   const hasImmediate = leafDrafts.some(l => l.enabled && l.unlockType === 'immediate');
   const hasUnsetAfter = leafDrafts.some(l => l.enabled && l.unlockType === 'after' && l.afterBlocks <= 0);
   const mainTabs = LEAF_SHAPE_TABS.filter(t => t.group === 'main');
   const moreTabs = LEAF_SHAPE_TABS.filter(t => t.group === 'more');
+  // 2026-08-24, operator: reading a story then hitting "Build it" should
+  // land you looking at what actually got built, not still scrolled up
+  // at the story list -- "make sure it takes you to the right place or
+  // at least the default top builder." Scrolled to on every Build it
+  // click, whether it fired immediately or after the "switch anyway"
+  // confirm below.
+  const buildAnchorRef = useRef<HTMLDivElement>(null);
 
   function applyTab(tab: LeafShapeTab) {
     setLeafDrafts(() => tab.build());
@@ -1355,6 +1387,22 @@ function LeavesConfigureFields({
     setPendingTab(null);
     setTrustLabeled(tab.id === 'revocable-living-trust');
     setPreTrustLabels(null);
+    requestAnimationFrame(() => buildAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  }
+
+  function requestApplyTab(tab: LeafShapeTab) {
+    if (dirty && activeTab !== tab.id) setPendingTab(tab.id);
+    else applyTab(tab);
+  }
+
+  // Checking a common-path box adds that exact template's leaf;
+  // unchecking removes whichever leaf currently has that template's
+  // fixed id. Renaming or re-tuning the leaf afterward doesn't affect
+  // this -- the checkbox tracks "did this template's leaf get added,"
+  // not "does a leaf still look like the template's original numbers."
+  function toggleCommonPath(tmpl: CommonPathTemplate, checked: boolean) {
+    setLeafDrafts(list => (checked ? [...list, tmpl.build()] : list.filter(l => l.id !== tmpl.id)));
+    setDirty(true);
   }
 
   function toggleTrustLabels(next: boolean) {
@@ -1379,41 +1427,26 @@ function LeavesConfigureFields({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <Card>
-        <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 10 }}>
-          Start from a shape, then tune it
+        <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+          Read a whole story, then build it
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <p style={{ fontSize: 12, color: colors.sub, marginTop: 0, marginBottom: 14, lineHeight: 1.5 }}>
+          Each one below replaces everything you have with its own complete set of paths. Rather
+          combine pieces yourself instead of taking a whole story? Skip down to "Common paths to add."
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {mainTabs.map(tab => (
-            <Button
-              key={tab.id}
-              size="sm"
-              variant={activeTab === tab.id ? 'primary' : 'ghost'}
-              onClick={() => (dirty && activeTab !== tab.id ? setPendingTab(tab.id) : applyTab(tab))}
-            >
-              {tab.title}
-            </Button>
+            <ShapeStoryCard key={tab.id} tab={tab} active={activeTab === tab.id} onBuild={() => requestApplyTab(tab)} />
           ))}
         </div>
-        <div style={{ fontSize: 12, color: colors.sub, marginTop: 14, marginBottom: 8 }}>
+        <div style={{ fontSize: 12, color: colors.sub, marginTop: 16, marginBottom: 10 }}>
           More: crafty or specialty paths
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {moreTabs.map(tab => (
-            <Button
-              key={tab.id}
-              size="sm"
-              variant={activeTab === tab.id ? 'primary' : 'ghost'}
-              onClick={() => (dirty && activeTab !== tab.id ? setPendingTab(tab.id) : applyTab(tab))}
-            >
-              {tab.title}
-            </Button>
+            <ShapeStoryCard key={tab.id} tab={tab} active={activeTab === tab.id} onBuild={() => requestApplyTab(tab)} />
           ))}
         </div>
-        {activeTabInfo && (
-          <p style={{ fontSize: 16, fontWeight: 450, color: colors.text, marginTop: 10, marginBottom: 0, lineHeight: 1.5 }}>
-            {activeTabInfo.why}
-          </p>
-        )}
         {pendingTab && (
           <div style={{ marginTop: 12, padding: 12, background: colors.inset, borderRadius: radii.md }}>
             <p style={{ fontSize: 12, color: colors.sub, marginTop: 0, marginBottom: 10 }}>
@@ -1427,6 +1460,40 @@ function LeavesConfigureFields({
             </div>
           </div>
         )}
+      </Card>
+
+      <Card>
+        <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+          Common paths to add
+        </div>
+        <p style={{ fontSize: 12, color: colors.sub, marginTop: 0, marginBottom: 12, lineHeight: 1.5 }}>
+          Check any that fit -- each one drops in a fully editable path below with a sensible
+          starting point. Change the keys, quorum, or timing on it once it's there, same as any
+          other path.
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {COMMON_PATH_TEMPLATES.map(tmpl => {
+            const on = leafDrafts.some(l => l.id === tmpl.id);
+            return (
+              <label key={tmpl.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={on}
+                  onChange={e => toggleCommonPath(tmpl, e.target.checked)}
+                  style={{ width: 18, height: 18, marginTop: 2, flexShrink: 0 }}
+                />
+                <span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: colors.text, display: 'block' }}>
+                    {tmpl.title}
+                  </span>
+                  <span style={{ fontSize: 12, color: colors.sub, lineHeight: 1.5, display: 'block', marginTop: 2 }}>
+                    {tmpl.why}
+                  </span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
       </Card>
 
       <Card>
@@ -1465,13 +1532,15 @@ function LeavesConfigureFields({
         </div>
       )}
 
-      <LeafCard
-        leaf={leafDrafts[0]}
-        step={1}
-        removable={false}
-        onChange={fn => updateLeaf(leafDrafts[0].id, fn)}
-        onRemove={() => {}}
-      />
+      <div ref={buildAnchorRef}>
+        <LeafCard
+          leaf={leafDrafts[0]}
+          step={1}
+          removable={false}
+          onChange={fn => updateLeaf(leafDrafts[0].id, fn)}
+          onRemove={() => {}}
+        />
+      </div>
 
       {secondaries.map((leaf, i) => (
         <LeafCard
@@ -1497,6 +1566,39 @@ function LeavesConfigureFields({
         style={{ alignSelf: 'flex-start' }}
       >
         + Add another path
+      </Button>
+    </div>
+  );
+}
+
+// One full story per card, always readable -- not a small button whose
+// text only shows up after it's already been picked. "Build it" applies
+// the tab exactly like tapping it always did (through requestApplyTab,
+// same dirty-confirm gate); this is a presentation change, not a new
+// mechanism.
+function ShapeStoryCard({
+  tab, active, onBuild,
+}: {
+  tab: LeafShapeTab;
+  active: boolean;
+  onBuild: () => void;
+}) {
+  return (
+    <div
+      style={{
+        padding: 14,
+        borderRadius: radii.md,
+        border: `1px solid ${active ? colors.gold : colors.border}`,
+        background: active ? colors.gold + '11' : colors.inset,
+      }}
+    >
+      <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 6 }}>
+        {tab.title}
+        {active && <span style={{ color: colors.gold, fontWeight: 450 }}> -- this is what you have</span>}
+      </div>
+      <p style={{ fontSize: 13, color: colors.sub, lineHeight: 1.6, margin: '0 0 12px' }}>{tab.why}</p>
+      <Button size="sm" variant={active ? 'ghost' : 'primary'} onClick={onBuild}>
+        {active ? 'Rebuild it' : 'Build it'}
       </Button>
     </div>
   );

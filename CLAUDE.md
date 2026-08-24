@@ -624,6 +624,91 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Custom leaf-list builder: shape tabs became full readable stories
+  with a "Build it" button, plus an always-visible checkbox menu of
+  common paths (2026-08-24).** Operator: "all of the leaves are visible
+  and not an add another leaf path but like check this box if you wanna
+  add to leave that way, everyone can see the builders almost there for
+  everybody all the way." Follow-up, confirming scope: only the custom
+  leaf-list builder (the named-field one stays untouched), full
+  configurability preserved regardless of how a path got added, and --
+  the one hard requirement -- "make sure that they are the correct
+  checkboxes and not pull up some weird pattern." Grounded against
+  `LEAF_SHAPE_TABS` before writing anything: three of the seven shape
+  tabs (`family-inheritance`, `passing-it-on`) turned out to be EXACTLY
+  primary-leaf-plus-one-or-two secondary paths with nothing unique to
+  that tab; the other five (`simple`, `deep-recovery`, `self-refreshing`,
+  `long-horizon-family-vault`, `revocable-living-trust`) each modify the
+  primary leaf itself or tell a genuinely single coherent story, so they
+  stayed as one-click builds rather than being force-fit into checkboxes.
+  New `COMMON_PATH_TEMPLATES` (3 entries: Recovery, Heirs/Inheritance,
+  Heirs-decaying-over-time) carries the EXACT numbers the two retired
+  tabs used (26,280 / 52,560 / 52,560+decay blocks) -- nothing invented,
+  every default traces to a real previously-shipped tab, directly
+  answering the "correct checkboxes" requirement. Each template gets a
+  fixed id (`tmpl_recovery` etc.) instead of the usual counter-based
+  one, which is what lets the checkbox's checked state track "is this
+  exact template's leaf currently on the canvas" cleanly -- renaming or
+  re-tuning the resulting path afterward doesn't affect the checkbox,
+  only removing it does. The five surviving shape tabs became
+  `ShapeStoryCard`s: full title + why-text + a "Build it" (or "Rebuild
+  it" once active) button, all visible at once instead of a compact
+  button row whose description only appeared after clicking. `applyTab`
+  now scrolls the primary leaf card into view after building -- "make
+  sure it takes you to the right place" -- via a ref on the primary
+  `LeafCard`, so hitting Build it lands you looking at what was actually
+  built, not still scrolled up at the story list. "+ Add another path"
+  stays for anything not covered by a story or a checkbox. All four
+  gates green, matching the documented 10/10 baseline exactly; live
+  browser verification hit a pre-existing, unrelated Vite dev-server
+  issue (tapit-attest's `opentimestamps` dependency fails Vite's dep-scan
+  in dev mode specifically -- the production build, already gated,
+  builds it cleanly) -- noted honestly rather than claimed as
+  browser-verified.
+
+- **Dashboard vault cards showed the same bogus "2/0 founders, 2/0
+  heirs" quorum summary for a leaf-list vault -- same bug class,
+  different file (2026-08-23).** Operator, screenshot of the live
+  dashboard: "Key counts off in pic again." The "Onchain descriptor
+  test" card (a real 2-leaf custom vault, "Grantor" quorum 1/1
+  immediate, "Successor" quorum 1/1 after ~19yr) showed "2/0 founders,
+  2/0 heirs, Recovery ~6mo" -- `founder_quorum`/`heir_quorum` (DB
+  default 2) with empty `founder_keys`/`heir_keys` arrays and
+  `recovery_after`'s bare default, the identical DB-default-driven
+  pattern already fixed in `VaultDetail.tsx`'s `computePhase`/
+  `rolePhaseHint`/`buildVaultLeaves`, `descriptor-backup.ts`'s
+  `vaultBackupText`, and `LegacyRecoverySetup.tsx`'s `rolesForVault` --
+  just never carried over to `Dashboard.tsx`'s own card summary, which
+  reads those same named-field columns unconditionally with no branch
+  for `vault.leaves`. Fixed with the same `Array.isArray(v.leaves) &&
+  v.leaves.length > 0` discriminator: the card now renders one span per
+  real leaf (`{label}: {quorum}/{keys.length}`, plus a compact
+  `blocksToLabel`'d timing hint for an `after`-type leaf), matching the
+  two-span pattern the file's own Bloc-vault branch already uses right
+  above it. Two smaller instances of the same root cause caught in the
+  same file while grounding this: `roleStatus`'s heir case computed
+  "Inheritance unlocks in ~6mo" from the same bogus `inheritance_after`
+  default for a leaf-list vault's heir-role member -- now falls back to
+  the honest "Successor on standby" text for that shape instead of a
+  countdown from a number that was never configured; and the dashboard
+  summary cards' "soonest inheritance" figure (aggregated across every
+  vault where the caller holds a heir role) now excludes leaf-list
+  vaults from that comparison entirely rather than letting a bogus
+  default win against a real named-field vault's real number.
+  Deliberately NOT touched in this pass: `PendingRow`'s signed/quorum
+  badge (`item.vault.founder_quorum`) for a pending proposal, which has
+  the same class of gap but needs more than a frontend branch to fix
+  correctly -- the `proposals-mine` endpoint's joined `vault` object
+  only ever selects `founder_quorum`/`heir_quorum`, never `leaves`, and
+  `Proposal.path`'s type is a closed union of the five named-field/
+  Bloc/tranche path names with no room for an arbitrary leaf id, even
+  though a leaf-list vault's proposals actually use the leaf's own id
+  as `path` (per this vault shape's existing convention, see the
+  Tapit circle-membership entry below). Not visible in the reported
+  screenshot and not fixed blind -- noted here as a known follow-up
+  rather than silently patched without the backend grounding it needs.
+  All four gates green, matching the documented 10/10 baseline exactly.
+
 - **Legacy Recovery: the standalone offline tool had no way to sign with
   a software-held mnemonic, only a pasted-in signature -- and a design
   question this surfaced about whether software keys should offer

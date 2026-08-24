@@ -66,7 +66,11 @@ function roleStatus(v: Vault): string {
     case "founder":
       return "You can sign now";
     case "heir":
-      return v.inheritance_after
+      // inheritance_after sits at a bare DB default for a leaf-list vault
+      // (same gap the card summary above just closed) -- honest fallback
+      // text instead of a countdown computed from a number that was
+      // never actually configured for this vault shape.
+      return v.inheritance_after && !(Array.isArray(v.leaves) && v.leaves.length > 0)
         ? `Inheritance unlocks in ${blocksToLabel(v.inheritance_after)}`
         : "Successor on standby";
     case "protector":
@@ -355,6 +359,19 @@ export default function Dashboard() {
                   // Bloc draft: shape chosen but parent/kid keys not filled in
                   // yet, so bloc_policy is still {} -- nothing to summarize.
                   null
+                ) : Array.isArray(v.leaves) && v.leaves.length > 0 ? (
+                  // Generic leaf-list ("custom builder") vault -- founder_quorum/
+                  // heir_quorum/founder_keys/heir_keys/recovery_after all sit at
+                  // their bare DB defaults for this shape (same gap documented in
+                  // VaultDetail.tsx's computePhase), which is exactly what showed
+                  // up here as a bogus "2/0 founders, 2/0 heirs" summary -- the
+                  // real spending rules live in v.leaves instead.
+                  v.leaves.map(leaf => (
+                    <span key={leaf.id} style={{ fontSize: 11, color: colors.muted }}>
+                      {leaf.label}: {leaf.quorum}/{leaf.keys.length}
+                      {leaf.unlock.type === "after" ? ` (${blocksToLabel(leaf.unlock.blocks)})` : ""}
+                    </span>
+                  ))
                 ) : (
                   <>
                     <span style={{ fontSize: 11, color: colors.muted }}>
@@ -614,6 +631,10 @@ function RoleSummary({ vaults }: { vaults: Vault[] }) {
   }
   if (byRole.heir.length) {
     const soonest = byRole.heir
+      // Leaf-list vaults' inheritance_after is a bare DB default, not a
+      // real value -- exclude them rather than let a bogus number win
+      // the "soonest" comparison against a real named-field vault's.
+      .filter(v => !(Array.isArray(v.leaves) && v.leaves.length > 0))
       .map(v => v.inheritance_after)
       .filter(n => n > 0)
       .sort((a, b) => a - b)[0];
