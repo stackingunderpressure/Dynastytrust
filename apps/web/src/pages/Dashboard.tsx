@@ -597,8 +597,15 @@ function RoleSummary({ vaults }: { vaults: Vault[] }) {
   if (vaults.length === 0) return null;
 
   // Bucket vaults by caller's role (owners count as trustees).
+  // 2026-08-25 fix -- operator: "I don't need to know that there is 3
+  // vaults I can sign. I know I can see them." The Trustee card used to
+  // exist here, but its whole detail line was just a restated count of
+  // vaults already visible in the list right below this section, with no
+  // information the list itself didn't already show -- unlike the other
+  // role cards, which surface something you can't see at a glance
+  // (soonest inheritance, consent requirements). Dropped; the bucket
+  // itself is no longer needed since nothing reads byRole.trustee.
   const byRole: Record<string, Vault[]> = {
-    trustee: [],
     heir: [],
     protector: [],
     beneficiary: [],
@@ -606,8 +613,7 @@ function RoleSummary({ vaults }: { vaults: Vault[] }) {
   };
   for (const v of vaults) {
     const r = v.my_role;
-    if (r === "owner" || r === "founder") byRole.trustee.push(v);
-    else if (r === "heir") byRole.heir.push(v);
+    if (r === "heir") byRole.heir.push(v);
     else if (r === "protector") byRole.protector.push(v);
     else if (r === "beneficiary") byRole.beneficiary.push(v);
     else if (r === "viewer") byRole.viewer.push(v);
@@ -615,20 +621,6 @@ function RoleSummary({ vaults }: { vaults: Vault[] }) {
 
   const cards: { label: string; count: number; detail: string; color: string }[] = [];
 
-  if (byRole.trustee.length) {
-    // Trustees can always spend on Path 1 -- no timelock countdown
-    // here; the PendingFeed component below shows the signing
-    // queue.
-    cards.push({
-      label: "Trustee",
-      count: byRole.trustee.length,
-      detail:
-        byRole.trustee.length === 1
-          ? "1 vault · you can sign now"
-          : `${byRole.trustee.length} vaults · you can sign now`,
-      color: colors.gold,
-    });
-  }
   if (byRole.heir.length) {
     const soonest = byRole.heir
       // Leaf-list vaults' inheritance_after is a bare DB default, not a

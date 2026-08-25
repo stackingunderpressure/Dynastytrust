@@ -624,6 +624,32 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Dashboard: "Waiting for your signature" kept showing proposals the
+  caller had already signed, and the "Trustee" portfolio card was
+  pure noise (2026-08-25).** Operator: "The messages section gets stale.
+  Even if you've already signed a proposal it is annoying. And I don't
+  need to know that there is 3 vaults I can sign. I know I can see
+  them." Two separate fixes, both in the same cross-vault summary area.
+  (1) `proposals-mine.js` (powers `PendingFeed`'s "Waiting for your
+  signature" list) returned every non-terminal proposal on every vault
+  the caller belongs to, with no check at all for whether the CALLER
+  specifically still needed to act -- so a proposal stayed in the list
+  until every co-signer caught up, even after the caller's own part was
+  done. `signer_sessions.member_id` is always server-derived from
+  `(vault_id, user_id)` at signing time (`signer-sessions.js`), never
+  client-supplied, so it's a reliable "did I already sign this" check:
+  the endpoint now looks up the caller's own `member_id` per vault and
+  filters out any proposal where a `signer_sessions` row for that
+  member is already `signed`. (2) `Dashboard.tsx`'s `RoleSummary`
+  "Trustee" card (`"N vaults you can sign now"`) restated a count
+  already visible in the vault list directly below it, with no
+  information the list didn't already show -- unlike the Successor/
+  Beneficiary cards next to it, which surface something NOT visible at
+  a glance (soonest inheritance, consent requirements). Dropped the
+  card and the now-unused `trustee` bucket; Successor/Protector/
+  Beneficiary/Observer cards are unchanged. All four gates green,
+  matching the documented baseline exactly.
+
 - **Full builder-pipeline audit: resuming a saved leaf-list draft
   reconstructed the WRONG vault shape, plus two smaller correctness gaps
   (2026-08-25).** Operator: "Let's go through all scenarios of the
