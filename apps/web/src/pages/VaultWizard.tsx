@@ -9,6 +9,7 @@ import {
   type SelectedKey,
 } from '../lib/descriptor-keys';
 import { api, type Vault, type VaultProposal, type BlocPolicy, type TrustDoc } from '../lib/api';
+import { isLeafListVault } from '../lib/vault-spending-paths';
 import { downloadVault } from '../lib/descriptor-backup';
 import { keyNetworkMatches } from '../lib/network';
 import { blocksToHuman, TIMELOCK_PRESETS } from '../lib/blocks';
@@ -120,11 +121,65 @@ function leafUnlockOf(l: LeafDraft): LeafUnlock {
   return { type: 'older', blocks: Math.min(l.olderBlocks, MAX_RELATIVE_BLOCKS) };
 }
 
+// Shared by ConfigureStep (gates "Continue -- add keys next") and
+// LeavesConfigureFields (shows the matching warning text) -- 2026-08-25
+// fix: these two checks used to live only inside LeavesConfigureFields as
+// plain warning banners with nothing stopping the operator from clicking
+// Continue anyway. Configure is the ONLY step that can edit a leaf's
+// timing at all -- Keys and Compile have no way back to it (see the
+// resume-draft effect's own comment on why), so an invalid shape that
+// slipped past this step was a dead end: the real error would only
+// surface after keys were picked, at the Rust compiler, with "Back to
+// keys" as the only recovery option -- which can't fix a timing problem
+// Keys never had controls for in the first place.
+function leafShapeIssues(leafDrafts: LeafDraft[]): { hasImmediate: boolean; hasUnsetAfter: boolean } {
+  const enabled = leafDrafts.filter(l => l.enabled);
+  return {
+    hasImmediate: enabled.some(l => l.unlockType === 'immediate'),
+    hasUnsetAfter: enabled.some(l => l.unlockType === 'after' && l.afterBlocks <= 0),
+  };
+}
+
 function leafDraftToSpec(l: LeafDraft, keys: string[]): LeafSpec {
   return {
     id: l.id, label: l.label, keys, quorum: l.quorum, unlock: leafUnlockOf(l),
     decay: l.decayEnabled ? { step_blocks: l.decayStepBlocks, floor_quorum: l.decayFloorQ } : null,
   };
+}
+
+// Inverse of leafDraftToSpec, for resuming a "Save and finish later"
+// leaves-shape draft (2026-08-25 fix -- this branch never existed at all;
+// see the resume-draft effect below). A draft's `unlock.blocks` on an
+// After leaf is still the raw relative offset the operator entered --
+// compile-leaves.js only converts it to an absolute height at actual
+// compile time, when the row also flips to status "compiled" (a vault
+// this wizard never resumes into). `enabled` has no wire equivalent: a
+// disabled secondary leaf is simply never included in what gets saved
+// (see confirmConfigure/runCompile's `enabled = leafDrafts.filter(...)`),
+// so every leaf that comes back from the server was on when it was saved.
+// `plannedKeys` is UI-only too -- same "quorum as an honest floor"
+// fallback the standard/bloc resume branches already use for their own
+// planned counts, since a draft's `keys` array is empty at this stage
+// (key SELECTIONS, unlike the shape itself, are never persisted mid-flow
+// -- see this effect's own header comment).
+function leafDraftFromSpec(spec: LeafSpec): LeafDraft {
+  const base = {
+    id: spec.id,
+    label: spec.label,
+    plannedKeys: Math.max(spec.keys.length, spec.quorum, 1),
+    quorum: spec.quorum,
+    decayEnabled: spec.decay != null,
+    decayStepBlocks: spec.decay?.step_blocks ?? 26_280,
+    decayFloorQ: spec.decay?.floor_quorum ?? 1,
+    enabled: true,
+  };
+  if (spec.unlock.type === 'after') {
+    return { ...base, unlockType: 'after', afterBlocks: spec.unlock.blocks, olderBlocks: 26_280 };
+  }
+  if (spec.unlock.type === 'older') {
+    return { ...base, unlockType: 'older', afterBlocks: 0, olderBlocks: spec.unlock.blocks };
+  }
+  return { ...base, unlockType: 'immediate', afterBlocks: 0, olderBlocks: 26_280 };
 }
 
 // One named starting point per shape tab -- tapping a tab REPLACES the
@@ -158,10 +213,18 @@ const LEAF_SHAPE_TABS: LeafShapeTab[] = [
     id: 'revocable-living-trust',
     title: 'Revocable living trust',
     why: 'The most common estate-planning trust used in US courts, mapped onto this vault. The Grantor(s) can spend at any time -- no waiting, and "revocable" means they can change or unwind the whole arrangement whenever they want by simply building a new vault. If the Grantor(s) go quiet for a stretch, a Successor Trustee path opens as an incapacity backstop -- but going quiet on-chain is only ever a stand-in for a real incapacity determination (a doctor\'s letter, whatever process the actual trust document names), not the same thing. Treat it as a safety net, and hand off deliberately -- rotating the vault to the Successor Trustee\'s own keys -- the moment a real determination is made, rather than waiting out the on-chain clock. A third path lets the Successor Trustee distribute to the Beneficiaries after a much longer wait with no activity at all -- again a backstop for "everyone with day-to-day keys is provably gone," not a substitute for administering the trust properly once a death certificate exists. Turn on "Use trust wording" below to also relabel any paths you hand-build with these same terms.',
+    // Plain-language labels here on purpose, not the trust terms the `why`
+    // text above describes -- applyTab (below) runs these straight through
+    // applyTrustLabels() the same way the manual checkbox does, so turning
+    // "Use trust wording" off after building this preset has real, generic
+    // labels to restore instead of silently doing nothing (2026-08-25 fix:
+    // the old version hardcoded the trust strings directly here AND set
+    // trustLabeled=true without ever snapshotting preTrustLabels, so
+    // unchecking the box left the trust wording in place with no way back).
     build: () => [
-      { ...defaultPrimaryLeaf(), label: 'Grantor(s)' },
-      { ...defaultSecondaryLeaf('Successor Trustee (incapacity backstop)'), unlockType: 'older', olderBlocks: MAX_RELATIVE_BLOCKS },
-      { ...defaultSecondaryLeaf('Successor Trustee distributes to Beneficiaries'), unlockType: 'after', afterBlocks: 157_680 },
+      defaultPrimaryLeaf(),
+      { ...defaultSecondaryLeaf('Backstop if left untouched'), unlockType: 'older', olderBlocks: MAX_RELATIVE_BLOCKS },
+      { ...defaultSecondaryLeaf('Long-term backstop'), unlockType: 'after', afterBlocks: 157_680 },
     ],
   },
 ];
@@ -181,7 +244,7 @@ function applyTrustLabels(leaves: LeafDraft[]): LeafDraft[] {
 
   const labelFor = new Map<string, string>();
   immediate.forEach((l, i) => labelFor.set(l.id, immediate.length > 1 ? `Grantor(s), path ${i + 1}` : 'Grantor(s)'));
-  older.forEach((l, i) => labelFor.set(l.id, older.length > 1 ? `Successor Trustee (if quiet for a while), path ${i + 1}` : 'Successor Trustee (if quiet for a while)'));
+  older.forEach((l, i) => labelFor.set(l.id, older.length > 1 ? `Successor Trustee (incapacity backstop), path ${i + 1}` : 'Successor Trustee (incapacity backstop)'));
   after.forEach((l, i) => {
     const isLast = i === after.length - 1;
     labelFor.set(l.id, isLast
@@ -420,7 +483,24 @@ export default function VaultWizard() {
         setDraftVault(v);
         setName(v.name);
         setNetwork(v.network);
-        if (v.bloc_policy) {
+        if (isLeafListVault(v)) {
+          // 2026-08-25 fix: this branch never existed. Every leaves-shape
+          // draft resumed via "Continue setup" fell into the `else`
+          // (shape: 'standard') branch below, reconstructing a bogus
+          // StandardConfig from this vault's zeroed/defaulted named-field
+          // columns (founder_quorum's bare DB default, empty founder_keys,
+          // etc -- the exact "leaf-list vault reads named-field columns
+          // unguarded" bug class fixed everywhere else this session, just
+          // not yet in the wizard's own resume path). The Keys step would
+          // then render the wrong slots entirely (Signing/Heir keys instead
+          // of this vault's real per-path slots), and runCompile's
+          // shape==='standard' branch would call the STANDARD compile
+          // endpoint on a vault whose real policy lives in `leaves` --
+          // silently compiling a completely different vault than the one
+          // the operator actually configured.
+          setShape('leaves');
+          setLeafDrafts((v.leaves ?? []).map(leafDraftFromSpec));
+        } else if (v.bloc_policy) {
           const bp = v.bloc_policy;
           setShape('bloc');
           setBlocConfig({
@@ -912,6 +992,16 @@ function ConfigureStep({
     requestAnimationFrame(() => buildAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   }
 
+  // 2026-08-25 fix: Configure is the only step that can edit a path's
+  // timing -- Keys and Compile have no way back to it (see the
+  // resume-draft effect's own comment). Continue used to be gated only on
+  // `busy`, so an invalid shape (no immediate path, or an unset "after a
+  // fixed date") could leave this step, get keys picked for it, and only
+  // then fail at the real Rust compile step with no way to fix the actual
+  // problem. Blocking here instead of just warning closes that dead end.
+  const leafIssues = shape === 'leaves' ? leafShapeIssues(leafDrafts) : { hasImmediate: true, hasUnsetAfter: false };
+  const leafShapeBlocked = shape === 'leaves' && (!leafIssues.hasImmediate || leafIssues.hasUnsetAfter);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {shape === 'leaves' && <VaultLayersAccordion onJumpToBuilder={scrollToBuilder} />}
@@ -977,7 +1067,13 @@ function ConfigureStep({
       )}
 
       {err && <p style={{ color: colors.red, fontSize: 13 }}>{err}</p>}
-      <Button disabled={busy} onClick={onConfirm} style={{ alignSelf: 'flex-start' }}>
+      {leafShapeBlocked && (
+        <p style={{ color: colors.red, fontSize: 13 }}>
+          Fix the path warning above before continuing -- Keys and Compile have no way back to
+          change a path's timing.
+        </p>
+      )}
+      <Button disabled={busy || leafShapeBlocked} onClick={onConfirm} style={{ alignSelf: 'flex-start' }}>
         {busy ? 'Saving...' : 'Continue -- add keys next'}
       </Button>
     </div>
@@ -1304,16 +1400,29 @@ function LeavesConfigureFields({
   const [trustLabeled, setTrustLabeled] = useState(false);
   const [preTrustLabels, setPreTrustLabels] = useState<Record<string, string> | null>(null);
   const secondaries = leafDrafts.slice(1);
-  const hasImmediate = leafDrafts.some(l => l.enabled && l.unlockType === 'immediate');
-  const hasUnsetAfter = leafDrafts.some(l => l.enabled && l.unlockType === 'after' && l.afterBlocks <= 0);
+  const { hasImmediate, hasUnsetAfter } = leafShapeIssues(leafDrafts);
 
   function applyTab(tab: LeafShapeTab) {
-    setLeafDrafts(() => tab.build());
+    const built = tab.build();
+    const isTrust = tab.id === 'revocable-living-trust';
+    if (isTrust) {
+      // Same snapshot-then-relabel the manual checkbox uses (below), so
+      // this preset and the checkbox stay one mechanism instead of two
+      // independently-hardcoded label sets that can drift apart -- and so
+      // unchecking "Use trust wording" after building this preset has real
+      // plain-language labels to restore instead of nothing to fall back to.
+      const snapshot: Record<string, string> = {};
+      built.forEach(l => { snapshot[l.id] = l.label; });
+      setPreTrustLabels(snapshot);
+      setLeafDrafts(() => applyTrustLabels(built));
+    } else {
+      setLeafDrafts(() => built);
+      setPreTrustLabels(null);
+    }
     setActiveTab(tab.id);
     setDirty(false);
     setPendingTab(null);
-    setTrustLabeled(tab.id === 'revocable-living-trust');
-    setPreTrustLabels(null);
+    setTrustLabeled(isTrust);
     requestAnimationFrame(() => buildAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   }
 
