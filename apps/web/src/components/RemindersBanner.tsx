@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, type Vault } from '../lib/api';
+import { isLeafListVault } from '../lib/vault-spending-paths';
 import { tipHeight } from '../lib/chain';
 import { colors } from '../theme';
 import { getRemindersEnabled } from '../pages/Reminders';
@@ -204,7 +205,9 @@ function buildBanner(vaults: Vault[], tips: Record<string, number>): BannerRemin
     const tip = tips[v.network];
     if (!tip) continue;
 
-    if ((v.my_role === 'owner' || v.my_role === 'founder') && v.recovery_after > 0) {
+    // 2026-08-25 fix: same leaf-list guard as Reminders.tsx -- these two
+    // named-field fields are bare DB defaults for a leaf-list vault.
+    if (!isLeafListVault(v) && (v.my_role === 'owner' || v.my_role === 'founder') && v.recovery_after > 0) {
       const blocks = v.recovery_after - tip;
       const d = Math.round(blocks * 10 / 60 / 24);
       if (blocks > 0 && d <= 90) {
@@ -217,7 +220,7 @@ function buildBanner(vaults: Vault[], tips: Record<string, number>): BannerRemin
       }
     }
 
-    if (v.my_role === 'heir' && v.inheritance_after > 0) {
+    if (!isLeafListVault(v) && v.my_role === 'heir' && v.inheritance_after > 0) {
       const blocks = v.inheritance_after - tip;
       if (blocks <= 0) {
         out.push({

@@ -16,6 +16,7 @@
 import { requireUser, json } from './_auth.js';
 import { getSupabaseAdmin } from './_supabase.js';
 import { checkNumberBounds } from './_numeric.js';
+import { isLeafListVault, getSpendingPaths, findSpendingPath } from './_vault-shape.js';
 
 const COMPILER_URL    = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -58,12 +59,31 @@ export async function handler(event) {
   const supabase = getSupabaseAdmin();
   const { data: vault, error: vaultErr } = await supabase
     .from('vaults')
-    .select('id, name, network, founder_quorum, heir_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, address')
+    .select('id, name, network, founder_quorum, heir_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, address, leaves')
     .eq('id', vault_id)
     .eq('user_id', u.userId)
     .single();
 
   if (vaultErr || !vault) return json(404, { error: 'Vault not found' });
+
+  // 2026-08-25 fix: the Rust compiler's /governance/status and
+  // /governance/audit HTTP endpoints only ever accept the named-field
+  // policy shape (founder_quorum/heir_quorum/recovery_after/
+  // inheritance_after) -- they have no leaves field to forward a
+  // leaf-list vault's real structure through, so a leaf-list vault was
+  // always evaluated as if founder_quorum=2/founder_key_count=0/
+  // recovery_after=26000/inheritance_after=52560 (the bare DB
+  // defaults), reporting "All paths unlocked. Founders and heirs can
+  // spend" for a vault that may still be fully timelocked. Generalizing
+  // those two Rust endpoints to accept leaves the way /psbt-binary
+  // already does is real compiler work requiring a Fly.io redeploy,
+  // outside what this pass can ship -- so a leaf-list vault is routed
+  // to the JS fallback engine unconditionally instead of forwarding
+  // named-field-shaped nonsense to a compiler endpoint that can't
+  // represent its real policy. jsGovernanceStatusLeafList/
+  // jsGovernanceAuditLeafList below are genuinely correct for this
+  // shape, not a degraded fallback.
+  const leafList = isLeafListVault(vault);
 
   const policyBase = {
     founder_quorum:    vault.founder_quorum,
@@ -90,6 +110,10 @@ export async function handler(event) {
     if (utxo_age_blocks !== 0) {
       const err = checkNumberBounds(utxo_age_blocks, { field: 'utxo_age_blocks', min: 0, max: Number.MAX_SAFE_INTEGER, integer: true });
       if (err) return json(400, { error: err });
+    }
+
+    if (leafList) {
+      return json(200, { ok: true, vault_name: vault.name, result: jsGovernanceStatusLeafList(vault, utxo_age_blocks) });
     }
 
     // If compiler is not available, run a simplified JS version
@@ -125,6 +149,14 @@ export async function handler(event) {
     if (total_vault_sats !== 0) {
       const err = checkNumberBounds(total_vault_sats, { field: 'total_vault_sats', min: 0, max: Number.MAX_SAFE_INTEGER, integer: true });
       if (err) return json(400, { error: err });
+    }
+
+    if (leafList) {
+      return json(200, {
+        ok: true,
+        vault_name: vault.name,
+        result: jsGovernanceAuditLeafList(vault, { path, amount_sats, destination, utxo_age_blocks, total_vault_sats, signers }),
+      });
     }
 
     if (!COMPILER_URL) {
@@ -276,6 +308,118 @@ function jsGovernanceAudit(policy, { path, amount_sats, destination, utxo_age_bl
       instruction: timelock_ok && quorum_ok
         ? 'All signatures collected. Ready to broadcast.'
         : !timelock_ok ? violations[0]?.detail
+        : `Waiting for signer #${(pending[0] ?? 0) + 1} to sign.`,
+    },
+  };
+}
+
+// ── Leaf-list governance (2026-08-25) ────────────────────────────────────────
+// Genuinely correct for a leaf-list vault, not a degraded fallback -- the
+// Rust compiler endpoints have no leaves field to forward this vault's real
+// structure through (see the leafList branch in handler() above), so this
+// runs unconditionally for that shape rather than ever building a
+// named-field policyBase from bogus DB defaults.
+
+export function jsGovernanceStatusLeafList(vault, utxo_age_blocks) {
+  const paths = getSpendingPaths(vault).map((p) => {
+    // 'older' is relative to the SPENT UTXO's own confirmation height,
+    // not the chain tip alone -- not evaluable from utxo_age_blocks here,
+    // same honest limitation VaultDetail.tsx's buildVaultLeaves already
+    // documents for this leaf type.
+    const unlocked = p.unlockType === 'immediate' ? true
+      : p.unlockType === 'after' ? utxo_age_blocks >= p.unlockBlocks
+      : false;
+    return {
+      id: p.id, label: p.label, quorum: p.quorum, key_count: p.keyCount,
+      unlock_type: p.unlockType, unlock_blocks: p.unlockBlocks, unlocked,
+      blocks_until_unlock: p.unlockType === 'after' && !unlocked ? p.unlockBlocks - utxo_age_blocks : null,
+    };
+  });
+  const active_paths = paths.filter((p) => p.unlocked).map((p) => p.id);
+  const allUnlocked = paths.length > 0 && paths.every((p) => p.unlocked);
+
+  return {
+    current_block: utxo_age_blocks,
+    active_paths,
+    paths,
+    phase: allUnlocked ? 'all_unlocked' : 'active',
+    status_label: allUnlocked
+      ? 'All paths unlocked.'
+      : `${active_paths.length} of ${paths.length} paths currently spendable.`,
+  };
+}
+
+export function jsGovernanceAuditLeafList(vault, { path, amount_sats, destination, utxo_age_blocks, total_vault_sats, signers }) {
+  const resolved = findSpendingPath(vault, path);
+  const violations = [];
+  const warnings = [];
+  const notes = [];
+
+  if (!resolved) {
+    violations.push({ rule: { id: 'GOV-000', description: 'Unknown spending path', severity: 'hard' },
+      detail: `"${path}" is not a real leaf on this vault.` });
+  }
+
+  const timelock_ok = !resolved ? false
+    : resolved.unlockType === 'immediate' ? true
+    : resolved.unlockType === 'after' ? utxo_age_blocks >= resolved.unlockBlocks
+    : false; // 'older' -- see jsGovernanceStatusLeafList's note above.
+
+  const required = resolved ? resolved.quorum : 0;
+  const signed = signers.filter((s) => s.signed).length;
+  const quorum_ok = !!resolved && signed >= required;
+
+  if (resolved && !timelock_ok) {
+    if (resolved.unlockType === 'older') {
+      notes.push({ rule: { id: 'GOV-001', description: 'Relative timelock not evaluable here', severity: 'info' },
+        detail: "This path unlocks relative to the spent UTXO's own confirmation height, which this audit does not have -- check on-chain directly." });
+    } else {
+      const needed = resolved.unlockBlocks - utxo_age_blocks;
+      violations.push({ rule: { id: 'GOV-001', description: 'Timelock not satisfied', severity: 'hard' },
+        detail: `Current chain height ${utxo_age_blocks} is below the unlock height. Needs ${needed} more blocks (~${Math.round(needed / BLOCKS_PER_DAY)} days).` });
+    }
+  }
+  if (resolved && !quorum_ok) {
+    violations.push({ rule: { id: 'GOV-002', description: 'Quorum not satisfied', severity: 'hard' },
+      detail: `Need ${required} signatures, have ${signed}.` });
+  }
+  if (amount_sats < 546) {
+    violations.push({ rule: { id: 'GOV-003', description: 'Output below dust limit', severity: 'hard' },
+      detail: `${amount_sats} sats is below the 546 sat dust limit.` });
+  }
+  if (amount_sats > total_vault_sats) {
+    violations.push({ rule: { id: 'GOV-004', description: 'Insufficient vault balance', severity: 'hard' },
+      detail: `Spend ${amount_sats} sats exceeds vault balance ${total_vault_sats} sats.` });
+  }
+  if (total_vault_sats > 0 && amount_sats > total_vault_sats / 2) {
+    warnings.push({ rule: { id: 'GOV-005', description: 'Large spend (>50% of vault)', severity: 'soft' },
+      detail: `Spending ${((amount_sats / total_vault_sats) * 100).toFixed(1)}% of vault balance.` });
+  }
+
+  const missing = Math.max(0, required - signed);
+  const pending = signers.filter((s) => !s.signed).map((s) => s.index);
+  const allowed = !!resolved && timelock_ok && quorum_ok;
+
+  return {
+    audit: { violations, warnings, notes, approved: violations.length === 0 },
+    evaluation: {
+      allowed,
+      path,
+      required_signers: required,
+      provided_signers: signed,
+      missing_signers: missing,
+      timelock_satisfied: timelock_ok,
+      quorum_satisfied: quorum_ok,
+      pending_signer_indices: pending,
+      reason: violations.length > 0 ? violations[0].detail : (allowed ? `Valid. ${signed} of ${required} signatures collected.` : 'Not ready.'),
+    },
+    next_action: {
+      ready_to_broadcast: allowed,
+      signer_index: pending[0] ?? null,
+      instruction: allowed
+        ? 'All signatures collected. Ready to broadcast.'
+        : !resolved ? `Unknown path "${path}".`
+        : !timelock_ok ? (violations[0]?.detail ?? 'Timelock not satisfied.')
         : `Waiting for signer #${(pending[0] ?? 0) + 1} to sign.`,
     },
   };

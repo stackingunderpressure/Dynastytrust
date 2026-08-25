@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { broadcastTxUrl, type Network } from '../config';
 import type { ProofOfLife, DuressFlag } from 'tapit-attest';
+import type { SpendingPathSummary } from './vault-spending-paths';
 
 // In production, /api/* is redirected to /.netlify/functions/* by netlify.toml.
 // In local dev with `netlify dev`, the same redirect applies automatically.
@@ -399,6 +400,12 @@ export interface Proposal {
   id: string;
   created_at: string;
   vault_id: string;
+  // A leaf-list vault's proposals use the leaf's own id as path (never
+  // one of the fixed named-field/Bloc/tranche ids below), matching
+  // psbt-binary.js's leafListSignerCounts convention -- `(string & {})`
+  // keeps the known literals' autocomplete while accepting that too,
+  // same widening pattern circle-membership-delivery.ts's
+  // VaultMembershipRole already uses for the same reason.
   path:
     | 'founders_now'
     | 'recovery'
@@ -410,7 +417,8 @@ export interface Proposal {
     | 'coparent_kids'
     | 'parent_solo'
     | 'kids_decay'
-    | 'tranche_claim';
+    | 'tranche_claim'
+    | (string & {});
   destination: string;
   amount_sats: number;
   fee_sats: number;
@@ -1353,6 +1361,8 @@ export const api = {
             consent_count: number;
             planned_founder_count: number | null;
             planned_heir_count: number | null;
+            is_leaf_list: boolean;
+            paths: SpendingPathSummary[];
           } | null;
           members?: {
             id: string;

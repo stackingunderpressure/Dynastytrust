@@ -18,6 +18,7 @@ import {
 } from "../lib/psbt-signer";
 import { getTapitCircleMembers } from "../lib/tapit-circle-members";
 import { pubkeyFromXpub } from "../lib/xpub";
+import { findSpendingPath, isLeafListVault } from "../lib/vault-spending-paths";
 import { LoadingScreen } from "../components/LoadingScreen";
 import { useToast } from "../components/toast";
 import { useConfirm, usePrompt } from "../components/dialog";
@@ -74,6 +75,17 @@ function resolvePathSigners(
       default:
         return { keyArray: bp.parent_pubkeys, required: bp.parents_together_quorum };
     }
+  }
+  // A leaf-list vault's proposals use the leaf's own id as path (never
+  // one of the named-field ids the switch below handles) -- without
+  // this, every leaf-list proposal fell into the "founders_now" default
+  // case, reading the vault's empty founder_keys/bogus founder_quorum
+  // default and showing "0 of 2 required" regardless of the real leaf's
+  // actual keys and quorum, which meant no local key was ever
+  // recognized as a signer for it (2026-08-25 fix).
+  if (isLeafListVault(vault)) {
+    const leaf = findSpendingPath(vault, path);
+    return leaf ? { keyArray: leaf.keys, required: leaf.quorum } : { keyArray: [], required: 0 };
   }
   switch (path) {
     case "recovery":

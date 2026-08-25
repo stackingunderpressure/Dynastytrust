@@ -25,6 +25,7 @@
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 import { askClaude } from "./_anthropic.js";
+import { isLeafListVault, getSpendingPaths } from "./_vault-shape.js";
 import { wordlist as BIP39_WORDLIST } from "@scure/bip39/wordlists/english";
 
 // Same canonical list apps/web/src/lib/keystore.ts already imports from
@@ -97,7 +98,7 @@ const HISTORY_LIMIT = 20;
 // need any key material; this list deliberately omits founder_keys,
 // heir_keys, consent_keys, and every other secret.
 const VAULT_SAFE_FIELDS =
-  "name, network, address, descriptor, miniscript_policy, founder_quorum, heir_quorum, recovery_after, inheritance_after";
+  "name, network, address, descriptor, miniscript_policy, founder_quorum, heir_quorum, recovery_after, inheritance_after, leaves";
 
 // // -- Plain-text digest of the vault templates.
 // Kept in sync by hand with apps/web/src/lib/vault-templates.ts's
@@ -522,13 +523,29 @@ export async function handler(event) {
         .maybeSingle();
       if (vault) {
         // Only public/safe descriptive fields reach the model.
+        // 2026-08-25 fix: founder_quorum/heir_quorum/recovery_after/
+        // inheritance_after sit at bare DB defaults for a leaf-list vault
+        // (its real paths live in `leaves`) -- interpolating them
+        // unconditionally would teach the model, and then the user, wrong
+        // numbers for that vault shape. Currently dormant (no live route
+        // passes vault_id to this function yet) but fixed for correctness
+        // ahead of that surface being wired up.
+        const pathLines = isLeafListVault(vault)
+          ? getSpendingPaths(vault)
+              .map(p => `${p.label}: ${p.quorum} of ${p.keyCount}, ${
+                p.unlockType === 'immediate' ? 'no waiting' :
+                p.unlockType === 'after' ? `unlocks at block ${p.unlockBlocks}` :
+                `relative timelock of ${p.unlockBlocks} blocks`
+              }`)
+              .join('\n')
+          : `founder quorum: ${vault.founder_quorum}
+heir quorum: ${vault.heir_quorum}
+recovery unlock height: ${vault.recovery_after}
+inheritance unlock height: ${vault.inheritance_after}`;
         vaultContext = `\nThe person is looking at an existing vault. Safe public details only (NO keys):
 name: ${vault.name}
 network: ${vault.network}
-founder quorum: ${vault.founder_quorum}
-heir quorum: ${vault.heir_quorum}
-recovery unlock height: ${vault.recovery_after}
-inheritance unlock height: ${vault.inheritance_after}
+${pathLines}
 You may reference this to teach, but you still propose changes, never apply them.`;
       }
     }

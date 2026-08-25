@@ -38,6 +38,7 @@ import { normalizePsbt } from "../lib/psbt-format";
 import { downloadVault, downloadDistributionWalletBackup } from "../lib/descriptor-backup";
 import { DescriptorQr } from "../components/DescriptorQr";
 import { pubkeyFromXpub, fingerprintFromXpub } from "../lib/xpub";
+import { isLeafListVault } from "../lib/vault-spending-paths";
 import { buildPsbtKeyOrigins } from "../lib/descriptor-keys";
 import { sha256 } from "@noble/hashes/sha256";
 import { blocDecayLadder } from "../lib/blocks";
@@ -398,7 +399,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
           {APP_NAME}
         </span>
         <div style={{ display: "flex", gap: 6 }}>
-          {vault.status === "compiled" && (
+          {vault.status === "compiled" && !isLeafListVault(vault) && vault.bloc_policy == null && (
             <Button
               variant="ghost"
               size="sm"

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, type Vault } from '../lib/api';
+import { isLeafListVault } from '../lib/vault-spending-paths';
 import { tipHeight } from '../lib/chain';
 import { colors } from '../theme';
 import { Button } from '../components/ui';
@@ -235,7 +236,11 @@ function buildReminders(vaults: Vault[], tips: Record<string, number>): Reminder
     const tip = tips[v.network];
     if (!tip) continue;
 
-    if ((v.my_role === 'owner' || v.my_role === 'founder') && v.recovery_after > 0) {
+    // 2026-08-25 fix: recovery_after/inheritance_after sit at bare DB
+    // defaults for a leaf-list vault (its real timelocks live per-leaf in
+    // v.leaves), so these two named-field countdowns were firing false
+    // "unlocks in ~X days" / "is now spendable" reminders for that shape.
+    if (!isLeafListVault(v) && (v.my_role === 'owner' || v.my_role === 'founder') && v.recovery_after > 0) {
       const blocks = v.recovery_after - tip;
       if (blocks > 0) {
         const d = blocksToDays(blocks);
@@ -255,7 +260,7 @@ function buildReminders(vaults: Vault[], tips: Record<string, number>): Reminder
       }
     }
 
-    if (v.my_role === 'heir' && v.inheritance_after > 0) {
+    if (!isLeafListVault(v) && v.my_role === 'heir' && v.inheritance_after > 0) {
       const blocks = v.inheritance_after - tip;
       if (blocks > 0) {
         const d = blocksToDays(blocks);

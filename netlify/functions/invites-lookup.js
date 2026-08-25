@@ -12,6 +12,7 @@
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { json } from "./_auth.js";
+import { isLeafListVault, getSpendingPaths } from "./_vault-shape.js";
 
 export async function handler(event) {
   if (event.httpMethod !== "GET") return json(405, { error: "Method not allowed" });
@@ -49,7 +50,7 @@ export async function handler(event) {
       "id, name, network, status, address_type, founder_quorum, heir_quorum, " +
       "recovery_quorum, recovery_after, inheritance_after, " +
       "consent_quorum, trust_doc, founder_keys, heir_keys, " +
-      "consent_keys, planned_founder_count, planned_heir_count",
+      "consent_keys, planned_founder_count, planned_heir_count, leaves",
     )
     .eq("id", invite.vault_id)
     .maybeSingle();
@@ -92,6 +93,15 @@ export async function handler(event) {
       consent_count: (vault.consent_keys || []).length,
       planned_founder_count: vault.planned_founder_count,
       planned_heir_count: vault.planned_heir_count,
+      // 2026-08-25 fix: a leaf-list vault never populates founder_quorum/
+      // heir_quorum/recovery_after/inheritance_after -- the fields above
+      // were showing bogus DB-default numbers ("Trustees: 2 of ?") for
+      // this vault shape. `paths` carries the vault's real spending
+      // paths (leaf label/quorum/key count/timing) so InviteClaim.tsx
+      // can render this shape honestly instead of the fixed
+      // Trustees/Successors/Recovery/Inheritance facts.
+      is_leaf_list: isLeafListVault(vault),
+      paths: getSpendingPaths(vault),
     } : null,
     members: members ?? [],
   });
