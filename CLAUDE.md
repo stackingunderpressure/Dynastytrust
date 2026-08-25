@@ -624,6 +624,25 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **PSBT QR now sizes itself to nearly the full viewport width instead of
+  a fixed 280px (2026-08-25).** Operator, after finally getting SeedSigner
+  to scan a transaction QR: "just need to blow up the QR code instead of
+  me having to do it manually every time... as soon as it blows up a
+  little bit and takes more of the screen up it scans just fine but don't
+  make the user do that." Root cause matched this file's own SPEED
+  section on `PsbtQrDisplay.tsx`: SeedSigner's low-res Pi camera needs
+  large, easy-to-resolve modules, and the operator's manual pinch-zoom
+  was doing exactly what a bigger default render would do automatically.
+  New `computeResponsiveSize()` sizes the QR to `min(viewport width - 48,
+  480)`, floored at the old static 280 so a narrow window never renders
+  smaller than before; a `renderSize` state recomputes it on mount and on
+  window resize/orientation change, replacing every direct use of the old
+  fixed `size` prop (the QR generation width, the placeholder box, the
+  `<img>` dimensions, and the fingerprint-box/helper-text max-width) --
+  an explicit `size` prop still overrides it when passed, but no call
+  site currently passes one. All four gates green, matching the
+  documented 10/10 baseline exactly.
+
 - **Send tab: a leaf-list vault could not actually be spent from at all --
   "Compiler error: Unknown path: founders_now" (2026-08-25).** Operator,
   pasting the live Send tab: the "Spend path" dropdown offered "Founders
