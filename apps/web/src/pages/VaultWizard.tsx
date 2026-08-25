@@ -644,8 +644,8 @@ export default function VaultWizard() {
         const enabled = leafDrafts.filter(l => l.enabled);
         const leavesWithKeys = enabled.map(l => leafDraftToSpec(l, (leafKeys[l.id] ?? []).map(toPubkeyHex)));
         await api.vaults.updateLeaves(draftVault.id, leavesWithKeys);
-        const res = await api.vaults.compileLeaves(draftVault.id);
         const allLeafKeys = enabled.flatMap(l => leafKeys[l.id] ?? []);
+        const res = await api.vaults.compileLeaves(draftVault.id, buildPsbtKeyOrigins(allLeafKeys));
         const origins = buildKeyOrigins(allLeafKeys);
         const upgraded = res.vault.descriptor ? upgradeDescriptor(res.vault.descriptor, origins) : res.vault.descriptor;
         setCompiledVault({ ...res.vault, descriptor: upgraded });

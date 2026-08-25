@@ -111,7 +111,8 @@ type Speed = keyof typeof SPEED_PRESETS;
 interface PsbtQrDisplayProps {
   /** PSBT as hex string. */
   psbtHex: string;
-  /** Pixels per side for the QR. */
+  /** Pixels per side for the QR. Omit to size responsively -- see
+   *  computeResponsiveSize below; an explicit value disables that. */
   size?: number;
   /** Max bytes per fragment (smaller = more readable but more frames). */
   fragmentLength?: number;
@@ -126,9 +127,25 @@ function hexToBytes(hex: string): Uint8Array {
   return out;
 }
 
+// Fills nearly the whole viewport width so the QR is already as large as
+// it can be without the operator having to pinch-zoom their own browser
+// first. Operator, after finding that manually zooming in was the only
+// way SeedSigner's camera would lock onto the code reliably: "blow up the
+// QR code instead of me having to do it manually every time... don't
+// make the user do that." Larger modules on screen are exactly why that
+// worked -- see this file's SPEED section above on the low-res Pi camera
+// -- so making that the DEFAULT, not a manual step, fixes the same root
+// cause the zoom workaround was compensating for. Capped so it doesn't
+// look absurd on a tablet or desktop; floored at the old static default
+// so a narrow window never renders smaller than before.
+function computeResponsiveSize(): number {
+  if (typeof window === 'undefined') return 280;
+  return Math.max(280, Math.min(window.innerWidth - 48, 480));
+}
+
 export function PsbtQrDisplay({
   psbtHex,
-  size = 280,
+  size,
   fragmentLength = 200,
 }: PsbtQrDisplayProps) {
   const encoderRef = useRef<UREncoder | null>(null);
@@ -139,6 +156,17 @@ export function PsbtQrDisplay({
   const [speed, setSpeed] = useState<Speed>('normal');
   const intervalMs = SPEED_PRESETS[speed];
   const fingerprint = useMemo(() => psbtTransactionFingerprint(psbtHex), [psbtHex]);
+
+  // Responsive by default (see computeResponsiveSize); an explicit `size`
+  // prop always wins and disables the resize listener.
+  const [renderSize, setRenderSize] = useState(() => size ?? computeResponsiveSize());
+  useEffect(() => {
+    if (size != null) { setRenderSize(size); return; }
+    const onResize = () => setRenderSize(computeResponsiveSize());
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [size]);
 
   // Build the UR encoder once per PSBT.
   useEffect(() => {
@@ -168,7 +196,7 @@ export function PsbtQrDisplay({
       const part = encoderRef.current.nextPart();
       try {
         const url = await QRCode.toDataURL(part.toUpperCase(), {
-          width: size,
+          width: renderSize,
           margin: 3,
           // 'L' (not 'M') keeps module density down -- fewer, larger
           // modules are easier for a low-resolution camera (SeedSigner's
@@ -195,14 +223,14 @@ export function PsbtQrDisplay({
       cancelled = true;
       window.clearInterval(iv);
     };
-  }, [paused, intervalMs, size, totalFragments]);
+  }, [paused, intervalMs, renderSize, totalFragments]);
 
   if (!src) {
     return (
       <div
         style={{
-          width: size,
-          height: size,
+          width: renderSize,
+          height: renderSize,
           background: colors.input,
           borderRadius: 8,
         }}
@@ -223,8 +251,8 @@ export function PsbtQrDisplay({
         <img
           src={src}
           alt="PSBT QR"
-          width={size}
-          height={size}
+          width={renderSize}
+          height={renderSize}
           style={{ display: 'block' }}
         />
       </div>
@@ -243,7 +271,7 @@ export function PsbtQrDisplay({
             padding: '8px 14px',
             border: `1px solid ${colors.gold}`,
             borderRadius: radii.md,
-            maxWidth: size,
+            maxWidth: renderSize,
           }}
         >
           <span style={{ fontSize: 10, color: colors.muted, fontFamily: fonts.sans, textTransform: 'uppercase', letterSpacing: 0.5 }}>
@@ -282,7 +310,7 @@ export function PsbtQrDisplay({
           </button>
         ))}
       </div>
-      <p style={{ fontSize: 11, color: colors.muted, textAlign: 'center', maxWidth: size }}>
+      <p style={{ fontSize: 11, color: colors.muted, textAlign: 'center', maxWidth: renderSize }}>
         Scanner missing frames? Try "Slow." Also turn your screen brightness all the way up --
         a dim screen is the most common reason an air-gapped signer can't lock onto the code.
       </p>

@@ -55,6 +55,22 @@ export async function handler(event) {
   const vaultId = body.vault_id;
   if (!vaultId) return json(400, { error: "Missing: vault_id" });
 
+  // BIP32 origins for hardware-wallet signing (2026-08-25 fix). Every
+  // other compile path (vaults-compile.js's standard shape, the Bloc
+  // shape via bloc_policy.key_origins) writes this at compile time --
+  // the leaf-list shape never did, so no leaf-list vault ever got
+  // BIP371 tap_key_origins attached to its PSBT inputs, and a real
+  // hardware wallet correctly refused to sign it ("Signing with this
+  // seed did not add a valid signature" -- it has no derivation info to
+  // match its key against). The caller (VaultWizard.tsx) already builds
+  // this via buildPsbtKeyOrigins, the same helper the Bloc shape uses;
+  // filtered defensively here the same way vaults-compile.js filters
+  // its own keyOrigins, since this is trusted input from the caller's
+  // own browser, not re-derived server-side.
+  const keyOrigins = Array.isArray(body.key_origins)
+    ? body.key_origins.filter((o) => o && typeof o.pubkey === "string" && typeof o.fingerprint === "string" && typeof o.derivation_path === "string")
+    : [];
+
   if (!COMPILER_URL) {
     return json(503, { error: "Compiler service not configured.", hint: "Set COMPILER_URL in Netlify env vars." });
   }
@@ -198,9 +214,10 @@ export async function handler(event) {
       // Tapit circle-membership invites for this vault shape (see
       // circle-membership-delivery.ts / VaultMembershipSetup.tsx).
       leaf_scripts: compiled.leaf_scripts ?? null,
+      key_origins: keyOrigins,
     })
     .eq("id", vaultId)
-    .select("id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, status, leaves, leaf_scripts, consent_keys, consent_quorum")
+    .select("id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, status, leaves, leaf_scripts, consent_keys, consent_quorum, key_origins")
     .single();
   if (saveErr) return json(500, { error: saveErr.message });
 

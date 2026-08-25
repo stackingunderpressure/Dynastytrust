@@ -624,6 +624,71 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **A leaf-list vault could never actually be signed by a real hardware
+  wallet -- "Signing with this seed did not add a valid signature"
+  (2026-08-25).** Direct follow-up to the same day's Send-tab fix, which
+  was the first thing that ever let a leaf-list vault's PSBT reach a real
+  signer at all -- this is the bug that was sitting underneath it,
+  invisible until then. Operator, photo of the SeedSigner error screen
+  after finally getting a transaction QR to scan: exactly that message.
+  Root cause, traced end to end: `compile-leaves.js` -- the leaf-list
+  shape's own compile endpoint -- never wrote `vault.key_origins`
+  (fingerprint + derivation_path per signer) at all, unlike
+  `vaults-compile.js` (standard shape) and `compile-bloc`'s
+  `bloc_policy.key_origins` (Bloc shape), both of which have written it
+  since the 2026-08-12 hardware-wallet fix. With `key_origins` empty,
+  `psbt-binary.js`'s `attach_tap_key_origins` call is a no-op (it
+  early-returns on an empty list), so no PSBT input for a leaf-list vault
+  ever carried BIP371 `PSBT_IN_TAP_BIP32_DERIVATION` -- and a real
+  hardware wallet, unlike the browser or a Tapit signer (both match a key
+  by searching the leaf script bytes directly, no BIP371 needed),
+  strictly requires that field to know which key to sign with. embit's
+  `sign_with()` found nothing it could sign, so it added zero signatures
+  -- exactly SeedSigner's error text. `VaultWizard.tsx`'s `runCompile`
+  already HAD everything needed to build this (the same `leafKeys`
+  `SelectedKey[]` per leaf that `buildPsbtKeyOrigins` already turns into
+  the right shape for the Bloc shape's compile call) -- it just never
+  called that function or sent the result anywhere for the leaves
+  branch. Fixed going forward: `api.vaults.compileLeaves` now takes an
+  optional `key_origins` argument, `runCompile`'s leaves branch computes
+  it via `buildPsbtKeyOrigins(allLeafKeys)` (reordered so `allLeafKeys`
+  exists before the call that needs it) and passes it through, and
+  `compile-leaves.js` accepts and persists it exactly like
+  `vaults-compile.js` does. Fixed for vaults already compiled before this
+  landed: a new owner-only, leaf-list-only `key_origins` repair PATCH on
+  `vaults.js` (structured special-case block, same pattern as the
+  existing `key_label` one, strictly validated -- 66-hex pubkey, 8-hex
+  fingerprint, a real BIP32 path shape -- and explicitly rejected for any
+  non-leaf-list vault so it can never clobber a shape that already gets
+  this right at compile time), plus a silent self-heal effect in
+  `VaultDetail.tsx` that runs once per vault load: if the vault is
+  leaf-list and `key_origins` is empty, match each leaf's stored pubkeys
+  against this browser's own local keys and repair it server-side, same
+  spirit as `keystore.ts`'s `repairPubkeys()` -- no action needed from
+  the owner, it just starts working the next time the vault page loads.
+  `VAULT_FIELDS` gained `key_origins` so the client can actually see
+  whether it's already populated before deciding to repair. All four
+  gates green, matching the documented 10/10 baseline exactly.
+
+- **PSBT QR now sizes itself to nearly the full viewport width instead of
+  a fixed 280px (2026-08-25).** Operator, after finally getting SeedSigner
+  to scan a transaction QR: "just need to blow up the QR code instead of
+  me having to do it manually every time... as soon as it blows up a
+  little bit and takes more of the screen up it scans just fine but don't
+  make the user do that." Root cause matched this file's own SPEED
+  section on `PsbtQrDisplay.tsx`: SeedSigner's low-res Pi camera needs
+  large, easy-to-resolve modules, and the operator's manual pinch-zoom
+  was doing exactly what a bigger default render would do automatically.
+  New `computeResponsiveSize()` sizes the QR to `min(viewport width - 48,
+  480)`, floored at the old static 280 so a narrow window never renders
+  smaller than before; a `renderSize` state recomputes it on mount and on
+  window resize/orientation change, replacing every direct use of the old
+  fixed `size` prop (the QR generation width, the placeholder box, the
+  `<img>` dimensions, and the fingerprint-box/helper-text max-width) --
+  an explicit `size` prop still overrides it when passed, but no call
+  site currently passes one. All four gates green, matching the
+  documented 10/10 baseline exactly.
+
 - **Send tab: a leaf-list vault could not actually be spent from at all --
   "Compiler error: Unknown path: founders_now" (2026-08-25).** Operator,
   pasting the live Send tab: the "Spend path" dropdown offered "Founders
