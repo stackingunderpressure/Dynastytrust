@@ -624,6 +624,28 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **History tab had no way to cancel a pending proposal without drilling
+  into "Sign / manage" first (2026-08-25).** Direct follow-up to the
+  leaf-list quorum fix above landing live: operator, screenshot of the
+  History tab with three PENDING proposals against the same spent UTXO
+  left over from testing the broadcast fix, all now permanently
+  unbroadcastable double-spends: "Cant delete these." `ProposalCard`
+  (`VaultDetail.tsx`'s History tab) only ever rendered "Sign / manage"
+  and "Copy PSBT" -- cancelling a proposal was only reachable via the
+  full `ProposalDetail.tsx` page's own "Cancel proposal" button at the
+  bottom, several taps away from the list showing the clutter. Added a
+  "Cancel" button directly to the History card, gated the same way
+  `ProposalDetail.tsx`'s own button is (`!terminal && !isTrancheClaim`
+  -- tranche claims are signed/broadcast entirely inside
+  `TrancheClaimModal`, never from this page) and calling the identical
+  `api.proposals.update(id, { status: "cancelled" })` PATCH. `onRefresh`
+  (passed in from the parent's `load` as `HistoryTab`'s prop but
+  previously discarded with `void onRefresh` since nothing on the card
+  needed it yet) is now threaded through `ProposalCard` and called after
+  a successful cancel so the row updates in place without a manual
+  reload. All four gates green, matching the documented baseline exactly
+  (typecheck's known pre-existing errors merely shifted line numbers).
+
 - **The "leaf-list vault reads named-field columns unguarded" bug class,
   audited end to end and closed with a canonical shared reader instead of
   another one-off patch (2026-08-25).** Operator, after the fourth

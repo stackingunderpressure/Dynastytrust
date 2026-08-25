@@ -2636,7 +2636,6 @@ function HistoryTab({
   proposals: Proposal[];
   onRefresh: () => void;
 }) {
-  void onRefresh;
   if (proposals.length === 0) {
     return <p style={{ color: colors.muted, fontSize: 14 }}>No transactions yet.</p>;
   }
@@ -2654,7 +2653,7 @@ function HistoryTab({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {sorted.map(p => (
-        <ProposalCard key={p.id} proposal={p} vault={vault} />
+        <ProposalCard key={p.id} proposal={p} vault={vault} onRefresh={onRefresh} />
       ))}
     </div>
   );
@@ -2666,11 +2665,42 @@ function signerRoleLabel(role: string): string {
   return role.charAt(0).toUpperCase() + role.slice(1);
 }
 
-function ProposalCard({ proposal: p, vault }: { proposal: Proposal; vault: Vault }) {
+function ProposalCard({
+  proposal: p,
+  vault,
+  onRefresh,
+}: {
+  proposal: Proposal;
+  vault: Vault;
+  onRefresh: () => void;
+}) {
   const navigate = useNavigate();
+  const toast = useToast();
+  const askConfirm = useConfirm();
   const [expanded, setExpanded] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const sc = statusColor(p.status);
   const terminal = p.status === "broadcast" || p.status === "cancelled";
+  const isTrancheClaim = p.path === "tranche_claim";
+
+  async function cancelProposal() {
+    if (!(await askConfirm({
+      title: "Cancel proposal",
+      message: "Cancel this proposal? Collected signatures will be discarded.",
+      confirmLabel: "Cancel proposal",
+      danger: true,
+    }))) return;
+    setCancelling(true);
+    try {
+      await api.proposals.update(p.id, { status: "cancelled" });
+      toast.success("Proposal cancelled");
+      onRefresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to cancel");
+    } finally {
+      setCancelling(false);
+    }
+  }
 
   // Confirmation count for a broadcast spend -- fetched straight from
   // mempool.space (txConfirmations), same as the countdown timers
@@ -2861,6 +2891,17 @@ function ProposalCard({ proposal: p, vault }: { proposal: Proposal; vault: Vault
                 onClick={() => navigator.clipboard.writeText(p.psbt_hex!)}
               >
                 Copy PSBT
+              </Button>
+            )}
+            {!terminal && !isTrancheClaim && (
+              <Button
+                variant="danger"
+                size="sm"
+                disabled={cancelling}
+                style={{ fontSize: 12 }}
+                onClick={() => void cancelProposal()}
+              >
+                {cancelling ? "Cancelling..." : "Cancel"}
               </Button>
             )}
           </div>
