@@ -1292,6 +1292,11 @@ function LeavesConfigureFields({
   buildAnchorRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const [pendingTab, setPendingTab] = useState<string | null>(null);
+  // 2026-08-25, operator, on the shape-story card and the trust-wording
+  // checkbox sitting as two separate, permanently-open blocks: "two of the
+  // same button... consolidated to one expanding box... way too much real
+  // estate." Both fold into one CollapsibleRow, collapsed by default.
+  const [storyOpen, setStoryOpen] = useState(false);
   // Reversible: switching this on snapshots the labels as they stood so
   // switching back off restores them. A path added after turning it on
   // has no snapshot entry and just keeps whatever label it was given --
@@ -1338,11 +1343,13 @@ function LeavesConfigureFields({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <Card>
-        <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
-          Read the story, then build it
-        </div>
-        <p style={{ fontSize: 12, color: colors.sub, marginTop: 0, marginBottom: 14, lineHeight: 1.5 }}>
+      <CollapsibleRow
+        label="Shape preset & trust wording"
+        tagline="Read the story, build a preset, or turn on formal trust wording"
+        open={storyOpen}
+        onToggle={() => setStoryOpen(o => !o)}
+      >
+        <p style={{ fontSize: 12, color: colors.sub, margin: 0, lineHeight: 1.5 }}>
           Building it replaces everything you have with its own complete set of paths. Every path
           it builds stays fully editable below, and you can add more with "+ Add another path."
         </p>
@@ -1352,7 +1359,7 @@ function LeavesConfigureFields({
           ))}
         </div>
         {pendingTab && (
-          <div style={{ marginTop: 12, padding: 12, background: colors.inset, borderRadius: radii.md }}>
+          <div style={{ padding: 12, background: colors.inset, borderRadius: radii.md }}>
             <p style={{ fontSize: 12, color: colors.sub, marginTop: 0, marginBottom: 10 }}>
               Switching starting points replaces what you've set up below. Switch anyway?
             </p>
@@ -1364,9 +1371,6 @@ function LeavesConfigureFields({
             </div>
           </div>
         )}
-      </Card>
-
-      <Card>
         <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
           <input
             type="checkbox"
@@ -1387,7 +1391,7 @@ function LeavesConfigureFields({
             </span>
           </span>
         </label>
-      </Card>
+      </CollapsibleRow>
 
       {hasImmediate ? null : (
         <div style={{ padding: 12, background: colors.red + '11', border: `1px solid ${colors.red}33`, borderRadius: radii.md, color: colors.red, fontSize: 12, lineHeight: 1.5 }}>
@@ -1441,6 +1445,51 @@ function LeavesConfigureFields({
   );
 }
 
+// Shared collapsed-header / expand-on-tap presentation, factored out so
+// every collapsible section on this page (the layer-education rows below,
+// and TrustStorySection further down) looks and behaves identically --
+// 2026-08-25, operator, on the shape-story card and the trust-wording
+// checkbox sitting as two permanently-open blocks: "need to be the same
+// expandable as the other ones." `number` is optional -- the layer rows
+// are a numbered sequence, TrustStorySection is a single standalone box.
+function CollapsibleRow({
+  number, label, tagline, open, onToggle, children,
+}: {
+  number?: number;
+  label: string;
+  tagline: string;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div style={{ border: `1px solid ${open ? colors.gold : colors.border}`, borderRadius: radii.md, overflow: 'hidden' }}>
+      <button
+        type="button"
+        onClick={onToggle}
+        style={{
+          width: '100%', textAlign: 'left', cursor: 'pointer', border: 'none',
+          background: open ? colors.gold + '11' : colors.inset,
+          padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10,
+        }}
+      >
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: colors.gold, letterSpacing: '0.06em' }}>
+            {number != null ? `${number}. ` : ''}{label.toUpperCase()}
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 450, color: colors.text, marginTop: 2 }}>{tagline}</div>
+        </div>
+        <span style={{ color: colors.muted, fontSize: 13, flexShrink: 0 }}>{open ? '^' : 'v'}</span>
+      </button>
+      {open && (
+        <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // 2026-08-25 front-door consolidation: the four VAULT_LAYERS concept pages
 // (StartVault.tsx's card grid -> VaultLayerGuide.tsx's own page per layer,
 // both now deleted) collapse into one collapsible section right here, on
@@ -1488,69 +1537,48 @@ function VaultLayerAccordionRow({
   onBuild: () => void;
 }) {
   return (
-    <div style={{ border: `1px solid ${open ? colors.gold : colors.border}`, borderRadius: radii.md, overflow: 'hidden' }}>
-      <button
-        type="button"
-        onClick={onToggle}
-        style={{
-          width: '100%', textAlign: 'left', cursor: 'pointer', border: 'none',
-          background: open ? colors.gold + '11' : colors.inset,
-          padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10,
-        }}
-      >
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: colors.gold, letterSpacing: '0.06em' }}>
-            {index + 1}. {layer.title.toUpperCase()}
-          </div>
-          <div style={{ fontSize: 13, fontWeight: 450, color: colors.text, marginTop: 2 }}>{layer.tagline}</div>
+    <CollapsibleRow number={index + 1} label={layer.title} tagline={layer.tagline} open={open} onToggle={onToggle}>
+      <p style={{ fontSize: 15, fontWeight: 450, color: colors.text, lineHeight: 1.6, margin: 0 }}>
+        {layer.explanation}
+      </p>
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 8 }}>The trade-offs</div>
+        <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {layer.tradeoffs.map((t, i) => (
+            <li key={i} style={{ fontSize: 14, fontWeight: 450, color: colors.text, lineHeight: 1.5 }}>{t}</li>
+          ))}
+        </ul>
+      </div>
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 8 }}>
+          {layer.illustration.title}
         </div>
-        <span style={{ color: colors.muted, fontSize: 13, flexShrink: 0 }}>{open ? '^' : 'v'}</span>
-      </button>
-      {open && (
-        <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <p style={{ fontSize: 15, fontWeight: 450, color: colors.text, lineHeight: 1.6, margin: 0 }}>
-            {layer.explanation}
-          </p>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 8 }}>The trade-offs</div>
-            <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {layer.tradeoffs.map((t, i) => (
-                <li key={i} style={{ fontSize: 14, fontWeight: 450, color: colors.text, lineHeight: 1.5 }}>{t}</li>
-              ))}
-            </ul>
-          </div>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 8 }}>
-              {layer.illustration.title}
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {layer.illustration.lines.map((line, i) => (
-                <div
-                  key={i}
-                  style={{
-                    fontSize: 14, fontWeight: 450, color: colors.text, lineHeight: 1.5,
-                    padding: '8px 10px', background: colors.input, borderRadius: radii.sm,
-                  }}
-                >
-                  {line}
-                </div>
-              ))}
-            </div>
-          </div>
-          {layer.howToCraft && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {layer.illustration.lines.map((line, i) => (
             <div
+              key={i}
               style={{
-                background: colors.input, border: `1px solid ${colors.gold}33`, borderRadius: radii.sm,
-                padding: '10px 12px', fontSize: 13, color: colors.sub, lineHeight: 1.5,
+                fontSize: 14, fontWeight: 450, color: colors.text, lineHeight: 1.5,
+                padding: '8px 10px', background: colors.input, borderRadius: radii.sm,
               }}
             >
-              {layer.howToCraft}
+              {line}
             </div>
-          )}
-          <Button size="sm" onClick={onBuild} style={{ alignSelf: 'flex-start' }}>Build it</Button>
+          ))}
+        </div>
+      </div>
+      {layer.howToCraft && (
+        <div
+          style={{
+            background: colors.input, border: `1px solid ${colors.gold}33`, borderRadius: radii.sm,
+            padding: '10px 12px', fontSize: 13, color: colors.sub, lineHeight: 1.5,
+          }}
+        >
+          {layer.howToCraft}
         </div>
       )}
-    </div>
+      <Button size="sm" onClick={onBuild} style={{ alignSelf: 'flex-start' }}>Build it</Button>
+    </CollapsibleRow>
   );
 }
 

@@ -624,6 +624,36 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Shape-story card and the trust-wording checkbox consolidated into one
+  collapsible box, matching the layer-education accordion above it
+  (2026-08-25).** Direct follow-up to the front-door consolidation just
+  above: operator: "the bill of irrevocable trust and they used trust
+  language are two of the same button. They need to be consolidated to
+  one expanding box... need to be the same expandable as the other ones."
+  Read precisely: `LeavesConfigureFields` had the "Read the story, then
+  build it" `Card` (the Revocable living trust `ShapeStoryCard`) and the
+  "Use trust wording" `Card` sitting right below `VaultLayersAccordion`
+  as two permanently-open blocks, while the accordion rows directly above
+  them collapse -- an inconsistent, real-estate-heavy pair the operator
+  correctly clocked as redundant (turning trust wording on is already the
+  natural next step after building the trust preset). Extracted the
+  accordion rows' header/border/expand presentation into a new shared
+  `CollapsibleRow` primitive (`VaultLayerAccordionRow` now composes it
+  instead of duplicating the markup), then rebuilt the two Cards as one
+  `CollapsibleRow` -- "Shape preset & trust wording," collapsed by
+  default -- whose expanded body holds the shape-story card(s), the
+  pending-switch confirmation, and the trust-wording checkbox together,
+  unchanged in behavior otherwise (same `requestApplyTab`/
+  `toggleTrustLabels` handlers, same content). Named-field and Bloc
+  vaults untouched; this only reaches `LeavesConfigureFields`. All four
+  gates green, matching the documented baseline exactly (typecheck's
+  known pre-existing errors merely shifted line numbers, zero new lint
+  warnings). Browser verification hit the same two pre-existing sandbox
+  limitations as the entry above (dev-mode opentimestamps dep-scan
+  failure, no `VITE_SUPABASE_URL` in this environment) -- not
+  browser-verified, noted honestly; `npm run build`'s clean exit is the
+  strongest signal available here.
+
 - **Front-door education pages collapsed into a collapsible accordion atop
   the builder -- /start and /start/:layerId retired (2026-08-25).**
   Operator: "I want to redo the look of the builder and I want to take all
