@@ -624,6 +624,73 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Full builder-pipeline audit: resuming a saved leaf-list draft
+  reconstructed the WRONG vault shape, plus two smaller correctness gaps
+  (2026-08-25).** Operator: "Let's go through all scenarios of the
+  builder and make sure we hand everything where it's supposed to go
+  labeled properly and compiles correct." Traced the entire path by hand
+  -- `LeafDraft` (Configure step UI state) -> `leafDraftToSpec` ->
+  `LeafSpec` (client type) -> `createLeavesDraft`/`updateLeaves`
+  (persisted) -> `compile-leaves.js` (validates, converts relative-to-
+  absolute, forwards) -> Rust `/compile-leaves` (`Leaf`/`LeafPolicy`,
+  wire-format confirmed byte-for-byte via `#[serde(tag = "type",
+  rename_all = "snake_case")]` matching `leafUnlockOf`'s output exactly)
+  -- and confirmed it all wires and labels correctly EXCEPT three real
+  gaps. (1) **The most severe**: `VaultWizard.tsx`'s resume-draft effect
+  (fired by VaultDetail's "Continue setup" button) had no branch at all
+  for a leaf-list draft -- every one fell into the `else` (`shape:
+  'standard'`) branch, reconstructing a bogus `StandardConfig` from the
+  vault's zeroed/defaulted named-field columns (the same "leaf-list vault
+  reads named-field columns unguarded" bug class closed everywhere else
+  this session, just never reached the wizard's own resume path). The
+  Keys step would then render the WRONG slots (fixed Signing/Heir keys
+  instead of the vault's real per-path slots), and `runCompile`'s
+  `shape==='standard'` branch would call the STANDARD compile endpoint --
+  silently compiling a completely different vault than the one actually
+  configured, the most serious kind of "hands it where it's not supposed
+  to go" this audit could have found. Fixed with a new `isLeafListVault`-
+  gated branch plus a new `leafDraftFromSpec` (the exact inverse of the
+  existing `leafDraftToSpec`), reconstructing `leafDrafts` from
+  `v.leaves` the same honest way the standard/bloc branches already
+  reconstruct their own "planned count" UI-only fields (quorum as a
+  floor, since a draft's `keys` array is empty at this stage -- key
+  selections were never persisted mid-flow for any shape, only the
+  policy shape itself). (2) The "Continue -- add keys next" button was
+  gated only on `busy`, never on the two validity warnings
+  (`hasImmediate`/`hasUnsetAfter`) sitting right above it -- and Configure
+  is the ONLY step that can edit a path's timing at all; Keys and Compile
+  have no way back to it. An invalid shape could leave Configure, get
+  real keys picked for it, and only then fail at the actual Rust compile
+  step with "Back to keys" as the sole recovery option -- which has no
+  controls for the timing problem in the first place. Extracted the two
+  checks into a shared `leafShapeIssues()` (previously computed inline
+  only inside `LeavesConfigureFields`) and used it to disable Continue
+  and show a clear reason, closing the dead end before it can be created
+  rather than trying to add an escape hatch after the fact. (3) Building
+  the "Revocable living trust" preset hardcoded its three paths' labels
+  directly as trust terms AND set `trustLabeled = true` without ever
+  snapshotting `preTrustLabels` -- so unchecking "Use trust wording"
+  afterward hit the toggle's `else if (preTrustLabels)` branch, found it
+  `null`, and did nothing: the checkbox visually unchecked while the
+  labels silently stayed trust-worded, contradicting its own "restores
+  the labels you had before" copy. Fixed by making the preset build
+  PLAIN-language labels and routing it through the exact same snapshot-
+  then-`applyTrustLabels()` mechanism the manual checkbox already uses,
+  so the preset and the checkbox are one mechanism instead of two
+  independently-hardcoded label sets that could drift apart (already
+  slightly had: the preset's own "incapacity backstop" phrasing differed
+  from `applyTrustLabels`'s generic "if quiet for a while" for the same
+  leaf shape -- reconciled to the more descriptive "incapacity backstop"
+  everywhere, single source of truth now). Everything else traced --
+  disabled-secondary-leaf filtering (`enabled = leafDrafts.filter(...)`,
+  consistent across Configure/Keys/compile), per-leaf key-slot labeling
+  in `KeysStep`, `key_origins` wiring, decay-ladder wire format, numeric
+  bounds and timelock-floor validation in `compile-leaves.js` -- was
+  already correct, confirmed rather than re-fixed. All four gates green,
+  matching the documented baseline exactly (typecheck's known
+  pre-existing errors merely shifted line numbers, zero new lint
+  warnings).
+
 - **Shape-story card and the trust-wording checkbox consolidated into one
   collapsible box, matching the layer-education accordion above it
   (2026-08-25).** Direct follow-up to the front-door consolidation just
