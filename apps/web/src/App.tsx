@@ -5,8 +5,6 @@ import { markIntentionalSignOut } from './lib/session-intent';
 import { startNostrOutboxWorker } from './lib/nostrOutboxWorker';
 import KeyManager from './pages/KeyManager';
 import VaultWizard from './pages/VaultWizard';
-import StartVault from './pages/StartVault';
-import VaultLayerGuide from './pages/VaultLayerGuide';
 import Dashboard from './pages/Dashboard';
 import VaultDetail from './pages/VaultDetail';
 import LegacyRecoverySetup from './pages/LegacyRecoverySetup';
@@ -65,30 +63,18 @@ function AuthedApp() {
   return (
     <Routes>
       <Route path="/" element={<Navigate to="/start" replace />} />
-      <Route
-        path="/start"
-        element={
-          <Layout activeNavId={activeNavId} onSignOut={() => { markIntentionalSignOut(); void supabase.auth.signOut(); }}>
-            <PageHeader
-              title="How does a vault work?"
-              sub="Every vault is built from a few pieces you choose. Learn each one, then build the vault that's actually yours."
-            />
-            <StartVault />
-          </Layout>
-        }
-      />
-      <Route
-        path="/start/:layerId"
-        element={
-          <Layout activeNavId={activeNavId} onSignOut={() => { markIntentionalSignOut(); void supabase.auth.signOut(); }}>
-            <PageHeader
-              title="How does a vault work?"
-              sub="Every vault is built from a few pieces you choose. Learn each one, then build the vault that's actually yours."
-            />
-            <VaultLayerGuide />
-          </Layout>
-        }
-      />
+      {/* 2026-08-25: /start and /start/:layerId (StartVault.tsx,
+          VaultLayerGuide.tsx) used to be two more page-hops of education
+          before the builder -- operator: "wasted space on that whole
+          page... instead of being several different pages and different
+          clicks." The same VAULT_LAYERS content now lives as collapsible
+          headers directly atop the builder on /policy (VaultWizard.tsx's
+          ConfigureStep), so both routes just redirect there -- every
+          existing link (NAV_LINKS' "Start a vault", Dashboard's "Build
+          your first vault" CTAs, old bookmarks) keeps working unchanged.
+          See docs/ux-coherence-redesign.md section 7 item 7. */}
+      <Route path="/start" element={<Navigate to="/policy" replace />} />
+      <Route path="/start/:layerId" element={<Navigate to="/policy" replace />} />
       <Route
         path="/keys"
         element={
@@ -113,7 +99,7 @@ function AuthedApp() {
           <Layout activeNavId={activeNavId} onSignOut={() => { markIntentionalSignOut(); void supabase.auth.signOut(); }}>
             <PageHeader
               title="Build your vault"
-              sub="Pick a shape, add your keys now or later, and we handle compiling and funding along the way."
+              sub="Tap a header below to learn a piece, or skip straight to the builder. Add your keys now or later -- we handle compiling and funding along the way."
             />
             <VaultWizard />
           </Layout>

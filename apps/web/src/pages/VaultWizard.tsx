@@ -27,7 +27,10 @@ import {
   PasswordProtectFields, validatePasswordProtection, DEFAULT_PASSWORD_PROTECT_STATE,
   type PasswordProtectState,
 } from '../components/vault-builder';
-import { keyLossLine, leafFloorWarningText, keyReuseNotes, buildStandardLegs, type KeyReuseRole } from '../lib/vault-education';
+import {
+  keyLossLine, leafFloorWarningText, keyReuseNotes, buildStandardLegs, VAULT_LAYERS,
+  type KeyReuseRole, type VaultLayer,
+} from '../lib/vault-education';
 
 // The unified "start a vault" flow (docs/ux-coherence-redesign.md step 2).
 // Absorbs what used to be three separate destinations -- PolicyBuilder
@@ -899,8 +902,20 @@ function ConfigureStep({
   busy: boolean;
   err: string | null;
 }) {
+  // Shared scroll target between the education accordion's "Build it" and
+  // LeavesConfigureFields' own shape-story "Build it" -- both just want to
+  // land the reader looking at the primary path card, whether or not a
+  // preset actually got applied (a layer has no preset to apply, per
+  // vault-education.ts's VAULT_LAYERS comment -- it's pure orientation).
+  const buildAnchorRef = useRef<HTMLDivElement>(null);
+  function scrollToBuilder() {
+    requestAnimationFrame(() => buildAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {shape === 'leaves' && <VaultLayersAccordion onJumpToBuilder={scrollToBuilder} />}
+
       <Card>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <Field label="Vault name">
@@ -932,6 +947,7 @@ function ConfigureStep({
           leafDrafts={leafDrafts} setLeafDrafts={setLeafDrafts}
           activeTab={activeLeafTab} setActiveTab={setActiveLeafTab}
           dirty={leafDirty} setDirty={setLeafDirty}
+          buildAnchorRef={buildAnchorRef}
         />
       )}
 
@@ -1268,11 +1284,12 @@ function BlocConfigureFields({ config, setConfig }: { config: BlocConfig; setCon
 // current path list; a hand-edited list needs one confirming tap first so
 // a stray tab tap never silently discards work (leafDirty).
 function LeavesConfigureFields({
-  leafDrafts, setLeafDrafts, activeTab, setActiveTab, dirty, setDirty,
+  leafDrafts, setLeafDrafts, activeTab, setActiveTab, dirty, setDirty, buildAnchorRef,
 }: {
   leafDrafts: LeafDraft[]; setLeafDrafts: (fn: (l: LeafDraft[]) => LeafDraft[]) => void;
   activeTab: string | null; setActiveTab: (id: string | null) => void;
   dirty: boolean; setDirty: (b: boolean) => void;
+  buildAnchorRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const [pendingTab, setPendingTab] = useState<string | null>(null);
   // Reversible: switching this on snapshots the labels as they stood so
@@ -1284,13 +1301,6 @@ function LeavesConfigureFields({
   const secondaries = leafDrafts.slice(1);
   const hasImmediate = leafDrafts.some(l => l.enabled && l.unlockType === 'immediate');
   const hasUnsetAfter = leafDrafts.some(l => l.enabled && l.unlockType === 'after' && l.afterBlocks <= 0);
-  // 2026-08-24, operator: reading a story then hitting "Build it" should
-  // land you looking at what actually got built, not still scrolled up
-  // at the story list -- "make sure it takes you to the right place or
-  // at least the default top builder." Scrolled to on every Build it
-  // click, whether it fired immediately or after the "switch anyway"
-  // confirm below.
-  const buildAnchorRef = useRef<HTMLDivElement>(null);
 
   function applyTab(tab: LeafShapeTab) {
     setLeafDrafts(() => tab.build());
@@ -1427,6 +1437,119 @@ function LeavesConfigureFields({
       >
         + Add another path
       </Button>
+    </div>
+  );
+}
+
+// 2026-08-25 front-door consolidation: the four VAULT_LAYERS concept pages
+// (StartVault.tsx's card grid -> VaultLayerGuide.tsx's own page per layer,
+// both now deleted) collapse into one collapsible section right here, on
+// top of the builder they used to send you away from. Operator: "wasted
+// space on that whole page... instead of being several different pages and
+// different clicks." Single-open accordion (opening one closes any other)
+// keeps this compact when not in use; "Build it" has no preset to apply
+// (a layer teaches the mechanism, not a template -- see VAULT_LAYERS'
+// own header comment), so it just scrolls to the primary path card below,
+// same anchor the shape-story "Build it" already uses.
+function VaultLayersAccordion({ onJumpToBuilder }: { onJumpToBuilder: () => void }) {
+  const [openId, setOpenId] = useState<string | null>(null);
+  return (
+    <Card>
+      <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+        How does a vault work?
+      </div>
+      <p style={{ fontSize: 12, color: colors.sub, marginTop: 0, marginBottom: 14, lineHeight: 1.5 }}>
+        Every vault is built from a few pieces you choose. Tap any one to learn it, then build below --
+        nothing forces you through all four first.
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {VAULT_LAYERS.map((layer, i) => (
+          <VaultLayerAccordionRow
+            key={layer.id}
+            layer={layer}
+            index={i}
+            open={openId === layer.id}
+            onToggle={() => setOpenId(id => (id === layer.id ? null : layer.id))}
+            onBuild={() => { setOpenId(null); onJumpToBuilder(); }}
+          />
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+function VaultLayerAccordionRow({
+  layer, index, open, onToggle, onBuild,
+}: {
+  layer: VaultLayer;
+  index: number;
+  open: boolean;
+  onToggle: () => void;
+  onBuild: () => void;
+}) {
+  return (
+    <div style={{ border: `1px solid ${open ? colors.gold : colors.border}`, borderRadius: radii.md, overflow: 'hidden' }}>
+      <button
+        type="button"
+        onClick={onToggle}
+        style={{
+          width: '100%', textAlign: 'left', cursor: 'pointer', border: 'none',
+          background: open ? colors.gold + '11' : colors.inset,
+          padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10,
+        }}
+      >
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: colors.gold, letterSpacing: '0.06em' }}>
+            {index + 1}. {layer.title.toUpperCase()}
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 450, color: colors.text, marginTop: 2 }}>{layer.tagline}</div>
+        </div>
+        <span style={{ color: colors.muted, fontSize: 13, flexShrink: 0 }}>{open ? '^' : 'v'}</span>
+      </button>
+      {open && (
+        <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <p style={{ fontSize: 15, fontWeight: 450, color: colors.text, lineHeight: 1.6, margin: 0 }}>
+            {layer.explanation}
+          </p>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 8 }}>The trade-offs</div>
+            <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {layer.tradeoffs.map((t, i) => (
+                <li key={i} style={{ fontSize: 14, fontWeight: 450, color: colors.text, lineHeight: 1.5 }}>{t}</li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 8 }}>
+              {layer.illustration.title}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {layer.illustration.lines.map((line, i) => (
+                <div
+                  key={i}
+                  style={{
+                    fontSize: 14, fontWeight: 450, color: colors.text, lineHeight: 1.5,
+                    padding: '8px 10px', background: colors.input, borderRadius: radii.sm,
+                  }}
+                >
+                  {line}
+                </div>
+              ))}
+            </div>
+          </div>
+          {layer.howToCraft && (
+            <div
+              style={{
+                background: colors.input, border: `1px solid ${colors.gold}33`, borderRadius: radii.sm,
+                padding: '10px 12px', fontSize: 13, color: colors.sub, lineHeight: 1.5,
+              }}
+            >
+              {layer.howToCraft}
+            </div>
+          )}
+          <Button size="sm" onClick={onBuild} style={{ alignSelf: 'flex-start' }}>Build it</Button>
+        </div>
+      )}
     </div>
   );
 }

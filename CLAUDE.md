@@ -624,6 +624,65 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Front-door education pages collapsed into a collapsible accordion atop
+  the builder -- /start and /start/:layerId retired (2026-08-25).**
+  Operator: "I want to redo the look of the builder and I want to take all
+  of the education and have head tabs at the top... wasted space on that
+  whole page... when you click one of those headers and spills out on
+  there and has all the same information that it has before and then when
+  you're not it just collapses up and then the builder is down there with
+  the four different lea[yers]... instead of being several different pages
+  and different clicks." Grounded against the real flow before touching
+  anything: `/start` (`StartVault.tsx`) showed four big cards -- Primary
+  Path, Backup & Recovery, Inheritance, Long-Horizon Backstop
+  (`vault-education.ts`'s `VAULT_LAYERS`, exactly four -- confirming "the
+  four different lea[yers]") -- each one a full page-navigation to
+  `/start/:layerId` (`VaultLayerGuide.tsx`) showing that layer's
+  explanation/trade-offs/illustration, whose own "Build it" then navigated
+  a third time to `/policy` (`VaultWizard.tsx`), which always opens blank
+  (no per-layer preset exists to apply -- confirmed in
+  `VaultLayerGuide.tsx`'s own header comment). Three page-hops for what
+  the operator wanted as one. Built a new `VaultLayersAccordion` (in
+  `VaultWizard.tsx`, right where `ShapeStoryCard` already lived) rendering
+  the same four `VAULT_LAYERS` as single-open collapsible rows -- opening
+  one closes any other, matching "collapses up" -- directly above the
+  vault name/network fields at the top of `ConfigureStep`, with the exact
+  same explanation/trade-offs/illustration/howToCraft content
+  `VaultLayerGuide.tsx` used to show on its own page. "Build it" inside an
+  expanded row has nothing to preset (same reason the old page's "Build
+  it" never prefilled), so it scrolls to the primary path card already
+  further down the SAME page instead of navigating anywhere -- reusing the
+  identical `buildAnchorRef`/smooth-scroll mechanism the shape-story
+  "Build it" already used, lifted from `LeavesConfigureFields` up to
+  `ConfigureStep` so both "Build it" buttons land on the same spot.
+  `StartVault.tsx` and `VaultLayerGuide.tsx` are deleted outright (not
+  left as dead code); `/start` and `/start/:layerId` now just redirect to
+  `/policy`, so every existing entry point (`config.ts`'s "Start a vault"
+  nav link, Dashboard's two "Build your first vault" CTAs, old bookmarks)
+  keeps working with zero call-site changes. Caught and fixed two stale
+  references while grounding this: the "backstop" layer's `howToCraft`
+  text pointed at "More: crafty or specialty paths" in the builder's shape
+  tabs -- a tab that was pruned to just "Revocable living trust" in an
+  earlier session and no longer exists -- corrected to point at where
+  decay ladders and self-refreshing paths actually live now (each path's
+  own "After a fixed date" decay checkbox / "If left untouched" timing,
+  confirmed by reading `LeafCard`'s real controls); and
+  `vault-education.ts`'s header comment, which claimed `VAULT_LAYERS` fed
+  two separate page consumers -- updated to describe the real, single
+  consumer now that both pages are gone.
+  `docs/ux-coherence-redesign.md` section 7 gained a dated item 7
+  documenting the consolidation, following the same pattern item 6 already
+  used for the page split this reverses. All four gates green, matching
+  the documented baseline exactly (typecheck's known pre-existing errors
+  merely shifted line numbers; zero new lint warnings). Browser
+  verification was attempted but blocked by two separate pre-existing
+  sandbox limitations, not anything this change caused: dev mode hits the
+  same `tapit-attest`/`opentimestamps` Vite dep-scan failure documented
+  earlier in this file's history, and the production preview server has
+  no `VITE_SUPABASE_URL` configured in this environment -- noted honestly
+  rather than claimed as browser-verified; `npm run build`'s clean exit is
+  the strongest signal available here that the bundle is sound.
+
 - **History tab had no way to cancel a pending proposal without drilling
   into "Sign / manage" first (2026-08-25).** Direct follow-up to the
   leaf-list quorum fix above landing live: operator, screenshot of the

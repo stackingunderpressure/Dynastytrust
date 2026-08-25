@@ -235,6 +235,18 @@ the old.** Order by leverage:
    warnings the `leaves` shape already had, closing that parity gap. See
    section 3's amendment for why this isn't the template catalog that
    section argues against.
+7. **Front-door consolidation. DONE 2026-08-25.** `/start` and
+   `/start/:layerId` (item 6's two page-hops) retired -- operator: "wasted
+   space on that whole page... instead of being several different pages
+   and different clicks." The same `VAULT_LAYERS` content now renders as a
+   single-open collapsible accordion (`VaultLayersAccordion`) directly
+   atop the builder on `/policy` (`VaultWizard.tsx`'s `ConfigureStep`);
+   `StartVault.tsx` and `VaultLayerGuide.tsx` are deleted, and both old
+   routes redirect to `/policy` so every existing link keeps working.
+   "Build it" inside an expanded layer scrolls to the primary path card
+   already on the same page (the same anchor the shape-story "Build it"
+   already used) instead of navigating anywhere -- there's still no preset
+   to apply, a layer teaches the mechanism, not a template.
 
 The existing pages keep functioning during the transition; the NAV and the
 FRONT DOOR change first, because that is where coherence is felt and where

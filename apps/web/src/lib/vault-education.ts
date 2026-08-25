@@ -1,8 +1,10 @@
-// Shared vault-education logic and content -- one source of truth so the
-// SAME computed sentences appear both in the new /start/:layerId concept
-// pages (VaultLayerGuide.tsx) and live inside the builder (VaultWizard.tsx),
-// instead of two hand-written copies that drift apart. Split out of
-// VaultWizard.tsx (2026-08-17 front-door redesign) rather than duplicated.
+// Shared vault-education logic and content. Split out of VaultWizard.tsx
+// (2026-08-17 front-door redesign) so this stays one source of truth rather
+// than a hand-copied duplicate. VAULT_LAYERS originally fed two separate
+// pages (StartVault.tsx's card grid, VaultLayerGuide.tsx's per-layer page);
+// as of the 2026-08-25 consolidation both are retired and this content
+// renders directly as the collapsible accordion atop VaultWizard.tsx's
+// builder (`VaultLayersAccordion`) -- one page, not three.
 //
 // Never says "leaf" or "quorum" in any string returned here --
 // docs/ux-coherence-redesign.md section 5 -- every sentence is written the
@@ -279,7 +281,8 @@ export const VAULT_LAYERS: VaultLayer[] = [
       ],
     },
     howToCraft:
-      'Decay ladders and self-refreshing paths live under "More: crafty or specialty paths" in the builder\'s shape '
-      + 'tabs -- they need more than a fixed founders/heirs shape can express.',
+      'Every path below has these built in, not a separate preset: set a path\'s timing to "After a fixed date" '
+      + 'for a decay ladder (check "Need one fewer signer every so often"), or to "If left untouched" for a '
+      + 'self-refreshing path. Add a path with "+ Add another path" if you need a dedicated one.',
   },
 ];
