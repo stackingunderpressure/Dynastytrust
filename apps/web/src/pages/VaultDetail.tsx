@@ -227,6 +227,40 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
 
   useEffect(() => { void load(); }, [load]);
 
+  // Self-heal for a leaf-list vault compiled before compile-leaves.js
+  // wrote key_origins (2026-08-25 fix). No BIP371 tap_key_origins ever
+  // got attached to its PSBT inputs, so a real hardware wallet correctly
+  // refused to sign it: "Signing with this seed did not add a valid
+  // signature." Silent, on load, same spirit as keystore.ts's
+  // repairPubkeys() -- recomputes what compile-leaves.js should have
+  // written by matching each leaf's own stored pubkey against this
+  // browser's local keys, and repairs it server-side. A no-op once
+  // key_origins is actually populated, by this repair or a fresh compile.
+  useEffect(() => {
+    if (!Array.isArray(vault.leaves) || !vault.leaves.length) return;
+    if (vault.key_origins && vault.key_origins.length > 0) return;
+    const local = listKeys().filter(k => k.status === "active");
+    const seen = new Set<string>();
+    const origins: { pubkey: string; fingerprint: string; derivation_path: string }[] = [];
+    for (const leaf of vault.leaves) {
+      for (const keyStr of leaf.keys) {
+        const lower = keyStr.toLowerCase();
+        if (seen.has(lower)) continue;
+        const match = local.find(k => k.pubkey?.toLowerCase() === lower);
+        const fp = match?.masterFingerprint ?? match?.fingerprint;
+        if (!match || !fp || !match.derivationPath) continue;
+        seen.add(lower);
+        origins.push({
+          pubkey: lower,
+          fingerprint: fp,
+          derivation_path: match.derivationPath.replace(/\/+$/, "") + "/0/0",
+        });
+      }
+    }
+    if (!origins.length) return;
+    void api.vaults.repairKeyOrigins(vault.id, origins).catch(() => {});
+  }, [vault]);
+
   // Publish this browser's X25519 messaging pubkey to the user's
   // vault_members row on first visit so other members can send
   // us E2E-encrypted messages. Private key stays in localStorage.

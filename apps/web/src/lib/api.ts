@@ -144,6 +144,12 @@ export interface Vault {
    *  the compiled tree, same as recovery_after/inheritance_after above.
    *  An "older" entry's blocks is always a duration, never converted. */
   leaves: LeafSpec[] | null;
+  /** BIP32 origins for hardware-wallet signing (fingerprint +
+   *  derivation_path per signer, keyed by pubkey elsewhere) -- see
+   *  psbt-binary.js's attach_tap_key_origins. Optional on this type
+   *  since most reads of a Vault don't select it; present when the
+   *  server does (e.g. after a compile or a key_origins repair PATCH). */
+  key_origins?: { pubkey: string; fingerprint: string; derivation_path: string }[];
 }
 
 export type LeafUnlock =
@@ -662,12 +668,17 @@ export const api = {
 
     // Compiles a leaves-draft (created via createLeavesDraft, keys filled
     // in via updateLeaves) into a live, spendable vault. Unlike
-    // compile()/compileBloc(), the keys aren't passed here -- they're
-    // already saved on the draft row by the time this is called.
-    compileLeaves: (vault_id: string) =>
+    // compile()/compileBloc(), the leaf keys themselves aren't passed
+    // here -- they're already saved on the draft row by the time this is
+    // called. key_origins IS passed here, though -- unlike the standard
+    // and Bloc shapes (which write it during their own compile call), the
+    // leaf-list shape had no equivalent at all until this fix, so no
+    // leaf-list vault ever got BIP371 tap_key_origins and a real hardware
+    // wallet correctly refused to sign ("did not add a valid signature").
+    compileLeaves: (vault_id: string, key_origins?: { pubkey: string; fingerprint: string; derivation_path: string }[]) =>
       req<{ ok: true; vault: Vault }>('/compile-leaves', {
         method: 'POST',
-        body: JSON.stringify({ vault_id }),
+        body: JSON.stringify({ vault_id, key_origins }),
       }),
 
     archive: (id: string) =>
@@ -722,6 +733,15 @@ export const api = {
       req<{ ok: true; vault: Vault }>(`/vaults?id=${id}`, {
         method: 'PATCH',
         body: JSON.stringify({ key_label: { pubkey, label } }),
+      }),
+
+    // Self-heal for a leaf-list vault compiled before compile-leaves.js
+    // wrote key_origins -- see the 2026-08-25 CLAUDE.md entry. Owner-only,
+    // rejected server-side for any non-leaf-list vault.
+    repairKeyOrigins: (id: string, key_origins: { pubkey: string; fingerprint: string; derivation_path: string }[]) =>
+      req<{ ok: true; vault: Vault }>(`/vaults?id=${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ key_origins }),
       }),
 
     updateTrustDoc: (id: string, trust_doc: TrustDoc) =>

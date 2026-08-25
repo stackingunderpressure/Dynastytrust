@@ -37,7 +37,7 @@ async function looksLikeAValidAddress(address, network) {
 }
 
 const VAULT_FIELDS =
-  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc, predecessor_id, duress, bloc_policy, leaf_scripts, backup_keys, backup_quorum, second_heir_keys, second_heir_quorum, second_inheritance_after, key_labels, leaves";
+  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc, predecessor_id, duress, bloc_policy, leaf_scripts, backup_keys, backup_quorum, second_heir_keys, second_heir_quorum, second_inheritance_after, key_labels, leaves, key_origins";
 
 // key_labels is keyed off whatever string actually appears in
 // vaults.founder_keys/heir_keys/etc -- keyStoreValue() in
@@ -396,6 +396,63 @@ export async function handler(event) {
       const { data, error } = await supabase
         .from("vaults")
         .update({ key_labels: nextLabels })
+        .eq("id", id)
+        .eq("user_id", u.userId)
+        .select(VAULT_FIELDS)
+        .single();
+      if (error) return json(500, { error: error.message });
+      return json(200, { ok: true, vault: data });
+    }
+
+    // key_origins repair (2026-08-25 fix): the leaf-list compile path
+    // (compile-leaves.js) never wrote key_origins at all until this same
+    // fix, so any leaf-list vault compiled before it has none -- no
+    // BIP371 tap_key_origins ever get attached to its PSBTs, and a real
+    // hardware wallet correctly refuses to sign ("did not add a valid
+    // signature"). VaultDetail.tsx self-heals this the same way
+    // keystore.ts's repairPubkeys() self-heals local key records: silent,
+    // on load, no action needed from the owner. Structured special-case
+    // block, same reason key_label above is one -- this needs its own
+    // validation and is restricted to the leaf-list shape (a vault with
+    // vault.leaves) since every other shape already gets key_origins from
+    // its own compile-time write and this must never silently clobber a
+    // correct value with an incomplete client-recomputed one.
+    if (body.key_origins !== undefined) {
+      if (!Array.isArray(body.key_origins)) {
+        return json(400, { error: "key_origins must be an array" });
+      }
+      const cleanOrigins = [];
+      for (const o of body.key_origins) {
+        if (!o || typeof o.pubkey !== "string" || typeof o.fingerprint !== "string" || typeof o.derivation_path !== "string") {
+          return json(400, { error: "Each key_origins entry needs pubkey, fingerprint, and derivation_path strings" });
+        }
+        if (!/^[0-9a-fA-F]{66}$/.test(o.pubkey)) {
+          return json(400, { error: `key_origins.pubkey must be 66 hex characters: ${o.pubkey}` });
+        }
+        if (!/^[0-9a-fA-F]{8}$/.test(o.fingerprint)) {
+          return json(400, { error: `key_origins.fingerprint must be 8 hex characters: ${o.fingerprint}` });
+        }
+        if (!/^m(\/\d+'?)*$/.test(o.derivation_path)) {
+          return json(400, { error: `key_origins.derivation_path is not a valid BIP32 path: ${o.derivation_path}` });
+        }
+        cleanOrigins.push({ pubkey: o.pubkey.toLowerCase(), fingerprint: o.fingerprint.toLowerCase(), derivation_path: o.derivation_path });
+      }
+
+      const { data: existing, error: fetchErr } = await supabase
+        .from("vaults")
+        .select("leaves, user_id")
+        .eq("id", id)
+        .maybeSingle();
+      if (fetchErr) return json(500, { error: fetchErr.message });
+      if (!existing) return json(404, { error: "Vault not found" });
+      if (existing.user_id !== u.userId) return json(403, { error: "Only the owner can repair signing metadata" });
+      if (!Array.isArray(existing.leaves) || !existing.leaves.length) {
+        return json(400, { error: "key_origins can only be repaired on a leaf-list vault -- every other shape sets it at compile time" });
+      }
+
+      const { data, error } = await supabase
+        .from("vaults")
+        .update({ key_origins: cleanOrigins })
         .eq("id", id)
         .eq("user_id", u.userId)
         .select(VAULT_FIELDS)
