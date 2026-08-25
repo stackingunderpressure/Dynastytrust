@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { supabase, type Session } from '../lib/supabase';
 import { api, type TrustDoc, type VaultRole } from '../lib/api';
+import { type SpendingPathSummary } from '../lib/vault-spending-paths';
 import { listKeys, type LocalKey } from '../lib/keystore';
 import { keyNetworkMatches } from '../lib/network';
 import { APP_NAME } from '../config';
@@ -39,6 +40,12 @@ interface VaultInfo {
   consent_count: number;
   planned_founder_count: number | null;
   planned_heir_count: number | null;
+  // 2026-08-25: leaf-list vaults never populate founder_quorum/heir_quorum/
+  // recovery_after/inheritance_after above (they sit at bare DB defaults),
+  // so invites-lookup.js also sends the vault's real spending paths here --
+  // see is_leaf_list branch in the Fact block below.
+  is_leaf_list: boolean;
+  paths: SpendingPathSummary[];
 }
 
 interface MemberPreview {
@@ -720,16 +727,35 @@ function VaultPreviewBlock({
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, marginBottom: 10 }}>
-        <Fact label="Trustees" value={`${vault.founder_quorum} of ${plannedF || '?'}`} />
-        {plannedH > 0 && (
-          <Fact label="Successors" value={`${vault.heir_quorum} of ${plannedH}`} />
-        )}
-        <Fact label="Recovery unlocks" value={blocksToApproxMonths(vault.recovery_after)} />
-        {vault.inheritance_after > 0 && (
-          <Fact label="Inheritance unlocks" value={blocksToApproxMonths(vault.inheritance_after)} />
-        )}
-        {vault.consent_quorum != null && (
-          <Fact label="Consent quorum" value={`${vault.consent_quorum} beneficiary sig(s)`} />
+        {vault.is_leaf_list ? (
+          vault.paths.map(p => (
+            <Fact
+              key={p.id}
+              label={p.label}
+              value={
+                `${p.quorum} of ${p.keyCount}` +
+                (p.unlockType === 'immediate'
+                  ? ' -- no waiting'
+                  : p.unlockType === 'after'
+                    ? ` -- unlocks ${blocksToApproxMonths(p.unlockBlocks)}`
+                    : ' -- relative timelock')
+              }
+            />
+          ))
+        ) : (
+          <>
+            <Fact label="Trustees" value={`${vault.founder_quorum} of ${plannedF || '?'}`} />
+            {plannedH > 0 && (
+              <Fact label="Successors" value={`${vault.heir_quorum} of ${plannedH}`} />
+            )}
+            <Fact label="Recovery unlocks" value={blocksToApproxMonths(vault.recovery_after)} />
+            {vault.inheritance_after > 0 && (
+              <Fact label="Inheritance unlocks" value={blocksToApproxMonths(vault.inheritance_after)} />
+            )}
+            {vault.consent_quorum != null && (
+              <Fact label="Consent quorum" value={`${vault.consent_quorum} beneficiary sig(s)`} />
+            )}
+          </>
         )}
       </div>
 

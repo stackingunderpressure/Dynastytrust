@@ -10,6 +10,8 @@ import { requireUser, json } from './_auth.js';
 import { getSupabaseAdmin } from './_supabase.js';
 import { fetchTipHeight, MEMPOOL, mempoolFetch } from './_chain.js';
 import { checkNumberBounds, MIN_FEE_RATE_SAT_VB, MAX_FEE_RATE_SAT_VB } from './_numeric.js';
+import { isLeafListVault } from './_vault-shape.js';
+import { jsGovernanceAuditLeafList } from './governance.js';
 
 const COMPILER_URL    = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -30,6 +32,27 @@ const VALID_STATUSES = ['draft', 'pending', 'signed', 'broadcast', 'cancelled', 
 const TERMINAL_STATUSES = ['broadcast', 'cancelled', 'fulfilled'];
 
 async function runGovernanceAudit(vault, proposal) {
+  // 2026-08-25 fix: the Rust /governance/audit endpoint only recognizes
+  // "founders_now"/"recovery"/"inheritance" as `path` and has no leaves
+  // field -- a leaf-list vault's proposal.path is always a real leaf id,
+  // which the compiler rejects outright (400), so runGovernanceAudit
+  // silently returned null for every leaf-list-vault proposal ever
+  // created, permanently baking an uninformative governance_audit into
+  // the audit-trail record proposals.js's own header comment says this
+  // table is. jsGovernanceAuditLeafList (governance.js) is genuinely
+  // correct for this shape -- same reason governance.js's own handler
+  // routes a leaf-list vault there instead of the compiler.
+  if (isLeafListVault(vault)) {
+    return jsGovernanceAuditLeafList(vault, {
+      path: proposal.path,
+      amount_sats: proposal.amount_sats,
+      destination: proposal.destination,
+      utxo_age_blocks: proposal.utxo_age_blocks || 0,
+      total_vault_sats: proposal.total_vault_sats || 0,
+      signers: [],
+    });
+  }
+
   const body = {
     founder_quorum:    vault.founder_quorum,
     founder_key_count: (vault.founder_keys || []).length,

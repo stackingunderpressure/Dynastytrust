@@ -16,6 +16,7 @@
 
 import { requireUser, json } from './_auth.js';
 import { getSupabaseAdmin } from './_supabase.js';
+import { findSpendingPath } from './_vault-shape.js';
 
 const COMPILER_URL    = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -40,20 +41,24 @@ export async function handler(event) {
   const supabase = getSupabaseAdmin();
   const { data: vault } = await supabase
     .from('vaults')
-    .select('id, name, founder_quorum, heir_quorum')
+    .select('id, name, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, backup_quorum, backup_keys, second_heir_quorum, second_heir_keys, second_inheritance_after, leaves')
     .eq('id', vault_id)
     .maybeSingle();
 
   if (!vault) return json(404, { error: 'Vault not found' });
 
   // Quorum is path-dependent -- an inheritance-path proposal is fully
-  // signed at heir_quorum signatures, not founder_quorum. Comparing
-  // every merge unconditionally against founder_quorum (the previous
-  // behavior) either falsely reported a fully-signed inheritance
-  // proposal as still pending, or vice versa, depending on how the two
-  // quorums relate for a given vault. Same path -> quorum mapping
-  // governance.js already uses. Falls back to founder_quorum when no
-  // proposal_id is given, since there's no path to look up.
+  // signed at heir_quorum signatures, not founder_quorum, and a
+  // leaf-list vault's path is the leaf's own id, never the literal
+  // string "inheritance" -- comparing every merge against
+  // vault.founder_quorum unconditionally (or only special-casing
+  // "inheritance", the previous behavior) either falsely reported a
+  // fully-signed proposal as still pending, or the reverse, for any
+  // path but founders_now, and ALWAYS for a leaf-list vault (2026-08-25
+  // fix). findSpendingPath (_vault-shape.js) resolves the real leaf/
+  // named-field path's own quorum for either vault shape. Falls back to
+  // founder_quorum when no proposal_id is given (nothing to look up) or
+  // the path can't be resolved, matching the previous fallback.
   let requiredQuorum = vault.founder_quorum;
   if (proposal_id) {
     const { data: proposalForQuorum } = await supabase
@@ -62,8 +67,9 @@ export async function handler(event) {
       .eq('id', proposal_id)
       .eq('vault_id', vault_id)
       .maybeSingle();
-    if (proposalForQuorum?.path === 'inheritance') {
-      requiredQuorum = vault.heir_quorum;
+    if (proposalForQuorum?.path) {
+      const resolved = findSpendingPath(vault, proposalForQuorum.path);
+      if (resolved) requiredQuorum = resolved.quorum;
     }
   }
 

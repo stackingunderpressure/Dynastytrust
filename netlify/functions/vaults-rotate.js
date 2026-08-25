@@ -30,7 +30,7 @@ import { requireUser, json } from "./_auth.js";
 import { getSupabaseAdmin } from "./_supabase.js";
 
 const VAULT_FIELDS =
-  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc, predecessor_id";
+  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc, predecessor_id, leaves, bloc_policy";
 
 export async function handler(event) {
   if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
@@ -59,6 +59,23 @@ export async function handler(event) {
   }
   if (src.status !== "compiled") {
     return json(400, { error: "Only compiled vaults can be rotated" });
+  }
+  // 2026-08-25 fix: this endpoint always built the successor draft in
+  // the named-field shape (founder_quorum/founder_keys/etc.), never
+  // carrying forward vault.leaves or vault.bloc_policy -- rotating a
+  // leaf-list or Bloc vault silently produced a broken standard-shape
+  // draft (founder_quorum at its bare default, 0 keys, no leaves/policy
+  // at all) with no way to recover the original structure. Refuse
+  // outright rather than silently corrupting the vault's shape; a real
+  // "carry this shape's own structure forward" rotation is a larger,
+  // separate feature not built here.
+  const srcIsLeafList = Array.isArray(src.leaves) && src.leaves.length > 0;
+  if (srcIsLeafList || src.bloc_policy != null) {
+    return json(400, {
+      error: srcIsLeafList
+        ? "Rotating a custom leaf-list vault isn't supported yet -- its spending paths can't be safely carried forward automatically. Build a fresh vault with the same leaves instead."
+        : "Rotating a Dynasty Bloc vault isn't supported yet -- its policy can't be safely carried forward automatically. Build a fresh Bloc vault instead.",
+    });
   }
 
   const { data: existingMembers, error: memErr } = await supabase

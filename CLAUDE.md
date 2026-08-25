@@ -624,6 +624,113 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **The "leaf-list vault reads named-field columns unguarded" bug class,
+  audited end to end and closed with a canonical shared reader instead of
+  another one-off patch (2026-08-25).** Operator, after the fourth
+  independent instance of this exact bug got fixed in one day (VaultDetail's
+  duplicate paths block, the Send-tab "Unknown path: founders_now" error,
+  the key_origins hardware-signing failure, each entry above this one):
+  "All of the numbers of signers bugs need to be found and squashed. We
+  need to rethink how it's programmed. How it logics through it in
+  different places." Read as two asks, not one -- find every remaining
+  instance, and stop the bug class from being able to recur, not just
+  patch the latest symptom. A full-repo audit found 18 separate,
+  independently hand-written implementations of "what are this vault's
+  real spending paths" scattered across the frontend and Netlify
+  functions, 8 of which still read `founder_quorum`/`founder_keys`/
+  `heir_quorum`/`heir_keys`/`recovery_after`/`inheritance_after` with no
+  guard for a leaf-list vault (whose real paths live in `vault.leaves`,
+  with those named-field columns sitting at their bare DB defaults).
+  Rather than hand-patch each site with its own copy of the
+  `Array.isArray(vault.leaves) && vault.leaves.length > 0` branch --
+  which is exactly how the bug class kept reappearing in the first place
+  -- built one canonical reader in two mirrored, test-bound
+  implementations: `apps/web/src/lib/vault-spending-paths.ts` (frontend
+  TS: `isLeafListVault`, `getSpendingPaths`, `findSpendingPath`) and
+  `netlify/functions/_vault-shape.js` (the byte-for-byte plain-JS twin
+  Netlify functions actually need, since `netlify/functions/` has its own
+  separate `package.json`/dependency list disjoint from the root npm
+  workspace -- a cross-package `@dynastytrust/policy-engine` import was
+  considered and rejected for the same reason). New
+  `scripts/test-vault-spending-paths.mjs` (now part of `npm test`) proves
+  the two copies stay byte-identical across 7 fixtures spanning both
+  vault shapes, the same binding-test pattern `test-rung-digest.mjs`
+  already established for keeping `assistant.js`'s hand-copied curriculum
+  digest bound to `literacy.ts`. Eight real bugs fixed with the new
+  helper, ranked by what was actually broken versus merely wrong-looking:
+  (1) `vaults-rotate.js` would have silently rotated a leaf-list or Bloc
+  vault's signing keys while leaving its `leaves`/`bloc_policy` completely
+  unchanged -- a live fund-loss bug, not a display bug -- so rotation for
+  both shapes is now explicitly rejected server-side (`VaultDetail.tsx`'s
+  Rotate button hidden client-side to match) rather than silently
+  producing a vault whose Taproot tree no longer matches its own
+  metadata; building real rotation support for these shapes (absolute-vs-
+  relative timelock carry-forward, etc.) is a separate, larger feature,
+  not attempted here. (2) `psbt-merge.js` compared a leaf-list proposal's
+  collected signatures against the wrong (named-field) quorum number when
+  deciding if a PSBT was fully signed -- now resolves the real leaf's
+  quorum via `findSpendingPath`. (3) `ProposalDetail.tsx`'s
+  `resolvePathSigners` had no leaf-list branch at all, so a leaf-list
+  vault's proposal could never actually be resolved to its real
+  signer set for display/signing. (4) `governance.js`'s `/status` and
+  `/audit` actions unconditionally forwarded to the Fly.io Rust compiler,
+  whose `GovernanceStatusRequest`/`GovernanceAuditRequest` structs have no
+  `leaves` field at all (task #135's leaf-id governance generalization
+  only ever reached `governance.rs`'s internal logic, never these two
+  HTTP handlers) -- for a leaf-list vault this silently evaluated against
+  zeroed founder/heir data, which would show every path as already
+  unlocked. Fixing the Rust side needs a Fly.io redeploy outside this
+  session's reach, so leaf-list vaults are now routed to new, genuinely
+  correct pure-JS equivalents (`jsGovernanceStatusLeafList`/
+  `jsGovernanceAuditLeafList`, exported from `governance.js`) instead --
+  confirmed dead/dormant from the live UI (no shipped page calls
+  `/api/governance`) so this carried no live-surface risk, but is now
+  honestly correct rather than silently wrong for whenever that surface
+  gets built. (5) `proposals.js`'s `runGovernanceAudit` -- which writes
+  the PERMANENT audit-trail record every PDF/tax/activity export treats
+  as ground truth -- had the identical bogus-forward problem for a
+  leaf-list vault's proposals; now calls the same `jsGovernanceAuditLeafList`
+  from (4) instead of building a named-field request body. (6)
+  `invites-lookup.js` sent nothing but bogus founder/heir numbers for a
+  leaf-list vault's invite preview; now also sends `is_leaf_list` +
+  `paths` (real per-leaf label/quorum/timing), and `InviteClaim.tsx`
+  branches its "What you are joining" Fact grid to render the real paths
+  instead of the fixed Trustees/Successors/Recovery/Inheritance facts
+  (`api.ts`'s `invites.lookup` response type widened to match). (7)
+  `Reminders.tsx` and `RemindersBanner.tsx` each independently computed
+  false "Recovery path unlocks in ~X days" / urgent "Inheritance path is
+  now spendable" reminders and banners for a leaf-list vault's
+  owner/founder/heir-role members, driven by the same zeroed
+  `recovery_after`/`inheritance_after` defaults -- both now skip those
+  two named-field countdown blocks entirely for a leaf-list vault via
+  `isLeafListVault`, rather than inventing a new founder/heir-role
+  mapping onto arbitrary leaf labels that doesn't exist for this shape.
+  (8) `assistant.js`'s Sage context assembly (`VAULT_SAFE_FIELDS`, the
+  `vaultContext` template string) would have taught the model -- and then
+  the user -- bogus quorum/timelock numbers for a leaf-list vault the
+  moment a vault-scoped chat surface gets wired up; currently dormant
+  (no live route passes `vault_id` yet) but fixed for correctness ahead
+  of that surface shipping, branching on `isLeafListVault` to list real
+  per-leaf data via `getSpendingPaths` instead. Deliberately NOT done in
+  this pass, and said so rather than silently attempted: the other 12
+  already-correct duplicate implementations the audit found (VaultDetail's
+  own several fixed functions, Dashboard.tsx, descriptor-backup.ts,
+  legacy-recovery.ts, trust-doc.ts, VaultMembershipSetup.tsx,
+  circle-membership-delivery.ts, psbt-binary.js, vault-pdf.js,
+  vault-audit-pdf.js, vault-tax-summary.js) are NOT migrated onto the new
+  canonical helper -- they already produce correct output today, and
+  touching already-correct code to satisfy an architectural preference
+  is exactly the kind of unrequested refactor this file's own doctrine
+  warns against; a real follow-up if the operator wants the whole
+  codebase converged onto one implementation, not attempted silently
+  here. Named-field and Bloc vaults are byte-for-byte unchanged
+  everywhere in this pass. All four gates green, matching the documented
+  10/10 baseline exactly (11 pre-existing lint warnings, not 10 -- the
+  file's own already-documented count; `Reminders.tsx`'s and
+  `RemindersBanner.tsx`'s pre-existing `react-refresh/only-export-
+  components` warnings on `getRemindersEnabled`/`useReminderCount` are
+  untouched by this pass, not new).
+
 - **A leaf-list vault could never actually be signed by a real hardware
   wallet -- "Signing with this seed did not add a valid signature"
   (2026-08-25).** Direct follow-up to the same day's Send-tab fix, which
