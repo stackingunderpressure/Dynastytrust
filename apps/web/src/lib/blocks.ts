@@ -11,6 +11,22 @@ export function blocksToHuman(b: number): string {
   return `~${(days / 365).toFixed(1)} years`;
 }
 
+// Mirrors protocol::MIN_RECOVERY_BLOCKS (Rust) and netlify/functions/
+// _chain.js's MIN_RECOVERY_BLOCKS -- the real minimum for ANY "after a
+// fixed date" (absolute CLTV) path: recovery, inheritance, second
+// inheritance, a leaf-list leaf's After unlock, and Bloc's
+// parent_solo_after/kids_decay_start_after. A relative "if left
+// untouched" (older()/CSV) path has NO such floor -- see
+// MAX_RELATIVE_BLOCKS below and CLAUDE.md's absolute-vs-relative
+// timelock rule for why the two are treated so differently. Exists here
+// so the builder can warn BEFORE compile instead of only failing at the
+// server with a bare "must be >= 26000 blocks" -- the server-side check
+// (compile.js/compile-leaves.js/compile-bloc.js's checkTimelockFloor)
+// is the one that actually enforces this; this is purely a friendlier
+// client-side heads-up so a short value or an unlucky calendar-date
+// pick doesn't fail silently-feeling at the very last step.
+export const MIN_RECOVERY_BLOCKS = 26_000;
+
 export const TIMELOCK_PRESETS = [
   { label: '6 months', blocks: 26_280 },
   { label: '1 year', blocks: 52_560 },

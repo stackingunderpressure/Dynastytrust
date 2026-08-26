@@ -4283,13 +4283,21 @@ function RotateVaultModal({
   };
 
   const [name, setName] = useState(`${vault.name} v2`);
-  const [recoveryOffset, setRecoveryOffset] = useState<number | null>(null);
-  const [inheritanceOffset, setInheritanceOffset] = useState<number | null>(null);
+  // Kept as raw text, not a number: a fully-controlled number input bound
+  // straight to a number state snaps back to that number the instant the
+  // field is empty (Number('') || 0 equals whatever it already was), so
+  // backspacing to retype a new value never actually clears the field.
+  // Text state lets it sit empty mid-edit; the numeric value used below
+  // just treats "not yet hydrated" or "currently empty" as 0.
+  const [recoveryOffsetText, setRecoveryOffsetText] = useState<string | null>(null);
+  const [inheritanceOffsetText, setInheritanceOffsetText] = useState<string | null>(null);
+  const recoveryOffset = recoveryOffsetText ? Number(recoveryOffsetText) || 0 : 0;
+  const inheritanceOffset = inheritanceOffsetText ? Number(inheritanceOffsetText) || 0 : 0;
 
   useEffect(() => {
     if (tip == null) return;
-    if (recoveryOffset == null) setRecoveryOffset(offsetFromAbs(vault.recovery_after));
-    if (inheritanceOffset == null) setInheritanceOffset(offsetFromAbs(vault.inheritance_after));
+    if (recoveryOffsetText == null) setRecoveryOffsetText(String(offsetFromAbs(vault.recovery_after)));
+    if (inheritanceOffsetText == null) setInheritanceOffsetText(String(offsetFromAbs(vault.inheritance_after)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tip]);
 
@@ -4302,8 +4310,8 @@ function RotateVaultModal({
         vault_id: vault.id,
         overrides: {
           name: name.trim() || undefined,
-          recovery_after: hasInheritance ? (recoveryOffset ?? 0) : 0,
-          inheritance_after: hasInheritance ? (inheritanceOffset ?? 0) : 0,
+          recovery_after: hasInheritance ? recoveryOffset : 0,
+          inheritance_after: hasInheritance ? inheritanceOffset : 0,
         },
       });
       toast.success("Successor draft created. Compile when ready.");
@@ -4360,11 +4368,11 @@ function RotateVaultModal({
                 <Input
                   type="number"
                   min={0}
-                  value={recoveryOffset ?? 0}
-                  onChange={e => setRecoveryOffset(parseInt(e.target.value) || 0)}
+                  value={recoveryOffsetText ?? ''}
+                  onChange={e => setRecoveryOffsetText(e.target.value)}
                 />
                 <div style={{ fontSize: 11, color: colors.muted, marginTop: 3 }}>
-                  ~{blocksToLabel(recoveryOffset ?? 0)} at 10-min blocks
+                  ~{blocksToLabel(recoveryOffset)} at 10-min blocks
                 </div>
               </div>
               <div>
@@ -4372,11 +4380,11 @@ function RotateVaultModal({
                 <Input
                   type="number"
                   min={0}
-                  value={inheritanceOffset ?? 0}
-                  onChange={e => setInheritanceOffset(parseInt(e.target.value) || 0)}
+                  value={inheritanceOffsetText ?? ''}
+                  onChange={e => setInheritanceOffsetText(e.target.value)}
                 />
                 <div style={{ fontSize: 11, color: colors.muted, marginTop: 3 }}>
-                  ~{blocksToLabel(inheritanceOffset ?? 0)} at 10-min blocks
+                  ~{blocksToLabel(inheritanceOffset)} at 10-min blocks
                 </div>
               </div>
             </>
@@ -7789,12 +7797,22 @@ function DistributionWalletCreator({
   const [beneficiaryName, setBeneficiaryName] = useState("");
   const [beneficiaryXpub, setBeneficiaryXpub] = useState("");
   const [beneficiaryKeyId, setBeneficiaryKeyId] = useState("");
-  const [trancheCount, setTrancheCount] = useState(12);
+  // Kept as raw text, not a number: a fully-controlled number input bound
+  // straight to a number state snaps back to that number the instant the
+  // field is empty (Number('') || fallback equals whatever it already
+  // was), so backspacing to retype a new value never actually clears the
+  // field. Text state lets each field sit empty mid-edit.
+  const [trancheCountText, setTrancheCountText] = useState("12");
   const [amountPerTrancheBtc, setAmountPerTrancheBtc] = useState("0.01");
-  const [intervalBlocks, setIntervalBlocks] = useState(4380); // ~1 month
-  const [firstUnlockBlock, setFirstUnlockBlock] = useState<number | null>(null);
+  const [intervalBlocksText, setIntervalBlocksText] = useState("4380"); // ~1 month
+  const [firstUnlockBlockText, setFirstUnlockBlockText] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const trancheCount = Number(trancheCountText) || 0;
+  const intervalBlocks = Number(intervalBlocksText) || 0;
+  const firstUnlockBlock = firstUnlockBlockText && firstUnlockBlockText.trim() !== ''
+    ? Number(firstUnlockBlockText) || 0
+    : null;
 
   const localKeys = listKeys().filter(k =>
     k.status === "active" && keyNetworkMatches(k.network, vault.network),
@@ -7803,8 +7821,8 @@ function DistributionWalletCreator({
   useEffect(() => {
     // Default first unlock = current tip + one interval
     tipHeight(vault.network)
-      .then(h => setFirstUnlockBlock(h + 4380))
-      .catch(() => setFirstUnlockBlock(100_000));
+      .then(h => setFirstUnlockBlockText(String(h + 4380)))
+      .catch(() => setFirstUnlockBlockText("100000"));
   }, [vault.network]);
 
   // vault.founder_keys already holds pubkey hex (the /0/0 child,
@@ -8009,8 +8027,8 @@ function DistributionWalletCreator({
             type="number"
             min={1}
             max={60}
-            value={trancheCount}
-            onChange={e => setTrancheCount(parseInt(e.target.value) || 1)}
+            value={trancheCountText}
+            onChange={e => setTrancheCountText(e.target.value)}
           />
         </div>
         <div>
@@ -8028,8 +8046,8 @@ function DistributionWalletCreator({
           <Input
             type="number"
             min={144}
-            value={intervalBlocks}
-            onChange={e => setIntervalBlocks(parseInt(e.target.value) || 4380)}
+            value={intervalBlocksText}
+            onChange={e => setIntervalBlocksText(e.target.value)}
           />
           <div style={{ fontSize: 11, color: colors.muted, marginTop: 4 }}>
             {blocksToLabel(intervalBlocks)} . 4380 =~ 1 month, 13140 =~ 3 months, 52560 =~ 1 year
@@ -8039,8 +8057,8 @@ function DistributionWalletCreator({
           <Label>First unlock block</Label>
           <Input
             type="number"
-            value={firstUnlockBlock ?? ""}
-            onChange={e => setFirstUnlockBlock(parseInt(e.target.value) || 0)}
+            value={firstUnlockBlockText ?? ""}
+            onChange={e => setFirstUnlockBlockText(e.target.value)}
           />
           <div style={{ fontSize: 11, color: colors.muted, marginTop: 4 }}>
             Absolute height where the first tranche unlocks.

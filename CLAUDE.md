@@ -624,6 +624,103 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Number fields for a timelock could get permanently stuck at their
+  starting value -- clearing them to type something else just snapped
+  right back (2026-08-26).** Direct follow-up to the timelock-floor
+  warning above: operator asked "Did you fix the fields where a zero is
+  stuck even if you're trying to go to something else." Real, separate
+  bug from the floor warning, and a classic React controlled-number-
+  input footgun: every one of these fields bound `<input type="number">`
+  directly to a NUMBER state via `value={n}` /
+  `onChange={e => setN(parseInt(e.target.value) || fallback)}`. The
+  moment the field is cleared, `e.target.value` is `""`,
+  `parseInt("") || fallback` evaluates back to the exact value the field
+  already held, so the state never actually changes -- and since the
+  JSX still renders `value={n}` with that same unchanged number, React
+  forces the DOM's displayed text straight back to it before the next
+  keystroke can land. Worst on a field whose live value is exactly 0 (a
+  fresh leaf's unset "after a fixed date" timelock is 0 by design), but
+  it affects ANY value: backspacing never produces a genuinely empty
+  field to type a new number into. `VaultWizard.tsx`'s shared
+  `TimelockField` (behind every timelock input in the builder) gained
+  local `rawBlocks` text state for its raw-blocks field, re-synced from
+  the numeric `value` prop only when something ELSE changes it (a preset
+  button, a date/time pick, a parent overwrite) via a `useEffect` keyed
+  on `value` -- not on the field's own keystrokes, so an in-progress
+  empty or leading-zero string is never fought mid-edit; a real,
+  finite parsed number is the only thing that ever calls back up to
+  `onChange`. `VaultDetail.tsx` had the identical pattern in two
+  unrelated places, fixed the same way but without needing the
+  presets-and-date-pickers complexity `TimelockField` has, so a simpler
+  text-state-plus-derived-number split sufficed: the Rotate-vault
+  dialog's "Recovery timelock" / "Inheritance timelock" fields
+  (`recoveryOffsetText`/`inheritanceOffsetText`, previously
+  `recoveryOffset`/`inheritanceOffset` as bare numbers), and the Tranche
+  creation form's "Tranche count" / "Interval (blocks)" / "First unlock
+  block" fields (`trancheCountText`/`intervalBlocksText`/
+  `firstUnlockBlockText`) -- each now holds raw text, with the numeric
+  value used everywhere else in the component (validation, the actual
+  compile/rotate payload, display labels) derived from that text via a
+  plain `const`, so no other call site needed to change beyond the
+  `<Input>` itself. `max_sats` in the same file's rules editor was
+  checked and found already safe (`value={r.max_sats != null ? ... :
+  ""}`, never forces a "0" string) -- confirmed rather than touched.
+  All four gates green, matching the documented baseline exactly
+  (typecheck's known pre-existing errors merely shifted line numbers,
+  zero new lint warnings).
+
+- **Builder gave no warning for a too-short fixed-date timelock -- it
+  just failed at compile with a bare server error (2026-08-26).**
+  Operator: "the number fields for timelocks on months has a bug. And
+  some leafs won't let you do short timelocks not sure why. But it
+  gives an error if I only put in 100 blocks." Traced to real,
+  intentional-but-unexplained behavior, not a math bug: every "after a
+  fixed date" (absolute CLTV) path -- Standard's Recovery/Inheritance/
+  Second inheritance, Bloc's parent-solo/kids-decay-start, a leaf-list
+  leaf's After unlock -- has always required >= 26,000 blocks
+  (`MIN_RECOVERY_BLOCKS`, ~6 months) server-side
+  (`_chain.js`'s `checkTimelockFloor`, mirroring
+  `protocol::MIN_RECOVERY_BLOCKS`) so a fixed-deadline path can't be
+  made near-instant, defeating the point of a real waiting period --
+  see CLAUDE.md's absolute-vs-relative timelock rule. An "if left
+  untouched" (relative CSV/`older()`) path has NO such floor by design,
+  which is exactly why "some leafs" (paths) rejected 100 blocks and
+  others didn't -- correct, but never explained anywhere the operator
+  could see it. The real gap: nothing in the builder checked this
+  BEFORE hitting Compile, so typing 100 directly, or picking "6 months"
+  on the date/time picker and landing on a calendar stretch a little
+  short of 182.5 days (Feb-inclusive spans, for instance), both sailed
+  past every client-side check and only surfaced as the server's bare
+  `"...must be >= 26000 blocks (or 0 for no leaf)."` at the very last
+  step -- indistinguishable from an actual bug to anyone who didn't
+  already know the floor existed. `lib/blocks.ts` gained an exported
+  `MIN_RECOVERY_BLOCKS` (mirrors the two existing Rust/JS copies, now a
+  third kept in sync by the same constant value, not re-derived).
+  `TimelockField` (the one shared component behind every timelock input
+  in the builder -- presets, calendar pickers, and the raw blocks field
+  alike, so this covers all three ways a value gets in) gained an
+  optional `minBlocks` prop: when a value is nonzero but below it, an
+  inline red warning explains the real minimum in both human terms
+  (`blocksToHuman`) and blocks, and says plainly that value will be
+  rejected at compile -- wired into all six absolute-CLTV fields
+  (Standard's three, Bloc's two, the leaf-list After field) and
+  deliberately left off the three relative/duration fields (Older-type,
+  both decay-step fields) which have no such floor. `leafShapeIssues()`
+  gained `hasShortAfter`, extending the same pattern its existing
+  `hasUnsetAfter` check already established for the leaf-list Continue
+  gate. Standard and Bloc had no equivalent Continue-button gate at
+  all before this -- the single shared "Continue -- add keys next"
+  button only ever blocked on the leaves shape -- so `ConfigureStep`
+  gained `stdShapeBlocked`/`blocShapeBlocked` checks (reading only the
+  fields actually active for the current config, matching exactly what
+  `runCompile` sends) folded into one `shapeBlocked` now driving the
+  button's `disabled` prop for all three shapes uniformly, closing the
+  same "invalid shape reaches Keys/Compile with no way back to fix it"
+  dead end already fixed for leaves in the full builder-pipeline audit
+  entry below. All four gates green, matching the documented baseline
+  exactly (typecheck's known pre-existing errors are all in unrelated
+  files, zero new lint warnings).
+
 - **Descriptor round-trip check strengthened to catch a wrong tree, not
   just a malformed string (2026-08-26).** Operator asked for an
   independent audit of `policy_compiler.rs`: "Anywhere the compiler
