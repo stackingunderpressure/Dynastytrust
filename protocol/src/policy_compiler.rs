@@ -708,14 +708,32 @@ pub fn compile_dynasty_policy_tr_multileaf(
 ) -> Result<CompiledVault, PolicyError> {
     let out = build_multileaf(&policy)?;
     let addr = Address::p2tr_tweaked(out.spend_info.output_key(), network);
-    // Round-trip the descriptor through rust-miniscript's parser so
-    // a malformed string (e.g. nested-brace mistake) fails here
-    // instead of producing an unspendable address. Use
+    // Round-trip the descriptor through rust-miniscript's parser AND
+    // re-derive its scriptPubkey independently, so a malformed OR
+    // merely syntactically-valid-but-wrong tree (e.g. a brace nested
+    // at the wrong depth) fails here instead of producing a descriptor
+    // that silently disagrees with the address this vault actually
+    // funds at. Compared as scriptPubkeys rather than addresses since
+    // that comparison is network-independent -- the address the
+    // caller actually gets back is still `addr` above, built from
+    // spend_info on the caller's requested network. Use
     // DescriptorPublicKey so the parser accepts the x-only internal
-    // key format used by `tr(...)` descriptors.
+    // key format used by `tr(...)` descriptors; no wildcards ever
+    // appear in this string, so at_derivation_index's index is never
+    // actually used and 0 is a formality.
     use miniscript::{Descriptor, DescriptorPublicKey};
-    let _: Descriptor<DescriptorPublicKey> = Descriptor::from_str(&out.descriptor)
+    let round_tripped: Descriptor<DescriptorPublicKey> = Descriptor::from_str(&out.descriptor)
         .map_err(|e| PolicyError::Descriptor(format!("descriptor round-trip: {e:?}")))?;
+    let round_trip_spk = round_tripped
+        .at_derivation_index(0)
+        .map_err(|e| PolicyError::Descriptor(format!("descriptor round-trip derive: {e:?}")))?
+        .script_pubkey();
+    let expected_spk = bitcoin::ScriptBuf::new_p2tr_tweaked(out.spend_info.output_key());
+    if round_trip_spk != expected_spk {
+        return Err(PolicyError::Descriptor(
+            "descriptor round-trip scriptPubkey mismatch -- the hand-built Taproot tree disagrees with the compiled descriptor string".into(),
+        ));
+    }
     Ok(CompiledVault {
         miniscript_policy: out.miniscript_policy,
         descriptor: out.descriptor,
@@ -1123,11 +1141,25 @@ pub fn build_bloc_multileaf(policy: &DynastyBlocPolicy) -> Result<BlocMultileafO
     let leaf_descs: Vec<String> = compiled.iter().map(|ms| ms.to_string()).collect();
     let descriptor = format!("tr({},{})", internal_key, nest_leaves(&leaf_descs));
 
-    // Round-trip through rust-miniscript so a malformed tree fails here
-    // instead of producing an unspendable address downstream.
+    // Round-trip through rust-miniscript AND re-derive its scriptPubkey
+    // independently, so a malformed OR merely syntactically-valid-but-
+    // wrong tree fails here instead of producing a descriptor that
+    // silently disagrees with the address this vault actually funds
+    // at. Compared as scriptPubkeys rather than addresses since that
+    // comparison is network-independent.
     use miniscript::{Descriptor, DescriptorPublicKey};
-    let _: Descriptor<DescriptorPublicKey> = Descriptor::from_str(&descriptor)
+    let round_tripped: Descriptor<DescriptorPublicKey> = Descriptor::from_str(&descriptor)
         .map_err(|e| PolicyError::Descriptor(format!("descriptor round-trip: {e:?}")))?;
+    let round_trip_spk = round_tripped
+        .at_derivation_index(0)
+        .map_err(|e| PolicyError::Descriptor(format!("descriptor round-trip derive: {e:?}")))?
+        .script_pubkey();
+    let expected_spk = bitcoin::ScriptBuf::new_p2tr_tweaked(spend_info.output_key());
+    if round_trip_spk != expected_spk {
+        return Err(PolicyError::Descriptor(
+            "descriptor round-trip scriptPubkey mismatch -- the hand-built Taproot tree disagrees with the compiled descriptor string".into(),
+        ));
+    }
 
     let branch_strs: Vec<String> = branches.iter().map(|(_, _, _, s)| s.clone()).collect();
     let leaves: Vec<BlocLeaf> = branches
@@ -1457,12 +1489,25 @@ pub fn build_leaf_multileaf(policy: &LeafPolicy) -> Result<MultileafOutput, Poli
         format!("tr({},{})", internal_key, nest_leaves(&descriptor_leaves))
     };
 
-    // Round-trip through rust-miniscript so a malformed tree fails here
-    // instead of producing an unspendable address downstream -- same
-    // guard `build_bloc_multileaf` already uses.
+    // Round-trip through rust-miniscript AND re-derive its scriptPubkey
+    // independently, so a malformed OR merely syntactically-valid-but-
+    // wrong tree fails here instead of producing a descriptor that
+    // silently disagrees with the address this vault actually funds
+    // at -- same guard `build_bloc_multileaf` uses, compared as
+    // scriptPubkeys since that comparison is network-independent.
     use miniscript::{Descriptor, DescriptorPublicKey};
-    let _: Descriptor<DescriptorPublicKey> = Descriptor::from_str(&descriptor)
+    let round_tripped: Descriptor<DescriptorPublicKey> = Descriptor::from_str(&descriptor)
         .map_err(|e| PolicyError::Descriptor(format!("descriptor round-trip: {e:?}")))?;
+    let round_trip_spk = round_tripped
+        .at_derivation_index(0)
+        .map_err(|e| PolicyError::Descriptor(format!("descriptor round-trip derive: {e:?}")))?
+        .script_pubkey();
+    let expected_spk = bitcoin::ScriptBuf::new_p2tr_tweaked(spend_info.output_key());
+    if round_trip_spk != expected_spk {
+        return Err(PolicyError::Descriptor(
+            "descriptor round-trip scriptPubkey mismatch -- the hand-built Taproot tree disagrees with the compiled descriptor string".into(),
+        ));
+    }
 
     // founder_leaf is read directly by some MultileafOutput consumers
     // (e.g. change-output detection) -- populate it with the primary

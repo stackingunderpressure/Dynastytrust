@@ -624,6 +624,71 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Descriptor round-trip check strengthened to catch a wrong tree, not
+  just a malformed string (2026-08-26).** Operator asked for an
+  independent audit of `policy_compiler.rs`: "Anywhere the compiler
+  could give the wrong descriptor or the wrong miniscript structure?"
+  Traced all three live tree-builders (`build_multileaf`,
+  `build_leaf_multileaf`, `build_bloc_multileaf`) by hand-expanding
+  their `format!`-built descriptor strings against the exact
+  `TaprootBuilder.add_leaf(depth,...)` calls that produced the real
+  tree -- no live mismatch found; `nest_leaves()` (used by the latter
+  two) provably matches the `add_leaf` depth schedule `[1,2,...,n-1,
+  n-1]` for any n, not just the specific cases checked by hand. The
+  real gap was in the safety net meant to catch exactly this class of
+  bug: all three compile paths' "descriptor round-trip" check
+  (`let _: Descriptor<DescriptorPublicKey> = Descriptor::from_str(...)`)
+  discarded the parsed result, so it only ever proved the descriptor
+  string was syntactically valid Miniscript grammar -- a hand-built
+  tree with leaves nested at the wrong depth (syntactically fine,
+  structurally wrong) would have parsed clean and shipped anyway. Note
+  this never put DynastyTrust's own signing at risk -- `psbt_builder.rs`
+  always pulls the control block from `spend_info.control_block(...)`,
+  the same `TaprootSpendInfo` object that produced the address, never
+  a re-derivation from the descriptor text -- but a wrong descriptor
+  string handed to an external wallet (Sparrow, Nunchuk) could still
+  compute a different address than the one actually funded. All three
+  sites now re-derive the round-tripped descriptor's scriptPubkey via
+  `at_derivation_index(0).script_pubkey()` (network-independent, so no
+  network parameter needed for the comparison) and reject the compile
+  outright if it disagrees with `spend_info`'s own scriptPubkey, instead
+  of binding the parse result to `_`. `compile_tranche_tr_multileaf`
+  was noted as the one path with no round-trip check at all, but left
+  alone -- its tree is always exactly two leaves at a fixed depth
+  (`{A,B}`), with no `n`-dependent nesting logic to get wrong, so the
+  risk this fix targets doesn't apply there. All 124 protocol tests and
+  39 compiler tests pass unchanged, confirming the stronger check
+  doesn't false-positive on any existing vault shape (standard,
+  Tapit Circle, Gift Locker, 4-leaf, leaf-list, Bloc). Frontend gates
+  unaffected (Rust-only change) and re-run anyway, matching the
+  documented baseline exactly.
+
+- **Dashboard: "Waiting for your signature" kept showing proposals the
+  caller had already signed, and the "Trustee" portfolio card was
+  pure noise (2026-08-25).** Operator: "The messages section gets stale.
+  Even if you've already signed a proposal it is annoying. And I don't
+  need to know that there is 3 vaults I can sign. I know I can see
+  them." Two separate fixes, both in the same cross-vault summary area.
+  (1) `proposals-mine.js` (powers `PendingFeed`'s "Waiting for your
+  signature" list) returned every non-terminal proposal on every vault
+  the caller belongs to, with no check at all for whether the CALLER
+  specifically still needed to act -- so a proposal stayed in the list
+  until every co-signer caught up, even after the caller's own part was
+  done. `signer_sessions.member_id` is always server-derived from
+  `(vault_id, user_id)` at signing time (`signer-sessions.js`), never
+  client-supplied, so it's a reliable "did I already sign this" check:
+  the endpoint now looks up the caller's own `member_id` per vault and
+  filters out any proposal where a `signer_sessions` row for that
+  member is already `signed`. (2) `Dashboard.tsx`'s `RoleSummary`
+  "Trustee" card (`"N vaults you can sign now"`) restated a count
+  already visible in the vault list directly below it, with no
+  information the list didn't already show -- unlike the Successor/
+  Beneficiary cards next to it, which surface something NOT visible at
+  a glance (soonest inheritance, consent requirements). Dropped the
+  card and the now-unused `trustee` bucket; Successor/Protector/
+  Beneficiary/Observer cards are unchanged. All four gates green,
+  matching the documented baseline exactly.
+
 - **Full builder-pipeline audit: resuming a saved leaf-list draft
   reconstructed the WRONG vault shape, plus two smaller correctness gaps
   (2026-08-25).** Operator: "Let's go through all scenarios of the
