@@ -1898,6 +1898,28 @@ function TimelockField({ label, value, onChange, max, minBlocks }: { label: stri
   const clamp = (v: number) => (max !== undefined ? Math.min(v, max) : v);
   const maxDateStr = max !== undefined ? localDateStr(approxWallclockDate(max)) : undefined;
 
+  // The raw blocks field needs its own text state, separate from `value`:
+  // a fully-controlled numeric input that always renders `value` fights
+  // the user the moment the field is empty -- Number('') || 0 equals
+  // whatever the current value already is, so the input snaps straight
+  // back and backspacing-to-retype a new number never actually clears
+  // the field (worst when the starting value is exactly 0, e.g. a fresh
+  // "after a fixed date" leaf). Local text state lets the field sit
+  // empty (or carry a leading zero) mid-edit; it only re-syncs from
+  // `value` when something ELSE changes it -- a preset button, a date
+  // pick, or a parent overwrite -- not on every keystroke of its own.
+  const [rawBlocks, setRawBlocks] = useState(String(value));
+  useEffect(() => {
+    setRawBlocks(String(value));
+  }, [value]);
+
+  function commitRawBlocks(text: string) {
+    setRawBlocks(text);
+    if (text.trim() === '') return;
+    const parsed = Number(text);
+    if (Number.isFinite(parsed)) onChange(clamp(Math.max(0, Math.trunc(parsed))));
+  }
+
   function pickDateTime(newDateStr: string, newTimeStr: string) {
     if (!newDateStr) return;
     const [y, m, d] = newDateStr.split('-').map(Number);
@@ -1938,8 +1960,8 @@ function TimelockField({ label, value, onChange, max, minBlocks }: { label: stri
           min={0}
           max={max}
           style={{ width: 140 }}
-          value={value}
-          onChange={e => onChange(clamp(Math.max(0, Number(e.target.value) || 0)))}
+          value={rawBlocks}
+          onChange={e => commitRawBlocks(e.target.value)}
         />
         <span style={{ fontSize: 13, color: colors.sub }}>
           blocks ({blocksToHuman(value)}, unlocks around {target.toLocaleDateString()})

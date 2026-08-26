@@ -624,6 +624,51 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Number fields for a timelock could get permanently stuck at their
+  starting value -- clearing them to type something else just snapped
+  right back (2026-08-26).** Direct follow-up to the timelock-floor
+  warning above: operator asked "Did you fix the fields where a zero is
+  stuck even if you're trying to go to something else." Real, separate
+  bug from the floor warning, and a classic React controlled-number-
+  input footgun: every one of these fields bound `<input type="number">`
+  directly to a NUMBER state via `value={n}` /
+  `onChange={e => setN(parseInt(e.target.value) || fallback)}`. The
+  moment the field is cleared, `e.target.value` is `""`,
+  `parseInt("") || fallback` evaluates back to the exact value the field
+  already held, so the state never actually changes -- and since the
+  JSX still renders `value={n}` with that same unchanged number, React
+  forces the DOM's displayed text straight back to it before the next
+  keystroke can land. Worst on a field whose live value is exactly 0 (a
+  fresh leaf's unset "after a fixed date" timelock is 0 by design), but
+  it affects ANY value: backspacing never produces a genuinely empty
+  field to type a new number into. `VaultWizard.tsx`'s shared
+  `TimelockField` (behind every timelock input in the builder) gained
+  local `rawBlocks` text state for its raw-blocks field, re-synced from
+  the numeric `value` prop only when something ELSE changes it (a preset
+  button, a date/time pick, a parent overwrite) via a `useEffect` keyed
+  on `value` -- not on the field's own keystrokes, so an in-progress
+  empty or leading-zero string is never fought mid-edit; a real,
+  finite parsed number is the only thing that ever calls back up to
+  `onChange`. `VaultDetail.tsx` had the identical pattern in two
+  unrelated places, fixed the same way but without needing the
+  presets-and-date-pickers complexity `TimelockField` has, so a simpler
+  text-state-plus-derived-number split sufficed: the Rotate-vault
+  dialog's "Recovery timelock" / "Inheritance timelock" fields
+  (`recoveryOffsetText`/`inheritanceOffsetText`, previously
+  `recoveryOffset`/`inheritanceOffset` as bare numbers), and the Tranche
+  creation form's "Tranche count" / "Interval (blocks)" / "First unlock
+  block" fields (`trancheCountText`/`intervalBlocksText`/
+  `firstUnlockBlockText`) -- each now holds raw text, with the numeric
+  value used everywhere else in the component (validation, the actual
+  compile/rotate payload, display labels) derived from that text via a
+  plain `const`, so no other call site needed to change beyond the
+  `<Input>` itself. `max_sats` in the same file's rules editor was
+  checked and found already safe (`value={r.max_sats != null ? ... :
+  ""}`, never forces a "0" string) -- confirmed rather than touched.
+  All four gates green, matching the documented baseline exactly
+  (typecheck's known pre-existing errors merely shifted line numbers,
+  zero new lint warnings).
+
 - **Builder gave no warning for a too-short fixed-date timelock -- it
   just failed at compile with a bare server error (2026-08-26).**
   Operator: "the number fields for timelocks on months has a bug. And
