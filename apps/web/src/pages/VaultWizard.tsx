@@ -12,7 +12,7 @@ import { api, type Vault, type VaultProposal, type BlocPolicy, type TrustDoc } f
 import { isLeafListVault } from '../lib/vault-spending-paths';
 import { downloadVault } from '../lib/descriptor-backup';
 import { keyNetworkMatches } from '../lib/network';
-import { blocksToHuman, TIMELOCK_PRESETS } from '../lib/blocks';
+import { blocksToHuman, TIMELOCK_PRESETS, MIN_RECOVERY_BLOCKS } from '../lib/blocks';
 import { approxWallclockDate, blocksUntilDate } from '../lib/chain';
 import { type StandardConfig, type BlocConfig } from '../lib/vault-templates';
 import { buildStandardTrustDoc, buildBlocTrustDoc, buildLeavesTrustDoc } from '../lib/trust-doc';
@@ -132,11 +132,17 @@ function leafUnlockOf(l: LeafDraft): LeafUnlock {
 // surface after keys were picked, at the Rust compiler, with "Back to
 // keys" as the only recovery option -- which can't fix a timing problem
 // Keys never had controls for in the first place.
-function leafShapeIssues(leafDrafts: LeafDraft[]): { hasImmediate: boolean; hasUnsetAfter: boolean } {
+function leafShapeIssues(leafDrafts: LeafDraft[]): { hasImmediate: boolean; hasUnsetAfter: boolean; hasShortAfter: boolean } {
   const enabled = leafDrafts.filter(l => l.enabled);
   return {
     hasImmediate: enabled.some(l => l.unlockType === 'immediate'),
     hasUnsetAfter: enabled.some(l => l.unlockType === 'after' && l.afterBlocks <= 0),
+    // A "fixed date" path below MIN_RECOVERY_BLOCKS compiles fine here
+    // but is rejected server-side (compile-leaves.js's checkTimelockFloor,
+    // mirroring protocol::MIN_RECOVERY_BLOCKS) -- catch it at the one step
+    // that can actually fix a path's timing, same reasoning as
+    // hasUnsetAfter above.
+    hasShortAfter: enabled.some(l => l.unlockType === 'after' && l.afterBlocks > 0 && l.afterBlocks < MIN_RECOVERY_BLOCKS),
   };
 }
 
@@ -999,8 +1005,25 @@ function ConfigureStep({
   // fixed date") could leave this step, get keys picked for it, and only
   // then fail at the real Rust compile step with no way to fix the actual
   // problem. Blocking here instead of just warning closes that dead end.
-  const leafIssues = shape === 'leaves' ? leafShapeIssues(leafDrafts) : { hasImmediate: true, hasUnsetAfter: false };
-  const leafShapeBlocked = shape === 'leaves' && (!leafIssues.hasImmediate || leafIssues.hasUnsetAfter);
+  const leafIssues = shape === 'leaves' ? leafShapeIssues(leafDrafts) : { hasImmediate: true, hasUnsetAfter: false, hasShortAfter: false };
+  const leafShapeBlocked = shape === 'leaves' && (!leafIssues.hasImmediate || leafIssues.hasUnsetAfter || leafIssues.hasShortAfter);
+
+  // Standard and Bloc have the identical failure mode as leaf-list above --
+  // a fixed-date path below MIN_RECOVERY_BLOCKS compiles fine client-side
+  // and only fails at the server's own checkTimelockFloor, with no way
+  // back to this step to fix the timing once Keys/Compile are reached.
+  // Only checks the fields that are actually active for the current
+  // config, matching exactly what runCompile below sends.
+  const tooShort = (v: number) => v > 0 && v < MIN_RECOVERY_BLOCKS;
+  const stdShapeBlocked = shape === 'standard' && (
+    (stdConfig.mode === 'inheritance' && stdConfig.recoveryEnabled && tooShort(stdConfig.recoveryAfter)) ||
+    (stdConfig.mode === 'inheritance' && tooShort(stdConfig.inheritanceAfter)) ||
+    (stdConfig.secondInheritanceEnabled && tooShort(stdConfig.secondInheritanceAfter))
+  );
+  const blocShapeBlocked = shape === 'bloc' && (
+    tooShort(blocConfig.parentSoloAfter) || tooShort(blocConfig.kidsDecayStartAfter)
+  );
+  const shapeBlocked = leafShapeBlocked || stdShapeBlocked || blocShapeBlocked;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -1073,7 +1096,13 @@ function ConfigureStep({
           change a path's timing.
         </p>
       )}
-      <Button disabled={busy || leafShapeBlocked} onClick={onConfirm} style={{ alignSelf: 'flex-start' }}>
+      {(stdShapeBlocked || blocShapeBlocked) && (
+        <p style={{ color: colors.red, fontSize: 13 }}>
+          Fix the timelock warning above before continuing -- a fixed-date path this short will be
+          rejected when the vault compiles.
+        </p>
+      )}
+      <Button disabled={busy || shapeBlocked} onClick={onConfirm} style={{ alignSelf: 'flex-start' }}>
         {busy ? 'Saving...' : 'Continue -- add keys next'}
       </Button>
     </div>
@@ -1205,7 +1234,7 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
                 <QuorumPicker max={config.plannedHeirs} value={config.heirQ} onChange={n => setConfig(c => ({ ...c, heirQ: n }))} color={colors.blue} />
               )}
             </Field>
-            <TimelockField label="Inheritance unlocks after" value={config.inheritanceAfter} onChange={v => setConfig(c => ({ ...c, inheritanceAfter: v }))} />
+            <TimelockField label="Inheritance unlocks after" value={config.inheritanceAfter} onChange={v => setConfig(c => ({ ...c, inheritanceAfter: v }))} minBlocks={MIN_RECOVERY_BLOCKS} />
             {config.plannedHeirs > 0 && (
               <p style={{ fontSize: 12, color: colors.muted, marginTop: -8 }}>
                 Before {blocksToHuman(config.inheritanceAfter)}: only your everyday signers (and backup keys,
@@ -1254,7 +1283,7 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
                 />
                 <QuorumPicker max={config.plannedSecondHeirs} value={config.secondHeirQ} onChange={n => setConfig(c => ({ ...c, secondHeirQ: n }))} color={colors.green} />
               </Field>
-              <TimelockField label="Second inheritance unlocks after" value={config.secondInheritanceAfter} onChange={v => setConfig(c => ({ ...c, secondInheritanceAfter: v }))} />
+              <TimelockField label="Second inheritance unlocks after" value={config.secondInheritanceAfter} onChange={v => setConfig(c => ({ ...c, secondInheritanceAfter: v }))} minBlocks={MIN_RECOVERY_BLOCKS} />
               <p style={{ fontSize: 12, color: colors.muted, marginTop: -8 }}>
                 After {blocksToHuman(config.secondInheritanceAfter)}, {config.secondHeirQ} of {config.plannedSecondHeirs}
                 {' '}second-group heirs can spend, on their own -- entirely independent of the first inheritance
@@ -1287,7 +1316,7 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
             </span>
           </label>
           {config.recoveryEnabled && (
-            <TimelockField label="Recovery unlocks after" value={config.recoveryAfter} onChange={v => setConfig(c => ({ ...c, recoveryAfter: v }))} />
+            <TimelockField label="Recovery unlocks after" value={config.recoveryAfter} onChange={v => setConfig(c => ({ ...c, recoveryAfter: v }))} minBlocks={MIN_RECOVERY_BLOCKS} />
           )}
           <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
             <input type="checkbox" checked={config.consentEnabled} onChange={e => setConfig(c => ({ ...c, consentEnabled: e.target.checked }))} />
@@ -1358,8 +1387,8 @@ function BlocConfigureFields({ config, setConfig }: { config: BlocConfig; setCon
         <Field label="One parent + how many kids, right away?">
           <QuorumPicker max={config.plannedKids} value={config.kidsWithParentQ} onChange={n => setConfig(c => ({ ...c, kidsWithParentQ: n }))} color={colors.blue} />
         </Field>
-        <TimelockField label="One parent alone unlocks after" value={config.parentSoloAfter} onChange={v => setConfig(c => ({ ...c, parentSoloAfter: v }))} />
-        <TimelockField label="Kids-alone ladder starts after" value={config.kidsDecayStartAfter} onChange={v => setConfig(c => ({ ...c, kidsDecayStartAfter: v }))} />
+        <TimelockField label="One parent alone unlocks after" value={config.parentSoloAfter} onChange={v => setConfig(c => ({ ...c, parentSoloAfter: v }))} minBlocks={MIN_RECOVERY_BLOCKS} />
+        <TimelockField label="Kids-alone ladder starts after" value={config.kidsDecayStartAfter} onChange={v => setConfig(c => ({ ...c, kidsDecayStartAfter: v }))} minBlocks={MIN_RECOVERY_BLOCKS} />
         <Field label="Every rung down the ladder, after">
           <TimelockField label="" value={config.kidsDecayStepBlocks} onChange={v => setConfig(c => ({ ...c, kidsDecayStepBlocks: v }))} />
         </Field>
@@ -1400,7 +1429,7 @@ function LeavesConfigureFields({
   const [trustLabeled, setTrustLabeled] = useState(false);
   const [preTrustLabels, setPreTrustLabels] = useState<Record<string, string> | null>(null);
   const secondaries = leafDrafts.slice(1);
-  const { hasImmediate, hasUnsetAfter } = leafShapeIssues(leafDrafts);
+  const { hasImmediate, hasUnsetAfter, hasShortAfter } = leafShapeIssues(leafDrafts);
 
   function applyTab(tab: LeafShapeTab) {
     const built = tab.build();
@@ -1512,6 +1541,13 @@ function LeavesConfigureFields({
         <div style={{ padding: 12, background: colors.red + '11', border: `1px solid ${colors.red}33`, borderRadius: radii.md, color: colors.red, fontSize: 12, lineHeight: 1.5 }}>
           A path set to "After a fixed date" still needs that date picked -- pick a preset, a calendar
           date, or a block count for every path timed this way before continuing.
+        </div>
+      )}
+      {hasShortAfter && (
+        <div style={{ padding: 12, background: colors.red + '11', border: `1px solid ${colors.red}33`, borderRadius: radii.md, color: colors.red, fontSize: 12, lineHeight: 1.5 }}>
+          A path set to "After a fixed date" is timed too soon -- fixed-date paths need at least
+          ~6 months ({MIN_RECOVERY_BLOCKS.toLocaleString()} blocks) so recovery/inheritance can't be
+          triggered near-instantly. See the warning under the field below for which path.
         </div>
       )}
 
@@ -1778,7 +1814,7 @@ function LeafCard({
               </p>
             ) : leaf.unlockType === 'after' ? (
               <>
-                <TimelockField label="" value={leaf.afterBlocks} onChange={v => onChange(l => ({ ...l, afterBlocks: v }))} />
+                <TimelockField label="" value={leaf.afterBlocks} onChange={v => onChange(l => ({ ...l, afterBlocks: v }))} minBlocks={MIN_RECOVERY_BLOCKS} />
                 <p style={{ fontSize: 16, fontWeight: 450, color: colors.text, lineHeight: 1.5, marginTop: 4 }}>
                   A fixed deadline. Once set, it never moves no matter what happens to the vault before
                   then -- not even normal spending resets it. Use this for anything that must open by a
@@ -1848,7 +1884,7 @@ function localTimeStr(d: Date): string {
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
-function TimelockField({ label, value, onChange, max }: { label: string; value: number; onChange: (v: number) => void; max?: number }) {
+function TimelockField({ label, value, onChange, max, minBlocks }: { label: string; value: number; onChange: (v: number) => void; max?: number; minBlocks?: number }) {
   // Derived straight from `value` every render (no local state to drift
   // out of sync when a preset button or the raw-blocks input changes it
   // from underneath the date/time pickers).
@@ -1909,6 +1945,14 @@ function TimelockField({ label, value, onChange, max }: { label: string; value: 
           blocks ({blocksToHuman(value)}, unlocks around {target.toLocaleDateString()})
         </span>
       </div>
+      {minBlocks !== undefined && value > 0 && value < minBlocks && (
+        <p style={{ color: colors.red, fontSize: 12, lineHeight: 1.5, marginTop: 6 }}>
+          A "fixed date" path needs a real waiting period -- at least {blocksToHuman(minBlocks)}
+          {' '}({minBlocks.toLocaleString()} blocks). {value.toLocaleString()} blocks is too short and
+          will be rejected when this vault compiles. Pick a preset above, a later date, or a bigger
+          block count -- or use 0 to remove this path entirely.
+        </p>
+      )}
     </Field>
   );
 }

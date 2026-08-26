@@ -624,6 +624,58 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Builder gave no warning for a too-short fixed-date timelock -- it
+  just failed at compile with a bare server error (2026-08-26).**
+  Operator: "the number fields for timelocks on months has a bug. And
+  some leafs won't let you do short timelocks not sure why. But it
+  gives an error if I only put in 100 blocks." Traced to real,
+  intentional-but-unexplained behavior, not a math bug: every "after a
+  fixed date" (absolute CLTV) path -- Standard's Recovery/Inheritance/
+  Second inheritance, Bloc's parent-solo/kids-decay-start, a leaf-list
+  leaf's After unlock -- has always required >= 26,000 blocks
+  (`MIN_RECOVERY_BLOCKS`, ~6 months) server-side
+  (`_chain.js`'s `checkTimelockFloor`, mirroring
+  `protocol::MIN_RECOVERY_BLOCKS`) so a fixed-deadline path can't be
+  made near-instant, defeating the point of a real waiting period --
+  see CLAUDE.md's absolute-vs-relative timelock rule. An "if left
+  untouched" (relative CSV/`older()`) path has NO such floor by design,
+  which is exactly why "some leafs" (paths) rejected 100 blocks and
+  others didn't -- correct, but never explained anywhere the operator
+  could see it. The real gap: nothing in the builder checked this
+  BEFORE hitting Compile, so typing 100 directly, or picking "6 months"
+  on the date/time picker and landing on a calendar stretch a little
+  short of 182.5 days (Feb-inclusive spans, for instance), both sailed
+  past every client-side check and only surfaced as the server's bare
+  `"...must be >= 26000 blocks (or 0 for no leaf)."` at the very last
+  step -- indistinguishable from an actual bug to anyone who didn't
+  already know the floor existed. `lib/blocks.ts` gained an exported
+  `MIN_RECOVERY_BLOCKS` (mirrors the two existing Rust/JS copies, now a
+  third kept in sync by the same constant value, not re-derived).
+  `TimelockField` (the one shared component behind every timelock input
+  in the builder -- presets, calendar pickers, and the raw blocks field
+  alike, so this covers all three ways a value gets in) gained an
+  optional `minBlocks` prop: when a value is nonzero but below it, an
+  inline red warning explains the real minimum in both human terms
+  (`blocksToHuman`) and blocks, and says plainly that value will be
+  rejected at compile -- wired into all six absolute-CLTV fields
+  (Standard's three, Bloc's two, the leaf-list After field) and
+  deliberately left off the three relative/duration fields (Older-type,
+  both decay-step fields) which have no such floor. `leafShapeIssues()`
+  gained `hasShortAfter`, extending the same pattern its existing
+  `hasUnsetAfter` check already established for the leaf-list Continue
+  gate. Standard and Bloc had no equivalent Continue-button gate at
+  all before this -- the single shared "Continue -- add keys next"
+  button only ever blocked on the leaves shape -- so `ConfigureStep`
+  gained `stdShapeBlocked`/`blocShapeBlocked` checks (reading only the
+  fields actually active for the current config, matching exactly what
+  `runCompile` sends) folded into one `shapeBlocked` now driving the
+  button's `disabled` prop for all three shapes uniformly, closing the
+  same "invalid shape reaches Keys/Compile with no way back to fix it"
+  dead end already fixed for leaves in the full builder-pipeline audit
+  entry below. All four gates green, matching the documented baseline
+  exactly (typecheck's known pre-existing errors are all in unrelated
+  files, zero new lint warnings).
+
 - **Descriptor round-trip check strengthened to catch a wrong tree, not
   just a malformed string (2026-08-26).** Operator asked for an
   independent audit of `policy_compiler.rs`: "Anywhere the compiler
