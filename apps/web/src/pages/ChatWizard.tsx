@@ -291,6 +291,7 @@ function ConfirmCard({
   const [dismissed, setDismissed] = useState(false);
   const hasHeirs = proposal.heir_count > 0;
   const hasRecovery = proposal.recovery_after_months > 0;
+  const hasSecondInheritance = (proposal.second_inheritance_after_months ?? 0) > 0;
 
   return (
     <div
@@ -342,6 +343,13 @@ function ConfirmCard({
           <li>
             heirs: {proposal.heir_quorum} of {proposal.heir_count} can inherit after about{' '}
             {proposal.inheritance_after_months} months
+          </li>
+        )}
+        {hasSecondInheritance && (
+          <li>
+            deeper backstop: {proposal.second_heir_quorum} of {proposal.second_heir_count}{' '}
+            {proposal.second_heir_count === 1 ? 'key' : 'keys'} alone can spend after about{' '}
+            {proposal.second_inheritance_after_months} months
           </li>
         )}
         {!hasHeirs && !hasRecovery && <li>no timelocks -- founders only</li>}

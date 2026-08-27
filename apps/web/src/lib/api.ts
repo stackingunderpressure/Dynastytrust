@@ -1594,5 +1594,12 @@ export interface VaultProposal {
   heir_count: number;
   recovery_after_months: number;
   inheritance_after_months: number;
+  // Optional deeper backstop tier -- present only when Sage's plan
+  // actually includes one (see assistant.js's SECOND INHERITANCE
+  // section). second_inheritance_after_months is always greater than
+  // inheritance_after_months when set.
+  second_heir_quorum?: number;
+  second_heir_count?: number;
+  second_inheritance_after_months?: number;
   summary: string;
 }

@@ -624,6 +624,52 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Sage told a user their tiered heir/backstop plan needed two separate
+  vaults -- it doesn't, and Sage's own knowledge had no way to know that
+  (2026-08-27).** Operator pasted a real Sage transcript for review: a
+  person built up to "heirs inherit after ~10 years, a single buried key
+  as the ultimate backstop after ~15 years," and Sage's final answer was
+  "the templates I can build here have one heir path, not two stacked
+  heir leaves... best built as its own thing: a second, separate vault."
+  Checked against the real compiler and found that flatly wrong: the
+  Standard vault shape has carried exactly this -- a second, independent
+  `second_inheritance` leaf with its own quorum (down to a single key)
+  and its own longer timelock, stacked on top of the first inheritance
+  leaf in the SAME compiled vault -- since the 2026-08-XX second-
+  inheritance feature shipped, fully wired into `VaultWizard.tsx`'s
+  Standard Configure step as an "Add a second, independent heir group"
+  toggle. Traced the actual root cause rather than just re-answering the
+  question: `assistant.js`'s hand-maintained knowledge digests (the top-
+  of-prompt product description, `RUNG_DIGEST`'s Rung 6, and
+  `TEMPLATE_DIGEST`) never once mentioned second inheritance anywhere,
+  so the model had no way to know the capability existed and reasonably
+  improvised the two-vault workaround. Two further, smaller instances of
+  the identical gap found while grounding this: `VAULT_SAFE_FIELDS`
+  (what Sage can see about a vault it's discussing) omitted
+  `second_heir_quorum`/`second_inheritance_after`, so even asking about
+  an EXISTING vault with one already configured would have shown Sage
+  nothing; and the `vault-proposal` JSON schema Sage uses to hand off a
+  concrete recommendation had no fields to express a second tier at all,
+  so even a correct recommendation couldn't have been proposed end to
+  end. Fixed all four: the top-of-prompt description and Rung 6 now
+  state plainly that inheritance is not a ceiling and a deeper tier is
+  optional and stacks on the SAME vault; a new SECOND INHERITANCE
+  section in `TEMPLATE_DIGEST` states this explicitly and says outright
+  never to recommend two vaults for this shape; `VAULT_SAFE_FIELDS` and
+  the named-field branch of `vaultContext` now surface
+  `second_heir_quorum`/`second_inheritance_after` when set;
+  `extractProposal()`, `VaultProposal` (`api.ts`), and `ChatWizard.tsx`'s
+  `ConfirmCard` all gained matching OPTIONAL
+  `second_heir_quorum`/`second_heir_count`/`second_inheritance_after_months`
+  fields (omitted entirely when a plan has no deeper tier, so every
+  existing proposal shape is untouched). The rest of that transcript was
+  independently verified accurate and left alone -- Sage's refusal to
+  give a "15% return" allocation number, its timelock/loosest-door
+  reasoning, and its single-buried-key trade-off critique all checked
+  out against the real mechanics. `node --check` passed on the edited
+  Netlify function (plain JS, not covered by tsc/eslint); all four
+  frontend gates green, matching the documented baseline exactly.
+
 - **Number fields for a timelock could get permanently stuck at their
   starting value -- clearing them to type something else just snapped
   right back (2026-08-26).** Direct follow-up to the timelock-floor
