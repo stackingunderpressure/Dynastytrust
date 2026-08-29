@@ -36,6 +36,7 @@ import { PsbtQrScanner } from "../components/PsbtQrScanner";
 import { useRealtimeRefresh } from "../lib/realtime";
 import { normalizePsbt } from "../lib/psbt-format";
 import { downloadVault, downloadDistributionWalletBackup } from "../lib/descriptor-backup";
+import { formatDescriptorFingerprint } from "../lib/descriptor-fingerprint";
 import { DescriptorQr } from "../components/DescriptorQr";
 import { pubkeyFromXpub, fingerprintFromXpub } from "../lib/xpub";
 import { isLeafListVault } from "../lib/vault-spending-paths";
@@ -1050,6 +1051,32 @@ function OverviewTab({
         >
           {vault.descriptor}
         </div>
+        {vault.descriptor && (
+          <div
+            style={{
+              marginTop: 12,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 2,
+              padding: "8px 14px",
+              border: `1px solid ${colors.gold}`,
+              borderRadius: radii.md,
+            }}
+          >
+            <span style={{ fontSize: 10, color: colors.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+              Descriptor fingerprint
+            </span>
+            <span style={{ fontSize: 18, color: colors.gold, fontFamily: fonts.mono, letterSpacing: 2 }}>
+              {formatDescriptorFingerprint(vault.descriptor)}
+            </span>
+            <span style={{ fontSize: 10, color: colors.muted, textAlign: "center", maxWidth: 380 }}>
+              Write this down separately (paper, not this screen). Before trusting a
+              descriptor on a signer or a re-downloaded backup, recompute its
+              fingerprint and compare -- a mismatch means don't sign.
+            </span>
+          </div>
+        )}
         {showDescriptorQr && vault.descriptor && (
           <div style={{ marginTop: 14, display: "flex", justifyContent: "center" }}>
             <DescriptorQr descriptor={vault.descriptor} label="Descriptor QR" size={240} />
@@ -1202,6 +1229,32 @@ function BlocOverviewTab({
         <div style={{ fontFamily: fonts.mono, fontSize: 10, color: colors.sub, wordBreak: "break-all", lineHeight: 1.6 }}>
           {vault.descriptor}
         </div>
+        {vault.descriptor && (
+          <div
+            style={{
+              marginTop: 12,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 2,
+              padding: "8px 14px",
+              border: `1px solid ${colors.gold}`,
+              borderRadius: radii.md,
+            }}
+          >
+            <span style={{ fontSize: 10, color: colors.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+              Descriptor fingerprint
+            </span>
+            <span style={{ fontSize: 18, color: colors.gold, fontFamily: fonts.mono, letterSpacing: 2 }}>
+              {formatDescriptorFingerprint(vault.descriptor)}
+            </span>
+            <span style={{ fontSize: 10, color: colors.muted, textAlign: "center", maxWidth: 380 }}>
+              Write this down separately (paper, not this screen). Before trusting a
+              descriptor on a signer or a re-downloaded backup, recompute its
+              fingerprint and compare -- a mismatch means don't sign.
+            </span>
+          </div>
+        )}
         {showDescriptorQr && vault.descriptor && (
           <div style={{ marginTop: 14, display: "flex", justifyContent: "center" }}>
             <DescriptorQr descriptor={vault.descriptor} label="Descriptor QR" size={240} />

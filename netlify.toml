@@ -43,3 +43,26 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Security headers. This is a money-touching app whose softest attack
+# surface is the browser itself -- an XSS bug, a malicious extension, or a
+# supply-chain-compromised npm dependency getting a shot at an unlocked
+# secure-mode key or a test-mode plaintext mnemonic straight out of
+# localStorage. A CSP that only allows script execution from this origin
+# closes off the most common of those paths (injected/inline third-party
+# script) without touching app behavior -- no inline <script> tags or eval
+# are used anywhere in this codebase.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # connect-src allows wss: broadly (not a fixed relay list) because Nostr
+    # relay choice is deliberately user-configurable (nostrRelayPrefs.ts --
+    # "a family that wants to run its own relay") -- enumerating specific
+    # relay hosts here would silently break that feature for anyone who
+    # points it elsewhere. mempool.space covers balance/broadcast/explorer
+    # lookups (config.ts's EXPLORER); *.supabase.co covers auth + the DB.
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://mempool.space wss:; font-src 'self' data: https://fonts.gstatic.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(self), microphone=(), geolocation=()"
