@@ -624,6 +624,47 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **A correctly-broadcast transaction could leave its proposal stuck at
+  status 'pending' forever, keeping every sign/broadcast control
+  clickable (2026-08-29).** Operator, after broadcasting through the
+  app's own "Broadcast transaction" button: "I tried to resign a
+  transaction that I already broadcast just for testing. And the sign
+  failed after everything else looked good through the flow... it was
+  still clickable after broadcast." Traced end to end: `broadcast()`
+  (`ProposalDetail.tsx`) pushes the raw tx, then calls
+  `api.proposals.update(id, { status: 'broadcast', txid })` -- and
+  `proposals.js`'s PATCH handler for that transition independently
+  re-verifies the txid against mempool.space before accepting it (a
+  real, previously-added anti-fabrication check, Kimi K3 scan #25), by
+  comparing `out.scriptpubkey_address === existing.destination` with
+  plain strict equality. Bech32/bech32m addresses (bc1.../tb1... --
+  every Taproot destination this app ever compiles to) are
+  case-insensitive by spec (BIP173/BIP350) and mempool.space always
+  returns them lowercase, but nothing anywhere upstream normalizes a
+  pasted/typed destination before it's stored on the proposal -- so a
+  destination saved with different casing than mempool.space's lowercase
+  form (e.g. an uppercase-for-smaller-QR address, which several wallets
+  show and is fully spec-valid) fails this exact-match check on a
+  transaction that is genuinely correct and already confirmed on-chain.
+  The PATCH then 400s, `api.proposals.update`'s throw skips past
+  `toast.success`/`load()` in `broadcast()`'s try block straight to its
+  catch, and `proposal.status` never leaves `'pending'` -- so `terminal`
+  stays false and every sign/hardware-export/broadcast control
+  (`ExternalPsbt`'s `psbtToSign={mergedPsbt || proposal.psbt_hex}`
+  included) keeps rendering and keeps handing out the same
+  already-fully-signed PSBT, now referencing an already-spent UTXO,
+  to whatever the operator clicks next -- exactly what produced the
+  confusing downstream "sign failed" once a signer was asked to act on
+  a PSBT that no longer describes anything spendable. New
+  `addressesMatch()` in `proposals.js` compares case-insensitively ONLY
+  when both sides match a bech32/bech32m HRP pattern (`bc1`/`tb1`/`bcrt1`)
+  -- legacy base58 (`1.../3...`) addresses are genuinely case-sensitive,
+  so blindly lowercasing every comparison would trade one address-match
+  bug for another. The one call site (`out.scriptpubkey_address ===
+  existing.destination`) now routes through it. `node --check` passed
+  (plain JS, no build step); full test suite passing, matching the
+  documented baseline exactly.
+
 - **Threat-model audit follow-up: descriptor-swap pinning + a CSP
   (2026-08-29).** Operator, after a long discussion of where DynastyTrust
   could be tricked into signing something malicious: "Anything we can do

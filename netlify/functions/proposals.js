@@ -16,6 +16,26 @@ import { jsGovernanceAuditLeafList } from './governance.js';
 const COMPILER_URL    = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
 
+// Bech32/bech32m addresses (every bc1.../tb1... address, which is every
+// Taproot destination this app ever compiles to) are case-insensitive by
+// spec (BIP173/BIP350) -- mempool.space always returns them lowercase, but
+// nothing upstream of this file normalizes a pasted/typed destination
+// before it's stored on the proposal. A strict === comparison then fails
+// for a perfectly valid, correctly-broadcast transaction the moment the
+// stored destination's casing differs at all (e.g. an uppercase-for-QR
+// address some wallets show), leaving the proposal stuck at status
+// 'pending' forever even though the money already moved. Legacy base58
+// (1.../3...) addresses are genuinely case-sensitive -- lowercasing those
+// would corrupt them -- so normalization only applies when BOTH sides look
+// like bech32.
+const BECH32_LIKE = /^(bc1|tb1|bcrt1)[a-z0-9]+$/i;
+function addressesMatch(a, b) {
+  if (a === b) return true;
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  if (BECH32_LIKE.test(a) && BECH32_LIKE.test(b)) return a.toLowerCase() === b.toLowerCase();
+  return false;
+}
+
 // A proposal's real lifecycle, gathered from every place status is
 // written across this app: created draft (no psbt yet) or pending
 // (psbt attached) -> psbt-merge.js bumps to signed once quorum is
@@ -282,7 +302,7 @@ export async function handler(event) {
         return json(400, { error: `Could not find transaction ${txid} on ${v?.network || 'testnet'}: ${e.message}` });
       }
       const paysDestination = (tx.vout || []).some(
-        (out) => out.scriptpubkey_address === existing.destination && out.value === existing.amount_sats,
+        (out) => addressesMatch(out.scriptpubkey_address, existing.destination) && out.value === existing.amount_sats,
       );
       if (!paysDestination) {
         return json(400, {
