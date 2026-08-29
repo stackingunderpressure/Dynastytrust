@@ -624,6 +624,41 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **New-destination step-up verification scoped to consequential amounts,
+  not every new address (2026-08-29).** Direct follow-up, same session:
+  challenged on whether "new destination" is even a meaningful signal
+  given how common HD wallets are -- a recipient's own wallet rotates to
+  a fresh address on every payment by design (the whole point of
+  avoiding address reuse), so nearly every real payment to a real
+  external counterparty would trip the original gate regardless of
+  legitimacy. Firing on almost every send would have trained the
+  operator to type the confirmation tail reflexively, recreating the
+  exact fatigue problem this feature exists to fight, with less
+  correlation between "new" and "worth extra attention" than before.
+  The cryptographically correct fix -- recognizing a rotated address as
+  the same trusted wallet via the recipient's own account xpub -- needs
+  the counterparty to proactively share a public key ahead of time,
+  which essentially never happens for a normal one-off payment, so it
+  doesn't solve the common case. Landed instead on scoping the step-up
+  to new AND CONSEQUENTIAL: `needsDestConfirm` now additionally requires
+  the spend be at least 20% of the vault's current confirmed balance
+  (`VAULT_LIMIT_CONFIRM_PCT`), since an attacker's actual goal is
+  redirecting a meaningful sum, not a routine small one -- this keeps
+  ordinary small payments to correctly-rotating HD wallets frictionless
+  (accepting the residual risk there, since attacking a trivial amount
+  isn't worth the effort) while reserving the deliberate read-and-type
+  step for spends that are both unprecedented and material, which stays
+  genuinely rare regardless of how often legitimate recipients rotate
+  addresses. A sweep has no `amountSats` yet client-side (the real
+  figure isn't known until the backend computes totalIn minus the exact
+  fee), so it's treated as spending the full `confirmedSats` for this
+  check -- a full-balance sweep to a never-before-seen address is
+  exactly the highest-stakes case, not one to under-check because the
+  amount field happens to be blank. Banner copy updated to explain both
+  conditions plainly so the operator understands why THIS spend
+  triggered it rather than reading it as arbitrary. All four gates
+  green, matching the documented baseline exactly.
+
 - **New-destination step-up verification on the Send tab (2026-08-29).**
   Operator, on the realistic way DynastyTrust actually gets beaten
   despite everything already hardened: "the biggest concern is

@@ -1429,8 +1429,31 @@ function SendTab({ vault, balance, onDone, prefill, proposals }: {
   const destTrimmed = dest.trim();
   const destTailLen = Math.min(6, destTrimmed.length);
   const destTail = destTrimmed.slice(-destTailLen);
+  // Gating on "new destination" alone doesn't hold up against normal HD
+  // wallet behavior: a recipient's wallet rotates to a fresh address on
+  // every payment by design (that's the whole point of avoiding address
+  // reuse), so nearly every real payment to a real external counterparty
+  // would be "new" regardless of how legitimate it is -- firing on
+  // almost every send, training the operator to type the tail
+  // reflexively, and reintroducing the exact fatigue this feature exists
+  // to fight. What an attacker actually wants is to redirect a
+  // MEANINGFUL sum, not a routine small one, so the step-up is scoped to
+  // new AND consequential: at least 20% of this vault's current
+  // confirmed balance. A sweep has no amountSats yet (the real figure
+  // isn't known until the backend computes totalIn minus the exact fee)
+  // but is by definition close to the whole balance, so it's treated as
+  // spending confirmedSats for this check -- a full-balance sweep to a
+  // never-before-seen address is exactly the highest-stakes case, not
+  // one to under-check because the amount field happens to be blank.
+  const VAULT_LIMIT_CONFIRM_PCT = 0.2;
+  const effectiveAmountSats = useSweep ? confirmedSats : amountSats;
+  const exceedsVaultLimitThreshold =
+    confirmedSats > 0 && effectiveAmountSats >= confirmedSats * VAULT_LIMIT_CONFIRM_PCT;
   const needsDestConfirm =
-    destTrimmed.length > 0 && !isKnownDestination(destTrimmed) && destConfirmedFor !== destTrimmed;
+    destTrimmed.length > 0 &&
+    !isKnownDestination(destTrimmed) &&
+    destConfirmedFor !== destTrimmed &&
+    exceedsVaultLimitThreshold;
 
   async function buildAndSign(e: React.FormEvent) {
     e.preventDefault();
@@ -2561,7 +2584,12 @@ function SendTab({ vault, balance, onDone, prefill, proposals }: {
           }}
         >
           <div style={{ fontSize: 12, fontWeight: 700, color: colors.gold, textTransform: "uppercase", letterSpacing: 0.5 }}>
-            New destination -- this vault has never sent here before
+            New destination, {VAULT_LIMIT_CONFIRM_PCT * 100}%+ of the vault -- read carefully
+          </div>
+          <div style={{ fontSize: 12, color: colors.muted }}>
+            This vault has never sent to this address before, and this spend is at least{" "}
+            {VAULT_LIMIT_CONFIRM_PCT * 100}% of its confirmed balance. Routine repeat sends
+            never show this -- this only appears when both are true.
           </div>
           <div
             style={{
