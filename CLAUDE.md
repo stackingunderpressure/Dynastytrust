@@ -624,6 +624,48 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Tamper-hardening: reproducible installs + self-hosted SRI on the
+  bundle (2026-08-29).** Operator, thinking about how hard it should be
+  for an attacker to change the code a user actually runs: "What's best
+  guards." Two of the three recommended fixes were code-side and shipped
+  immediately; the third (deployed-commit transparency via
+  `dist/version.json` + `VersionBadge.tsx`) was found already built and
+  confirmed rather than duplicated. (1) `netlify.toml`'s build command
+  switched from `npm install` to `npm ci` for both the root install and
+  `tapit-attest`'s separate `--prefix` install -- `npm ci` installs
+  exactly what `package-lock.json` pins and fails loudly on any drift
+  between the lockfile and `package.json`, instead of `npm install`'s
+  willingness to silently resolve a newer semver-compatible version;
+  zero downside in a CI context since nothing here needs to WRITE a
+  lockfile. Verified both `npm ci` calls succeed cleanly (lockfiles are
+  in sync) and the full downstream build command still completes.
+  (2) New `inject-sri` plugin in `vite.config.ts` (alongside the
+  existing `write-version-json` one, same `closeBundle` hook): computes
+  a real SHA-384 over the built JS/CSS bytes and writes
+  `integrity="sha384-..."` into `dist/index.html`'s own `<script>`/
+  `<link>` tags. Vite's content-hashed filenames (`index-XXXX.js`) are
+  only a cache-busting convention -- nothing stops a compromised CDN
+  edge node or a MITM from serving different bytes under that same
+  filename, and SRI is what makes the BROWSER ITSELF refuse to execute
+  a file whose bytes don't match, even if something tampers with what's
+  served after this build produced it. Verified independently with
+  `openssl dgst -sha384` against the actual built files, not just
+  trusted the plugin's own math -- byte-for-byte identical. Known,
+  honest limitation: this only covers the eagerly-loaded entry chunk
+  referenced directly in `index.html`; dynamically `import()`-ed chunks
+  (e.g. `tapit-signin-request-delivery-*.js`) aren't covered by
+  HTML-attribute SRI at all -- a real gap for a future pass if it
+  matters enough to pursue (would need Vite's import-assertion SRI
+  support or a custom fetch-and-verify wrapper), not silently glossed
+  over here. Named but deliberately not done in this pass, since they're
+  account/process controls rather than code: GitHub branch protection on
+  `main` (required status check, signed commits), org-wide 2FA, Netlify
+  token rotation + deploy notifications, and the standing tension that
+  this repo pushes direct-to-main with no PR review gate at all -- the
+  single largest practical exposure, and a deliberate workflow choice
+  for the operator to revisit, not something to change unilaterally.
+  All four gates green, matching the documented baseline exactly.
+
 - **A correctly-broadcast transaction could leave its proposal stuck at
   status 'pending' forever, keeping every sign/broadcast control
   clickable (2026-08-29).** Operator, after broadcasting through the

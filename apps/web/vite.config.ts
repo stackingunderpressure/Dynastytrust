@@ -1,7 +1,8 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 
 // Netlify sets COMMIT_REF (the full 40-char deploy commit SHA) as a
 // build-time env var automatically -- no config needed on the Netlify
@@ -26,6 +27,46 @@ export default defineConfig({
           resolve(__dirname, 'dist/version.json'),
           JSON.stringify({ version: appVersion, builtAt: new Date().toISOString() }),
         );
+      },
+    },
+    {
+      // Self-hosted Subresource Integrity. Vite content-hashes the bundle's
+      // filename (index-XXXX.js) for cache-busting, but that's just a
+      // naming convention -- nothing stops a compromised CDN edge node or a
+      // MITM from serving different bytes under that same filename. Writing
+      // a real integrity hash into index.html's own <script>/<link> tags
+      // means the BROWSER itself refuses to execute a file whose bytes
+      // don't match, even if something tampers with what's served after
+      // this build produced it. closeBundle fires once the whole write
+      // phase is done (Rollup hook semantics), so dist/index.html and every
+      // referenced asset are guaranteed on disk regardless of this
+      // plugin's position in the array.
+      name: 'inject-sri',
+      closeBundle() {
+        const distDir = resolve(__dirname, 'dist');
+        const indexPath = resolve(distDir, 'index.html');
+        let html = readFileSync(indexPath, 'utf-8');
+
+        const integrityFor = (assetPath: string) => {
+          const bytes = readFileSync(resolve(distDir, '.' + assetPath));
+          return `sha384-${createHash('sha384').update(bytes).digest('base64')}`;
+        };
+
+        // <script type="module" crossorigin src="/assets/xxx.js"></script>
+        html = html.replace(
+          /<script([^>]*?)\ssrc="(\/assets\/[^"]+\.js)"([^>]*)>/g,
+          (match, before, src, after) =>
+            /integrity=/.test(match) ? match : `<script${before} src="${src}" integrity="${integrityFor(src)}"${after}>`,
+        );
+
+        // <link rel="stylesheet" crossorigin href="/assets/xxx.css">
+        html = html.replace(
+          /<link([^>]*?)\shref="(\/assets\/[^"]+\.css)"([^>]*)>/g,
+          (match, before, href, after) =>
+            /integrity=/.test(match) ? match : `<link${before} href="${href}" integrity="${integrityFor(href)}"${after}>`,
+        );
+
+        writeFileSync(indexPath, html);
       },
     },
   ],

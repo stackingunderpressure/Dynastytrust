@@ -20,7 +20,13 @@
   # behind. Every workspace package apps/web imports MUST be listed
   # here, or a from-scratch build (Netlify, a fresh clone, CI) breaks
   # even when a dev machine's leftover dist/ hides the same gap.
-  command = "npm install && npm run build --workspace=@dynastytrust/bip341-psbt-signer --workspace=@dynastytrust/nostr-transport --workspace=@dynastytrust/policy-engine --workspace=@dynastytrust/nip44 && npm --prefix tapit-attest install && npm --prefix tapit-attest run build && npm run build --workspace=@dynastytrust/web"
+  # npm ci (not npm install): installs exactly what package-lock.json
+  # pins and fails loudly on any drift between the lockfile and
+  # package.json, instead of npm install's willingness to silently
+  # resolve a newer semver-compatible version -- more tamper-resistant
+  # against a quietly-bumped dependency, no downside in a CI build
+  # context since nothing here needs to WRITE a lockfile.
+  command = "npm ci && npm run build --workspace=@dynastytrust/bip341-psbt-signer --workspace=@dynastytrust/nostr-transport --workspace=@dynastytrust/policy-engine --workspace=@dynastytrust/nip44 && npm --prefix tapit-attest ci && npm --prefix tapit-attest run build && npm run build --workspace=@dynastytrust/web"
   publish = "apps/web/dist"
 
 [build.environment]
