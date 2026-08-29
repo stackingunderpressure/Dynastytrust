@@ -624,6 +624,42 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **New-destination step-up verification on the Send tab (2026-08-29).**
+  Operator, on the realistic way DynastyTrust actually gets beaten
+  despite everything already hardened: "the biggest concern is
+  verification fatigue -- the 200th routine send gets a glance, not a
+  read." Asked for the highest-leverage fix that doesn't drag down
+  routine use. Landed on scoping ALL new friction to destinations this
+  vault has never actually paid before, leaving every repeat send
+  exactly as fast as today: `SendTab` now takes the already-loaded
+  `proposals` prop (no new fetch, no new schema) and treats a
+  destination as "known" only if it matches (via the same
+  `addressesMatch` bech32-case-insensitive comparison already built for
+  the broadcast-verification fix above, mirrored client-side as
+  `apps/web/src/lib/address-match.ts`) the destination on a proposal
+  that actually reached `status: 'broadcast'` for this vault -- a
+  cancelled or never-broadcast proposal doesn't count, since it proves
+  nothing about the address being safe. A brand-new destination shows
+  the full, non-truncated address in large mono type under a "New
+  destination" banner and requires typing back its last 6 characters
+  before the "Review & sign" button unlocks -- typing back the tail
+  can't be done reflexively the way clicking an "I confirm" button can,
+  which is the actual point: it forces the one moment of genuine
+  attention to land exactly where risk is concentrated (an
+  address-poisoning lookalike would always be a "new" destination,
+  since it's never actually been paid before) instead of being diluted
+  across every routine transaction. `buildAndSign` also gates on this
+  functionally, not just via the disabled submit button, since a
+  disabled button doesn't reliably block every browser's implicit
+  Enter-key form submission. Deliberately scoped to the main Send tab
+  only, not `TrancheClaimModal`'s own destination field -- tranche
+  claims pay a beneficiary's own already-designated address under a
+  separate quorum/trustee-escape model, not an arbitrary fresh
+  destination each time, so the same risk this feature targets doesn't
+  apply there. All four gates green, matching the documented baseline
+  exactly (typecheck's known pre-existing errors merely shifted line
+  numbers, zero new lint warnings).
+
 - **Tamper-hardening: reproducible installs + self-hosted SRI on the
   bundle (2026-08-29).** Operator, thinking about how hard it should be
   for an attacker to change the code a user actually runs: "What's best

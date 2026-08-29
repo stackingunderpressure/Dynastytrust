@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   api,
@@ -37,6 +37,7 @@ import { useRealtimeRefresh } from "../lib/realtime";
 import { normalizePsbt } from "../lib/psbt-format";
 import { downloadVault, downloadDistributionWalletBackup } from "../lib/descriptor-backup";
 import { formatDescriptorFingerprint } from "../lib/descriptor-fingerprint";
+import { addressesMatch } from "../lib/address-match";
 import { DescriptorQr } from "../components/DescriptorQr";
 import { pubkeyFromXpub, fingerprintFromXpub } from "../lib/xpub";
 import { isLeafListVault } from "../lib/vault-spending-paths";
@@ -655,6 +656,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
             vault={duressOverride === null ? vault : { ...vault, duress: duressOverride }}
             balance={balance}
             prefill={sendPrefill}
+            proposals={proposals}
             onDone={() => { setSendPrefill(null); void load(); setTab("history"); }}
           />
         )}
@@ -1311,15 +1313,41 @@ interface SigningState {
   txid?: string;
 }
 
-function SendTab({ vault, balance, onDone, prefill }: {
+function SendTab({ vault, balance, onDone, prefill, proposals }: {
   vault: Vault;
   balance: BalanceResult | null;
   onDone: () => void;
   prefill?: SendPrefill | null;
+  proposals: Proposal[];
 }) {
   const askPassword = usePrompt();
   const [step, setStep] = useState<SendStep>("form");
   const [dest, setDest] = useState(prefill?.destination ?? "");
+  // Step-up verification for a destination this vault has never actually
+  // paid before. The realistic way a careful, correctly-verifying signer
+  // still gets beaten isn't a clever exploit -- it's attention fatigue:
+  // the 200th routine send to a familiar address gets a glance, not a
+  // read, and that's exactly the moment an address-poisoning attack (a
+  // lookalike destination sharing the same first/last few characters) is
+  // built to exploit. Concentrating a deliberate, hard-to-skim-past step
+  // ONLY on a destination that's never appeared in a past BROADCAST
+  // proposal for this vault (a real, cheap-to-compute proxy for "have we
+  // actually verified and paid this before") keeps every routine repeat
+  // send exactly as fast as today, while forcing genuine attention
+  // precisely at the one moment risk is actually concentrated -- the
+  // first time. Typing back the tail of the address (not clicking an "I
+  // read it" button) is the part that can't be done reflexively.
+  const knownDestinations = useMemo(
+    () => proposals.filter(p => p.status === "broadcast").map(p => p.destination),
+    [proposals],
+  );
+  const isKnownDestination = (d: string) => knownDestinations.some(k => addressesMatch(k, d));
+  // Keyed to the exact string confirmed, not a plain boolean -- so
+  // editing the destination even slightly after confirming naturally
+  // re-triggers the gate instead of leaving a stale "confirmed" flag
+  // pointed at a different address than what's now in the field.
+  const [destConfirmedFor, setDestConfirmedFor] = useState<string | null>(null);
+  const [destConfirmSuffix, setDestConfirmSuffix] = useState("");
   const [amountBtc, setAmountBtc] = useState(
     prefill?.amount_sats ? satsToBtc(prefill.amount_sats) : "",
   );
@@ -1398,8 +1426,21 @@ function SendTab({ vault, balance, onDone, prefill }: {
 
   const useSweep = sweep;
 
+  const destTrimmed = dest.trim();
+  const destTailLen = Math.min(6, destTrimmed.length);
+  const destTail = destTrimmed.slice(-destTailLen);
+  const needsDestConfirm =
+    destTrimmed.length > 0 && !isKnownDestination(destTrimmed) && destConfirmedFor !== destTrimmed;
+
   async function buildAndSign(e: React.FormEvent) {
     e.preventDefault();
+    // Functional gate, not just a disabled button -- a disabled submit
+    // button doesn't reliably stop a form's implicit Enter-key submit in
+    // every browser, and this is the one check nothing downstream repeats.
+    if (needsDestConfirm) {
+      setErr("New destination -- read the full address above and type its last characters to confirm before sending.");
+      return;
+    }
     if (!useSweep) {
       if (amountSats < 546) { setErr("Minimum 546 sats (dust limit)"); return; }
       if (amountSats > confirmedSats) { setErr("Insufficient confirmed balance"); return; }
@@ -2508,6 +2549,57 @@ function SendTab({ vault, balance, onDone, prefill }: {
         />
       </div>
 
+      {needsDestConfirm && (
+        <div
+          style={{
+            border: `1px solid ${colors.gold}`,
+            borderRadius: radii.md,
+            padding: "12px 14px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 700, color: colors.gold, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            New destination -- this vault has never sent here before
+          </div>
+          <div
+            style={{
+              fontFamily: fonts.mono,
+              fontSize: 15,
+              letterSpacing: 1,
+              color: colors.text,
+              wordBreak: "break-all",
+              lineHeight: 1.7,
+            }}
+          >
+            {destTrimmed}
+          </div>
+          <div style={{ fontSize: 12, color: colors.muted }}>
+            Read the full address above, then type its last {destTailLen} characters to
+            confirm you checked it -- not the one you last sent to, not a similar-looking
+            one.
+          </div>
+          <Input
+            mono
+            value={destConfirmSuffix}
+            onChange={e => setDestConfirmSuffix(e.target.value)}
+            placeholder={`last ${destTailLen} characters`}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={destConfirmSuffix.trim().toLowerCase() !== destTail.toLowerCase()}
+            onClick={() => {
+              setDestConfirmedFor(destTrimmed);
+              setDestConfirmSuffix("");
+            }}
+          >
+            Confirm this destination
+          </Button>
+        </div>
+      )}
+
       <div style={{ display: "flex", gap: 12 }}>
         <div style={{ flex: 2 }}>
           <Label>Amount (BTC)</Label>
@@ -2625,10 +2717,14 @@ function SendTab({ vault, balance, onDone, prefill }: {
 
       <Button
         type="submit"
-        disabled={busy}
+        disabled={busy || needsDestConfirm}
         style={{ padding: "14px", fontSize: 15 }}
       >
-        {busy ? (slowHint ? "Waking compiler..." : "Building transaction...") : "Review & sign"}
+        {busy
+          ? (slowHint ? "Waking compiler..." : "Building transaction...")
+          : needsDestConfirm
+            ? "Confirm the new destination above first"
+            : "Review & sign"}
       </Button>
     </form>
   );
