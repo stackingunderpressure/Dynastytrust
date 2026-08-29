@@ -624,6 +624,121 @@ on descriptor compile + single-source tree builder. Next phase is the trust
 
 **Recently closed:**
 
+- **Threat-model audit follow-up: descriptor-swap pinning + a CSP
+  (2026-08-29).** Operator, after a long discussion of where DynastyTrust
+  could be tricked into signing something malicious: "Anything we can do
+  to sure up holes." Two real, previously-unaddressed gaps from that
+  discussion, both closed; the rest of the discussion's concerns
+  (change-output spoofing, leaf/path mislabeling) were traced against
+  `psbt_builder.rs`/`psbt_parser.py` and found already closed by existing
+  code (`change_address` is rejected server-side unless it matches the
+  vault's own compiled script; `attach_tap_change_output_metadata` stamps
+  real BIP371 derivation on the change output so SeedSigner's own
+  `verify_multisig_output` cryptographically confirms it, not a label) --
+  confirmed rather than re-fixed. (1) **Descriptor-swap pinning.** Nothing
+  before this stopped a signer from importing a DIFFERENT descriptor than
+  the one that actually funded a vault (a compromised app substitutes it,
+  a stale copy-paste, a swapped QR) -- every future signature that signer
+  produces is then perfectly correct against the wrong tree, with nothing
+  at signing time able to catch it. New
+  `apps/web/src/lib/descriptor-fingerprint.ts` (`descriptorFingerprint`/
+  `formatDescriptorFingerprint`, plain SHA-256 over the descriptor's UTF-8
+  bytes, first 8 hex chars -- same convention as `PsbtQrDisplay.tsx`'s
+  `psbtTransactionFingerprint`) is displayed in both of `VaultDetail.tsx`'s
+  descriptor cards, printed in `vault-pdf.js`'s technical-details page
+  (via a Node `crypto.createHash('sha256')` computation, independently
+  implementing the same algorithm rather than importing across the
+  browser/server boundary), and written into `descriptor-backup.ts`'s
+  downloadable backup text -- all three with the same explicit
+  instruction: write the fingerprint down SEPARATELY (paper, not the
+  screen it was read from), and compare it against any future copy of the
+  descriptor before trusting it. This is a labeling/comparison aid, not a
+  security mechanism on its own -- comparing DynastyTrust's own displayed
+  fingerprint against a descriptor DynastyTrust also generated proves
+  nothing about a substitution DynastyTrust itself performed maliciously
+  or was tricked into performing; its value only exists once captured
+  once, out of band, and compared later against a channel a single
+  compromised party can't touch. Deliberately not mirrored into
+  `vault-audit-pdf.js`/tax exports -- `vault-pdf.js` is the primary
+  client-facing artifact and the smallest useful slice. (2) **CSP +
+  security headers.** `netlify.toml` had no security headers at all.
+  Added `Content-Security-Policy` (script-src limited to 'self' -- this
+  bundle has no inline scripts, confirmed by inspecting the built
+  `index.html` -- closing off the most common injected-script path for
+  the app's softest attack surface: an XSS bug, malicious extension, or
+  compromised npm dependency getting a shot at an unlocked secure-mode
+  key or a test-mode plaintext mnemonic in `localStorage`), plus
+  `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: strict-origin-when-cross-origin`, and
+  `Permissions-Policy` scoping camera to same-origin (needed for this
+  app's own QR scanners) with microphone/geolocation denied outright.
+  `connect-src` deliberately allows `wss:` broadly rather than an
+  enumerated relay list, because Nostr relay choice is intentionally
+  user-configurable (`nostrRelayPrefs.ts` -- "a family that wants to run
+  its own relay") and a fixed allowlist would silently break that feature
+  for anyone who points it elsewhere; `style-src`/`font-src` needed
+  `fonts.googleapis.com`/`fonts.gstatic.com` added after the production
+  build revealed the app's Google Fonts `<link>` tags, caught by actually
+  inspecting `dist/index.html` rather than guessing at what the CSP needed
+  to allow. Separately confirmed no gap: `ChatWizard.tsx`'s `ConfirmCard`
+  ("Sage rubber-stamping a malicious spend") -- read the code and found
+  Sage only ever proposes VAULT STRUCTURE (quorums, timelocks), never a
+  destination or amount, and "Looks right -- build this vault" only
+  navigates into the full `VaultWizard` prefilled; it does not compile,
+  sign, or spend anything by itself, so every real review step (Configure
+  -> Keys -> Compile -> Backup -> Funding) still happens normally. No fix
+  needed, stated here so a future audit doesn't re-flag it. All four
+  gates green: typecheck matches the documented 10-error pre-existing
+  baseline exactly (none in a file this change touched), lint 0 errors/11
+  pre-existing warnings, build clean, full test suite passing
+  (`node --check` on `vault-pdf.js`, plain JS with no build step).
+
+- **Sage told a user their tiered heir/backstop plan needed two separate
+  vaults -- it doesn't, and Sage's own knowledge had no way to know that
+  (2026-08-27).** Operator pasted a real Sage transcript for review: a
+  person built up to "heirs inherit after ~10 years, a single buried key
+  as the ultimate backstop after ~15 years," and Sage's final answer was
+  "the templates I can build here have one heir path, not two stacked
+  heir leaves... best built as its own thing: a second, separate vault."
+  Checked against the real compiler and found that flatly wrong: the
+  Standard vault shape has carried exactly this -- a second, independent
+  `second_inheritance` leaf with its own quorum (down to a single key)
+  and its own longer timelock, stacked on top of the first inheritance
+  leaf in the SAME compiled vault -- since the 2026-08-XX second-
+  inheritance feature shipped, fully wired into `VaultWizard.tsx`'s
+  Standard Configure step as an "Add a second, independent heir group"
+  toggle. Traced the actual root cause rather than just re-answering the
+  question: `assistant.js`'s hand-maintained knowledge digests (the top-
+  of-prompt product description, `RUNG_DIGEST`'s Rung 6, and
+  `TEMPLATE_DIGEST`) never once mentioned second inheritance anywhere,
+  so the model had no way to know the capability existed and reasonably
+  improvised the two-vault workaround. Two further, smaller instances of
+  the identical gap found while grounding this: `VAULT_SAFE_FIELDS`
+  (what Sage can see about a vault it's discussing) omitted
+  `second_heir_quorum`/`second_inheritance_after`, so even asking about
+  an EXISTING vault with one already configured would have shown Sage
+  nothing; and the `vault-proposal` JSON schema Sage uses to hand off a
+  concrete recommendation had no fields to express a second tier at all,
+  so even a correct recommendation couldn't have been proposed end to
+  end. Fixed all four: the top-of-prompt description and Rung 6 now
+  state plainly that inheritance is not a ceiling and a deeper tier is
+  optional and stacks on the SAME vault; a new SECOND INHERITANCE
+  section in `TEMPLATE_DIGEST` states this explicitly and says outright
+  never to recommend two vaults for this shape; `VAULT_SAFE_FIELDS` and
+  the named-field branch of `vaultContext` now surface
+  `second_heir_quorum`/`second_inheritance_after` when set;
+  `extractProposal()`, `VaultProposal` (`api.ts`), and `ChatWizard.tsx`'s
+  `ConfirmCard` all gained matching OPTIONAL
+  `second_heir_quorum`/`second_heir_count`/`second_inheritance_after_months`
+  fields (omitted entirely when a plan has no deeper tier, so every
+  existing proposal shape is untouched). The rest of that transcript was
+  independently verified accurate and left alone -- Sage's refusal to
+  give a "15% return" allocation number, its timelock/loosest-door
+  reasoning, and its single-buried-key trade-off critique all checked
+  out against the real mechanics. `node --check` passed on the edited
+  Netlify function (plain JS, not covered by tsc/eslint); all four
+  frontend gates green, matching the documented baseline exactly.
+
 - **Number fields for a timelock could get permanently stuck at their
   starting value -- clearing them to type something else just snapped
   right back (2026-08-26).** Direct follow-up to the timelock-floor

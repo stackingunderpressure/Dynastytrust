@@ -24,6 +24,7 @@
 
 import type { Vault, DistributionWallet, LeafSpec } from './api';
 import { downloadTextFile } from './download-file';
+import { formatDescriptorFingerprint } from './descriptor-fingerprint';
 
 export interface VaultBackupLike {
   name: string;
@@ -121,6 +122,14 @@ export function vaultBackupText(v: VaultBackupLike): string {
     ``,
     `# Output descriptor (Sparrow import -- primary recovery path)`,
     v.descriptor ?? '(not compiled yet)',
+    ``,
+    `# Descriptor fingerprint -- write this down SEPARATELY from this file`,
+    `# (a sticky note, a second sheet of paper, memorized). Before trusting`,
+    `# any future copy of this descriptor -- on a signer, on a screen, in`,
+    `# a re-downloaded backup -- recompute its fingerprint and compare`,
+    `# against what you wrote down here. A mismatch means don't sign;`,
+    `# something swapped the descriptor for a different one.`,
+    v.descriptor ? formatDescriptorFingerprint(v.descriptor) : '(not compiled yet)',
     ``,
     `# Miniscript policy`,
     v.miniscript_policy ?? '(not compiled yet)',

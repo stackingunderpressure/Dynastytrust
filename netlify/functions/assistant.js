@@ -98,7 +98,7 @@ const HISTORY_LIMIT = 20;
 // need any key material; this list deliberately omits founder_keys,
 // heir_keys, consent_keys, and every other secret.
 const VAULT_SAFE_FIELDS =
-  "name, network, address, descriptor, miniscript_policy, founder_quorum, heir_quorum, recovery_after, inheritance_after, leaves";
+  "name, network, address, descriptor, miniscript_policy, founder_quorum, heir_quorum, recovery_after, inheritance_after, second_heir_quorum, second_inheritance_after, leaves";
 
 // // -- Plain-text digest of the vault templates.
 // Kept in sync by hand with apps/web/src/lib/vault-templates.ts's
@@ -176,6 +176,20 @@ VAULT TEMPLATES you can guide a person toward (use the exact template id in a pr
 There are also [TEST] variants of most templates with timelocks measured in
 blocks (hours on signet) for sandbox rehearsal -- only mention these if the person
 explicitly wants to practice end-to-end before using real value.
+
+SECOND INHERITANCE -- any template with a heir/inheritance door (family-
+inheritance, generational-trust, and any custom shape) can add ONE more,
+deeper door on top of it: its own quorum (down to a single key) that only
+unlocks after a LONGER wait than the first inheritance door. This is the
+right answer whenever someone describes a tiered plan like "heirs inherit
+after some years, then a simple/single-key backstop after even longer" --
+that is not two vaults, it is one vault with a second inheritance tier,
+built in the same Configure step as an "Add a second, independent heir
+group" option (its own key(s), quorum, and timelock, e.g. 15 years instead
+of the first door's 10). Never tell someone to build two separate vaults for
+a shape like this -- that means two addresses, two sets of backups, and
+twice the chance something gets forgotten over the decades this is meant to
+survive, when one compile already does it.
 
 TAPIT WALLET -- if someone asks whether they can use "Tapit" / "Tapit Wallet"
 as a key, the answer is an immediate, confident YES, not "let me check if it
@@ -282,15 +296,18 @@ even by you under threat; "locked for eternity" is the misconception -- it is a
 date, and the app counts down to it. Ask: if you could seal a door even you
 cannot open until a date you pick, what goes behind it and how far out?
 
-Rung 6 -- The three paths / how you control it: everyday door (you and your
-group, now), recovery door (same group, after a wait), inheritance door (heirs
-alone, after a longer wait), optional outside-helper door. All of it lives at
-ONE fixed address for the life of the vault, not a fresh one each time -- a
-deliberate choice for a durable, auditable place trustees and heirs can point
-at, traded against the privacy a fresh-address wallet gives you. Want a
-genuinely unlinked new address? Open a new vault; do not expect this one to
-hand you a new address. Ask: who reaches it today, who recovers it if you go
-quiet, who inherits -- and how long each wait?
+Rung 6 -- The paths / how you control it: everyday door (you and your group,
+now), recovery door (same group, after a wait), inheritance door (heirs
+alone, after a longer wait). Inheritance itself is not a ceiling -- it can
+carry an OPTIONAL second, deeper door of its own: a simpler quorum, even a
+single key, that only unlocks after a longer wait still (see SECOND
+INHERITANCE below). All of it lives at ONE fixed address for the life of the
+vault, not a fresh one each time -- a deliberate choice for a durable,
+auditable place trustees and heirs can point at, traded against the privacy
+a fresh-address wallet gives you. Want a genuinely unlinked new address? Open
+a new vault; do not expect this one to hand you a new address. Ask: who
+reaches it today, who recovers it if you go quiet, who inherits, is there a
+deeper backstop behind that -- and how long each wait?
 
 Rung 7 -- Who do I trust: yourself across time, named family (works until it
 does not over 50 years), an arrangement instead of a name (paid bonded helpers),
@@ -387,6 +404,13 @@ function buildSystemPrompt(vaultContext, mode) {
 multi-generational vault platform. DynastyTrust lets a family hold their own
 Bitcoin with governed spending paths (founders now, a timelocked recovery path,
 and a timelocked inheritance path) across multiple signers, with NO custodian.
+A vault is NOT capped at those three paths: an inheritance path can carry an
+OPTIONAL second, deeper tier -- a simpler quorum (even a single key) that only
+unlocks after a longer wait than the first inheritance door, e.g. "heirs at
+10 years, one backstop key at 15 years." That is still ONE vault, ONE
+compile, ONE address -- never propose splitting a person's plan across two
+vaults when what they actually want is a longer, simpler path stacked on top
+of the one they already have. See "SECOND INHERITANCE" below.
 
 YOUR JOB: teach a newcomer through the act of using the tool, in plain,
 unbiased language, and walk them toward building ONE vault that fits their real
@@ -436,11 +460,22 @@ this form and nothing after it:
 {"template":"family-inheritance","founder_quorum":2,"founder_count":3,"heir_quorum":2,"heir_count":3,"recovery_after_months":6,"inheritance_after_months":24,"summary":"A 2-of-3 trustee vault with your three siblings; if trustees go quiet, your two kids inherit after about two years."}
 \`\`\`
 
+If the plan includes a SECOND INHERITANCE tier (see above), add its three
+fields to the same object -- still one block, one vault:
+\`\`\`vault-proposal
+{"template":"family-inheritance","founder_quorum":2,"founder_count":3,"heir_quorum":2,"heir_count":3,"recovery_after_months":6,"inheritance_after_months":120,"second_heir_quorum":1,"second_heir_count":1,"second_inheritance_after_months":180,"summary":"Heirs inherit after about 10 years; a single backstop key alone can spend after about 15 years."}
+\`\`\`
+
 Rules for the proposal block:
 - Use one of the template ids listed above.
 - founder_quorum/founder_count and heir_quorum/heir_count are integers; quorum
   must not exceed count. For templates with no heirs, set heir_count 0 and
   heir_quorum 0. For templates with no timelocks, set the *_after_months to 0.
+- second_heir_quorum/second_heir_count/second_inheritance_after_months are
+  OPTIONAL -- omit all three entirely unless the plan genuinely has a deeper
+  backstop tier. When present, second_inheritance_after_months must be
+  greater than inheritance_after_months (it is a longer wait than the first
+  inheritance door, not an alternative to it).
 - NEVER put keys, names of seed words, or any secret in the proposal.
 - summary is one or two plain-English sentences a person can confirm by tapping.
 - Include the block ONLY when you are ready to recommend building. Otherwise omit
@@ -541,7 +576,11 @@ export async function handler(event) {
           : `founder quorum: ${vault.founder_quorum}
 heir quorum: ${vault.heir_quorum}
 recovery unlock height: ${vault.recovery_after}
-inheritance unlock height: ${vault.inheritance_after}`;
+inheritance unlock height: ${vault.inheritance_after}${
+              vault.second_inheritance_after > 0
+                ? `\nsecond inheritance (deeper backstop) quorum: ${vault.second_heir_quorum}, unlock height: ${vault.second_inheritance_after}`
+                : ''
+            }`;
         vaultContext = `\nThe person is looking at an existing vault. Safe public details only (NO keys):
 name: ${vault.name}
 network: ${vault.network}
@@ -648,6 +687,21 @@ function extractProposal(raw) {
         summary:
           typeof parsed.summary === "string" ? parsed.summary : "",
       };
+      // Optional second-inheritance tier -- only carried through when the
+      // model actually included it (see SECOND INHERITANCE in the system
+      // prompt); a proposal with no deeper backstop stays exactly the
+      // shape it was before this field existed.
+      if (
+        parsed.second_heir_quorum != null ||
+        parsed.second_heir_count != null ||
+        parsed.second_inheritance_after_months != null
+      ) {
+        proposed_values.second_heir_quorum = num(parsed.second_heir_quorum);
+        proposed_values.second_heir_count = num(parsed.second_heir_count);
+        proposed_values.second_inheritance_after_months = num(
+          parsed.second_inheritance_after_months,
+        );
+      }
     }
   } catch {
     proposed_values = null;

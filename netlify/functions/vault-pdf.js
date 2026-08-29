@@ -9,8 +9,23 @@
 
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import QRCode from 'qrcode';
+import { createHash } from 'node:crypto';
 import { requireUser } from './_auth.js';
 import { getSupabaseAdmin } from './_supabase.js';
+
+// Same fingerprint apps/web/src/lib/descriptor-fingerprint.ts computes
+// client-side (plain SHA-256 over the descriptor's UTF-8 bytes, first 8 hex
+// chars) -- printed here so the paper copy of this vault carries the exact
+// value a signer or a future re-downloaded backup should be compared
+// against. Node's crypto and @noble/hashes both implement plain SHA-256, so
+// this is the same algorithm computed independently, not a duplicated
+// implementation that could drift the way upgradeDescriptor's two separate
+// copies once did.
+function descriptorFingerprint(descriptor) {
+  const hex = createHash('sha256').update(descriptor, 'utf8').digest('hex');
+  const fp = hex.slice(0, 8);
+  return `${fp.slice(0, 4)} ${fp.slice(4, 8)}`;
+}
 
 // ── Colors ────────────────────────────────────────────────────────────────────
 const GOLD      = rgb(0.788, 0.659, 0.298);  // #C9A84C
@@ -373,6 +388,21 @@ async function buildVaultPDF(vault) {
     p2.drawText(descLines[i], { x: M + 10, y: y - 6 - i * 14, size: 8, font: mono, color: TEXT });
   }
   y -= descH + 16;
+
+  // ── Descriptor fingerprint ─────────────────────────────────────────────────
+  // A short value meant to be checked, not just read: before trusting any
+  // future copy of this descriptor (on a signer, in a re-downloaded backup),
+  // recompute its fingerprint and compare against what's printed here. See
+  // apps/web/src/lib/descriptor-fingerprint.ts for the full rationale.
+  if (vault.descriptor) {
+    p2.drawText('DESCRIPTOR FINGERPRINT', { x: M, y, size: 8, font: bold, color: GOLD });
+    y -= 14;
+    p2.drawText('Compare this against any future copy of the descriptor before trusting it. A mismatch means don\'t sign.',
+      { x: M, y, size: 8, font: regular, color: TEXT_MUTE, maxWidth: W - M * 2 });
+    y -= 16;
+    p2.drawText(descriptorFingerprint(vault.descriptor), { x: M, y, size: 14, font: mono, color: GOLD });
+    y -= 22;
+  }
 
   drawHRule(p2, y);
   y -= 20;
