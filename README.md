@@ -59,3 +59,28 @@ always tr_multileaf") for the engineering rule all of this traces back to.
 ## Getting started, tests, deployment
 
 See [`docs/README.md`](docs/README.md).
+
+## Open source
+
+MIT licensed -- see [`LICENSE`](LICENSE). The pieces under the hood are meant
+to be **lifted out and reused**: [`protocol/`](protocol) is the Rust Miniscript
+policy compiler that turns a vault's spending rules into a Taproot output --
+the timelocks, quorums, and leaf structure Bitcoin itself enforces;
+[`compiler/`](compiler) is the small HTTP service that exposes it; and
+[`tapit-attest/`](tapit-attest) is the vendored signed-attestation primitive
+this project shares with Tapit Wallet (it carries its own copy of the same
+license). Fork them, use them, build your own vault -- that's what they're
+for. We invented none of the cryptography: Miniscript, Taproot, Schnorr,
+timelocks, and PSBT are all Bitcoin's own. The only new thing here is
+composing them so a family can set up inheritance and recovery without a
+custodian, and without having to understand the script first.
+
+The other half of the thesis is written down too, and is just as forkable:
+[`THESIS.md`](THESIS.md) is the complete technical thesis,
+[`docs/manifesto.md`](docs/manifesto.md) the plain pitch,
+[`docs/legal-framework-for-users.md`](docs/legal-framework-for-users.md) a
+plain-language map of where a vault fits into real legal structures (not
+legal advice), and
+[`docs/sovereignty-education-bot.md`](docs/sovereignty-education-bot.md) the
+curriculum the app teaches one rung at a time. Mechanism plus a playbook;
+the family runs its own thing.
