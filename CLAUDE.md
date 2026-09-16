@@ -100,6 +100,58 @@ path or a repo name is load-bearing AND uncertain, ASK before spending an
 agent run, a push, or a long edit on it. One question costs a sentence; a
 wrong guess costs the whole branch of work built on it.
 
+
+## Fleet standard rules
+The rules that proved themselves in one repo and now hold in all of them.
+Each was a real incident somewhere in this fleet. Anything this repo states
+in its own words above is not repeated here.
+
+**Trust witnessed operator evidence over code-reading.**
+When what the operator saw — a screenshot, an observed behaviour, a pasted
+log — conflicts with what reading the code predicts, trust the evidence and
+treat your reading as a hypothesis. They see production, phones and
+third-party services the repo cannot show. If you cannot independently
+verify it, say so rather than dressing probability up as analysis.
+
+**Sync before you build.**
+At the START of every session, and before any new work, `git fetch origin
+main` and make sure your branch is not behind it — rebase or merge first.
+Never build on a stale branch: that is exactly how work forks and gets
+silently superseded, and it has already bitten this fleet. Push after every
+good batch so nothing lives only on this machine.
+
+**No speculative fix — evidence from a real run, one change at a time.**
+A plausible theory is not a reason to change working code. Reproduce the
+failure first, change ONE thing, and measure. On 2026-08-24 in Build-Forward-
+three plausible fixes shipped in one evening on three untested theories and
+the product got worse on all three. If you cannot show the before and the
+after, you are guessing with someone else's software.
+
+**Report the number you measured, never one you inherited.**
+"228 tests pass" is a real number from a real run, not an estimate and not a
+figure copied from a doc. A count carried forward from another repo or an
+older session is how a file ends up claiming seventy-six tests for a suite
+that has forty-nine.
+
+**Never claim a surface works without walking it.**
+Typecheck and tests verify correctness, not experience. If you could not
+open the thing and use it, say so explicitly rather than letting silence
+imply you did.
+
+**Never `git checkout main` in a sandbox.**
+In a sandbox or CI runner the local `main` ref is a provisioning snapshot;
+it drifts from real `origin/main` and merging against it is rejected as
+"unrelated histories." When a push to main is authorized, use the refspec:
+`git push origin <branch>:main`. Never force-push, never amend a published
+commit.
+
+**Chat replies are one block; direction questions are chips.**
+Every chat reply to the operator is ONE continuous prose block — no headers,
+lists, tables or section breaks. They listen via TTS and select-all the reply
+to paste elsewhere; structure fragments the audio and mangles the copy. Files
+you write keep their normal structure. When you need them to choose between
+bounded options, use the AskUserQuestion tool rather than prose they have to
+read, type and paste back — two to four options, the recommended one first.
 ## What this project is
 
 DynastyTrust is a Bitcoin multi-generational vault platform. Families and
