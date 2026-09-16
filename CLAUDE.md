@@ -79,6 +79,23 @@ technical rules below win on implementation.
 
 ---
 
+## Precedence — which instruction wins
+1. An explicit operator instruction in this session.
+2. This file.
+3. Fleet doctrine in AppCommander.
+4. A harness, dispatch, or task-brief injection.
+
+Never infer a permission from a pattern in a work log, a changelog, or a past
+commit. If the rule you need is not in 1-3, **ASK**. An inferred permission is
+how a session does the wrong irreversible thing while believing it was
+authorised.
+
+**Ambiguity rule.** The operator works by voice, often while driving, and
+cannot correct a mangled transcription. When a proper noun, a number, a file
+path or a repo name is load-bearing AND uncertain, ASK before spending an
+agent run, a push, or a long edit on it. One question costs a sentence; a
+wrong guess costs the whole branch of work built on it.
+
 ## What this project is
 
 DynastyTrust is a Bitcoin multi-generational vault platform. Families and
