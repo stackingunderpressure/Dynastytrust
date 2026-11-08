@@ -1,20 +1,26 @@
 /**
  * offline-vault-harness.mjs -- deterministic, offline, end-to-end proof that
- * every vault shape's every spending path actually produces a valid, finalizable
- * Bitcoin transaction, using the REAL Rust compiler (run locally, not Fly) and
- * the REAL browser signer (apps/web/src/lib/psbt-signer.ts).
+ * EVERY vault shape's EVERY spending path produces a valid, finalizable Bitcoin
+ * transaction -- using the REAL Rust compiler (run locally, not Fly) and the
+ * REAL browser signer (apps/web/src/lib/psbt-signer.ts).
  *
- * It needs no network and no Bitcoin node: the Rust finalizer only finalizes a
+ * No network, no Bitcoin node. The rust-miniscript finalizer only finalizes a
  * PSBT when the signatures genuinely satisfy the leaf script (including its
- * timelock), so "finalize succeeds and extracts a well-formed tx" is a real
- * correctness proof. Timelock gating is proven without waiting by building the
- * recovery/inheritance spend at the unlock height and asserting it finalizes,
- * and (negative) that the wrong path/locktime does NOT.
+ * timelock), so "finalize succeeds and a well-formed tx comes out" is a real
+ * correctness proof. Timelocks are proven without waiting by asserting the
+ * absolute unlock height is baked into the finalized tx's nLockTime (a node
+ * then enforces it), and gates are proven by asserting below-quorum, wrong-
+ * signer, and missing-consent spends are REJECTED.
  *
- * Run: start the compiler, then
- *   COMPILER_URL=http://127.0.0.1:8899 COMPILER_SECRET=testsecret \
- *   node --experimental-strip-types --import ./scripts/register-ts-resolver.mjs \
- *        scripts/offline-vault-harness.mjs
+ * Shapes covered:
+ *   named-field (/compile):   family-inheritance, lost-device, social-recovery,
+ *                             backup ("anytime harder"), second-inheritance
+ *   bloc (/compile-bloc):     parents_now, coparent_kids, parent_solo, and the
+ *                             kids_decay ladder at three rungs
+ *   tranche (/compile-tranche): trustee (anytime) and beneficiary (unlock_block)
+ *
+ * Run:  npm run test:harness   (one command -- builds + starts the compiler,
+ *       runs this, tears it down). Or manually with COMPILER_URL/COMPILER_SECRET.
  */
 
 import assert from 'node:assert/strict';
@@ -25,27 +31,22 @@ import { signPsbtWithMnemonic, mergePsbts } from '../apps/web/src/lib/psbt-signe
 
 const COMPILER = process.env.COMPILER_URL || 'http://127.0.0.1:8899';
 const SECRET = process.env.COMPILER_SECRET || 'testsecret';
-const NET = 'signet'; // compiler network string; signet uses testnet address params
+const NET = 'signet';
 
-// One fixed mnemonic, many accounts -> many distinct signers. Each "signer" is
-// account m/86'/1'/N'; the browser signer signs with that path's /0/0 child, so
-// the pubkey we send the compiler is that same /0/0 child, compressed hex.
+// One fixed mnemonic, many accounts -> many distinct signers. Signer N is
+// account m/86'/1'/N'; the browser signer signs with that path's /0/0 child,
+// so the pubkey the compiler bakes into the leaf is that same /0/0 child.
 const MNEMONIC = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
-const SEED = mnemonicToSeedSync(MNEMONIC);
-// signet/testnet xpub/xprv versions (same as psbt-signer's "testnet" branch)
-const VERSIONS = { private: 0x04358394, public: 0x043587cf };
-const ROOT = HDKey.fromMasterSeed(SEED, VERSIONS);
+const ROOT = HDKey.fromMasterSeed(mnemonicToSeedSync(MNEMONIC), { private: 0x04358394, public: 0x043587cf });
 
-function toHex(b) { return Array.from(b).map(x => x.toString(16).padStart(2, '0')).join(''); }
-
-// Signer N: account path + its /0/0 child compressed pubkey hex (what the
-// compiler bakes into the leaf, and what psbt-signer re-derives to sign).
+const toHex = (b) => Array.from(b).map(x => x.toString(16).padStart(2, '0')).join('');
 function signer(n) {
   const path = `m/86'/1'/${n}'`;
-  const child00 = ROOT.derive(path).deriveChild(0).deriveChild(0);
-  return { path, pubkey: toHex(child00.publicKey) };
+  return { path, pubkey: toHex(ROOT.derive(path).deriveChild(0).deriveChild(0).publicKey) };
 }
-const S = Array.from({ length: 6 }, (_, i) => signer(i));
+const S = Array.from({ length: 10 }, (_, i) => signer(i));
+const keys = (...idx) => idx.map(i => S[i].pubkey);
+const who = (...idx) => idx.map(i => S[i]);
 
 async function post(endpoint, body) {
   const res = await fetch(`${COMPILER}${endpoint}`, {
@@ -54,114 +55,153 @@ async function post(endpoint, body) {
     body: JSON.stringify(body),
   });
   const json = await res.json();
-  if (!res.ok || json.ok === false) {
-    throw new Error(`${endpoint} -> ${res.status}: ${json.error || JSON.stringify(json)}`);
-  }
+  if (!res.ok || json.ok === false) throw new Error(`${endpoint} -> ${res.status}: ${json.error || JSON.stringify(json)}`);
   return json;
 }
 
-// The scriptPubKey for a compiled address (what a funding UTXO pays to).
 function scriptPubKeyHex(address) {
-  const net = NET === 'bitcoin' ? btc.NETWORK : btc.TEST_NETWORK;
-  const decoded = btc.Address(net).decode(address);
-  return toHex(btc.OutScript.encode(decoded));
+  return toHex(btc.OutScript.encode(btc.Address(btc.TEST_NETWORK).decode(address)));
 }
 
-// Full cycle: compile -> psbt-binary(path) -> sign with `signers` -> finalize.
-// Returns the finalized raw-tx hex (throws if any step fails).
-async function spend({ label, compileReq, path, signers, destination }) {
-  const compiled = await post('/compile', { ...compileReq, address_type: 'tr_multileaf', network: NET });
+// nLockTime is the last 4 bytes of a raw tx, little-endian.
+const lockTimeOf = (raw) => parseInt(raw.slice(-8).match(/../g).reverse().join(''), 16);
+
+const DEST = 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx';
+const SPEND = { destination: DEST, amount_sats: 900_000, fee_sats: 20_000 };
+
+// Shared cycle: (compile endpoint, compile body) -> (psbt endpoint, psbt body
+// builder) -> sign with the real signer -> finalize. Returns raw tx hex.
+async function cycle({ label, compileEp, compileBody, psbtEp, psbtBody, signers }) {
+  const compiled = await post(compileEp, compileBody);
   assert.ok(compiled.descriptor && compiled.address, `${label}: compile returned no descriptor/address`);
-
-  const spk = scriptPubKeyHex(compiled.address);
-  const utxo = { txid: '00'.repeat(32), vout: 0, value_sats: 1_000_000, script_pubkey: spk };
-
-  const bin = await post('/psbt-binary', {
-    // Forward EVERY policy param so the compiler re-derives the identical
-    // address (it safety-checks change_address against the recompiled policy).
-    ...compileReq,
-    inputs: [utxo],
-    destination,
-    amount_sats: 900_000,
-    fee_sats: 20_000,
-    change_address: compiled.address,
-    network: NET,
-    path,
-    address_type: 'tr_multileaf',
-  });
-  assert.ok(bin.psbt_hex, `${label}: psbt-binary returned no psbt`);
-
-  // Sign with each required signer (real browser signer), then merge.
+  const utxo = { txid: '00'.repeat(32), vout: 0, value_sats: 1_000_000, script_pubkey: scriptPubKeyHex(compiled.address) };
+  const bin = await post(psbtEp, { ...psbtBody, ...SPEND, inputs: [utxo], change_address: compiled.address, network: NET });
+  assert.ok(bin.psbt_hex, `${label}: psbt returned no psbt_hex`);
   const signed = [];
-  for (const s of signers) {
-    const r = await signPsbtWithMnemonic(bin.psbt_hex, MNEMONIC, s.path, 'testnet');
-    signed.push(r.psbt_hex);
-  }
+  for (const s of signers) signed.push((await signPsbtWithMnemonic(bin.psbt_hex, MNEMONIC, s.path, 'testnet')).psbt_hex);
   const merged = signed.length > 1 ? mergePsbts(signed) : signed[0];
-
   const fin = await post('/psbt-finalize', { psbt_hex: merged });
-  const rawtx = fin.raw_tx_hex || fin.tx_hex || fin.raw_tx || fin.hex;
-  assert.ok(rawtx && rawtx.length > 20, `${label}: finalize returned no raw tx (${JSON.stringify(fin).slice(0,120)})`);
-  return rawtx;
+  const raw = fin.raw_tx_hex;
+  assert.ok(raw && raw.length > 20, `${label}: finalize returned no raw tx`);
+  return raw;
 }
 
-// Same cycle but the spend is EXPECTED to fail (bad quorum / wrong signer):
-// prove the gate actually rejects rather than silently producing a tx.
-async function spendExpectFail(args) {
+// Named-field vault: forward EVERY policy param so the compiler re-derives the
+// identical address (it safety-checks change_address against the policy).
+const spendNamed = ({ label, policy, path, signers }) => cycle({
+  label, compileEp: '/compile', compileBody: { ...policy, address_type: 'tr_multileaf', network: NET },
+  psbtEp: '/psbt-binary', psbtBody: { ...policy, path, address_type: 'tr_multileaf' }, signers,
+});
+const spendBloc = ({ label, policy, path, quorum = 0, signers }) => cycle({
+  label, compileEp: '/compile-bloc', compileBody: { ...policy, network: NET },
+  psbtEp: '/psbt-binary-bloc', psbtBody: { ...policy, path, quorum }, signers,
+});
+const spendTranche = ({ label, policy, path, signers }) => cycle({
+  label, compileEp: '/compile-tranche', compileBody: { ...policy, network: NET },
+  psbtEp: '/psbt-binary-tranche', psbtBody: { ...policy, path }, signers,
+});
+
+async function expectFail(fn, args) {
   let threw = false;
-  try { await spend(args); } catch { threw = true; }
-  assert.ok(threw, `${args.label}: expected this spend to FAIL to finalize, but it succeeded`);
+  try { await fn(args); } catch { threw = true; }
+  assert.ok(threw, `${args.label}: expected this spend to be REJECTED, but it finalized`);
 }
 
-// A finalized tx's nLockTime is its last 4 bytes, little-endian. Proves a
-// timelocked path baked the absolute height in (a node then enforces it).
-function lockTimeOf(rawtxHex) {
-  const le = rawtxHex.slice(-8);
-  return parseInt(le.match(/../g).reverse().join(''), 16);
+// Assert a positive spend finalized with the expected nLockTime.
+async function ok(fn, args, expectLock) {
+  const raw = await fn(args);
+  assert.equal(lockTimeOf(raw), expectLock, `${args.label}: lock_time ${lockTimeOf(raw)} != expected ${expectLock}`);
+  console.log(`  [ok] ${args.label} -> finalized, lock_time ${lockTimeOf(raw)}`);
+}
+const rejected = (msg) => console.log(`  [ok] REJECTED as it should be: ${msg}`);
+
+// ── family-inheritance: founders 2-of-3, heirs 2-of-3, recovery + inheritance ─
+{
+  const p = { founder_keys: keys(0,1,2), founder_quorum: 2, recovery_quorum: 2,
+              heir_keys: keys(3,4,5), heir_quorum: 2, recovery_after: 900_000, inheritance_after: 950_000 };
+  console.log('family-inheritance');
+  await ok(spendNamed, { label: 'family / founders-now', policy: p, path: 'founders_now', signers: who(0,1) }, 0);
+  await ok(spendNamed, { label: 'family / recovery', policy: p, path: 'recovery', signers: who(0,1) }, p.recovery_after);
+  await ok(spendNamed, { label: 'family / inheritance (heirs alone)', policy: p, path: 'inheritance', signers: who(3,4) }, p.inheritance_after);
+  await expectFail(spendNamed, { label: 'family / founders-now with 1 of 2', policy: p, path: 'founders_now', signers: who(0) }); rejected('1 of 2 founders');
+  await expectFail(spendNamed, { label: 'family / founders door signed by heirs', policy: p, path: 'founders_now', signers: who(3,4) }); rejected('heirs on the founders door');
+  const c = { ...p, consent_keys: keys(5), consent_quorum: 1 };
+  await ok(spendNamed, { label: 'family+consent / founders-now with beneficiary', policy: c, path: 'founders_now', signers: who(0,1,5) }, 0);
+  await expectFail(spendNamed, { label: 'family+consent / founders-now WITHOUT beneficiary', policy: c, path: 'founders_now', signers: who(0,1) }); rejected('consent gate freezes without the beneficiary');
 }
 
-const DEST = 'tb1q' + 'w508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx'.slice(0, 38); // a throwaway testnet dest
+// ── lost-device: one person, 3 devices, 2-of-3 now, 1 device alone after recovery ─
+{
+  const p = { founder_keys: keys(0,1,2), founder_quorum: 2, recovery_quorum: 1,
+              heir_keys: keys(3), heir_quorum: 1, recovery_after: 900_000, inheritance_after: 950_000 };
+  console.log('lost-device');
+  await ok(spendNamed, { label: 'lost-device / 2 of 3 devices now', policy: p, path: 'founders_now', signers: who(0,1) }, 0);
+  await ok(spendNamed, { label: 'lost-device / 1 surviving device after timelock', policy: p, path: 'recovery', signers: who(0) }, p.recovery_after);
+  await ok(spendNamed, { label: 'lost-device / heir inherits', policy: p, path: 'inheritance', signers: who(3) }, p.inheritance_after);
+  await expectFail(spendNamed, { label: 'lost-device / 1 device before timelock (founders path)', policy: p, path: 'founders_now', signers: who(0) }); rejected('a single device cannot spend the everyday path');
+}
 
-// --- family-inheritance: founders 2-of-3, heirs 2-of-3, recovery + inheritance.
-const famCompile = {
-  founder_keys: [S[0].pubkey, S[1].pubkey, S[2].pubkey],
-  founder_quorum: 2,
-  recovery_quorum: 2,
-  heir_keys: [S[3].pubkey, S[4].pubkey, S[5].pubkey],
-  heir_quorum: 2,
-  recovery_after: 900_000,     // absolute height
-  inheritance_after: 950_000,
-};
+// ── social-recovery: you 2-of-3 now; 3-of-5 trusted peers after the long wait ─
+{
+  const p = { founder_keys: keys(0,1,2), founder_quorum: 2, recovery_quorum: 2,
+              heir_keys: keys(3,4,5,6,7), heir_quorum: 3, recovery_after: 900_000, inheritance_after: 950_000 };
+  console.log('social-recovery');
+  await ok(spendNamed, { label: 'social / your 2 of 3 now', policy: p, path: 'founders_now', signers: who(0,1) }, 0);
+  await ok(spendNamed, { label: 'social / your own recovery', policy: p, path: 'recovery', signers: who(0,1) }, p.recovery_after);
+  await ok(spendNamed, { label: 'social / 3 of 5 peers rescue', policy: p, path: 'inheritance', signers: who(3,4,5) }, p.inheritance_after);
+  await expectFail(spendNamed, { label: 'social / only 2 of 5 peers', policy: p, path: 'inheritance', signers: who(3,4) }); rejected('2 of 5 peers is below the social quorum');
+}
 
-// founders-now: 2 founders, no timelock.
-const tx1 = await spend({ label: 'family / founders-now', compileReq: famCompile, path: 'founders_now', signers: [S[0], S[1]], destination: DEST });
-assert.equal(lockTimeOf(tx1), 0, 'founders-now must have lock_time 0');
-console.log('  [ok] family-inheritance founders-now -> finalized,', tx1.length / 2, 'bytes, lock_time 0');
+// ── backup ("anytime, harder"): separate backup keys, no timelock, replaces recovery ─
+{
+  const p = { founder_keys: keys(0,1,2), founder_quorum: 2, recovery_after: 0,
+              backup_keys: keys(3,4,5), backup_quorum: 2,
+              heir_keys: keys(6,7), heir_quorum: 1, inheritance_after: 950_000 };
+  console.log('backup (anytime harder)');
+  await ok(spendNamed, { label: 'backup / founders-now', policy: p, path: 'founders_now', signers: who(0,1) }, 0);
+  await ok(spendNamed, { label: 'backup / 2 of 3 backup keys, no timelock', policy: p, path: 'backup', signers: who(3,4) }, 0);
+  await ok(spendNamed, { label: 'backup / inheritance', policy: p, path: 'inheritance', signers: who(6) }, p.inheritance_after);
+  await expectFail(spendNamed, { label: 'backup / 1 of 2 backup keys', policy: p, path: 'backup', signers: who(3) }); rejected('1 of 2 backup keys');
+}
 
-// recovery: 2 founders, gated at recovery_after -- assert the height is baked in.
-const tx2 = await spend({ label: 'family / recovery', compileReq: famCompile, path: 'recovery', signers: [S[0], S[1]], destination: DEST });
-assert.equal(lockTimeOf(tx2), famCompile.recovery_after, `recovery lock_time must equal recovery_after (${famCompile.recovery_after})`);
-console.log('  [ok] family-inheritance recovery -> finalized, lock_time', lockTimeOf(tx2), '== recovery_after');
+// ── second-inheritance: a second heir cohort with its own, later absolute date ─
+{
+  const p = { founder_keys: keys(0,1,2), founder_quorum: 2, recovery_quorum: 2,
+              heir_keys: keys(3,4,5), heir_quorum: 2, recovery_after: 900_000, inheritance_after: 950_000,
+              second_heir_keys: keys(6,7), second_heir_quorum: 1, second_inheritance_after: 1_000_000 };
+  console.log('second-inheritance');
+  await ok(spendNamed, { label: 'second-inh / primary heirs', policy: p, path: 'inheritance', signers: who(3,4) }, p.inheritance_after);
+  await ok(spendNamed, { label: 'second-inh / second cohort alone, later date', policy: p, path: 'second_inheritance', signers: who(6) }, p.second_inheritance_after);
+  await expectFail(spendNamed, { label: 'second-inh / second cohort on the primary door', policy: p, path: 'inheritance', signers: who(6,7) }); rejected('second cohort cannot open the primary inheritance door');
+}
 
-// inheritance: 2 heirs, gated at inheritance_after.
-const tx3 = await spend({ label: 'family / inheritance', compileReq: famCompile, path: 'inheritance', signers: [S[3], S[4]], destination: DEST });
-assert.equal(lockTimeOf(tx3), famCompile.inheritance_after, `inheritance lock_time must equal inheritance_after (${famCompile.inheritance_after})`);
-console.log('  [ok] family-inheritance inheritance -> finalized, lock_time', lockTimeOf(tx3), '== inheritance_after (heir keys alone)');
+// ── Dynasty Bloc: 2 parents, 3 kids, decaying kids ladder ─────────────────────
+{
+  const p = { parent_keys: keys(0,1), parents_together_quorum: 2, coparent_quorum: 1,
+              kid_keys: keys(2,3,4), kids_with_parent_quorum: 3,
+              parent_solo_after: 900_000, parent_solo_quorum: 1,
+              kids_decay_start_after: 950_000, kids_decay_step_blocks: 52_560,
+              kids_decay_start_quorum: 3, kids_decay_floor_quorum: 1 };
+  const rung = (q) => p.kids_decay_start_after + (p.kids_decay_start_quorum - q) * p.kids_decay_step_blocks;
+  console.log('dynasty-bloc');
+  await ok(spendBloc, { label: 'bloc / parents together now', policy: p, path: 'parents_now', signers: who(0,1) }, 0);
+  await ok(spendBloc, { label: 'bloc / one parent + every kid now', policy: p, path: 'coparent_kids', signers: who(0,2,3,4) }, 0);
+  await ok(spendBloc, { label: 'bloc / one parent alone after timelock', policy: p, path: 'parent_solo', signers: who(0) }, p.parent_solo_after);
+  await ok(spendBloc, { label: 'bloc / kids 3-of-3 (first rung)', policy: p, path: 'kids_decay', quorum: 3, signers: who(2,3,4) }, rung(3));
+  await ok(spendBloc, { label: 'bloc / kids 2-of-3 (decayed one rung)', policy: p, path: 'kids_decay', quorum: 2, signers: who(2,3) }, rung(2));
+  await ok(spendBloc, { label: 'bloc / kids 1-of-3 (floor rung)', policy: p, path: 'kids_decay', quorum: 1, signers: who(2) }, rung(1));
+  await expectFail(spendBloc, { label: 'bloc / nonexistent 9-of-3 rung', policy: p, path: 'kids_decay', quorum: 9, signers: who(2,3,4) }); rejected('a decay rung that does not exist');
+  await expectFail(spendBloc, { label: 'bloc / one parent on the parents-together door', policy: p, path: 'parents_now', signers: who(0) }); rejected('one parent cannot open the parents-together door');
+}
 
-// NEGATIVE: one founder alone cannot satisfy a 2-of-3 founders-now spend.
-await spendExpectFail({ label: 'family / founders-now with ONE signer', compileReq: famCompile, path: 'founders_now', signers: [S[0]], destination: DEST });
-console.log('  [ok] below-quorum spend correctly REJECTED (1 of 2 founders cannot finalize)');
+// ── Tranche (T-vesting): trustees anytime; beneficiary alone after unlock_block ─
+{
+  const p = { beneficiary_key: S[5].pubkey, trustee_keys: keys(0,1,2), trustee_quorum: 2, unlock_block: 900_000 };
+  console.log('tranche');
+  await ok(spendTranche, { label: 'tranche / trustees escape hatch, anytime', policy: p, path: 'trustee', signers: who(0,1) }, 0);
+  await ok(spendTranche, { label: 'tranche / beneficiary alone after unlock', policy: p, path: 'beneficiary', signers: who(5) }, p.unlock_block);
+  await expectFail(spendTranche, { label: 'tranche / trustee on the beneficiary door', policy: p, path: 'beneficiary', signers: who(0,1) }); rejected('a trustee cannot claim the beneficiary tranche');
+}
 
-// NEGATIVE: heirs cannot spend the founders-now leaf.
-await spendExpectFail({ label: 'family / founders-now signed by heirs', compileReq: famCompile, path: 'founders_now', signers: [S[3], S[4]], destination: DEST });
-console.log('  [ok] wrong-signer spend correctly REJECTED (heirs cannot open the founders door)');
-
-// consent-gated variant: founders-now also needs a beneficiary cosign.
-const consentCompile = { ...famCompile, consent_keys: [S[5].pubkey], consent_quorum: 1 };
-const tx4 = await spend({ label: 'family+consent / founders-now', compileReq: consentCompile, path: 'founders_now', signers: [S[0], S[1], S[5]], destination: DEST });
-console.log('  [ok] consent-gated founders-now -> finalized with trustees + beneficiary cosign,', tx4.length / 2, 'bytes');
-await spendExpectFail({ label: 'family+consent / founders-now WITHOUT beneficiary', compileReq: consentCompile, path: 'founders_now', signers: [S[0], S[1]], destination: DEST });
-console.log('  [ok] consent gate correctly FREEZES founders-now when beneficiary does not cosign');
-
-console.log('\noffline-vault-harness OK -- every family-inheritance door proven end to end');
-console.log('(real Rust compiler + real browser signer + real rust-miniscript finalizer; timelocks and quorum and consent gates all enforced)');
+console.log('\noffline-vault-harness OK -- every door of every shape proven end to end');
+console.log('(real Rust compiler + real browser signer + real rust-miniscript finalizer; timelocks baked in, quorum/consent/cohort gates enforced)');
