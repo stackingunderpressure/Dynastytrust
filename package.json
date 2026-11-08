@@ -13,6 +13,7 @@
     "lint": "npm run lint --workspace @dynastytrust/web",
     "format": "npm run format --workspace @dynastytrust/web",
     "format:check": "npm run format:check --workspace @dynastytrust/web",
-    "typecheck": "npm run typecheck --workspace @dynastytrust/web"
+    "typecheck": "npm run typecheck --workspace @dynastytrust/web",
+    "test:harness": "bash scripts/offline-harness.sh"
   }
 }
