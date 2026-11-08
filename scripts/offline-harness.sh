@@ -9,6 +9,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "[harness] FAIL: cargo not found. The harness runs the REAL Rust compiler locally;" >&2
+  echo "[harness] install Rust (https://rustup.rs) or report this gate as UNVERIFIED." >&2
+  exit 1
+fi
+
 echo "[harness] building the compiler (cached after first run)..."
 cargo build -p dynastytrust_compiler >/dev/null 2>&1
 
