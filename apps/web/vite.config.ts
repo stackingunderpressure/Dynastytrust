@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 // Netlify sets COMMIT_REF (the full 40-char deploy commit SHA) as a
@@ -22,6 +22,10 @@ export default defineConfig({
       // writes dist/version.json alongside the bundle at build end.
       name: 'write-version-json',
       closeBundle() {
+        // Ensure dist/ exists -- closeBundle can run before Vite has
+        // created the out dir in some environments, which made the build
+        // fail with ENOENT on dist/version.json.
+        mkdirSync(resolve(__dirname, 'dist'), { recursive: true });
         writeFileSync(
           resolve(__dirname, 'dist/version.json'),
           JSON.stringify({ version: appVersion, builtAt: new Date().toISOString() }),
