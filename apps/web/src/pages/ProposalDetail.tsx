@@ -15,6 +15,7 @@ import {
   countSignatures,
   mergePsbts,
   signPsbtWithMnemonic,
+  verifyPsbtMatchesRequest,
 } from "../lib/psbt-signer";
 import { getTapitCircleMembers } from "../lib/tapit-circle-members";
 import { pubkeyFromXpub } from "../lib/xpub";
@@ -241,6 +242,26 @@ export default function ProposalDetail() {
         })()
       : mergeChain[0] ?? "";
   const collected = mergedPsbt ? countSignatures(mergedPsbt) : 0;
+  // A co-signer signs a PSBT that came out of the database, not one they
+  // built. Re-derive from its bytes that it pays what the proposal row
+  // says, spends only this vault's own coins, and returns change here --
+  // a tampered row (or a tampered PSBT under an honest row) must never
+  // reach a signing key. Tranche claims spend from the tranche's own
+  // address, which this page does not load, so the own-coins/change
+  // check is skipped there (destination, amount and fee still hold).
+  const psbtMismatch: string | null = mergedPsbt
+    ? (() => {
+        const check = verifyPsbtMatchesRequest(mergedPsbt, {
+          destination: proposal.destination,
+          amountSats: proposal.amount_sats,
+          network: vault.network,
+          ownAddress: proposal.path === "tranche_claim" ? undefined : (vault.address ?? undefined),
+          feeSats: proposal.fee_sats,
+        });
+        return check.ok ? null : (check.reason ?? "PSBT does not match this request");
+      })()
+    : null;
+  const signablePsbt = psbtMismatch ? "" : mergedPsbt;
   const pathSigners = resolvePathSigners(vault, proposal.path);
   const required = pathSigners.required;
   const quorumMet = collected >= required;
@@ -323,6 +344,16 @@ export default function ProposalDetail() {
       const mnemonic = await revealMnemonic(key.keyId, pw);
       const basePsbt = mergedPsbt || proposal.psbt_hex;
       if (!basePsbt) throw new Error("No PSBT on this proposal");
+      const check = verifyPsbtMatchesRequest(basePsbt, {
+        destination: proposal.destination,
+        amountSats: proposal.amount_sats,
+        network: vault.network,
+        ownAddress: proposal.path === "tranche_claim" ? undefined : (vault.address ?? undefined),
+        feeSats: proposal.fee_sats,
+      });
+      if (!check.ok) {
+        throw new Error(`Refusing to sign: ${check.reason}. This PSBT does not match the request shown.`);
+      }
       const result = await signPsbtWithMnemonic(basePsbt, mnemonic, key.derivationPath, vault.network);
       await api.signerSessions.submit({
         proposal_id: proposal.id,
@@ -447,10 +478,23 @@ export default function ProposalDetail() {
         </ActionCard>
       )}
 
+      {!terminal && psbtMismatch && (
+        <ActionCard>
+          <div style={{ fontSize: 14, fontWeight: 600, color: colors.red, marginBottom: 4 }}>
+            Do not sign this request
+          </div>
+          <div style={{ fontSize: 12, color: colors.muted }}>
+            The transaction attached to this request does not match what the request says:{" "}
+            {psbtMismatch}. Signing has been disabled on this page. Ask the proposer to rebuild
+            it, and contact support if this persists.
+          </div>
+        </ActionCard>
+      )}
+
       {!terminal && !isTrancheClaim && (
         <NotifyCircleViaNostr
           subjectId={proposal.id}
-          psbtHex={mergedPsbt || proposal.psbt_hex || ""}
+          psbtHex={signablePsbt}
           vaultDescriptor={vault.descriptor}
           vaultName={vault.name}
           signers={tapitSigners}
@@ -469,7 +513,7 @@ export default function ProposalDetail() {
           </div>
           <ExternalPsbt
             proposalId={proposal.id}
-            psbtToSign={mergedPsbt || proposal.psbt_hex || ""}
+            psbtToSign={signablePsbt}
             onImported={() => void load()}
           />
         </ActionCard>

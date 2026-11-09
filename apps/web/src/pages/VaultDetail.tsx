@@ -1503,10 +1503,17 @@ function SendTab({ vault, balance, onDone, prefill }: {
       // Re-derive what the PSBT actually pays from its own bytes before
       // trusting the server's summary text at all -- see
       // verifyPsbtMatchesRequest's doc comment (Kimi K3 scan Family A).
+      // ownAddress/feeSats/changeSats: every input must be this vault's
+      // own coin, change must come back to this vault, and the real fee
+      // must be the one the confirm screen will show -- all from the
+      // PSBT's bytes, so no coordinator can redirect what is signed.
       const psbtCheck = verifyPsbtMatchesRequest(psbtRes.psbt_hex, {
         destination: dest.trim(),
         amountSats: psbtRes.summary.amount_sats,
         network: vault.network,
+        ownAddress: vault.address ?? undefined,
+        feeSats: psbtRes.summary.fee_sats,
+        changeSats: psbtRes.summary.change_sats,
       });
       if (!psbtCheck.ok) {
         setErr(`Refusing to sign: ${psbtCheck.reason}. This PSBT does not match what you requested -- try again, and contact support if this persists.`);
@@ -7490,6 +7497,22 @@ function TrancheClaimModal({
       });
       if (res.status === "no_utxos") {
         setErr(res.message || "No confirmed funds at this tranche address yet.");
+        setBusy(false);
+        return;
+      }
+      // Same no-rogue-signing gate as the main Send flow: the claim must
+      // spend only this tranche's own coins, pay exactly what was shown,
+      // and return any change to the tranche address.
+      const claimCheck = verifyPsbtMatchesRequest(res.psbt_hex, {
+        destination: dest.trim(),
+        amountSats: res.summary.amount_sats,
+        network: wallet.network,
+        ownAddress: tranche.address,
+        feeSats: res.summary.fee_sats,
+        changeSats: res.summary.change_sats,
+      });
+      if (!claimCheck.ok) {
+        setErr(`Refusing to sign: ${claimCheck.reason}. This PSBT does not match what you requested -- try again, and contact support if this persists.`);
         setBusy(false);
         return;
       }

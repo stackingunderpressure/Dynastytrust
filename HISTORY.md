@@ -104,6 +104,43 @@ network agrees.
 2026-05-16) still lists "end-to-end signet spend with real independent
 signers" as not yet verified. Item 1 above postdates it.
 
+## Security backlog (2026-11-09)
+
+- **Browser full-transaction gate: inputs, change and fee verified from the
+  PSBT's own bytes (2026-11-09).** Operator, after a grounded threat read of
+  main: "cut the browser-side gate now." The gap: `verifyPsbtMatchesRequest`
+  (`apps/web/src/lib/psbt-signer.ts`, Kimi K3 Family A) checked only that
+  output[0] paid the typed destination and amount and that there were at
+  most two outputs. It never checked that output[1] (change) returned to the
+  vault, that every input spent the vault's own coin, or that the fee was
+  real -- the confirm screen rendered the server's `summary.fee_sats` /
+  `change_sats`. The only change-address check lived server-side in the
+  Rust compiler, i.e. inside the component under suspicion. A compromised
+  coordinator could therefore pay the destination exactly as shown and send
+  the remainder as "change" to an attacker, or sweep in a foreign input
+  that shares the signer's keys, and the browser would sign it. Fix:
+  `PsbtRequestCheck` gained optional `ownAddress`, `feeSats`, `changeSats`;
+  when given, every input must carry a witness UTXO (refused otherwise --
+  an input that cannot be checked is not assumed benign) whose
+  scriptPubKey equals the vault's own, output[1] if present must equal it,
+  change must equal what is shown (0 means no change output at all), and
+  sum(inputs) - sum(outputs) must equal the fee shown. Wired into the main
+  Send flow (`VaultDetail.tsx` with `vault.address`), the tranche claim
+  (`tranche.address`), and the co-signer page (`ProposalDetail.tsx`:
+  `signWith` refuses, and a red "Do not sign this request" card replaces
+  the Nostr/hardware signing inputs with an empty PSBT when the stored
+  PSBT does not match the proposal row). Deliberately left: the co-signer
+  page skips the own-coins/change half for `tranche_claim` proposals
+  because it does not load the tranche address (security backlog item 3).
+  Proven by 8 new checks in `scripts/offline-vault-harness.mjs` (honest
+  PSBT passes; same-length byte forgery of the change script and of the
+  input's witness UTXO script refused; lying fee, lying change and swapped
+  destination refused; compiler-side refusal of a foreign input and foreign
+  change as belt and braces). Measured: harness 41 checks green, lint 0
+  errors / 11 pre-existing warnings (none on changed lines), typecheck 10
+  errors = documented baseline (none new), build green. The full ordered
+  list of remaining gaps is `docs/security-backlog.md`.
+
 ## Closed open-gap items (6 through 9)
 
 6. ~~Legacy Recovery: leaf-list ("generic") vault shape not covered yet.~~

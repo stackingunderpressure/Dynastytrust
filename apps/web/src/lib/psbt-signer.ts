@@ -130,6 +130,21 @@ export interface PsbtRequestCheck {
    *  actually requested for a fixed-amount spend. */
   amountSats: number;
   network: "bitcoin" | "testnet" | "signet";
+  /** The address whose coins this spend is allowed to touch -- the vault's
+   *  own address (or a tranche's). When given, EVERY input must spend
+   *  exactly this script and any change output must return exactly to it.
+   *  This is what makes the coordinator (Netlify function, Supabase row,
+   *  Rust compiler) unable to redirect "change" or sweep in a foreign
+   *  input: the check reads the PSBT's own witness UTXOs, never a server
+   *  summary. */
+  ownAddress?: string;
+  /** The fee the human is shown, in sats. When given, the real fee
+   *  (sum of witness-UTXO inputs minus sum of outputs) must equal it. */
+  feeSats?: number;
+  /** The change the human is shown, in sats. When given, a 0 means the
+   *  PSBT must have no change output at all, and a positive value must
+   *  equal output[1]'s amount exactly. */
+  changeSats?: number;
 }
 
 export interface PsbtVerifyResult {
@@ -187,6 +202,73 @@ export function verifyPsbtMatchesRequest(
       ok: false,
       reason: `The PSBT pays ${destOutput.amount} sats, not the ${request.amountSats} sats shown`,
     };
+  }
+
+  // Everything below reads the PSBT's own witness UTXOs (BIP174
+  // PSBT_IN_WITNESS_UTXO), which every tapscript spend must carry because
+  // the BIP341 sighash commits to every spent amount and scriptPubKey.
+  // An input without one cannot be checked, so it is refused rather than
+  // assumed benign -- the server is the party under suspicion here.
+  const inputsNeedUtxo = request.ownAddress !== undefined || request.feeSats !== undefined;
+  if (inputsNeedUtxo) {
+    for (let i = 0; i < parsed.inputs.length; i++) {
+      if (!parsed.inputs[i].witnessUtxo) {
+        return { ok: false, reason: `Input ${i + 1} carries no witness UTXO, so what it spends cannot be verified` };
+      }
+    }
+  }
+
+  if (request.ownAddress !== undefined) {
+    let ownScript: string;
+    try {
+      const net = request.network === "bitcoin" ? NETWORK : TEST_NETWORK;
+      ownScript = toHex(OutScript.encode(Address(net).decode(request.ownAddress)));
+    } catch (e) {
+      return { ok: false, reason: e instanceof Error ? e.message : "Could not decode the vault's own address" };
+    }
+    for (let i = 0; i < parsed.inputs.length; i++) {
+      if (toHex(parsed.inputs[i].witnessUtxo!.scriptPubkey) !== ownScript) {
+        return { ok: false, reason: `Input ${i + 1} does not spend this vault's own coins` };
+      }
+    }
+    if (parsed.tx.outputs.length === 2 && toHex(parsed.tx.outputs[1].scriptPubkey) !== ownScript) {
+      return { ok: false, reason: "The PSBT's change output does not return to this vault" };
+    }
+  }
+
+  if (request.changeSats !== undefined) {
+    if (!Number.isSafeInteger(request.changeSats) || request.changeSats < 0) {
+      return { ok: false, reason: `Invalid change amount shown: ${request.changeSats}` };
+    }
+    if (request.changeSats === 0 && parsed.tx.outputs.length !== 1) {
+      return { ok: false, reason: "The PSBT has a change output, but no change was shown" };
+    }
+    if (request.changeSats > 0) {
+      if (parsed.tx.outputs.length !== 2) {
+        return { ok: false, reason: "The PSBT has no change output, but change was shown" };
+      }
+      if (parsed.tx.outputs[1].amount !== BigInt(request.changeSats)) {
+        return {
+          ok: false,
+          reason: `The PSBT returns ${parsed.tx.outputs[1].amount} sats of change, not the ${request.changeSats} sats shown`,
+        };
+      }
+    }
+  }
+
+  if (request.feeSats !== undefined) {
+    if (!Number.isSafeInteger(request.feeSats) || request.feeSats < 0) {
+      return { ok: false, reason: `Invalid fee shown: ${request.feeSats}` };
+    }
+    const totalIn = parsed.inputs.reduce((s, inp) => s + inp.witnessUtxo!.amount, 0n);
+    const totalOut = parsed.tx.outputs.reduce((s, o) => s + o.amount, 0n);
+    const fee = totalIn - totalOut;
+    if (fee < 0n) {
+      return { ok: false, reason: "The PSBT's outputs exceed its inputs" };
+    }
+    if (fee !== BigInt(request.feeSats)) {
+      return { ok: false, reason: `The PSBT's real fee is ${fee} sats, not the ${request.feeSats} sats shown` };
+    }
   }
 
   return { ok: true };

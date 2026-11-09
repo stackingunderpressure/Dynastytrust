@@ -27,7 +27,7 @@ import assert from 'node:assert/strict';
 import { HDKey } from '@scure/bip32';
 import { mnemonicToSeedSync } from '@scure/bip39';
 import * as btc from '@scure/btc-signer';
-import { signPsbtWithMnemonic, mergePsbts } from '../apps/web/src/lib/psbt-signer.ts';
+import { signPsbtWithMnemonic, mergePsbts, verifyPsbtMatchesRequest } from '../apps/web/src/lib/psbt-signer.ts';
 
 const COMPILER = process.env.COMPILER_URL || 'http://127.0.0.1:8899';
 const SECRET = process.env.COMPILER_SECRET || 'testsecret';
@@ -201,6 +201,46 @@ const rejected = (msg) => console.log(`  [ok] REJECTED as it should be: ${msg}`)
   await ok(spendTranche, { label: 'tranche / trustees escape hatch, anytime', policy: p, path: 'trustee', signers: who(0,1) }, 0);
   await ok(spendTranche, { label: 'tranche / beneficiary alone after unlock', policy: p, path: 'beneficiary', signers: who(5) }, p.unlock_block);
   await expectFail(spendTranche, { label: 'tranche / trustee on the beneficiary door', policy: p, path: 'beneficiary', signers: who(0,1) }); rejected('a trustee cannot claim the beneficiary tranche');
+}
+
+// ── Browser no-rogue-signing gate: what a dishonest coordinator cannot get signed ─
+// The compiler builds an honest PSBT; the harness then forges the bytes a
+// compromised Netlify function / Supabase row / compiler could hand the
+// browser and proves verifyPsbtMatchesRequest refuses each one using only the
+// PSBT's own witness UTXOs and the vault's own address -- never the server's
+// summary. Same-length byte substitution keeps every PSBT length prefix valid.
+{
+  const p = { founder_keys: keys(0,1,2), founder_quorum: 2, recovery_quorum: 2,
+              heir_keys: keys(3,4,5), heir_quorum: 2, recovery_after: 900_000, inheritance_after: 950_000 };
+  const compiled = await post('/compile', { ...p, address_type: 'tr_multileaf', network: NET });
+  const own = compiled.address;
+  const ownScript = scriptPubKeyHex(own);
+  const utxo = { txid: '00'.repeat(32), vout: 0, value_sats: 1_000_000, script_pubkey: ownScript };
+  const honest = (await post('/psbt-binary', { ...p, path: 'founders_now', address_type: 'tr_multileaf', ...SPEND, inputs: [utxo], change_address: own, network: NET })).psbt_hex;
+  const shown = { destination: DEST, amountSats: SPEND.amount_sats, network: NET, ownAddress: own, feeSats: SPEND.fee_sats, changeSats: 1_000_000 - SPEND.amount_sats - SPEND.fee_sats };
+  const attackerScript = '5120' + S[9].pubkey.slice(2); // a P2TR script nobody in this vault controls
+  const le64 = (n) => { const b = new Uint8Array(8); new DataView(b.buffer).setBigUint64(0, BigInt(n), true); return toHex(b); };
+  const swapOnce = (hex, from, to) => { const i = hex.indexOf(from); assert.ok(i >= 0 && hex.indexOf(from, i + 1) < 0, 'forge target must occur exactly once'); return hex.slice(0, i) + to + hex.slice(i + from.length); };
+  const refuses = (label, psbt, req, needle) => {
+    const r = verifyPsbtMatchesRequest(psbt, req);
+    assert.equal(r.ok, false, `${label}: the gate ACCEPTED a forged PSBT`);
+    assert.ok(r.reason.includes(needle), `${label}: refused for the wrong reason: ${r.reason}`);
+    rejected(label);
+  };
+  console.log('browser gate');
+  assert.equal(verifyPsbtMatchesRequest(honest, shown).ok, true, 'gate refused the honest PSBT');
+  console.log('  [ok] gate / honest PSBT passes with inputs, change and fee all verified from its bytes');
+  // change output redirected to an attacker (unsigned tx output[1] = change amount || 0x22 || script)
+  refuses('gate / change redirected to an attacker address', swapOnce(honest, le64(shown.changeSats) + '22' + ownScript, le64(shown.changeSats) + '22' + attackerScript), shown, 'change output does not return');
+  // input swapped for a coin that is not this vault's (witness_utxo = amount || 0x22 || script)
+  refuses('gate / input that is not this vault\'s coin', swapOnce(honest, le64(1_000_000) + '22' + ownScript, le64(1_000_000) + '22' + attackerScript), shown, 'does not spend this vault');
+  // the summary lies about the fee / the change while the bytes stay honest
+  refuses('gate / fee shown is not the real fee', honest, { ...shown, feeSats: SPEND.fee_sats - 1_000 }, 'real fee');
+  refuses('gate / change shown as zero while the PSBT has change', honest, { ...shown, changeSats: 0 }, 'no change was shown');
+  refuses('gate / destination shown is not the one paid', honest, { ...shown, destination: own }, 'destination does not match');
+  // belt and braces: the compiler itself refuses the same two forgeries server-side
+  await expectFail(async () => post('/psbt-binary', { ...p, path: 'founders_now', address_type: 'tr_multileaf', ...SPEND, inputs: [{ ...utxo, script_pubkey: attackerScript }], change_address: own, network: NET }), { label: 'compiler / foreign input' }); rejected('compiler refuses a foreign input');
+  await expectFail(async () => post('/psbt-binary', { ...p, path: 'founders_now', address_type: 'tr_multileaf', ...SPEND, inputs: [utxo], change_address: DEST, network: NET }), { label: 'compiler / foreign change' }); rejected('compiler refuses change to a foreign address');
 }
 
 console.log('\noffline-vault-harness OK -- every door of every shape proven end to end');
