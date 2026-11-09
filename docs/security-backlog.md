@@ -27,18 +27,18 @@ then (c).
    checks (forged change, foreign input, lying fee, lying change, swapped
    destination; compiler-side refusals as belt and braces).
 
-## Open -- stops "tricked into signing"
+2. ~~**Absolute timelock cross-check.**~~ Closed 2026-11-09 (see `HISTORY.md`).
+   Server: `_chain.js` `fetchTipHeight` now requires an all-digit response and a
+   per-network `TIP_FLOOR`. Browser: `lib/timelock-check.ts` + `VaultWizard`
+   fetch the tip separately and refuse to accept a compiled vault (all three
+   shapes) unless every `after()` height is tip + the chosen offset within 12
+   blocks, every `older()` duration came back untouched, and nothing carries a
+   timelock that was not asked for. Proven by `scripts/test-timelock-check.mjs`
+   (6 cases, in `npm test`). Honest limit: both tips still come from
+   mempool.space, so this defends against the server path, not against the
+   feed itself -- that is item 12.
 
-2. **Absolute timelock cross-check.** `netlify/functions/_chain.js`
-   `fetchTipHeight` accepts any finite non-negative number as the chain tip and
-   `compile.js` bakes `tip + offset` into the recovery/inheritance leaves. The
-   browser never checks the heights that come back. A wrong tip (mempool.space
-   bug, changed API base in the Netlify env, tampered function) compiles a vault
-   whose timelocked doors are already open at funding. Fix: a per-network tip
-   floor server-side, and in `VaultWizard` fetch the tip independently via
-   `lib/chain.ts` and refuse to save a vault unless each absolute height minus
-   the browser's tip equals the chosen offset within a few blocks. Prove with a
-   unit test on the assertion and a harness case feeding a bogus tip.
+## Open -- stops "tricked into signing"
 
 3. **Co-signer gate for tranche claims.** `ProposalDetail.tsx` skips the
    own-coins/change check for `path === "tranche_claim"` because the page does

@@ -13,7 +13,8 @@ import { isLeafListVault } from '../lib/vault-spending-paths';
 import { downloadVault } from '../lib/descriptor-backup';
 import { keyNetworkMatches } from '../lib/network';
 import { blocksToHuman, TIMELOCK_PRESETS, MIN_RECOVERY_BLOCKS } from '../lib/blocks';
-import { approxWallclockDate, blocksUntilDate } from '../lib/chain';
+import { approxWallclockDate, blocksUntilDate, tipHeight } from '../lib/chain';
+import { checkAbsoluteTimelocks, type TimelockPair } from '../lib/timelock-check';
 import { type StandardConfig, type BlocConfig } from '../lib/vault-templates';
 import { buildStandardTrustDoc, buildBlocTrustDoc, buildLeavesTrustDoc } from '../lib/trust-doc';
 import type { LeafSpec, LeafUnlock } from '../lib/api';
@@ -703,6 +704,24 @@ export default function VaultWizard() {
     }
   }
 
+  // The server bakes every after() leaf as tip + offset from its own
+  // mempool.space fetch. Before this vault is accepted, fetch the tip
+  // separately here and refuse any compiled height that is not tip + the
+  // offset the human chose (timelock-check.ts) -- a wrong server tip
+  // would otherwise compile doors that are already open at funding.
+  class TimelockMismatch extends Error {}
+  async function assertTimelocks(network: Vault['network'], pairs: TimelockPair[]) {
+    if (!pairs.some(p => p.offsetBlocks > 0 || p.absoluteBlocks > 0)) return;
+    const tip = await tipHeight(network);
+    const r = checkAbsoluteTimelocks(pairs, tip, network);
+    if (!r.ok) {
+      throw new TimelockMismatch(
+        `This vault was NOT accepted: its compiled timelocks do not match what you chose. ${r.problems.join('; ')}. ` +
+        'Do not fund this address. Delete this vault from the dashboard and compile again; if it happens twice, stop and contact support.',
+      );
+    }
+  }
+
   async function runCompile() {
     if (!draftVault) return;
     setCompiling(true);
@@ -722,6 +741,11 @@ export default function VaultWizard() {
         });
         // Upgrade the descriptor to Nunchuk/Sparrow key-origin form,
         // same post-processing PolicyBuilder's save() already did.
+        await assertTimelocks(draftVault.network, [
+          { label: 'Recovery', offsetBlocks: draftVault.recovery_after, absoluteBlocks: res.vault.recovery_after },
+          { label: 'Inheritance', offsetBlocks: draftVault.inheritance_after, absoluteBlocks: res.vault.inheritance_after },
+          { label: 'Second inheritance', offsetBlocks: draftVault.second_inheritance_after ?? 0, absoluteBlocks: res.vault.second_inheritance_after ?? 0 },
+        ]);
         const origins = buildKeyOrigins([...founderKeys, ...heirKeys, ...consentKeys, ...backupKeys, ...secondHeirKeys]);
         const upgraded = res.vault.descriptor ? upgradeDescriptor(res.vault.descriptor, origins) : res.vault.descriptor;
         setCompiledVault({ ...res.vault, descriptor: upgraded });
@@ -735,6 +759,19 @@ export default function VaultWizard() {
         await api.vaults.updateLeaves(draftVault.id, leavesWithKeys);
         const allLeafKeys = enabled.flatMap(l => leafKeys[l.id] ?? []);
         const res = await api.vaults.compileLeaves(draftVault.id, buildPsbtKeyOrigins(allLeafKeys));
+        await assertTimelocks(draftVault.network, enabled
+          .filter(l => l.unlockType !== 'immediate')
+          .map(l => {
+            const compiled = res.vault.leaves?.find(x => x.id === l.id)?.unlock;
+            const kind = l.unlockType === 'older' ? 'older' as const : 'after' as const;
+            return {
+              label: l.label,
+              kind,
+              offsetBlocks: kind === 'older' ? l.olderBlocks : l.afterBlocks,
+              // A missing or differently-typed leaf is a mismatch, never a pass.
+              absoluteBlocks: compiled && compiled.type === kind ? compiled.blocks : -1,
+            };
+          }));
         const origins = buildKeyOrigins(allLeafKeys);
         const upgraded = res.vault.descriptor ? upgradeDescriptor(res.vault.descriptor, origins) : res.vault.descriptor;
         setCompiledVault({ ...res.vault, descriptor: upgraded });
@@ -755,6 +792,10 @@ export default function VaultWizard() {
           kid_xpubs: kidKeys.map(k => k.xpub),
           key_origins: buildPsbtKeyOrigins([...parentKeys, ...kidKeys]),
         });
+        await assertTimelocks(draftVault.network, [
+          { label: 'One parent alone', offsetBlocks: blocConfig.parentSoloAfter, absoluteBlocks: res.vault.bloc_policy?.parent_solo_after ?? -1 },
+          { label: 'Kids alone', offsetBlocks: blocConfig.kidsDecayStartAfter, absoluteBlocks: res.vault.bloc_policy?.kids_decay_start_after ?? -1 },
+        ]);
         const origins = buildKeyOrigins([...parentKeys, ...kidKeys]);
         const upgraded = res.vault.descriptor ? upgradeDescriptor(res.vault.descriptor, origins) : res.vault.descriptor;
         setCompiledVault({ ...res.vault, descriptor: upgraded });
@@ -762,7 +803,11 @@ export default function VaultWizard() {
       }
       setStep('backup');
     } catch (e) {
-      setCompileErr(friendlyCompileError(e instanceof Error ? e.message : 'Compile failed'));
+      setCompileErr(
+        e instanceof TimelockMismatch
+          ? e.message
+          : friendlyCompileError(e instanceof Error ? e.message : 'Compile failed'),
+      );
     } finally {
       setCompiling(false);
     }

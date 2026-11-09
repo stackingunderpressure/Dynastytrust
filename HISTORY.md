@@ -106,6 +106,47 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Absolute timelock cross-check: the browser refuses a compiled vault whose
+  heights are not tip + the offset chosen (2026-11-09).** Security backlog
+  item 2. The gap: every `after()` leaf is compiled server-side as `tip +
+  offset` where `netlify/functions/_chain.js`'s `fetchTipHeight` took any
+  finite non-negative number from mempool.space as the tip, and nothing in
+  the browser ever checked the absolute heights that came back. A tip wrong
+  by a lot (a feed bug, a changed API base in the Netlify environment, a
+  tampered function or response) compiles a vault whose recovery and
+  inheritance doors are already open the day it is funded, with the only
+  symptom a height nobody reads by hand. Fix, server half: `TIP_FLOOR`
+  per network (bitcoin 900,000 / testnet 5,000,000 / signet 300,000;
+  measured tips that day 975,224 / 5,322,818 / 330,163), an all-digit
+  response check, and a thrown error below the floor. Fix, browser half:
+  new pure `apps/web/src/lib/timelock-check.ts` (`checkTipFloor`,
+  `checkAbsoluteTimelocks`, 12-block slack) and `VaultWizard.runCompile`
+  now fetches the tip itself via `lib/chain.ts` after each of the three
+  compile paths and throws `TimelockMismatch` -- vault not accepted, not
+  advanced to Backup, told plainly not to fund it and to delete it --
+  unless every `after()` height is tip + the chosen offset within slack,
+  every `older()` duration came back untouched, and no leaf carries a
+  timelock that was not asked for. Standard compares the draft row's
+  relative `recovery_after` / `inheritance_after` /
+  `second_inheritance_after` to the compiled row; leaf-list compares each
+  enabled non-immediate leaf draft by id (a missing or re-typed leaf is a
+  mismatch, never a pass); Bloc compares `parentSoloAfter` /
+  `kidsDecayStartAfter` to `bloc_policy`. Verified before wiring that all
+  three server paths persist and return the ABSOLUTE heights
+  (`vaults-compile.js` 279/372, `vaults-compile-bloc.js` 132/162,
+  `compile-leaves.js` `wireLeaves` at 205), so the comparison is against
+  what is actually stored. Deliberately not done: the two tips still come
+  from mempool.space, so this defends against the server path, not a bad
+  feed (item 12); and a mismatched compile has already written the vault
+  row server-side -- the browser refuses it and tells the user to delete
+  it rather than silently archiving. Proof: `scripts/test-timelock-check.mjs`
+  (6 cases: honest within slack, doors-already-open refused, slack
+  boundary exact, unasked-for and missing timelocks refused, relative
+  converted to height refused, floors on all three networks) wired into
+  `npm test`. Measured: npm test green (policy, legacy, onchain, spending
+  paths, timelock-check 6, harness 41), lint 0 errors / 11 pre-existing
+  warnings, typecheck 10 = baseline, build green.
+
 - **Browser full-transaction gate: inputs, change and fee verified from the
   PSBT's own bytes (2026-11-09).** Operator, after a grounded threat read of
   main: "cut the browser-side gate now." The gap: `verifyPsbtMatchesRequest`

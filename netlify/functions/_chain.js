@@ -63,6 +63,17 @@ export async function getFeeRate(network) {
   } catch { return 5; }
 }
 
+// A height below which the real chain cannot be. Mirrors TIP_FLOOR in
+// apps/web/src/lib/timelock-check.ts (this file cannot import app code).
+// Measured 2026-11-09: bitcoin 975,224; testnet3 5,322,818; signet 330,163.
+// Every absolute CLTV height this backend bakes is tip + offset; a tip
+// that is wrong by a lot (a feed bug, a changed API base, a tampered
+// response) would compile recovery/inheritance doors that are already
+// open at funding. The browser re-checks the heights it gets back
+// against its own tip fetch (timelock-check.ts); this floor is the
+// server's half of the same defense. Raise occasionally; never lower.
+export const TIP_FLOOR = { bitcoin: 900_000, testnet: 5_000_000, signet: 300_000 };
+
 export async function fetchTipHeight(network) {
   const base = MEMPOOL[network] || MEMPOOL.testnet;
   const res = await fetch(`${base}/blocks/tip/height`);
@@ -70,9 +81,13 @@ export async function fetchTipHeight(network) {
     throw new Error(`mempool.space tip height ${res.status}`);
   }
   const text = (await res.text()).trim();
+  if (!/^\d{1,9}$/.test(text)) {
+    throw new Error(`bad tip height response: ${text.slice(0, 40)}`);
+  }
   const height = parseInt(text, 10);
-  if (!Number.isFinite(height) || height < 0) {
-    throw new Error(`bad tip height response: ${text}`);
+  const floor = TIP_FLOOR[network] ?? 0;
+  if (!Number.isSafeInteger(height) || height < floor) {
+    throw new Error(`implausible ${network} tip height ${height} (the real chain is past ${floor})`);
   }
   return height;
 }
