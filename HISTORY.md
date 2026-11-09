@@ -16,6 +16,94 @@ Read the entry for the code you are about to touch. Do not read all of it.
 **Append here when you close something**, and keep `CLAUDE.md`'s "Current
 state" block short -- working features, open gaps, next roadmap, nothing more.
 
+## Evidence record -- what has actually been proven, and where the proof is
+
+Written 2026-11-09 because a session told the operator there had been no
+independent audit and no real-coin spend. Both were wrong; the evidence was in
+this repo and on the chain, and nobody had indexed it. This section exists so
+that never happens again. Every line below is either verifiable from the
+named commit or the named transaction, or is marked as operator-witnessed.
+
+**1. Real mainnet spend through the DynastyTrust pipeline (2026-08-15).**
+Transaction `03107bcc865ae5d40e55de4c23b87c4420dd5d7ef12bbfa945566b5733a6f77c`,
+confirmed in block 962,506 at 01:54:29 UTC (Foundry USA), 190 sats fee at
+1.13 sat/vB, RBF-signalled (`nSequence 0xfffffffd`), `nLockTime 0`.
+Verified on-chain on 2026-11-09 by decoding the witness from mempool.space,
+not from memory:
+
+- The spent output is `bc1pk2yjvl2gfwhe6tsec29lr4m6kpevdya8c7z0s47qwllnd2pdccfsfehq63`
+  (P2TR), funded 30 minutes earlier by
+  `95335563f2b35092f24312950ada715a47b0f3f7d6393826321244101e6285f1` with
+  15,889 sats in block 962,503.
+- The witness is a **Taproot script-path spend** with 4 items: a 64-byte
+  Schnorr signature (SIGHASH_DEFAULT -- the only form our signer emits), an
+  empty element for the unsigned key, the leaf script, and a 33-byte control
+  block (leaf version 0xc0, no merkle path: a single-leaf tree).
+- The control block's internal key is
+  `50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0` -- the
+  BIP341 NUMS point, byte-identical to `NUMS_HEX` in
+  `protocol/src/policy_compiler.rs`, `protocol/src/psbt_builder.rs` and
+  `compiler/src/main.rs`. No key-path spend is possible on this output; only
+  the compiled script can move it, which is the whole design.
+- The leaf script is `<pk1> OP_CHECKSIG <pk2> OP_CHECKSIGADD OP_1 OP_NUMEQUAL`
+  = `multi_a(1, pk1, pk2)`: a 1-of-2 founders-only leaf with no timelock, the
+  shape the wizard's `plain` mode compiles (founders only, quorum 1 of 2, no
+  recovery or inheritance leaves, so `nest_leaves` returns the single leaf).
+- Outputs: 13,889 sats to `bc1q67jr5skxxgjduf2njkktnyj968hw5072ww2vz3`
+  (P2WPKH, the destination) and 1,810 sats of **change back to the vault's
+  own address** -- exactly what `/psbt-binary`'s server-side
+  `change_address` check enforces.
+- Operator-witnessed, not derivable from the chain: the PSBT was built by
+  DynastyTrust, signed in the browser with the DynastyTrust + Tapit Wallet
+  signing bridge, and broadcast from the app. The chain proves the
+  construction is ours and the spend was valid; it cannot show which app
+  held the pen.
+
+What this does NOT prove: a timelocked path (recovery or inheritance) spent
+on mainnet, a hardware-wallet signature, or a multi-leaf tree. Those are
+proven offline by the harness (item 3) and remain to be walked live on
+signet per `[TEST] Family Inheritance`.
+
+**2. Independent security audit (2026-08-21, follow-up 2026-08-29).** A paid
+Kimi K3 automated security scan of the whole repo produced 146 findings. They
+were triaged in two sessions; the confirmed-real ones were fixed in roughly
+twenty commits on 2026-08-21, each citing the finding numbers it closes
+(`c994971` #7/#10/#85 bounded PSBT parsing + rejected sighash types,
+`3ab87c0` #12/#22 prevout/change scripts cross-checked against the compiled
+policy, `dc1191b` #19/#138/#21/#26, `f1bfa44` Family A
+`verifyPsbtMatchesRequest` in the send flow, `a85191b`, `a96fb5e`,
+`1fe7b66` #56, `74e2a1b` #142, `a2af924` #15/#49/#25 request state machine +
+broadcast txid verification, `7056348` #55/#66, `22bdcc6` #42/#58
+MIN_RECOVERY_BLOCKS floor, `34e80cd` #145 membership-ack forgery,
+`bde647a` #53/#80/#92/#131/#146 psbt-cosign + Tapit-connect response
+forgery, `afe5499` #142/#8/#23, then Family D `27bcb8b`/`83e68da`/
+`5794eab`/`9600897`). Three findings were design calls the operator
+confirmed as intentional and are recorded in the "Security audit follow-up"
+entry below so a future scan does not re-flag them. The threat-model
+follow-up on 2026-08-29 (`978e9c2`) added descriptor-swap fingerprint
+pinning and the CSP. **Gap:** the scan's per-finding text was not preserved
+in the repo (see the Family D entry); the original report lives only where
+the service delivered it. If it is found, commit it under `docs/audits/`.
+
+**3. Offline every-door proof (2026-11-08).** `npm test` ends with
+`scripts/offline-harness.sh`, which builds and runs the real Rust compiler
+locally and drives `scripts/offline-vault-harness.mjs` through it: 33
+checks across seven vault shapes (family-inheritance incl. consent gate,
+lost-device, social-recovery, backup, second-inheritance, dynasty-bloc with
+all four legs and three decay rungs, tranche), each positive spend compiled,
+PSBT-built, signed with the real browser signer, merged and finalized by
+rust-miniscript with the finalized transaction's `nLockTime` asserted, and
+each negative (below quorum, wrong cohort, non-existent rung, consent
+missing) asserted to be rejected. No Fly, no network, no bitcoind. The
+finalizer is rust-miniscript's satisfier, not a node, so this proves the
+compiler, signer and finalizer agree -- the live signet walk proves a
+network agrees.
+
+**Stale record to correct elsewhere:** AppCommander's
+`project-memory/foreman-memory/projects/dynastytrust/DOCTRINE.md` (written
+2026-05-16) still lists "end-to-end signet spend with real independent
+signers" as not yet verified. Item 1 above postdates it.
+
 ## Closed open-gap items (6 through 9)
 
 6. ~~Legacy Recovery: leaf-list ("generic") vault shape not covered yet.~~
