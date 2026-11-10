@@ -106,6 +106,63 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Bitcoin anchoring of the ledger via OpenTimestamps -- BUILT, on the
+  branch (2026-11-11).** Backlog 15c. Operator: "each stage submitted
+  to the open time stamps ... always checking against the open
+  timestamps hash that cannot be changed"; chose "at milestones +
+  daily". What a hash chain cannot detect by itself is its most recent
+  entries being cut off, or the whole chain being replaced with
+  another consistent one by whoever controls the database. An anchor
+  closes that. `netlify/functions/_ots.js`: our own reader for the
+  OpenTimestamps wire format (no `opentimestamps` npm package -- that
+  is the one whose `request` chain carried two criticals), the
+  domain-separated `anchorDigest(vault, position, entry hash)`,
+  `submitToCalendar`, `fetchUpgrade`, `matchesBlock`, and `toOtsFile`
+  so any standard OTS tool can check a proof without us. Only a
+  32-byte hash ever leaves the server. `_anchor.js`: `anchorTip`
+  (submits the tip to two calendars once each; one being down does not
+  stop the other), `upgradePending` (asks the calendar, replays the
+  proof, and records it ONLY if it matches the real block's merkle
+  root from two independent chain sources), `anchorAllUnanchored`,
+  `isMilestone` (vault created, script finalized, spend broadcast,
+  member joined/removed, rotation, deletion), and pure `verifyAnchors`.
+  `recordEvent` anchors milestones at once, best effort and bounded;
+  new scheduled function `ledger-anchor.js` (09:17 UTC daily, in
+  `netlify.toml`) sweeps the rest and upgrades receipts.
+  `vault-ledger.js` now returns the anchors and their verification,
+  looking the claimed blocks up itself and saying `blocksChecked:
+  false` rather than showing a pass when the chain cannot be reached.
+  Migration `20261111000000_vault_ledger_anchors.sql`: insert-only for
+  every role, members read. TWO DEFECTS CAUGHT BY THE TESTS, both
+  mine: (1) `verifyAnchors` first accepted a Bitcoin proof row without
+  requiring it to connect, through a verified calendar receipt, back
+  to OUR digest -- a valid proof of something else would have counted;
+  now the whole path digest -> receipt -> commitment -> block must
+  hold. (2) The migration's commitment pattern used `{2,400}`, which
+  Postgres rejects (limit 255); only running it on a real Postgres
+  showed that. Proof: `scripts/test-ots.mjs` replays the reference
+  client's published "Hello World!" proof to the merkle root of
+  Bitcoin block 358,391 and shows a different document, a different
+  block, or one flipped bit all fail (5 cases);
+  `scripts/test-anchor.mjs` (6 cases) shows a cut-off tail and a
+  swapped chain both fail their anchors; `test-ledger-db.sh` grew a
+  6th group on the anchors table against real PostgreSQL 16; and a
+  digest was submitted to both live calendars and parsed. NOT YET
+  SEEN: one of our own receipts upgrading to a Bitcoin block (hours;
+  a live receipt from this session is saved to check), the scheduled
+  job firing on Netlify, any of it against the real Supabase project.
+  Measured: npm test exit 0, 19 suites; ledger-db 6 groups; all
+  functions bundle; lint 0 errors / 11 pre-existing warnings;
+  typecheck 10 = baseline; build green.
+  DEPLOY STATE OF 15a, recorded honestly: its code is live on main
+  (55d04f1, site verified) but its migration did NOT apply -- the
+  "Supabase DB deploy" job fails with HTTP 401 "Invalid access token"
+  (the `SUPABASE_ACCESS_TOKEN` secret has expired; the same job failed
+  on the two earlier pushes that day, unnoticed because they carried
+  no migration). Production therefore logs "NOT SEALED" and carries
+  on, exactly the fallback `recordEvent` was given. Waiting on the
+  operator to replace the token.
+
 - **Sealed ledger: the vault's record is now hash-chained and
   append-only -- BUILT, not yet shipped (2026-11-10).** Backlog 15a.
   Operator: "the chain of actions all the way from the beginning to

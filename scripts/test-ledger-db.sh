@@ -35,6 +35,8 @@ grant all on vault_events, vault_members to authenticated, service_role;
 SQL
 $PSQL -f supabase/migrations/20261110230000_vault_ledger.sql
 $PSQL -f supabase/migrations/20261110230000_vault_ledger.sql   # idempotent: applying twice must not error
-$PSQL -c "grant select on vault_ledger to authenticated, service_role; grant insert, update, delete on vault_ledger to service_role;"
+$PSQL -f supabase/migrations/20261111000000_vault_ledger_anchors.sql
+$PSQL -f supabase/migrations/20261111000000_vault_ledger_anchors.sql   # idempotent
+$PSQL -c "grant select on vault_ledger, vault_ledger_anchors to authenticated, service_role; grant insert, update, delete on vault_ledger, vault_ledger_anchors to service_role;"
 
 PGPORT=$PORT node scripts/test-ledger-db.mjs

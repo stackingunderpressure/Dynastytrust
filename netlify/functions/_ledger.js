@@ -14,6 +14,7 @@
  * step with the SQL function `append_vault_ledger`.
  */
 import { createHash } from "node:crypto";
+import { anchorTip, isMilestone } from "./_anchor.js";
 
 export const LEDGER_GENESIS = "0".repeat(64);
 
@@ -115,10 +116,22 @@ export async function appendLedger(supabase, { vaultId, actorUserId, eventType, 
  */
 export async function recordEvent(supabase, { vault_id, user_id, event_type, metadata }) {
   const res = await supabase.from("vault_events").insert({ vault_id, user_id, event_type, metadata });
+  let sealed = false;
   try {
     await appendLedger(supabase, { vaultId: vault_id, actorUserId: user_id, eventType: event_type, payload: metadata ?? {} });
+    sealed = true;
   } catch (e) {
     console.error(`[ledger] NOT SEALED: ${event_type} on vault ${vault_id}: ${e?.message || e}`);
+  }
+  // Milestones are anchored to Bitcoin at once (everything else is
+  // swept up by the daily job). Best effort and bounded: a calendar
+  // being slow or down must never hold up or fail the action itself.
+  if (sealed && isMilestone(event_type)) {
+    try {
+      await anchorTip(supabase, vault_id, `milestone:${event_type}`);
+    } catch (e) {
+      console.error(`[anchor] milestone ${event_type} on vault ${vault_id} not anchored yet: ${e?.message || e}`);
+    }
   }
   return res;
 }

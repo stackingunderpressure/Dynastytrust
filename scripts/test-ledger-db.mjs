@@ -84,4 +84,24 @@ const shown = structuredClone(copy); shown[2].payload.amount_sats = 1;
 assert.match(verifyLedger(shown).reason, /displayed details differ/);
 pass('an edited, removed or reordered entry -- or details that differ from what was sealed -- fails verification');
 
+// 7. Anchors: insert-only for every role; the daily job's "who still needs anchoring" list is right.
+const tips = () => sql(`select vault_id || ':' || seq from vault_ledger_unanchored_tips() order by 1`, 'service_role').split('\n').filter(Boolean);
+assert.deepEqual(tips(), [`${V}:4`, `${V2}:1`]);
+const anchorRow = (kind, extra = '') => `insert into vault_ledger_anchors (vault_id, seq, entry_hash, digest, calendar, kind, commitment, proof_b64${kind === 'bitcoin' ? ', bitcoin_height' : ''}) values (${lit(V)}, 4, ${lit(tip.entry_hash)}, ${lit('ab'.repeat(32))}, 'cal-a', ${lit(kind)}, ${lit('cd'.repeat(44))}, 'AAAA'${kind === 'bitcoin' ? ', 900123' : ''}${extra})`;
+sql(anchorRow('pending'), 'service_role');
+assert.deepEqual(tips(), [`${V2}:1`], 'an anchored tip must drop off the list');
+sql(anchorRow('bitcoin'), 'service_role');
+fails(anchorRow('pending'), 'service_role', 'duplicate key', 'a second receipt for the same position and calendar');
+fails(`insert into vault_ledger_anchors (vault_id, seq, entry_hash, digest, calendar, kind, commitment, proof_b64) values (${lit(V)}, 4, ${lit(tip.entry_hash)}, ${lit('ab'.repeat(32))}, 'cal-b', 'bitcoin', 'cdcd', 'AAAA')`, 'service_role', 'check', 'a "bitcoin" anchor with no block height');
+for (const role of ['service_role', null]) {
+  fails(`update vault_ledger_anchors set bitcoin_height = 1 where kind = 'bitcoin'`, role, 'append-only', `${role ?? 'the database owner'} editing an anchor`);
+  fails(`delete from vault_ledger_anchors`, role, 'append-only', `${role ?? 'the database owner'} deleting an anchor`);
+}
+fails(`truncate vault_ledger_anchors`, null, 'append-only', 'truncating the anchors');
+fails(anchorRow('pending').replace("'cal-a'", "'cal-z'"), 'authenticated', 'permission denied', 'a signed-in browser inserting an anchor');
+fails(`select * from vault_ledger_unanchored_tips()`, 'authenticated', 'permission denied', 'a signed-in browser listing every vault\'s tips');
+const acount = (uid) => sql(`set test.uid = ${lit(uid)}; set role authenticated; select count(*) from vault_ledger_anchors where vault_id = ${lit(V)}`);
+assert.equal(acount(alice), '2'); assert.equal(acount(mallory), '0');
+pass('anchors are insert-only for every role; members can read them; the daily list is correct');
+
 console.log(`ledger-db tests passed (${n} groups)`);

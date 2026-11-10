@@ -30,6 +30,11 @@
   directory = "netlify/functions"
   node_bundler = "esbuild"
 
+# Daily Bitcoin anchoring of every vault's ledger (see
+# netlify/functions/ledger-anchor.js). 09:17 UTC, off the hour.
+[functions."ledger-anchor"]
+  schedule = "17 9 * * *"
+
 [[plugins]]
   package = "@netlify/plugin-functions-install-core"
 

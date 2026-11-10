@@ -171,15 +171,24 @@ then (c).
     end ... tamper evident ... always checking against the open timestamps
     hash that cannot be changed ... records of every single thing", and
     "anyone else logging in is who they're supposed to be." Five slices:
-    - ~~15a Sealed ledger + lock the table.~~ BUILT 2026-11-10, on the
-      branch, not yet shipped (see `HISTORY.md`): `vault_ledger`, hash-chained
+    - ~~15a Sealed ledger + lock the table.~~ BUILT 2026-11-10; code LIVE on
+      main (55d04f1) but its migration has NOT applied -- the Supabase DB
+      deploy job fails with "Invalid access token" (the GitHub secret
+      SUPABASE_ACCESS_TOKEN is expired; it failed on the two earlier pushes
+      that day too). Until that is replaced nothing is sealed in production (see `HISTORY.md`): `vault_ledger`, hash-chained
       and append-only for every role; `vault_events` read-only from the
       browser; every server event write goes through `recordEvent`.
     - 15b Signed entries: creating the vault, joining with a key, the final
       key set, each spend signature -- signed by the actor's vault key.
-    - 15c Anchoring: the ledger tip submitted to OpenTimestamps at milestones
-      (vault finalized, spend broadcast, member added/removed) and daily.
-      This is also what catches a TRUNCATED tail, which a chain alone cannot.
+    - ~~15c Anchoring.~~ BUILT 2026-11-11, on the branch (see `HISTORY.md`):
+      the ledger tip is submitted to two OpenTimestamps calendars at
+      milestones and by a daily job, receipts are upgraded to Bitcoin proofs
+      checked against the real block from two sources, and
+      `verifyAnchors` fails a ledger whose tail was cut or swapped. Our own
+      dependency-free OTS reader, proven against the reference client's
+      proof and Bitcoin block 358,391. NOT yet seen: one of OUR receipts
+      upgrading to a Bitcoin proof (takes hours; a live receipt from
+      2026-11-11 is saved to check), and the scheduled job running on Netlify.
     - 15d Verify screen + downloadable file, for every member: re-walk the
       chain, check signatures, check the Bitcoin timestamp, green or red.
     - 15e Identity at the door: invite bound to the invited email; the owner
