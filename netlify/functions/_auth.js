@@ -22,6 +22,51 @@ const JWKS = createRemoteJWKSet(
 );
 
 /**
+ * Pure: may a token with this assurance level act for an account that
+ * does / does not have a verified second factor? aal2 always may; aal1
+ * only when the account has no second factor to ask for.
+ */
+export function aalSatisfied(aal, accountHasVerifiedFactor) {
+  return aal === "aal2" || accountHasVerifiedFactor === false;
+}
+
+// userId -> { has, at }. A warm function instance re-checks at most
+// once a minute per user, so the common case costs nothing extra. The
+// only staleness that matters is the minute after someone turns
+// two-step ON, during which an aal1 token minted before that still
+// passes; turning it OFF needs an aal2 session, which always passes.
+const FACTOR_CACHE = new Map();
+const FACTOR_TTL_MS = 60_000;
+
+/**
+ * Does this account have a verified authenticator?
+ *
+ * ON A LOOKUP ERROR THIS RETURNS false (the step is not asked for) and
+ * logs loudly. That is a deliberate, temporary choice: this check runs
+ * in front of every function, it could not be exercised against the
+ * live project when it was written (2026-11-10), and failing closed on
+ * an untested lookup would turn one wrong assumption into a total
+ * outage for every account. Once the operator has witnessed real
+ * lookups succeeding in the function logs, flip this to throw -- see
+ * docs/security-backlog.md item 10.
+ */
+async function hasVerifiedFactor(userId) {
+  const hit = FACTOR_CACHE.get(userId);
+  if (hit && Date.now() - hit.at < FACTOR_TTL_MS) return hit.has;
+  try {
+    const { getSupabaseAdmin } = await import("./_supabase.js");
+    const { data, error } = await getSupabaseAdmin().auth.admin.mfa.listFactors({ userId });
+    if (error) throw error;
+    const has = (data?.factors ?? []).some((f) => f.status === "verified");
+    FACTOR_CACHE.set(userId, { has, at: Date.now() });
+    return has;
+  } catch (e) {
+    console.error("[auth] MFA factor lookup FAILED -- second step NOT enforced for this request:", e?.message || e);
+    return false;
+  }
+}
+
+/**
  * Verify the Bearer token in the event headers. Pass
  * `{ allowQueryToken: true }` to also fall back to a `?token=`
  * query-string param when there's no Authorization header -- needed
@@ -57,6 +102,13 @@ export async function requireUser(event, { allowQueryToken = false } = {}) {
 
     if (!payload?.sub) {
       return { error: "Invalid token: missing sub claim" };
+    }
+
+    // Two-step sign-in is enforced HERE, not only in the browser: once
+    // an account has a verified authenticator, a session that has only
+    // proven the password (aal1) is refused by every function.
+    if (payload.aal !== "aal2" && !aalSatisfied(payload.aal, await hasVerifiedFactor(payload.sub))) {
+      return { error: "Two-step sign-in required: enter your authenticator code to continue" };
     }
 
     return { userId: payload.sub, claims: payload };

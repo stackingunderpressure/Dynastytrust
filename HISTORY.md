@@ -106,6 +106,43 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Two-step sign-in built -- UNVERIFIED on a real account (2026-11-10).**
+  Security backlog item 10; operator: "cut now, I walk later." The gap:
+  sign-in was email + password only, and an account shows vault
+  structure, balances, addresses, member names and pending requests --
+  coercion material though it moves no coins. Built, opt-in, on
+  Supabase Auth MFA (TOTP): `apps/web/src/lib/mfa-rules.ts` (pure:
+  `mfaDecision`, `normalizeTotpCode`), `lib/mfa.ts` (wrappers:
+  `getMfaState`, `startEnrollment` which clears any half-finished
+  factor first, `verifyCode`, `removeAuthenticator`),
+  `components/TwoStepCard.tsx` mounted on the Keys page under the Tapit
+  wallet card (QR via the existing `QrImage` plus the secret as text),
+  `components/MfaChallenge.tsx`, and `RequireAuth` now holds the whole
+  app behind the challenge when the session owes the step. Server half
+  -- the wall, since the browser screen is only the front door:
+  `netlify/functions/_auth.js` `requireUser` refuses a token whose
+  `aal` is not `aal2` when the account has a verified factor
+  (`aalSatisfied`, plus a per-instance 60s cache of the admin
+  `mfa.listFactors` lookup, skipped entirely for aal2 tokens).
+  DELIBERATE AND TEMPORARY: on a lookup ERROR the server does not ask
+  for the step (logs loudly). That check sits in front of all 40
+  functions and could not be run against the live project from the
+  sandbox; failing closed on an untested lookup would turn one wrong
+  assumption into a total outage. Flip it to fail-closed once a real
+  lookup has been witnessed succeeding. Copy says plainly what this
+  protects (what the account can SEE) and what it does not (coins are
+  guarded by keys). Verified: `scripts/test-mfa.mjs` (3 cases: browser
+  decision, code normalisation, server refuses a password-only session
+  for an enrolled account) in `npm test`; both new screens rendered in
+  a throwaway preview at 375px and looked at -- no overflow, no errors,
+  copy and layout as intended. NOT verified, and it is most of the
+  feature: enroll, challenge, verify, unenroll and the admin factor
+  lookup against real Supabase, on a real phone, with a real
+  authenticator. Not built: requiring it for mainnet-vault members,
+  recovery codes, lost-phone recovery. Measured: npm test green, lint 0
+  errors / 11 pre-existing warnings, typecheck 10 = baseline, build
+  green.
+
 - **Authorization audit of all 40 service-role functions: 13 gaps found
   and closed (2026-11-10).** Security backlog item 11. Every Netlify
   function that touches the database uses the Supabase service-role key,

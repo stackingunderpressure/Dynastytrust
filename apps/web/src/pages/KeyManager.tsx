@@ -14,6 +14,7 @@ import { Button, Input, Label, Textarea } from "../components/ui";
 import { QrImage } from "../components/QrImage";
 import { XpubQrScanner } from "../components/XpubQrScanner";
 import { WalletLinkCard } from "../components/WalletLinkCard";
+import { TwoStepCard } from "../components/TwoStepCard";
 import { WordGrid } from "../components/vault-builder/BackupFlow";
 import {
   BackupFlow, KeyCreatedPrompt,
@@ -945,6 +946,9 @@ export default function KeyManager() {
   return (
     <div style={{ fontFamily: fonts.sans }}>
       <WalletLinkCard />
+      <div style={{ marginBottom: 16 }}>
+        <TwoStepCard />
+      </div>
       <div style={{ marginBottom: 16 }}>
         <Link
           to="/recover-descriptor"

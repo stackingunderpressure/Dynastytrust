@@ -109,11 +109,21 @@ then (c).
 
 ## Open -- stops identity exposure
 
-10. **Second factor on sign-in.** `Auth.tsx` is email + password only. Enable
-    Supabase MFA (TOTP) and require it for any account that is a member of a
-    `network === "bitcoin"` vault. An account takeover shows vault structure,
-    balances, addresses, member names and pending requests -- coercion
-    material even though it moves no coins.
+10. **Second factor on sign-in.** BUILT 2026-11-10, on the branch, NOT yet
+    walked on a real account (see `HISTORY.md`). Opt-in TOTP authenticator:
+    `TwoStepCard` on the Keys page turns it on; `RequireAuth` shows
+    `MfaChallenge` and renders nothing of the app until the code verifies;
+    `_auth.js` refuses every API call from a password-only session once the
+    account has a verified factor. Before this is called closed:
+    - the operator walks enroll -> sign out -> sign in -> code -> turn off on
+      a phone, and confirms a factor lookup succeeded in the function logs;
+    - then flip `hasVerifiedFactor` in `_auth.js` from fail-open-on-lookup-error
+      to fail-closed (it is fail-open only because it could not be exercised
+      live and sits in front of every function);
+    - MFA must be enabled for the Supabase project (Auth settings);
+    - still to decide: REQUIRING it for members of mainnet vaults, and
+      recovery codes / what a person does when the phone is lost (today:
+      the owner of the Supabase project removes the factor by hand).
 
 11. ~~**Authorization audit of every service-role function.**~~ Closed
     2026-11-10 (see `HISTORY.md`). All 40 functions that use the service-role

@@ -10,6 +10,8 @@ import {
 import { useToast } from './toast';
 import Auth, { SetNewPassword } from '../pages/Auth';
 import { LoadingScreen } from './LoadingScreen';
+import { MfaChallenge } from './MfaChallenge';
+import { getMfaState } from '../lib/mfa';
 
 interface RequireAuthProps {
   children: (session: Session) => ReactNode;
@@ -26,6 +28,27 @@ export function RequireAuth({ children }: RequireAuthProps) {
   // True while we redeem a Tapit wallet redirect into a session, so we show
   // the splash instead of flashing the login screen mid-handshake.
   const [processing, setProcessing] = useState(false);
+  // 'checking' until we know whether this session still owes a second
+  // step; { factorId } while it does. Re-evaluated whenever the signed-in
+  // user changes. If the check itself fails we let the app render: the
+  // server refuses every request from a session that owes the step
+  // (netlify/functions/_auth.js), so this screen is the front door, not
+  // the wall, and a transient error must not lock someone out of signing
+  // out or retrying.
+  const [mfa, setMfa] = useState<'checking' | 'ok' | { factorId: string }>('checking');
+  const userId = session?.user?.id ?? null;
+  useEffect(() => {
+    if (!userId) { setMfa('checking'); return; }
+    let live = true;
+    setMfa('checking');
+    getMfaState()
+      .then(st => {
+        if (!live) return;
+        setMfa(st.decision === 'challenge' && st.factorId ? { factorId: st.factorId } : 'ok');
+      })
+      .catch(() => { if (live) setMfa('ok'); });
+    return () => { live = false; };
+  }, [userId]);
 
   useEffect(() => {
     repairPubkeys();
@@ -81,5 +104,9 @@ export function RequireAuth({ children }: RequireAuthProps) {
   if (loading || processing) return <LoadingScreen />;
   if (recovering) return <SetNewPassword onDone={() => setRecovering(false)} />;
   if (!session) return <Auth />;
+  // Two-step sign-in: an account with an authenticator set up renders
+  // nothing of the app until this session has entered a current code.
+  if (mfa === 'checking') return <LoadingScreen />;
+  if (mfa !== 'ok') return <MfaChallenge factorId={mfa.factorId} onVerified={() => setMfa('ok')} />;
   return <>{children(session)}</>;
 }
