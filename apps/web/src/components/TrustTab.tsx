@@ -26,7 +26,7 @@ import type {
 } from '../lib/api';
 import { api } from '../lib/api';
 import { supabase } from '../lib/supabase';
-import { listKeys, revealMnemonic } from '../lib/keystore';
+import { keyNeedsPassword, listKeys, revealMnemonic } from '../lib/keystore';
 import {
   signAttestation,
   trustDocHash,
@@ -235,10 +235,11 @@ async function signWithLocalKey(opts: {
       "No local key matches your vault pubkey. Import the mnemonic on this device.",
     );
   }
-  const pw = match.testMnemonic
-    ? undefined
-    : (await opts.requestPassword(match.label)) ?? undefined;
-  if (!match.testMnemonic && !pw) throw new Error('Password required');
+  const needsPw = keyNeedsPassword(match);
+  const pw = needsPw
+    ? (await opts.requestPassword(match.label)) ?? undefined
+    : undefined;
+  if (needsPw && !pw) throw new Error('Password required');
   const mnemonic = await revealMnemonic(match.keyId, pw);
   const res = signAttestation({
     mnemonic,

@@ -10,7 +10,7 @@ import {
 } from "../lib/api";
 import { supabase } from "../lib/supabase";
 import { broadcastTxUrl, explorerTxUrl } from "../config";
-import { listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
+import { keyNeedsPassword, listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
 import {
   countSignatures,
   mergePsbts,
@@ -332,15 +332,16 @@ export default function ProposalDetail() {
     if (!proposal || !vault) return;
     setBusy(true);
     try {
-      const pw = key.testMnemonic
-        ? undefined
-        : (await askPassword({
+      const needsPw = keyNeedsPassword(key);
+      const pw = needsPw
+        ? (await askPassword({
             title: "Unlock key",
             message: `Enter the password for "${key.label}" to sign.`,
             password: true,
             confirmLabel: "Sign",
-          })) ?? undefined;
-      if (!key.testMnemonic && pw == null) return;
+          })) ?? undefined
+        : undefined;
+      if (needsPw && pw == null) return;
       const mnemonic = await revealMnemonic(key.keyId, pw);
       const basePsbt = mergedPsbt || proposal.psbt_hex;
       if (!basePsbt) throw new Error("No PSBT on this proposal");

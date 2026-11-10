@@ -19,7 +19,7 @@ import {
   type BlocPolicy,
 } from "../lib/api";
 import { supabase } from "../lib/supabase";
-import { listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
+import { keyNeedsPassword, listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
 import { keyNetworkMatches } from "../lib/network";
 import { signPsbtWithMnemonic, countSignatures, mergePsbts, verifyPsbtMatchesRequest } from "../lib/psbt-signer";
 import { fetchTapitDisplayNames } from "../lib/tapit-profile-lookup";
@@ -1835,7 +1835,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
 
       // Get mnemonic
       let pw: string | undefined;
-      if (!key.testMnemonic) {
+      if (keyNeedsPassword(key)) {
         const result = await askPassword({
           title: "Unlock key",
           message: `Enter the password for "${key.label}" to sign.`,
@@ -7567,7 +7567,7 @@ function TrancheClaimModal({
     setSigners(prev => prev.map((s, i) => (i === index ? { ...s, status: "signing" } : s)));
     try {
       let pw: string | undefined;
-      if (!entry.key.testMnemonic) {
+      if (keyNeedsPassword(entry.key)) {
         const result = await askPassword({
           title: "Unlock key",
           message: `Enter the password for "${entry.key.label}" to sign.`,

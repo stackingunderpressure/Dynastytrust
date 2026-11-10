@@ -75,12 +75,20 @@ then (c).
    it into their labels is a UI follow-up, the chokepoint already holds.
    Proven by `scripts/test-keystore-mainnet.mjs` (5 cases, in `npm test`).
 
-7. **Harden secure-mode storage.** Move the AES-GCM wrapping key from a
-   PBKDF2 password to WebAuthn PRF / passkey where the device supports it, with
-   the password as fallback; never hold a decrypted mnemonic beyond the signing
-   call (audit `revealMnemonic` callers). The honest statement stays: a
-   compromised page can capture a password at entry; real funds belong on
-   hardware signers, which the app already supports.
+7. **Passkey-protected keys.** BUILT 2026-11-10, on the branch, NOT yet walked
+   on a real device (see `HISTORY.md`). A key's password can be REPLACED by a
+   passkey (WebAuthn PRF): the mnemonic is encrypted under a secret only the
+   device's authenticator can produce, so there is no password to phish or
+   capture as it is typed. `protectKeyWithPasskey` refuses unless the written
+   backup was verified, asks the passkey twice and requires the same answer,
+   and re-decrypts before it drops the password. "Use a password instead"
+   goes back. Before this is called closed, the operator walks on a phone:
+   protect a SIGNET key, sign with it, view its phrase, switch back to a
+   password. Known limits: a passkey is bound to the site's domain
+   (dynastytrust.family) and to the device or its synced keychain; PRF needs
+   a recent browser (iOS 18+, current Chrome/Android) -- older ones are told
+   plainly and keep the password; a decrypted mnemonic still exists in memory
+   for the length of one signing call.
 
 8. ~~**Supply chain: audit gate on what ships.**~~ Closed 2026-11-10 (see
    `HISTORY.md`). `scripts/audit-prod.mjs` (in `npm test`) fails on any

@@ -15,6 +15,7 @@ import { QrImage } from "../components/QrImage";
 import { XpubQrScanner } from "../components/XpubQrScanner";
 import { WalletLinkCard } from "../components/WalletLinkCard";
 import { TwoStepCard } from "../components/TwoStepCard";
+import { PasskeyProtect } from "../components/PasskeyProtect";
 import { WordGrid } from "../components/vault-builder/BackupFlow";
 import {
   BackupFlow, KeyCreatedPrompt,
@@ -187,6 +188,7 @@ function RevealModal({
   const confirm = useConfirm();
   const [pw, setPw] = useState("");
   const isTest = !!keyData.testMnemonic;
+  const isPasskey = !!keyData.passkeyMnemonic;
   const [mnemonic, setMn] = useState<string | null>(isTest ? keyData.testMnemonic! : null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -236,19 +238,22 @@ function RevealModal({
       {!mnemonic && !isTest ? (
         <form onSubmit={unlock} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <p style={{ fontSize: 13, color: colors.muted }}>
-            Enter password for <strong style={{ color: colors.text }}>{keyData.label}</strong>.
+            {isPasskey ? "Unlock with your passkey to see the recovery phrase for " : "Enter password for "}
+            <strong style={{ color: colors.text }}>{keyData.label}</strong>.
           </p>
-          <div>
-            <Label>Password</Label>
-            <Input type="password" value={pw} onChange={e => setPw(e.target.value)} required autoFocus />
-          </div>
+          {!isPasskey && (
+            <div>
+              <Label>Password</Label>
+              <Input type="password" value={pw} onChange={e => setPw(e.target.value)} required autoFocus />
+            </div>
+          )}
           {err && <p style={{ color: colors.red, fontSize: 13 }}>{err}</p>}
           <div style={{ display: "flex", gap: 10 }}>
             <Button type="button" variant="ghost" onClick={onClose}>
               Cancel
             </Button>
             <Button type="submit" disabled={busy}>
-              {busy ? "Decrypting..." : "Reveal"}
+              {busy ? (isPasskey ? "Waiting for your device..." : "Decrypting...") : isPasskey ? "Unlock with passkey" : "Reveal"}
             </Button>
           </div>
         </form>
@@ -275,7 +280,7 @@ function RevealModal({
                 Verify backup
               </Button>
             )}
-            {!isTest && !passwordRemoved && (
+            {!isTest && !isPasskey && !passwordRemoved && keyData.network !== "mainnet" && (
               <Button variant="ghost" style={{ flex: 1 }} onClick={dropPassword}>
                 Remove password
               </Button>
@@ -668,7 +673,9 @@ function DetailModal({
       ? "Tapit Wallet key (no local key material)"
       : k.origin === "imported_xpub"
         ? "Imported xpub"
-        : "Secure key (encrypted)";
+        : k.passkeyMnemonic
+          ? "Passkey-protected key (encrypted, no password)"
+          : "Secure key (encrypted)";
 
   const rows: [string, string][] = [
     ["Persona", k.persona],
@@ -819,11 +826,14 @@ function DetailModal({
             <Button variant="ghost" style={{ fontSize: 13 }} onClick={onChangePassword}>
               Change password
             </Button>
-            <Button variant="ghost" style={{ fontSize: 13 }} onClick={onRemovePassword}>
-              Remove password
-            </Button>
+            {k.network !== "mainnet" && (
+              <Button variant="ghost" style={{ fontSize: 13 }} onClick={onRemovePassword}>
+                Remove password
+              </Button>
+            )}
           </>
         )}
+        <PasskeyProtect k={k} onChanged={onClose} />
         {k.status === "active" && (
           <Button variant="ghost" style={{ fontSize: 13 }} onClick={onArchive}>
             Archive

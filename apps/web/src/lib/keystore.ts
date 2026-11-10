@@ -24,6 +24,7 @@ import { HDKey } from '@scure/bip32';
 import { sha256 } from '@noble/hashes/sha256';
 import { ripemd160 } from '@noble/hashes/ripemd160';
 import { base58check } from '@scure/base';
+import { webauthnPrf, type PrfProvider } from './passkey';
 
 const STORE_KEY = 'dynastytrust:keyring:v1';
 
@@ -45,6 +46,14 @@ export interface EncryptedBlob {
   ciphertextB64: string;
 }
 
+export interface PasskeyBlob {
+  version: 1;
+  credentialIdB64: string;
+  prfSaltB64: string;
+  nonceB64: string;
+  ciphertextB64: string;
+}
+
 export interface LocalKey {
   keyId: string;
   label: string;
@@ -61,6 +70,9 @@ export interface LocalKey {
   encryptedMnemonic?: EncryptedBlob;
   /** Test mode: plaintext mnemonic — never use for real funds */
   testMnemonic?: string;
+  /** Passkey mode: mnemonic encrypted under a secret only this device's
+   *  passkey can produce (WebAuthn PRF). Replaces the password. */
+  passkeyMnemonic?: PasskeyBlob;
   /** Master key fingerprint (root BIP32 key, first 4 bytes) — used in descriptors */
   masterFingerprint?: string;
   /** Whether backup verify has been completed */
@@ -137,6 +149,48 @@ export async function decryptBlob(blob: EncryptedBlob, password: string): Promis
     { name: 'AES-GCM', iv: unb64(blob.nonceB64) }, key, unb64(blob.ciphertextB64),
   );
   return new TextDecoder().decode(plain);
+}
+
+// -- Passkey-wrapped mnemonics -------------------------------------------
+//
+// The 32-byte PRF secret is stretched with HKDF-SHA256 (fixed info
+// string, so the secret is never used as an AES key directly and a
+// future second use of the same passkey can pick a different info) into
+// an AES-256-GCM key. No password, no PBKDF2: the entropy is the
+// authenticator's, not a human's.
+
+const PASSKEY_INFO = new TextEncoder().encode('dynastytrust-passkey-mnemonic-v1');
+
+async function keyFromPrfSecret(secret: Uint8Array): Promise<CryptoKey> {
+  if (secret.length !== 32) throw new Error('Passkey secret must be 32 bytes');
+  const raw = await crypto.subtle.importKey('raw', secret as BufferSource, 'HKDF', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(32), info: PASSKEY_INFO },
+    raw, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'],
+  );
+}
+
+export async function encryptWithPrfSecret(
+  text: string, secret: Uint8Array, credentialIdB64: string, prfSaltB64: string,
+): Promise<PasskeyBlob> {
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const key = await keyFromPrfSecret(secret);
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, key, new TextEncoder().encode(text));
+  return { version: 1, credentialIdB64, prfSaltB64, nonceB64: b64(nonce), ciphertextB64: b64(new Uint8Array(ct)) };
+}
+
+export async function decryptWithPrfSecret(blob: PasskeyBlob, secret: Uint8Array): Promise<string> {
+  const key = await keyFromPrfSecret(secret);
+  const plain = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: unb64(blob.nonceB64) as BufferSource }, key, unb64(blob.ciphertextB64) as BufferSource,
+  );
+  return new TextDecoder().decode(plain);
+}
+
+/** Does signing with this key need a typed password? (Test keys and
+ *  passkey keys do not; the passkey prompt is the device's own.) */
+export function keyNeedsPassword(key: LocalKey): boolean {
+  return key.origin === 'software' && !key.testMnemonic && !key.passkeyMnemonic && !!key.encryptedMnemonic;
 }
 
 //
@@ -640,7 +694,7 @@ export function parseXpubText(
 /**
  * Get mnemonic — works for both test keys (no password) and secure keys (needs password).
  */
-export async function revealMnemonic(keyId: string, password?: string): Promise<string> {
+export async function revealMnemonic(keyId: string, password?: string, prf: PrfProvider = webauthnPrf): Promise<string> {
   const key = getKey(keyId);
   if (!key)                      throw new Error('Key not found');
   if (key.origin !== 'software') throw new Error('Hardware key — no mnemonic stored');
@@ -654,6 +708,19 @@ export async function revealMnemonic(keyId: string, password?: string): Promise<
     const blocked = keySigningBlockedReason(key);
     if (blocked) throw new Error(blocked);
     return key.testMnemonic;
+  }
+
+  // Passkey key — the device's own prompt replaces the password
+  if (key.passkeyMnemonic) {
+    const secret = await prf.evaluate(key.passkeyMnemonic.credentialIdB64, key.passkeyMnemonic.prfSaltB64);
+    let m: string;
+    try {
+      m = await decryptWithPrfSecret(key.passkeyMnemonic, secret);
+    } catch {
+      throw new Error('This passkey could not unlock the key. Use the passkey it was protected with, or restore the key from its written recovery phrase.');
+    }
+    if (!validateMnemonic(m, wordlist)) throw new Error('Decrypted data is not a valid mnemonic');
+    return m;
   }
 
   // Secure key — password required
@@ -703,6 +770,80 @@ export function removeKeyPassword(keyId: string, mnemonic: string): LocalKey {
   const all = loadAll();
   const idx = all.findIndex(k => k.keyId === keyId);
   all[idx] = { ...all[idx], testMnemonic: mnemonic, encryptedMnemonic: undefined };
+  saveAll(all);
+  return all[idx];
+}
+
+/**
+ * Replace a key's password with a passkey.
+ *
+ * This is the one operation in this file that could strand a seed if
+ * the device's passkey misbehaved, so it is built to refuse rather than
+ * hope:
+ *   - the key must have completed its written-backup verification
+ *     (`backedUp`) -- that phrase is the way back if the passkey is ever
+ *     lost, and it must exist BEFORE the password goes away;
+ *   - the passkey is asked for its secret TWICE and the two answers must
+ *     match (a passkey that is not deterministic cannot be a key);
+ *   - the mnemonic is encrypted, then decrypted again from the stored
+ *     form and compared, before anything is saved;
+ *   - only then is the password blob dropped, in the same write.
+ * A failure at any step leaves the key exactly as it was.
+ */
+export async function protectKeyWithPasskey(
+  keyId: string,
+  opts: { password?: string; prf?: PrfProvider } = {},
+): Promise<LocalKey> {
+  const prf = opts.prf ?? webauthnPrf;
+  const key = getKey(keyId);
+  if (!key)                      throw new Error('Key not found');
+  if (key.origin !== 'software') throw new Error('Only keys held in this browser can be protected with a passkey');
+  if (key.passkeyMnemonic)       throw new Error('This key is already protected with a passkey');
+  if (!key.backedUp) {
+    throw new Error('Back up and verify this key\'s recovery phrase first. Once the password is gone, that written phrase is the only way back if the passkey is ever lost.');
+  }
+
+  // Read the seed with the key's CURRENT protection. A plaintext test
+  // key is read directly (same as secureTestKey) so a mainnet test key
+  // can still be upgraded.
+  const mnemonic = key.testMnemonic ?? await revealMnemonic(keyId, opts.password, prf);
+  if (!validateMnemonic(mnemonic, wordlist)) throw new Error('Stored recovery phrase is not valid');
+
+  const { credentialIdB64 } = await prf.create(key.label);
+  const prfSaltB64 = b64(crypto.getRandomValues(new Uint8Array(32)));
+  const secretA = await prf.evaluate(credentialIdB64, prfSaltB64);
+  const secretB = await prf.evaluate(credentialIdB64, prfSaltB64);
+  if (secretA.length !== 32 || toHex(secretA) !== toHex(secretB)) {
+    throw new Error('This passkey did not give the same answer twice, so it cannot protect a key. The key keeps its current protection.');
+  }
+
+  const blob = await encryptWithPrfSecret(mnemonic, secretA, credentialIdB64, prfSaltB64);
+  if ((await decryptWithPrfSecret(blob, secretB)) !== mnemonic) {
+    throw new Error('Passkey protection failed its own check. The key keeps its current protection.');
+  }
+
+  const all = loadAll();
+  const idx = all.findIndex(k => k.keyId === keyId);
+  if (idx < 0) throw new Error('Key not found');
+  all[idx] = { ...all[idx], passkeyMnemonic: blob, encryptedMnemonic: undefined, testMnemonic: undefined };
+  saveAll(all);
+  return all[idx];
+}
+
+/**
+ * Go back from a passkey to a password: unlock with the passkey,
+ * re-encrypt under the new password, drop the passkey blob.
+ */
+export async function passkeyToPassword(keyId: string, newPassword: string, prf: PrfProvider = webauthnPrf): Promise<LocalKey> {
+  const key = getKey(keyId);
+  if (!key)                 throw new Error('Key not found');
+  if (!key.passkeyMnemonic) throw new Error('Not a passkey-protected key');
+  if (!newPassword)         throw new Error('A new password is required');
+  const mnemonic = await revealMnemonic(keyId, undefined, prf);
+  const encryptedMnemonic = await encryptText(mnemonic, newPassword);
+  const all = loadAll();
+  const idx = all.findIndex(k => k.keyId === keyId);
+  all[idx] = { ...all[idx], encryptedMnemonic, passkeyMnemonic: undefined };
   saveAll(all);
   return all[idx];
 }

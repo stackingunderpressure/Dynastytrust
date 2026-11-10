@@ -106,6 +106,48 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Passkey-protected keys built -- UNVERIFIED on a real device
+  (2026-11-10).** Security backlog item 7; operator chose "passkey
+  replaces password" and "cut now, I walk later." The gap: a
+  secure-mode key's mnemonic is wrapped with a typed password, which a
+  compromised page can capture as it is typed and which is only as
+  strong as the human who chose it. Built: `apps/web/src/lib/passkey.ts`
+  (`PrfProvider`, `webauthnPrf`: creates a passkey with the WebAuthn
+  PRF extension and evaluates it against a random 32-byte salt; local
+  random challenge, nothing touches a server; throws a plain "this
+  device cannot do this, the key keeps its password" when PRF is
+  absent). `lib/keystore.ts` gains `PasskeyBlob` /
+  `LocalKey.passkeyMnemonic`, `encryptWithPrfSecret` /
+  `decryptWithPrfSecret` (HKDF-SHA256 with a fixed info string ->
+  AES-256-GCM), `keyNeedsPassword`, a passkey branch in
+  `revealMnemonic`, `protectKeyWithPasskey` and `passkeyToPassword`.
+  Because this is the one keystore operation that could strand a seed,
+  `protectKeyWithPasskey` refuses rather than hopes: the key must be
+  `backedUp` (checked BEFORE any passkey is created); the passkey is
+  evaluated twice and must give the same 32 bytes; the blob is
+  decrypted again and compared; only then is the password blob dropped
+  in the same write. Any failure leaves the key exactly as it was. UI:
+  `components/PasskeyProtect.tsx` ("Use a passkey instead" / "Use a
+  password instead") in the key's detail actions, the confirm text
+  stating in plain words that the password goes away and what the two
+  ways back are; the recovery-phrase modal unlocks with the passkey;
+  the four signing call sites (`VaultDetail` x2, `ProposalDetail`,
+  `TrustTab`) ask for a password only when `keyNeedsPassword`. Fixed
+  in passing, a bug my own item 6 created: the two "Remove password"
+  buttons would have thrown uncaught on a mainnet key (the keystore now
+  refuses that) -- they are hidden on mainnet. Proof:
+  `scripts/test-keystore-passkey.mjs` with a SIMULATED passkey (7
+  cases: refused without verified backup and no passkey created; wrong
+  password changes nothing; non-deterministic passkey refused and the
+  password still works; success leaves no password blob and no
+  mnemonic word in storage and a passkey key may sign on mainnet; a
+  wrong secret cannot unlock; back to a password; a test key upgrades
+  directly) in `npm test`. NOT verified, and it is the part that
+  matters: the real WebAuthn prompts on a real phone -- creation, PRF
+  support, three prompts in a row, unlock at signing. No sandbox can
+  show a passkey prompt. Measured: npm test green, lint 0 errors / 11
+  pre-existing warnings, typecheck 10 = baseline, build green.
+
 - **Two-step sign-in built -- UNVERIFIED on a real account (2026-11-10).**
   Security backlog item 10; operator: "cut now, I walk later." The gap:
   sign-in was email + password only, and an account shows vault
