@@ -16,6 +16,7 @@
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 import { canMutate } from "./_authz.js";
+import { verifySignedPsbt } from "./_psbt-verify.js";
 
 const FIELDS =
   "id, created_at, proposal_id, signer_index, signer_role, label, signed, signed_at, fingerprint, member_id, psbt_partial_hex";
@@ -70,11 +71,16 @@ export async function handler(event) {
 
     const { data: proposal, error: pErr } = await supabase
       .from("proposals")
-      .select("vault_id")
+      .select("vault_id, psbt_hex")
       .eq("id", proposal_id)
       .maybeSingle();
     if (pErr) return json(500, { error: pErr.message });
     if (!proposal) return json(404, { error: "Proposal not found" });
+
+    // A "signature" is only recorded if the PSBT really is this
+    // proposal's transaction and really carries a valid signature.
+    const sigCheck = verifySignedPsbt({ psbtHex: psbt_partial_hex, proposalPsbtHex: proposal.psbt_hex });
+    if (!sigCheck.ok) return json(400, { error: `Signature rejected: ${sigCheck.error}` });
 
     const { data: member } = await supabase
       .from("vault_members")

@@ -33,7 +33,8 @@
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
-import { activeMembership, canMutate, sanitizeTrancheUpdate } from "./_authz.js";
+import { activeMembership, canMutate, sanitizeTrancheUpdate, newlyFilledTxids, txMatchesTranche } from "./_authz.js";
+import { MEMPOOL, mempoolFetch } from "./_chain.js";
 import { assertNotPrivateExtendedKey } from "./_xpub.js";
 import { checkNumberBounds } from "./_numeric.js";
 
@@ -200,7 +201,7 @@ export async function handler(event) {
 
     const { data: existing } = await supabase
       .from("distribution_wallets")
-      .select("vault_id, tranches")
+      .select("vault_id, tranches, network")
       .eq("id", id)
       .maybeSingle();
     if (!existing) return json(404, { error: "Distribution wallet not found" });
@@ -248,6 +249,24 @@ export async function handler(event) {
       // and unknown keys are dropped rather than stored.
       const clean = sanitizeTrancheUpdate(prior, next, { callerIsOwner: isOwner });
       if (!clean.ok) return json(400, { error: clean.error });
+      // A txid a non-owner fills in must be a real transaction that
+      // really funds / claims THIS tranche -- the same standard
+      // proposals.js holds a 'broadcast' txid to. Without it any member
+      // could record a made-up claim and block the real one.
+      if (!isOwner) {
+        const base = MEMPOOL[existing.network] || MEMPOOL.testnet;
+        for (const t of newlyFilledTxids(prior, clean.tranches)) {
+          let tx;
+          try {
+            tx = await mempoolFetch(`${base}/tx/${t.txid}`);
+          } catch {
+            return json(400, { error: `Could not find transaction ${t.txid} on chain yet -- try again in a moment` });
+          }
+          if (!txMatchesTranche(tx, t.address, t.field)) {
+            return json(400, { error: `Transaction ${t.txid} does not ${t.field === "funded_txid" ? "pay" : "spend from"} tranche ${t.index + 1}'s address` });
+          }
+        }
+      }
       updates.tranches = clean.tranches;
     }
 

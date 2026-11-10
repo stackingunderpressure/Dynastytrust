@@ -11,7 +11,7 @@
 import assert from 'node:assert/strict';
 import {
   canMutate, isTerminalProposalStatus, redactMember, redactInvite,
-  stripPathKeys, sanitizeTrancheUpdate, isNewerProof,
+  stripPathKeys, sanitizeTrancheUpdate, isNewerProof, txMatchesTranche, newlyFilledTxids,
 } from '../netlify/functions/_authz.js';
 
 let n = 0;
@@ -81,5 +81,19 @@ assert.equal(isNewerProof('2026-11-02T00:00:00Z', '2026-11-02T00:00:00Z'), false
 assert.equal(isNewerProof(undefined, '2026-11-02T00:00:00Z'), true);
 assert.equal(isNewerProof('2026-11-02T00:00:00Z', 'garbage'), false);
 pass('a proof-of-life only replaces an older one');
+
+// a filled-in tranche txid must really touch the tranche address
+const fundTx = { vin: [{ prevout: { scriptpubkey_address: 'tb1qsomeoneelse' } }], vout: [{ scriptpubkey_address: 'tb1qvault', value: 5000 }] };
+const claimTx = { vin: [{ prevout: { scriptpubkey_address: 'tb1qvault' } }], vout: [{ scriptpubkey_address: 'tb1qheir', value: 4800 }] };
+assert.equal(txMatchesTranche(fundTx, 'tb1qvault', 'funded_txid'), true);
+assert.equal(txMatchesTranche(fundTx, 'tb1qvault', 'claimed_txid'), false, 'a funding tx is not a claim');
+assert.equal(txMatchesTranche(claimTx, 'tb1qvault', 'claimed_txid'), true);
+assert.equal(txMatchesTranche(claimTx, 'tb1qvault', 'funded_txid'), false);
+assert.equal(txMatchesTranche(claimTx, 'tb1qOTHER', 'claimed_txid'), false, 'an unrelated tx is not a claim');
+assert.equal(txMatchesTranche(null, 'tb1qvault', 'claimed_txid'), false);
+assert.equal(txMatchesTranche(claimTx, '', 'claimed_txid'), false);
+assert.deepEqual(newlyFilledTxids(prior, [{ ...prior[0], claimed_txid: T2 }]), [{ index: 0, field: 'claimed_txid', txid: T2, address: 'tb1qvault' }]);
+assert.deepEqual(newlyFilledTxids(prior, [{ ...prior[0] }]), []);
+pass('a tranche txid is only accepted if the transaction really funds / spends that tranche');
 
 console.log(`authz tests passed (${n} cases)`);

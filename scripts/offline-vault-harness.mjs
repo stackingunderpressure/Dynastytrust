@@ -28,6 +28,7 @@ import { HDKey } from '@scure/bip32';
 import { mnemonicToSeedSync } from '@scure/bip39';
 import * as btc from '@scure/btc-signer';
 import { signPsbtWithMnemonic, mergePsbts, verifyPsbtMatchesRequest } from '../apps/web/src/lib/psbt-signer.ts';
+import { verifySignedPsbt } from '../netlify/functions/_psbt-verify.js';
 
 const COMPILER = process.env.COMPILER_URL || 'http://127.0.0.1:8899';
 const SECRET = process.env.COMPILER_SECRET || 'testsecret';
@@ -241,6 +242,46 @@ const rejected = (msg) => console.log(`  [ok] REJECTED as it should be: ${msg}`)
   // belt and braces: the compiler itself refuses the same two forgeries server-side
   await expectFail(async () => post('/psbt-binary', { ...p, path: 'founders_now', address_type: 'tr_multileaf', ...SPEND, inputs: [{ ...utxo, script_pubkey: attackerScript }], change_address: own, network: NET }), { label: 'compiler / foreign input' }); rejected('compiler refuses a foreign input');
   await expectFail(async () => post('/psbt-binary', { ...p, path: 'founders_now', address_type: 'tr_multileaf', ...SPEND, inputs: [utxo], change_address: DEST, network: NET }), { label: 'compiler / foreign change' }); rejected('compiler refuses change to a foreign address');
+}
+
+// ── Server signature check: what signer-sessions will record as "signed" ─────
+// netlify/functions/_psbt-verify.js against PSBTs from the real compiler,
+// signed by the real browser signer: a genuine signature is accepted and
+// counted; garbage, an unsigned PSBT, a signature for a different
+// transaction, and a corrupted signature are all refused.
+{
+  const p = { founder_keys: keys(0,1,2), founder_quorum: 2, recovery_quorum: 2,
+              heir_keys: keys(3,4,5), heir_quorum: 2, recovery_after: 900_000, inheritance_after: 950_000 };
+  const compiled = await post('/compile', { ...p, address_type: 'tr_multileaf', network: NET });
+  const utxo = { txid: '00'.repeat(32), vout: 0, value_sats: 1_000_000, script_pubkey: scriptPubKeyHex(compiled.address) };
+  const build = async (amount, path = 'founders_now') => (await post('/psbt-binary', { ...p, path, address_type: 'tr_multileaf', ...SPEND, amount_sats: amount, inputs: [utxo], change_address: compiled.address, network: NET })).psbt_hex;
+  const proposal = await build(900_000);
+  const one = (await signPsbtWithMnemonic(proposal, MNEMONIC, S[0].path, 'testnet')).psbt_hex;
+  const two = mergePsbts([one, (await signPsbtWithMnemonic(proposal, MNEMONIC, S[1].path, 'testnet')).psbt_hex]);
+  const no = (label, args, needle) => {
+    const r = verifySignedPsbt(args);
+    assert.equal(r.ok, false, `${label}: accepted`);
+    assert.ok(r.error.includes(needle), `${label}: wrong reason: ${r.error}`);
+    rejected(label);
+  };
+  console.log('server signature check');
+  assert.deepEqual(verifySignedPsbt({ psbtHex: one, proposalPsbtHex: proposal }), { ok: true, validSignatures: 1 });
+  assert.deepEqual(verifySignedPsbt({ psbtHex: two, proposalPsbtHex: proposal }), { ok: true, validSignatures: 2 });
+  console.log('  [ok] sigcheck / real signatures accepted and counted (1, then 2)');
+  const rec = (await signPsbtWithMnemonic(await build(900_000, 'recovery'), MNEMONIC, S[0].path, 'testnet')).psbt_hex;
+  assert.equal(verifySignedPsbt({ psbtHex: rec, proposalPsbtHex: await build(900_000, 'recovery') }).ok, true);
+  console.log('  [ok] sigcheck / a timelocked-path signature verifies too');
+  no('sigcheck / "00" is not a signature', { psbtHex: '00', proposalPsbtHex: proposal }, 'not a valid PSBT');
+  no('sigcheck / an unsigned PSBT is not a signature', { psbtHex: proposal, proposalPsbtHex: proposal }, 'no valid signature');
+  const other = (await signPsbtWithMnemonic(await build(800_000), MNEMONIC, S[0].path, 'testnet')).psbt_hex;
+  no('sigcheck / a real signature for a DIFFERENT transaction', { psbtHex: other, proposalPsbtHex: proposal }, 'different transaction');
+  // flip one byte inside the 64-byte signature (find it as the bytes the signed PSBT added)
+  const sigStart = (() => { for (let i = 0; i < one.length; i++) if (one[i] !== proposal[i]) return i; })();
+  const at = sigStart + 2 * 80; // well inside the tap_script_sig value
+  const corrupted = one.slice(0, at) + (one[at] === 'f' ? '0' : 'f') + one.slice(at + 1);
+  const r = verifySignedPsbt({ psbtHex: corrupted, proposalPsbtHex: proposal });
+  assert.equal(r.ok, false, 'a corrupted signature was accepted');
+  rejected('sigcheck / a corrupted signature');
 }
 
 console.log('\noffline-vault-harness OK -- every door of every shape proven end to end');

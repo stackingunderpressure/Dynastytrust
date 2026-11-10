@@ -31,6 +31,7 @@ const VALID_STATUSES = ['draft', 'pending', 'signed', 'broadcast', 'cancelled', 
 // broadcast back to draft to hide it, or swapping in a fake txid,
 // or overwriting the PSBT bytes behind a spend that already went out.
 const TERMINAL_STATUSES = ['broadcast', 'cancelled', 'fulfilled'];
+const CLIENT_SETTABLE_STATUSES = ['broadcast', 'cancelled'];
 
 async function runGovernanceAudit(vault, proposal) {
   // 2026-08-25 fix: the Rust /governance/audit endpoint only recognizes
@@ -238,6 +239,15 @@ export async function handler(event) {
 
     if (updates.status !== undefined && !VALID_STATUSES.includes(updates.status)) {
       return json(400, { error: `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}` });
+    }
+    // A client may only declare two outcomes: 'broadcast' (verified
+    // against the chain below) and 'cancelled'. 'signed' is set by
+    // psbt-merge from the PSBT's real signature count, and nothing in
+    // this app sets a proposal 'fulfilled' -- accepting either from a
+    // request body let a member mark a proposal signed with no
+    // signatures, or lock its record as fulfilled with no payment.
+    if (updates.status !== undefined && !CLIENT_SETTABLE_STATUSES.includes(updates.status)) {
+      return json(400, { error: `status can only be set to: ${CLIENT_SETTABLE_STATUSES.join(', ')}` });
     }
 
     // Any active member of the proposal's vault can PATCH. Creator-only

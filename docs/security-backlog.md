@@ -142,21 +142,26 @@ then (c).
     export and join as a founder. All 13 fixed; shared rules in
     `netlify/functions/_authz.js`, proven by `scripts/test-authz.mjs`.
 
-11b. **Follow-ups the audit left open** (none lets a non-member in):
-    - `proposals.js`: `signed` / `fulfilled` can still be set by a client
-      without the server checking the PSBT's signature count.
-    - `signer-sessions.js`: the submitted partial PSBT is not checked to carry
-      a signature from the member's registered key.
-    - `members.js`: an active member can still change their own
-      xpub/pubkey/fingerprint after the vault is compiled. Locking them needs
-      an operator call (`repairPubkeys()` on boot writes these).
-    - `distribution-wallets.js`: a filled-in tranche txid is format-checked,
-      not verified on chain the way a proposal's broadcast txid is.
-    - Wallet sign-in: challenge consumption is not atomic and a challenge is
-      not bound to the requester (`wallet-signin-verify.js`, `wallet-link.js`)
-      -- plausible, unconfirmed; depends on tapit-attest's `verifySignIn`.
-    - Moving functions off the service-role key onto the caller's JWT + RLS
-      (the original item 11) -- needs a live database to prove each policy.
+11b. **Audit follow-ups.** Four closed 2026-11-10 (see `HISTORY.md`):
+    - ~~`proposals.js`: `signed` / `fulfilled` settable by a client.~~ A client
+      may now only set `broadcast` (chain-verified) or `cancelled`.
+    - ~~`signer-sessions.js`: any bytes recorded as a signature.~~ The PSBT
+      must be the proposal's own transaction and carry at least one
+      cryptographically valid signature (`_psbt-verify.js`).
+    - ~~`distribution-wallets.js`: tranche txid not verified on chain.~~ A
+      txid a non-owner fills in must be a real transaction that pays /
+      spends that tranche's address.
+    - ~~Wallet sign-in: challenge consumption not atomic.~~ Atomic in both
+      `wallet-signin-verify.js` and `wallet-link.js`. Expiry was already
+      enforced inside tapit-attest's `verifySignIn`.
+    Still open, each needs an operator call or a live database:
+    - `members.js`: an active member can change their own
+      xpub/pubkey/fingerprint after the vault is compiled (`repairPubkeys()`
+      on boot writes these, so locking them is a design decision).
+    - Wallet sign-in challenge is not bound to whoever requested it: someone
+      tricked into signing an attacker's challenge would sign the attacker in
+      as them. Depends on what Tapit Wallet shows the person before signing.
+    - Moving functions off the service-role key onto the caller's JWT + RLS.
 
 12. ~~**Two independent chain sources for the tip.**~~ Closed 2026-11-10 (see
     `HISTORY.md`). Every compile path now uses `fetchVerifiedTipHeight`

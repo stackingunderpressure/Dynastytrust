@@ -86,6 +86,35 @@ export function sanitizeTrancheUpdate(prior, next, { callerIsOwner }) {
   return { ok: true, tranches: out };
 }
 
+/**
+ * Does this on-chain transaction really fund / claim this tranche?
+ * `tx` is mempool.space's /tx/<txid> JSON. Funded = it pays the tranche
+ * address; claimed = it spends a coin that sat at the tranche address.
+ */
+export function txMatchesTranche(tx, trancheAddress, field) {
+  if (!tx || typeof trancheAddress !== "string" || !trancheAddress) return false;
+  if (field === "funded_txid") {
+    return (tx.vout ?? []).some((o) => o?.scriptpubkey_address === trancheAddress);
+  }
+  if (field === "claimed_txid") {
+    return (tx.vin ?? []).some((i) => i?.prevout?.scriptpubkey_address === trancheAddress);
+  }
+  return false;
+}
+
+/** Which tranche txids did this update newly fill in? */
+export function newlyFilledTxids(prior, next) {
+  const out = [];
+  for (let i = 0; i < (prior ?? []).length; i++) {
+    for (const field of ["funded_txid", "claimed_txid"]) {
+      const before = prior[i]?.[field] ?? null;
+      const after = next[i]?.[field] ?? null;
+      if (after !== null && after !== before) out.push({ index: i, field, txid: after, address: prior[i]?.address });
+    }
+  }
+  return out;
+}
+
 /** A heartbeat may only replace an OLDER one for the same subject. */
 export function isNewerProof(existingIssuedAt, incomingIssuedAt) {
   const a = Date.parse(existingIssuedAt);

@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@dynastytrust/bip341-psbt-signer": "file:../../packages/bip341-psbt-signer",
     "@noble/curves": "^1.9.7",
     "@noble/hashes": "^1.7.2",
     "@scure/bip32": "^1.7.0",

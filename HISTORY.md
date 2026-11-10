@@ -106,6 +106,54 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Audit follow-ups (11b): four of six closed (2026-11-10).** (1)
+  `proposals.js` PATCH accepted any valid status from a request body,
+  so a member could mark a proposal `signed` with no signatures or
+  lock its record as `fulfilled` with no payment. Every client call
+  site was read first: the app only ever sets `broadcast` and
+  `cancelled` (`signed` is set server-side by `psbt-merge` from the
+  real signature count; nothing sets a proposal `fulfilled`), so a
+  client may now set only those two. (2) `signer-sessions.js` stored
+  any hex as a signature. New `netlify/functions/_psbt-verify.js`
+  (`verifySignedPsbt`) uses the same shared BIP341 package the browser
+  signs with: the PSBT must parse, be the SAME unsigned transaction as
+  the proposal's stored PSBT, and carry at least one BIP340 signature
+  that verifies over the BIP341 sighash for a key named in its leaf
+  script. Deliberately NOT "signed by the caller's registered key": an
+  owner holding several of a vault's keys signs with each under one
+  membership, and hardware/Tapit signatures are relayed by whoever
+  collected them -- that stricter rule would have broken the
+  operator's own flow. `@dynastytrust/bip341-psbt-signer` declared in
+  `netlify/functions/package.json` as a `file:` dependency, the same
+  way tapit-attest already is. (3) `distribution-wallets.js`: a tranche
+  txid a non-owner fills in must be a real transaction on
+  mempool.space that pays (funded) or spends from (claimed) that
+  tranche's address (`txMatchesTranche`, `newlyFilledTxids` in
+  `_authz.js`). (4) Sign-in challenge consumption made atomic in
+  `wallet-signin-verify.js` and `wallet-link.js` (`update ... where
+  consumed_at is null` returning the row; no row, refused). Checked
+  and found already fine: challenge expiry is enforced inside
+  tapit-attest's `verifySignIn`. Left open on purpose: post-compile key
+  edits in `members.js` and binding a challenge to its requester --
+  both design decisions -- and the move to JWT + RLS. Proof: the
+  harness grew a "server signature check" section against PSBTs from
+  the real compiler signed by the real signer (real signatures
+  accepted and counted 1 then 2; a timelocked-path signature verifies;
+  "00", an unsigned PSBT, a genuine signature for a different
+  transaction, and a corrupted signature all refused) -- harness now 47
+  checks; `test-authz.mjs` grew an 8th case for the tranche rule; all
+  five changed functions bundle as Netlify builds them. Same honest
+  limit as the audit itself: the handlers were not exercised against a
+  live database. Measured: npm test green, lint 0 errors / 11
+  pre-existing warnings, typecheck 10 = baseline, build green.
+  Also recorded here: production deployed the security batch plus
+  two-step sign-in and passkey keys at 2026-11-10 21:00 UTC
+  (`version.json` 1154882) after the operator relinked Netlify; walked
+  headless at 375px (`/`, `/recover-descriptor`, `/vaults`, a bad
+  invite) with no page errors, the CSP serving `blockstream.info`, and
+  the functions answering (401 without a token, clean 404 on a bad
+  invite).
+
 - **Passkey-protected keys built -- UNVERIFIED on a real device
   (2026-11-10).** Security backlog item 7; operator chose "passkey
   replaces password" and "cut now, I walk later." The gap: a

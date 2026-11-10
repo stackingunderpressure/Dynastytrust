@@ -90,12 +90,17 @@ export async function handler(event) {
     return json(409, { error: "This wallet is already linked to another account" });
   }
 
-  // Single-use: consume the challenge.
-  await supabase
+  // Single-use, atomically: the update only matches while consumed_at is
+  // still null, so a captured proof replayed in a race is refused
+  // instead of both requests passing the read-then-write check above.
+  const { data: consumed, error: consumeErr } = await supabase
     .from("wallet_signin_challenges")
     .update({ consumed_at: new Date().toISOString() })
     .eq("nonce", nonce)
-    .is("consumed_at", null);
+    .is("consumed_at", null)
+    .select("nonce");
+  if (consumeErr) return json(500, { error: consumeErr.message });
+  if (!consumed || consumed.length === 0) return json(401, { error: "Challenge already used" });
 
   // Upsert the binding (one wallet per user; preserves readiness on re-bind).
   const { error: upErr } = await supabase
