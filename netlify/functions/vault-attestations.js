@@ -10,15 +10,16 @@
  * DELETE /api/vault-attestations?id=<uuid>
  *          revoke your own attestation
  *
- * The server does not verify the Schnorr signature cryptographically
- * here -- we trust the DB RLS + the member check to gate writes,
- * and the browser verifies signatures when rendering. If/when we
- * need adversarial verification (e.g. court-grade export), add a
- * secp256k1 schnorr-verify step here.
+ * Since 2026-11-10 the server VERIFIES the Schnorr signature before
+ * storing a row (./_attest.js, byte-for-byte the browser's digest): a
+ * member can only file an attestation their registered key actually
+ * signed. The browser still verifies at render time -- two independent
+ * checks on something heirs and trustees act on.
  */
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
+import { verifyAttestationSignature } from "./_attest.js";
 
 const FIELDS =
   "id, vault_id, user_id, attestation_type, target_hash, target_data, signature, pubkey, signed_at";
@@ -129,6 +130,11 @@ export async function handler(event) {
     if (pubkey.toLowerCase() !== registeredPubkey.toLowerCase()) {
       return json(403, {
         error: "pubkey does not match your registered vault signing key",
+      });
+    }
+    if (!verifyAttestationSignature({ attestationType: attestation_type, targetHash: target_hash, signature, pubkey })) {
+      return json(400, {
+        error: "signature does not verify for this attestation under your registered key",
       });
     }
 

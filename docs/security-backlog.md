@@ -40,17 +40,22 @@ then (c).
 
 ## Open -- stops "tricked into signing"
 
-3. **Co-signer gate for tranche claims.** `ProposalDetail.tsx` skips the
-   own-coins/change check for `path === "tranche_claim"` because the page does
-   not load the tranche address. Load it (the proposal row carries
-   `distribution_wallet_id` + `tranche_index`) and pass `ownAddress`.
+3. ~~**Co-signer gate for tranche claims.**~~ Closed 2026-11-10 by grounding, no
+   code: `ProposalDetail.tsx` never signs a tranche claim -- for
+   `path === "tranche_claim"` it renders a notice that claims are signed from
+   the Distributions tab and hides every signing surface (`!isTrancheClaim`
+   on the local-key, Nostr and hardware cards). The Distributions-tab claim
+   flow already carries the full gate with `tranche.address` (item 1). The
+   gate on the proposal page still checks destination, amount and fee for a
+   tranche claim's stored PSBT so the mismatch banner stays accurate.
 
-4. **Attestations verified on write.** `netlify/functions/vault-attestations.js`
-   stores proof-of-life, death-declaration and descriptor-binding attestations
-   without verifying the Schnorr signature (documented deliberate gap). A forged
-   attestation cannot unlock a leaf but can mislead heirs and trustees about
-   liveness and succession. Fix: schnorr-verify `signature` over `target_hash`
-   against the caller's `vault_members.pubkey` before insert; reject otherwise.
+4. ~~**Attestations verified on write.**~~ Closed 2026-11-10 (see `HISTORY.md`).
+   `netlify/functions/_attest.js` mirrors the browser digest
+   (`SHA256("DT-ATT-v1" || type || 0x00 || target_hash)`) and
+   `vault-attestations.js` refuses any row whose Schnorr signature does not
+   verify under the caller's registered `vault_members.pubkey`. Proven by
+   `scripts/test-attestation-verify.mjs` (4 cases, browser signer vs server
+   verifier, in `npm test`).
 
 5. **Descriptor trust on load.** The vault's descriptor and address come from
    Supabase; fingerprint pinning (2026-08-29) is a comparison aid only. Once the

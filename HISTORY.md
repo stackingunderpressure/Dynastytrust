@@ -106,6 +106,41 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Attestations verified server-side before they are stored
+  (2026-11-10).** Security backlog item 4. The gap, documented in the
+  function's own header since it was written: `vault-attestations.js`
+  checked that `signature` was 128 hex chars and that `pubkey` matched
+  the caller's registered `vault_members.pubkey`, then stored the row
+  without ever verifying the signature. Any member with a session could
+  file a proof-of-life, death-declaration, trust-doc or descriptor
+  attestation that no key signed. It could not unlock a leaf, but every
+  one of those is something heirs and trustees act on. Fix: new pure
+  `netlify/functions/_attest.js` (`attestationDigest`,
+  `verifyAttestationSignature`) reproducing `apps/web/src/lib/attest.ts`'s
+  digest exactly, `SHA256("DT-ATT-v1" || type || 0x00 || target_hash)`,
+  BIP340 Schnorr over it with the x-only key; the POST handler now
+  returns 400 unless the signature verifies under the registered key,
+  after the existing pubkey-match check and before insert. The browser's
+  render-time verification stays, so there are two independent checks.
+  `@noble/curves` / `@noble/hashes` added to `netlify/functions/
+  package.json` (they were only declared for the web app; the function
+  bundle resolved them from the root in the sandbox, but Netlify's
+  functions install must not depend on that), and the function was
+  bundled with esbuild the way Netlify does to confirm the import
+  resolves. Proof: `scripts/test-attestation-verify.mjs` signs with the
+  real browser signer and verifies with the real server code (4 cases:
+  honest proof-of-life verifies; wrong key, corrupted byte, swapped type
+  and swapped target all refused; digest domain-separated by tag and
+  type; malformed input fails closed without throwing), wired into
+  `npm test`. Item 3 (tranche-claim co-signer gate) closed the same day
+  by grounding with no code: `ProposalDetail.tsx` never signs a tranche
+  claim (every signing surface is behind `!isTrancheClaim`; claims are
+  signed from the Distributions tab, which carries the full gate).
+  Measured: npm test green (policy, legacy, onchain, spending paths,
+  timelock-check 6, keystore-mainnet 5, attestation-verify 4, harness
+  41), lint 0 errors / 11 pre-existing warnings, typecheck 10 =
+  baseline, build green.
+
 - **Mainnet refuses plaintext (test-mode) seeds (2026-11-10).** Security
   backlog item 6. The gap: `lib/keystore.ts` test-mode keys hold the
   mnemonic in plain text in localStorage, so any script that can read this
