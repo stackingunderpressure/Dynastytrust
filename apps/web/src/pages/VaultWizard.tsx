@@ -13,7 +13,7 @@ import { isLeafListVault } from '../lib/vault-spending-paths';
 import { downloadVault } from '../lib/descriptor-backup';
 import { keyNetworkMatches } from '../lib/network';
 import { blocksToHuman, TIMELOCK_PRESETS, MIN_RECOVERY_BLOCKS } from '../lib/blocks';
-import { approxWallclockDate, blocksUntilDate, tipHeight } from '../lib/chain';
+import { approxWallclockDate, blocksUntilDate, verifiedTipHeight } from '../lib/chain';
 import { checkAbsoluteTimelocks, type TimelockPair } from '../lib/timelock-check';
 import { type StandardConfig, type BlocConfig } from '../lib/vault-templates';
 import { buildStandardTrustDoc, buildBlocTrustDoc, buildLeavesTrustDoc } from '../lib/trust-doc';
@@ -712,7 +712,7 @@ export default function VaultWizard() {
   class TimelockMismatch extends Error {}
   async function assertTimelocks(network: Vault['network'], pairs: TimelockPair[]) {
     if (!pairs.some(p => p.offsetBlocks > 0 || p.absoluteBlocks > 0)) return;
-    const tip = await tipHeight(network);
+    const tip = await verifiedTipHeight(network);
     const r = checkAbsoluteTimelocks(pairs, tip, network);
     if (!r.ok) {
       throw new TimelockMismatch(

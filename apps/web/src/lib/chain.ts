@@ -1,4 +1,5 @@
-import { EXPLORER, type Network } from '../config';
+import { EXPLORER, SECOND_TIP_SOURCE, type Network } from '../config';
+import { reconcileTips } from './timelock-check';
 
 /**
  * Current tip block height on the requested network, fetched from
@@ -29,6 +30,28 @@ export async function tipHeight(network: Network): Promise<number> {
 
   cache.set(network, { height, fetchedAt: Date.now() });
   return height;
+}
+
+/**
+ * The tip to check an irreversible timelock against: fetched fresh (no
+ * cache) from BOTH mempool.space and blockstream.info, which must agree
+ * within a few blocks. If either is unreachable or they disagree this
+ * throws -- the caller refuses to accept the vault rather than trust a
+ * single feed. Countdown displays keep using the cached tipHeight above.
+ */
+export async function verifiedTipHeight(network: Network): Promise<number> {
+  const one = async (base: string, name: string): Promise<number> => {
+    const res = await fetch(`${base}/blocks/tip/height`);
+    if (!res.ok) throw new Error(`${name} block height fetch failed: ${res.status}`);
+    const text = (await res.text()).trim();
+    if (!/^\d{1,9}$/.test(text)) throw new Error(`${name} returned an invalid height: ${text.slice(0, 40)}`);
+    return Number.parseInt(text, 10);
+  };
+  const [a, b] = await Promise.all([
+    one(EXPLORER[network].api, 'mempool.space'),
+    one(SECOND_TIP_SOURCE[network], 'blockstream.info'),
+  ]);
+  return reconcileTips(a, b);
 }
 
 /**

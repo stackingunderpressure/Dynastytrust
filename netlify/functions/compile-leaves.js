@@ -31,7 +31,7 @@
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
-import { fetchTipHeight, relativeToAbsolute, checkTimelockFloor } from "./_chain.js";
+import { fetchVerifiedTipHeight, relativeToAbsolute, checkTimelockFloor } from "./_chain.js";
 import { checkNumberBounds } from "./_numeric.js";
 import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
 import { assertNotPrivateExtendedKey } from "./_xpub.js";
@@ -144,7 +144,7 @@ export async function handler(event) {
   let tipHeight = 0;
   if (needsTip) {
     try {
-      tipHeight = await fetchTipHeight(vault.network);
+      tipHeight = await fetchVerifiedTipHeight(vault.network);
     } catch (e) {
       return json(502, { error: `Could not fetch chain tip for ${vault.network}: ${e.message}` });
     }

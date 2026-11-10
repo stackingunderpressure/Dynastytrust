@@ -37,6 +37,24 @@ export const TIP_FLOOR: Record<Network, number> = {
  *  useless to an attacker, whose wrong heights are off by thousands. */
 export const TIP_SLACK_BLOCKS = 12;
 
+/** Honest sources differ by a block or two while a block propagates.
+ *  Mirrors TIP_SOURCE_MAX_DIFF in netlify/functions/_chain.js. */
+export const TIP_SOURCE_MAX_DIFF = 6;
+
+/**
+ * Reconcile two independently fetched tips (mempool.space and
+ * blockstream.info). Throws when they disagree by more than maxDiff;
+ * otherwise returns the HIGHER one -- a tip that is too low makes an
+ * already-open timelock look safely in the future, so the later height
+ * is the conservative one to check against.
+ */
+export function reconcileTips(a: number, b: number, maxDiff: number = TIP_SOURCE_MAX_DIFF): number {
+  if (Math.abs(a - b) > maxDiff) {
+    throw new Error(`Chain tip sources disagree: ${a.toLocaleString()} vs ${b.toLocaleString()} (more than ${maxDiff} blocks apart)`);
+  }
+  return Math.max(a, b);
+}
+
 export function checkTipFloor(network: Network, tip: number): string | null {
   if (!Number.isSafeInteger(tip) || tip <= 0) return `Implausible ${network} chain tip: ${tip}`;
   const floor = TIP_FLOOR[network];

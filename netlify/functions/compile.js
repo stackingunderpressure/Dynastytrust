@@ -20,7 +20,7 @@
 
 import { requireUser, json } from "./_auth.js";
 import { getSupabaseAdmin } from "./_supabase.js";
-import { fetchTipHeight, relativeToAbsolute, checkTimelockFloor } from "./_chain.js";
+import { fetchVerifiedTipHeight, relativeToAbsolute, checkTimelockFloor } from "./_chain.js";
 import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
 import { assertNotPrivateExtendedKey } from "./_xpub.js";
 
@@ -127,7 +127,7 @@ export async function handler(event) {
   let tipHeight = 0;
   if (finalRecoveryAfter || finalInheritanceAfter) {
     try {
-      tipHeight = await fetchTipHeight(network);
+      tipHeight = await fetchVerifiedTipHeight(network);
     } catch (e) {
       return json(502, { error: `Could not fetch chain tip for ${network}: ${e.message}` });
     }

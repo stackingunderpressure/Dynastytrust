@@ -74,22 +74,65 @@ export async function getFeeRate(network) {
 // server's half of the same defense. Raise occasionally; never lower.
 export const TIP_FLOOR = { bitcoin: 900_000, testnet: 5_000_000, signet: 300_000 };
 
-export async function fetchTipHeight(network) {
-  const base = MEMPOOL[network] || MEMPOOL.testnet;
+// Second, independent source for the chain tip (Blockstream's Esplora).
+// One feed deciding an irreversible absolute timelock is one feed too
+// few: fetchVerifiedTipHeight below requires BOTH to answer and to agree.
+export const SECOND_SOURCE = {
+  testnet: "https://blockstream.info/testnet/api",
+  signet:  "https://blockstream.info/signet/api",
+  bitcoin: "https://blockstream.info/api",
+};
+
+// Honest sources differ by a block or two while a new block propagates.
+// Mirrors TIP_SOURCE_MAX_DIFF in apps/web/src/lib/timelock-check.ts.
+export const TIP_SOURCE_MAX_DIFF = 6;
+
+async function fetchTipFrom(base, network, sourceName) {
   const res = await fetch(`${base}/blocks/tip/height`);
   if (!res.ok) {
-    throw new Error(`mempool.space tip height ${res.status}`);
+    throw new Error(`${sourceName} tip height ${res.status}`);
   }
   const text = (await res.text()).trim();
   if (!/^\d{1,9}$/.test(text)) {
-    throw new Error(`bad tip height response: ${text.slice(0, 40)}`);
+    throw new Error(`bad ${sourceName} tip height response: ${text.slice(0, 40)}`);
   }
   const height = parseInt(text, 10);
   const floor = TIP_FLOOR[network] ?? 0;
   if (!Number.isSafeInteger(height) || height < floor) {
-    throw new Error(`implausible ${network} tip height ${height} (the real chain is past ${floor})`);
+    throw new Error(`implausible ${network} tip height ${height} from ${sourceName} (the real chain is past ${floor})`);
   }
   return height;
+}
+
+export async function fetchTipHeight(network) {
+  return fetchTipFrom(MEMPOOL[network] || MEMPOOL.testnet, network, "mempool.space");
+}
+
+/**
+ * Pure: reconcile two independently fetched tips. Throws when they
+ * disagree by more than TIP_SOURCE_MAX_DIFF; otherwise returns the
+ * HIGHER one -- a tip that is too low compiles a timelock that opens
+ * early, so when in doubt the later height is the safe one.
+ */
+export function reconcileTips(a, b, maxDiff = TIP_SOURCE_MAX_DIFF) {
+  if (Math.abs(a - b) > maxDiff) {
+    throw new Error(`chain tip sources disagree: ${a} vs ${b} (more than ${maxDiff} blocks apart)`);
+  }
+  return Math.max(a, b);
+}
+
+/**
+ * The tip to use for anything irreversible (baking tip + offset into a
+ * vault's after() leaves). Both sources must answer and agree; if
+ * either is down this FAILS rather than trusting one feed -- compiling
+ * a vault a few minutes later is cheap, a wrong timelock is forever.
+ */
+export async function fetchVerifiedTipHeight(network) {
+  const [a, b] = await Promise.all([
+    fetchTipFrom(MEMPOOL[network] || MEMPOOL.testnet, network, "mempool.space"),
+    fetchTipFrom(SECOND_SOURCE[network] || SECOND_SOURCE.testnet, network, "blockstream.info"),
+  ]);
+  return reconcileTips(a, b);
 }
 
 /**

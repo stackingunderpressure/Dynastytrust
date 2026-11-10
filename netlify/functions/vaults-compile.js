@@ -35,7 +35,7 @@
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 import { pubkeyFromXpub } from "./_xpub.js";
-import { fetchTipHeight, relativeToAbsolute, checkTimelockFloor } from "./_chain.js";
+import { fetchVerifiedTipHeight, relativeToAbsolute, checkTimelockFloor } from "./_chain.js";
 import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
 
 const COMPILER_URL = process.env.COMPILER_URL;
@@ -248,7 +248,7 @@ export async function handler(event) {
   if (vault.recovery_after || vault.inheritance_after ||
       (hasSecondInheritance && vault.second_inheritance_after)) {
     try {
-      tipHeight = await fetchTipHeight(vault.network);
+      tipHeight = await fetchVerifiedTipHeight(vault.network);
     } catch (e) {
       return json(502, {
         error: `Could not fetch chain tip for ${vault.network}: ${e.message}`,

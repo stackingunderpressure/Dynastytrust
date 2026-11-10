@@ -43,6 +43,15 @@ export const EXPLORER = {
   },
 } as const;
 
+/** Second, independent chain source (Blockstream's Esplora), used only
+ *  to cross-check the tip before an irreversible timelock is accepted.
+ *  Allowed in netlify.toml's CSP connect-src alongside mempool.space. */
+export const SECOND_TIP_SOURCE: Record<Network, string> = {
+  bitcoin: 'https://blockstream.info/api',
+  testnet: 'https://blockstream.info/testnet/api',
+  signet: 'https://blockstream.info/signet/api',
+};
+
 export function explorerTxUrl(network: Network, txid: string): string {
   return `${EXPLORER[network].web}/tx/${txid}`;
 }

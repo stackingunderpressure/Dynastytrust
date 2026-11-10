@@ -106,6 +106,44 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Chain tip from two independent sources, or no compile (2026-11-10).**
+  Security backlog item 12, and the limit left open under item 2. The
+  gap: the tip that every absolute timelock is built from (`tip +
+  offset`) came from mempool.space alone, on the server and again in the
+  browser's cross-check -- so the cross-check defended against a
+  tampered server path but not against the feed itself being wrong. Fix,
+  server: `netlify/functions/_chain.js` gains `SECOND_SOURCE`
+  (blockstream.info Esplora, all three networks), pure
+  `reconcileTips(a, b)` (throws when more than `TIP_SOURCE_MAX_DIFF` = 6
+  blocks apart, else returns the HIGHER tip -- a low tip opens a
+  timelock early, so the later height is the safe one) and
+  `fetchVerifiedTipHeight`, which requires both sources to answer, pass
+  the floor, and agree; the five compile paths (`compile.js`,
+  `compile-bloc.js`, `compile-leaves.js`, `vaults-compile.js`,
+  `vaults-compile-bloc.js`) now call it. It fails closed on purpose: if
+  either source is down a vault cannot be compiled for a few minutes,
+  which is cheap; a wrong timelock is forever. `fetchTipHeight`
+  (single source) stays for `proposals.js` and `psbt-binary-tranche.js`,
+  where the tip only gates a display/eligibility check that the chain
+  itself re-enforces at broadcast. Fix, browser: `lib/timelock-check.ts`
+  gains the same `reconcileTips`; `lib/chain.ts` gains
+  `verifiedTipHeight` (fresh, uncached, both sources); `VaultWizard`'s
+  `assertTimelocks` uses it; `config.ts` gains `SECOND_TIP_SOURCE`; and
+  `netlify.toml`'s CSP `connect-src` now allows
+  `https://blockstream.info` (without that the browser fetch would be
+  blocked in production and every compile would be refused). Deliberately
+  still single-source: balances, UTXOs, fee estimates and broadcast.
+  Proof: `scripts/test-timelock-check.mjs` grew a 7th case running the
+  browser and server `reconcileTips` through the same assertions and
+  asserting the two `TIP_FLOOR` tables are equal; and
+  `fetchVerifiedTipHeight` was run live against both feeds on all three
+  networks (bitcoin 975,303, testnet 5,323,815, signet 330,251, both
+  sources identical at the time). NOT walked: the wizard's compile step
+  in a real browser under the production CSP -- that needs a signed-in
+  session and is the operator's to confirm on the next compile.
+  Measured: npm test green, lint 0 errors / 11 pre-existing warnings,
+  typecheck 10 = baseline, build green.
+
 - **Supply-chain gate on what ships, and the tree cleaned to pass it
   (2026-11-10).** Security backlog item 8. Measured first, not assumed:
   `npm audit` found 33 advisories in the whole tree, 16 in code that

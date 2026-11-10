@@ -121,10 +121,14 @@ then (c).
     item 1 now defends against. Review which functions truly need service role
     versus the caller's JWT with RLS, and move the rest.
 
-12. **Two independent chain sources.** Tip height, balances and broadcast all
-    go through mempool.space. Add a second source (e.g. blockstream.info) and
-    cross-check the tip used for compile and the confirmation state shown to
-    heirs; disagree loudly rather than pick one silently.
+12. ~~**Two independent chain sources for the tip.**~~ Closed 2026-11-10 (see
+    `HISTORY.md`). Every compile path now uses `fetchVerifiedTipHeight`
+    (mempool.space AND blockstream.info must both answer and agree within 6
+    blocks; the higher is used; otherwise the compile fails), and the wizard's
+    timelock cross-check uses the browser's own two-source `verifiedTipHeight`.
+    This also closes the limit noted under item 2. Still single-source, by
+    choice for now: balances, UTXO lookup, fee estimates and broadcast -- a
+    wrong answer there is visible and recoverable, not baked into a script.
 
 ## Operational, not a code gap
 

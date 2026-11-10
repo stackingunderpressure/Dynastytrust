@@ -13,6 +13,8 @@ import {
   checkTipFloor,
   TIP_FLOOR,
   TIP_SLACK_BLOCKS,
+  TIP_SOURCE_MAX_DIFF,
+  reconcileTips,
 } from '../apps/web/src/lib/timelock-check.ts';
 
 let n = 0;
@@ -85,6 +87,22 @@ const tip = 975_000;
   assert.equal(r.ok, false);
   assert.match(r.problems[0], /Implausible signet chain tip 500/);
   pass('tip floors enforced on bitcoin, testnet and signet');
+}
+
+// Two independent tip sources: agree -> the higher one; disagree -> throw.
+// The server's copy (netlify/functions/_chain.js) must behave identically.
+{
+  const server = await import('../netlify/functions/_chain.js');
+  for (const [name, fn, max] of [['browser', reconcileTips, TIP_SOURCE_MAX_DIFF], ['server', server.reconcileTips, server.TIP_SOURCE_MAX_DIFF]]) {
+    assert.equal(max, 6, `${name}: max diff`);
+    assert.equal(fn(975_300, 975_300), 975_300);
+    assert.equal(fn(975_300, 975_302), 975_302, `${name}: must return the HIGHER tip`);
+    assert.equal(fn(975_306, 975_300), 975_306);
+    assert.throws(() => fn(975_300, 975_307), /disagree/i, `${name}: 7 apart must throw`);
+    assert.throws(() => fn(26_000, 975_300), /disagree/i, `${name}: a lying feed must throw`);
+  }
+  assert.deepEqual(server.TIP_FLOOR, TIP_FLOOR, 'server and browser tip floors must match');
+  pass('two-source reconcile: agree returns the higher, disagree throws (browser + server identical)');
 }
 
 console.log(`timelock-check tests passed (${n} cases)`);

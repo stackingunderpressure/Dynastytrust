@@ -22,7 +22,7 @@
  */
 
 import { requireUser, json } from "./_auth.js";
-import { fetchTipHeight, relativeToAbsolute, checkTimelockFloor } from "./_chain.js";
+import { fetchVerifiedTipHeight, relativeToAbsolute, checkTimelockFloor } from "./_chain.js";
 import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
 
 const COMPILER_URL    = process.env.COMPILER_URL;
@@ -96,7 +96,7 @@ export async function handler(event) {
   // Relative offsets -> absolute CLTV heights (tip + offset).
   let tipHeight;
   try {
-    tipHeight = await fetchTipHeight(network);
+    tipHeight = await fetchVerifiedTipHeight(network);
   } catch (e) {
     return json(502, { error: `Could not fetch chain tip for ${network}: ${e.message}` });
   }
