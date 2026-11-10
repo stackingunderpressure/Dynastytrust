@@ -23,16 +23,16 @@
     "test": "npm run build && node --test \"test/**/*.test.mjs\""
   },
   "dependencies": {
-    "@noble/ciphers": "^2.2.0",
-    "@noble/curves": "^1.9.7",
-    "@noble/hashes": "^1.8.0"
+    "@noble/ciphers": "2.2.0",
+    "@noble/curves": "1.9.7",
+    "@noble/hashes": "1.8.0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.4",
-    "@types/node": "^22.10.0",
-    "eslint": "^9.39.4",
-    "typescript": "^5.9.2",
-    "typescript-eslint": "^8.58.2"
+    "@eslint/js": "9.39.4",
+    "@types/node": "22.20.0",
+    "eslint": "9.39.4",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.58.2"
   },
   "engines": {
     "node": ">=20"

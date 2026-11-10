@@ -106,6 +106,58 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Supply-chain defenses: known answers, Rust gate, strict installs,
+  and proof the live site is this source (2026-11-10).** Operator,
+  after reading about AI-found bugs in widely used libraries: where
+  are we exposed through other people's proven code, and is it smart
+  to re-audit it? Measured surface: ~180 shipped npm packages, ~167 in
+  the functions, 94 Rust crates. Four defenses, all four chosen by the
+  operator. (1) `scripts/test-known-answers.mjs` + vendored
+  `scripts/vectors/` (from github.com/bitcoin/bips): all 19 official
+  BIP 340 vectors through the same `@noble/curves` `schnorr` the
+  browser signs with (8 signatures reproduced byte for byte, 9
+  accepted, 10 correctly refused); the 7 official BIP 341 wallet cases
+  through OUR `tapLeafHash`/`taggedHash` (12 leaf hashes, every merkle
+  root, tweak and output key); and, because BIP 341 publishes no
+  script-path sighash vector, our `tapscriptSighash` against an
+  independent implementation (`@scure/btc-signer`'s
+  `preimageWitnessV1`) on the official 9-input transaction -- 36
+  digests identical. Passed on its first run. (2)
+  `scripts/audit-rust.mjs`: reads `Cargo.lock` and asks the OSV
+  database (mirrors RustSec) about every locked crate; fails on
+  vulnerabilities and "unsound" advisories, prints "unmaintained";
+  UNVERIFIED and non-zero when offline. No cargo-audit install needed.
+  Its FIRST run found three: anyhow 1.0.102 (unsound
+  `Error::downcast_mut`), tokio 1.50.0 (unsound `AsyncFd`
+  constructors), pin-utils (unmaintained). We call neither affected
+  function (grepped), but both were updated with `cargo update -p
+  anyhow -p tokio`; rust-bitcoin 0.31.2 and miniscript 11.2.3
+  untouched; 124 protocol + 39 compiler tests and the 47-check harness
+  green on the new lock. NOT done: `deploy-compiler.yml` does not
+  trigger on `Cargo.lock` alone, so the compiler running on Fly keeps
+  the older crates until its next deploy -- left for the operator,
+  since it deploys the money-touching compiler. (3) Every dependency
+  range in `apps/web`, `netlify/functions`, `packages/*` and
+  `tapit-attest` pinned to the exact installed version (55 ranges),
+  and `netlify.toml` now runs `npm ci` for the root and tapit-attest,
+  so production installs exactly the lockfile. Proven by running the
+  exact Netlify command in a clean copy of the tree (exit 0);
+  tapit-attest 73/73. Root and functions lockfiles: zero resolved
+  version changes; tapit-attest's dev-only tooling moved a few patch
+  versions. (4) `scripts/verify-live-bundle.mjs` (`npm run
+  verify:live`): reads the commit the live site says it is, builds
+  that commit from scratch in a throwaway worktree with the Netlify
+  command, reads the three public build settings out of the live
+  bundle itself, and compares every file. First run against
+  production: index.html, the JS bundle, the CSS and the lazy chunk
+  all BYTE-IDENTICAL to a clean build of d9e7548 -- under Node 22
+  locally vs Node 20 on Netlify, so the build is reproducible. Getting
+  there took two honest misses (the live Supabase URL has a trailing
+  slash; a third public setting, the Tapit wallet URL) -- each shown
+  by diffing the two bundles, not guessed. Measured: npm test exit 0,
+  15 suites, 85 checks printed; lint 0 errors / 11 pre-existing
+  warnings; typecheck 10 = baseline; build green.
+
 - **Deleting a key now needs its name typed and the key unlocked
   (2026-11-10).** Operator, walking production on a phone: "you can
   edit name of key with no password." Grounded before answering: Edit

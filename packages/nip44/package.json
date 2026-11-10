@@ -9,11 +9,11 @@
     "test": "npm run build && node --test test/*.test.mjs"
   },
   "dependencies": {
-    "@noble/ciphers": "^2.2.0",
-    "@noble/curves": "^1.9.7",
-    "@noble/hashes": "^1.7.2"
+    "@noble/ciphers": "2.2.0",
+    "@noble/curves": "1.9.7",
+    "@noble/hashes": "1.8.0"
   },
   "devDependencies": {
-    "typescript": "^5.9.2"
+    "typescript": "5.9.3"
   }
 }

@@ -104,11 +104,21 @@ then (c).
    both trees, brace-expansion updated. Dev tooling advisories (vite, eslint,
    postcss...) deliberately not gated: they never reach a user.
 
-8b. **Reproducible bundle check.** Still open: a script that builds locally
-   and compares bundle hashes against what dynastytrust.family serves, so a
-   Netlify build that differs from the committed source is caught. Netlify
-   runs `npm install`, not `npm ci`; switching the build command to `npm ci`
-   belongs with this.
+8b. ~~**Reproducible bundle check, strict installs, exact pins.**~~ Closed
+   2026-11-10 (see `HISTORY.md`). `npm run verify:live` rebuilds the commit the
+   live site claims to be, from scratch, and compares every served file byte
+   for byte -- first run PASSED against d9e7548. Netlify now runs `npm ci`
+   (lockfile only); all 55 dependency ranges are pinned to exact versions.
+
+8c. ~~**Known-answer tests + Rust vulnerability gate.**~~ Closed 2026-11-10.
+   `scripts/test-known-answers.mjs`: all 19 official BIP 340 vectors, the 7
+   official BIP 341 wallet cases, and our script-path sighash against an
+   independent implementation (36 digests). `scripts/audit-rust.mjs`: every
+   locked crate checked against the OSV/RustSec database -- its first run
+   found two unsound-API advisories (anyhow, tokio), both updated. Both in
+   `npm test`. Open: the Fly compiler deploy does not trigger on a
+   `Cargo.lock`-only change, so the DEPLOYED compiler still has the older
+   anyhow/tokio (we call neither affected function) until its next deploy.
 
 9. **Compiler in the browser (WASM), Fly as cross-check.** Compile-first
    migration of `protocol/` to WASM so the descriptor, address and PSBT are
