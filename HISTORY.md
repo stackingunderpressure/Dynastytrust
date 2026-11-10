@@ -106,6 +106,34 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Mainnet refuses plaintext (test-mode) seeds (2026-11-10).** Security
+  backlog item 6. The gap: `lib/keystore.ts` test-mode keys hold the
+  mnemonic in plain text in localStorage, so any script that can read this
+  origin's storage holds the seed outright -- fine for signet coins, never
+  for mainnet -- and nothing stopped a test-mode key from being created
+  for mainnet, downgraded to plaintext on mainnet (`removeKeyPassword`),
+  or used to sign a mainnet spend. Fix: one rule stated once
+  (`testModeBlockedReason(network)`) and a per-key
+  `keySigningBlockedReason(key)`, called at the three places a plaintext
+  mainnet seed could come to exist or be used: `generateTestKey` throws
+  for mainnet, `removeKeyPassword` throws for a mainnet key, and
+  `revealMnemonic` throws for a plaintext mainnet key -- including one
+  created before this rule or imported via `importKeyringJson` -- while
+  `secureTestKey` (which reads the field directly) still upgrades it, so
+  the path out is open and the path to signing is closed. Secure-mode and
+  hardware keys untouched. Deliberately not done: the signer pickers in
+  `VaultDetail`/`ProposalDetail` still list such a key and let the refusal
+  surface on tap with the reason; `keySigningBlockedReason` is exported so
+  a follow-up can label them in place. Proof:
+  `scripts/test-keystore-mainnet.mjs` (localStorage shimmed in-memory;
+  5 cases: refused on mainnet and usable on signet, pre-existing plaintext
+  mainnet key cannot reveal, upgrade restores signing with the password
+  and rejects a wrong one, downgrade refused and the key stays encrypted,
+  password-protected mainnet key allowed) wired into `npm test`. Measured:
+  test green, lint 0 errors / 11 pre-existing warnings, typecheck 10 =
+  baseline (the two in keystore.ts are the documented PBKDF2/AES typing
+  errors at lines 112/137, unchanged), build green.
+
 - **Absolute timelock cross-check: the browser refuses a compiled vault whose
   heights are not tip + the offset chosen (2026-11-09).** Security backlog
   item 2. The gap: every `after()` leaf is compiled server-side as `tip +

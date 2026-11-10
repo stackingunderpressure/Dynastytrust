@@ -60,10 +60,15 @@ then (c).
 
 ## Open -- stops key leakage
 
-6. **Mainnet requires secure mode.** `lib/keystore.ts` test-mode keys are
-   plaintext in localStorage. Refuse to let a test-mode key sign for a vault on
-   `network === "bitcoin"`, and say why. Small, mechanical, closes the worst
-   case of a malicious script reading storage.
+6. ~~**Mainnet requires secure mode.**~~ Closed 2026-11-10 (see `HISTORY.md`).
+   `keystore.ts`: a plaintext test-mode key can no longer be generated for
+   mainnet, a mainnet key can no longer have its password removed, and
+   `revealMnemonic` refuses a plaintext mainnet seed even if it pre-dates the
+   rule or came in from a keyring file -- while `secureTestKey` (add a
+   password) still works on it, so the upgrade path stays open.
+   `keySigningBlockedReason(key)` is exported for the signer pickers; wiring
+   it into their labels is a UI follow-up, the chokepoint already holds.
+   Proven by `scripts/test-keystore-mainnet.mjs` (5 cases, in `npm test`).
 
 7. **Harden secure-mode storage.** Move the AES-GCM wrapping key from a
    PBKDF2 password to WebAuthn PRF / passkey where the device supports it, with

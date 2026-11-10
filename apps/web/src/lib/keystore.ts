@@ -265,11 +265,37 @@ export function getKey(keyId: string): LocalKey | null {
  * Instant generation. Good for testing multisig flows.
  * NOT for real funds.
  */
+/**
+ * Test-mode keys keep their mnemonic in PLAIN TEXT in localStorage: any
+ * script that can read this origin's storage holds the seed outright.
+ * That is acceptable on signet/testnet, where the coins are worthless,
+ * and never on mainnet. This is the one rule, stated once; the three
+ * places a plaintext mainnet seed could come to exist or be used
+ * (generateTestKey, removeKeyPassword, revealMnemonic) all call it.
+ * Secure-mode keys (password-encrypted) and hardware keys are unaffected.
+ */
+export function testModeBlockedReason(network: Network): string | null {
+  return network === 'mainnet'
+    ? 'Test-mode keys (no password, mnemonic stored in plain text) are not allowed on mainnet. Use a password-protected key or a hardware wallet.'
+    : null;
+}
+
+/** Why this key may not sign right now, or null if it may. Used by the
+ *  signer pickers so a blocked key is explained, not silently missing. */
+export function keySigningBlockedReason(key: LocalKey): string | null {
+  if (key.origin === 'software' && key.testMnemonic && key.network === 'mainnet') {
+    return 'This key holds its mnemonic in plain text and may not sign on mainnet. Open Keys and add a password to it first.';
+  }
+  return null;
+}
+
 export function generateTestKey(opts: {
   label: string;
   network: Network;
   persona: string;
 }): KeyCreateResult {
+  const blocked = testModeBlockedReason(opts.network);
+  if (blocked) throw new Error(blocked);
   const mnemonic = generateMnemonic(wordlist, 256);
   const { account, child00, path, masterFingerprint } = deriveAccount(mnemonic, opts.network);
 
@@ -619,8 +645,16 @@ export async function revealMnemonic(keyId: string, password?: string): Promise<
   if (!key)                      throw new Error('Key not found');
   if (key.origin !== 'software') throw new Error('Hardware key — no mnemonic stored');
 
-  // Test key — no password needed
-  if (key.testMnemonic) return key.testMnemonic;
+  // Test key — no password needed, and never on mainnet (a plaintext
+  // mainnet seed must not be usable even if it was created before this
+  // rule or imported from a keyring file; secureTestKey still works on
+  // it because it reads the field directly, so the upgrade path stays
+  // open while the signing path is closed).
+  if (key.testMnemonic) {
+    const blocked = keySigningBlockedReason(key);
+    if (blocked) throw new Error(blocked);
+    return key.testMnemonic;
+  }
 
   // Secure key — password required
   if (!key.encryptedMnemonic) throw new Error('No mnemonic found on this key');
@@ -663,6 +697,8 @@ export function removeKeyPassword(keyId: string, mnemonic: string): LocalKey {
   const key = getKey(keyId);
   if (!key)                     throw new Error('Key not found');
   if (!key.encryptedMnemonic)   throw new Error('Not a password-protected key');
+  const blocked = testModeBlockedReason(key.network);
+  if (blocked)                  throw new Error(blocked);
 
   const all = loadAll();
   const idx = all.findIndex(k => k.keyId === keyId);
