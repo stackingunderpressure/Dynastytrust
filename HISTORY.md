@@ -106,6 +106,26 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Correction and deploy record (2026-11-10).** The supply-chain entry
+  below says `deploy-compiler.yml` "does not trigger on `Cargo.lock`
+  alone" and that the Fly compiler would keep the older crates. That
+  was WRONG: the workflow's path list includes `Cargo.lock`; only its
+  first three lines had been read. The operator was asked whether to
+  redeploy the compiler, chose "leave it" on the strength of that
+  claim, and the compiler redeployed anyway with batch 1aee98f at
+  21:34 UTC (Actions run 31, success). No harm -- same code, two
+  patched crates, 163 Rust tests green -- but a deploy of the
+  money-touching compiler happened against an operator decision
+  because of an unverified statement. Lesson, already doctrine:
+  read the whole file before asserting what it does. Deploy record
+  for the compiler review fixes: commit 5a0efa6, site live 21:53 UTC
+  and verified byte-identical to source by `npm run verify:live`; Fly
+  compiler deployed 21:54 UTC (Actions run 32, success), `/health`
+  200. NOT verified: the live compiler refusing the review's attack
+  requests -- that needs `COMPILER_SECRET`, which this sandbox does
+  not and should not hold; it rests on the deploy succeeding with code
+  the harness proves.
+
 - **Compiler review: three ways to build a vault weaker than it looks,
   fixed (2026-11-10).** A read-only adversarial review of how we drive
   rust-miniscript and rust-bitcoin, allowed to run the real compiler.

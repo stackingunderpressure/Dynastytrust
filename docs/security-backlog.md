@@ -116,9 +116,11 @@ then (c).
    independent implementation (36 digests). `scripts/audit-rust.mjs`: every
    locked crate checked against the OSV/RustSec database -- its first run
    found two unsound-API advisories (anyhow, tokio), both updated. Both in
-   `npm test`. Open: the Fly compiler deploy does not trigger on a
-   `Cargo.lock`-only change, so the DEPLOYED compiler still has the older
-   anyhow/tokio (we call neither affected function) until its next deploy.
+   `npm test`. CORRECTION: this entry first said the Fly compiler deploy
+   does not trigger on a `Cargo.lock`-only change. That was wrong -- the
+   workflow's path list includes `Cargo.lock` (only its first three lines
+   had been read). The compiler redeployed with the updated crates at
+   21:34 UTC on 2026-11-10 (Actions run 31, success).
 
 8d. ~~**Adversarial review of how we call the signing libraries.**~~ Done
    2026-11-10 (see `HISTORY.md`). Seven findings, all fixed: a tampered keyring
