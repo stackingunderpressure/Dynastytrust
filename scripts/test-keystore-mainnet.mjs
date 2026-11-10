@@ -65,4 +65,16 @@ const secureMain = await ks.generateSoftwareKey({ label: 'h', network: 'mainnet'
 assert.equal(ks.keySigningBlockedReason(secureMain.key), null);
 pass('password-protected mainnet key is allowed');
 
+// 6. Deleting a protected key requires unlocking it; a wrong password deletes nothing.
+await assert.rejects(ks.deleteKeyVerified(secureMain.key.keyId, { password: 'not-the-password' }), /Wrong password/);
+await assert.rejects(ks.deleteKeyVerified(secureMain.key.keyId), /Password required/);
+assert.ok(ks.getKey(secureMain.key.keyId), 'key must survive a failed delete');
+await ks.deleteKeyVerified(secureMain.key.keyId, { password: 'pw-pw-pw-pw' });
+assert.equal(ks.getKey(secureMain.key.keyId), null);
+const plain = ks.generateTestKey({ label: 'p', network: 'signet', persona: 'p' });
+await ks.deleteKeyVerified(plain.key.keyId);
+assert.equal(ks.getKey(plain.key.keyId), null, 'a key with nothing to unlock deletes directly');
+await assert.rejects(ks.deleteKeyVerified('no-such-key'), /Key not found/);
+pass('delete needs the right password for a protected key; wrong password deletes nothing');
+
 console.log(`keystore-mainnet tests passed (${n} cases)`);

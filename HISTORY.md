@@ -106,6 +106,37 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Deleting a key now needs its name typed and the key unlocked
+  (2026-11-10).** Operator, walking production on a phone: "you can
+  edit name of key with no password." Grounded before answering: Edit
+  calls `renameKey`, which changes the label only -- signing is bound
+  to the key, never its name, so that is harmless and the operator
+  chose to leave it open. But the button beside it was not harmless:
+  `handleDelete` in `KeyManager.tsx` took ONE Confirm tap and no proof
+  of anything, and would delete a mainnet key marked NOT BACKED UP
+  (the operator's own key in the screenshot) -- a wrong tap, or anyone
+  holding the unlocked phone, and a key whose phrase was never written
+  down is gone forever. Operator chose "password + type the name". New
+  `deleteKeyVerified` in `lib/keystore.ts`: a key protected by a
+  password or passkey must be UNLOCKED to be deleted (a wrong password
+  throws, nothing is removed); keys with nothing to unlock delete
+  directly. `handleDelete` now asks for the key's name typed exactly
+  (the existing prompt `matchValue` guard), states in capitals when the
+  key is not backed up, then asks for the password; passkey keys get
+  the device prompt. Proof: `test-keystore-mainnet.mjs` case 6 (wrong
+  password and no password both refuse and the key survives; right
+  password deletes; an unprotected key deletes directly; unknown id
+  throws). NOT walked: the two prompts on a phone. Also witnessed by
+  the operator the same day and recorded as evidence: two-step sign-in
+  turned on against the real account in production, and after signing
+  out and back in the code screen appeared and let him in (backlog
+  item 10's enroll + challenge path, verified live). The server's
+  factor lookup stays fail-open for now: his walk proves the browser
+  path, but an aal2 session skips the server lookup entirely, so that
+  lookup has still not been seen to succeed.
+  Measured: npm test green, lint 0 errors / 11 pre-existing warnings,
+  typecheck 10 = baseline, build green.
+
 - **Audit follow-ups (11b): four of six closed (2026-11-10).** (1)
   `proposals.js` PATCH accepted any valid status from a request body,
   so a member could mark a proposal `signed` with no signatures or

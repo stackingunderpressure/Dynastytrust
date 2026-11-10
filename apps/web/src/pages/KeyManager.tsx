@@ -2,13 +2,13 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
   listAllKeys, generateTestKey, generateSoftwareKey, importXpub,
-  updateKeyStatus, deleteKey, revealMnemonic, secureTestKey, removeKeyPassword, changeKeyPassword,
+  updateKeyStatus, deleteKeyVerified, keyNeedsPassword, revealMnemonic, secureTestKey, removeKeyPassword, changeKeyPassword,
   exportKeyring, importKeyringJson, renameKey, parseXpubText,
   type LocalKey, type Network,
 } from "../lib/keystore";
 import { downloadFile } from "../lib/download-file";
 import { useToast } from "../components/toast";
-import { useConfirm } from "../components/dialog";
+import { useConfirm, usePrompt } from "../components/dialog";
 import { colors, fonts, radii, space, personaPalette } from "../theme";
 import { Button, Input, Label, Textarea } from "../components/ui";
 import { QrImage } from "../components/QrImage";
@@ -874,6 +874,7 @@ type ModalState =
 export default function KeyManager() {
   const toast = useToast();
   const confirm = useConfirm();
+  const askPrompt = usePrompt();
   const [keys, setKeys] = useState<LocalKey[]>([]);
   const [modal, setModal] = useState<ModalState | null>(null);
   const [filter, setFilter] = useState<"active" | "archived" | "all">("active");
@@ -915,16 +916,41 @@ export default function KeyManager() {
   }
   async function handleDelete(keyId: string) {
     const key = keys.find(k => k.keyId === keyId);
-    if (
-      !(await confirm({
-        title: "Delete key",
-        message: `Permanently delete ${key?.label ? `"${key.label}"` : "this key"}? This cannot be undone. If this key signs a funded vault, make sure you have its recovery phrase backed up first.`,
-        confirmLabel: "Delete",
-        danger: true,
-      }))
-    )
+    if (!key) return;
+    // Step 1: type the key's name. A single Confirm tap is too easy to
+    // hit by mistake for something that cannot be undone.
+    const holdsSeed = key.origin === "software";
+    const warning = holdsSeed && !key.backedUp
+      ? " THIS KEY IS NOT BACKED UP. Its recovery phrase has never been verified as written down. If you delete it, the key and anything only it can sign for are gone forever."
+      : holdsSeed
+        ? " Make sure you still have its written recovery phrase if it signs for a funded vault."
+        : "";
+    const typed = await askPrompt({
+      title: "Delete key",
+      message: `Permanently delete "${key.label}"? This cannot be undone.${warning} Type the key's name to continue.`,
+      placeholder: key.label,
+      matchValue: key.label,
+      confirmLabel: "Delete",
+    });
+    if (typed == null) return;
+    // Step 2: a protected key must be unlocked to be deleted.
+    let password: string | undefined;
+    if (keyNeedsPassword(key)) {
+      const pw = await askPrompt({
+        title: "Unlock to delete",
+        message: `Enter the password for "${key.label}" to delete it.`,
+        password: true,
+        confirmLabel: "Delete key",
+      });
+      if (pw == null) return;
+      password = pw;
+    }
+    try {
+      await deleteKeyVerified(keyId, { password });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not delete the key");
       return;
-    deleteKey(keyId);
+    }
     reload();
     setModal(null);
   }

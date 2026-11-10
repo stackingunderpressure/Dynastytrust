@@ -888,6 +888,30 @@ export function deleteKey(keyId: string): void {
   saveAll(loadAll().filter(k => k.keyId !== keyId));
 }
 
+/**
+ * Delete a key only after its holder proves they can unlock it.
+ *
+ * Deleting used to take one Confirm tap and no proof at all -- a wrong
+ * tap, or anyone holding the unlocked phone, could destroy a mainnet
+ * key whose phrase was never written down. A key protected by a
+ * password or a passkey now has to be UNLOCKED to be deleted (a wrong
+ * password throws and nothing is removed). Keys with nothing to unlock
+ * -- plaintext test keys, imported xpubs, Tapit keys, which hold no
+ * secret here or none that is protected -- are deleted directly; the
+ * caller's typed-name confirmation is their guard.
+ */
+export async function deleteKeyVerified(
+  keyId: string,
+  opts: { password?: string; prf?: PrfProvider } = {},
+): Promise<void> {
+  const key = getKey(keyId) ?? loadAll().find(k => k.keyId === keyId) ?? null;
+  if (!key) throw new Error('Key not found');
+  if (key.origin === 'software' && (key.passkeyMnemonic || key.encryptedMnemonic)) {
+    await revealMnemonic(keyId, opts.password, opts.prf ?? webauthnPrf);
+  }
+  deleteKey(keyId);
+}
+
 export function exportKeyring(): string {
   // Strip plaintext mnemonics from export
   const keys = loadAll().map(({ testMnemonic: _, encryptedMnemonic: __, ...pub }) => pub);
