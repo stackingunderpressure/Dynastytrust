@@ -82,12 +82,25 @@ then (c).
    compromised page can capture a password at entry; real funds belong on
    hardware signers, which the app already supports.
 
-8. **Supply chain + reproducible bundle.** The bundle trusts every npm
-   dependency and the Netlify build; CSP `script-src 'self'` blocks injected
-   scripts but not a poisoned dependency. Add `npm audit --audit-level=high`
-   to the gate, pin exact versions, and add a script that builds locally and
-   compares bundle hashes against what dynastytrust.family serves, so a build
-   that differs from the committed source is caught.
+8. ~~**Supply chain: audit gate on what ships.**~~ Closed 2026-11-10 (see
+   `HISTORY.md`). `scripts/audit-prod.mjs` (in `npm test`) fails on any
+   high/critical advisory in the root tree with `--omit=dev` or in
+   `netlify/functions`; offline it says UNVERIFIED and exits non-zero rather
+   than passing silently. Measured before: 33 advisories in the tree, 16 in
+   code that ships (4 high, 2 critical). After: 0 of any severity in what
+   ships. The two criticals were the `request`/`form-data` chain under
+   `opentimestamps`, pulled in by tapit-attest and never executed here --
+   removed from tapit-attest's dependencies entirely (operator: "take it from
+   tapit, standalone is better"); the provider still loads it lazily if a
+   consumer installs it. react-router-dom 7.14.1 -> 7.18.5, ws -> 8.22.2 in
+   both trees, brace-expansion updated. Dev tooling advisories (vite, eslint,
+   postcss...) deliberately not gated: they never reach a user.
+
+8b. **Reproducible bundle check.** Still open: a script that builds locally
+   and compares bundle hashes against what dynastytrust.family serves, so a
+   Netlify build that differs from the committed source is caught. Netlify
+   runs `npm install`, not `npm ci`; switching the build command to `npm ci`
+   belongs with this.
 
 9. **Compiler in the browser (WASM), Fly as cross-check.** Compile-first
    migration of `protocol/` to WASM so the descriptor, address and PSBT are

@@ -106,6 +106,51 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Supply-chain gate on what ships, and the tree cleaned to pass it
+  (2026-11-10).** Security backlog item 8. Measured first, not assumed:
+  `npm audit` found 33 advisories in the whole tree, 16 in code that
+  ships (root `--omit=dev` plus `netlify/functions`): 4 high, 2 critical.
+  Triage: both criticals and several moderates were the `request` /
+  `form-data` / `tough-cookie` / `qs` chain under `opentimestamps`, which
+  tapit-attest declared as an optional dependency for its
+  `OpenTimestampsProvider` -- a provider nothing in this repo executes
+  (`apps/web/vite.config.ts` already externalizes the package for that
+  reason), so the only thing it shipped was the advisory. Operator:
+  "You can take from tapit. I think standalone is better." Removed from
+  `tapit-attest/package.json` outright (not demoted; optional deps still
+  install); the provider's lazy `import('opentimestamps')` and its clear
+  "install it yourself" error are unchanged, so a consumer that wants
+  real OTS anchoring adds the package and nothing else moves.
+  tapit-attest's own gates after: typecheck clean, 73/73 tests. The
+  Tapit Wallet copy of tapit-attest never carried the package, so nothing
+  is owed there. Targeted upgrades, each inside its existing semver
+  range, never a blind `npm audit fix` (whose dry run wanted to change 54
+  and remove 189 packages -- too much churn on one theory in
+  money-touching code): react-router-dom 7.14.1 -> 7.18.5 (open redirect
+  via backslash in Link/useNavigate among eight advisories), ws ->
+  8.22.2 at the root (via supabase realtime) and in `netlify/functions`,
+  brace-expansion updated. Root install then pruned 267 packages, all
+  the opentimestamps chain. New gate `scripts/audit-prod.mjs`, wired
+  into `npm test` ahead of the harness: audits the root tree with
+  `--omit=dev` and `netlify/functions` separately (they install
+  separately in CI), fails on high or critical, and when the registry is
+  unreachable prints UNVERIFIED and exits non-zero rather than passing
+  silently. Dev tooling advisories (vite, eslint, postcss, js-yaml...)
+  deliberately NOT gated: they never reach a user, and a gate that
+  fails on a linter's glob library teaches people to ignore it; upgrade
+  those on their own schedule. After: 0 advisories of any severity in
+  anything that ships. Walked, not just built: rebuilt with the public
+  Supabase env, served with `vite preview`, loaded `/`,
+  `/recover-descriptor`, `/invite/<bad token>` and `/vaults` headless at
+  375px on the new router -- every route rendered, auth redirects
+  intact, the bad invite handled gracefully, no horizontal overflow, no
+  page or console errors. Deliberately not done, now item 8b: the
+  reproducible-bundle comparison against what dynastytrust.family
+  serves, and switching Netlify's build command from `npm install` to
+  `npm ci`. Measured: npm test green (all suites + audit-prod PASS +
+  harness 41), lint 0 errors / 11 pre-existing warnings, typecheck 10 =
+  baseline, build green.
+
 - **Attestations verified server-side before they are stored
   (2026-11-10).** Security backlog item 4. The gap, documented in the
   function's own header since it was written: `vault-attestations.js`

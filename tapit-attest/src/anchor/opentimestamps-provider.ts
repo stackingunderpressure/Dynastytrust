@@ -1,10 +1,15 @@
 /**
  * The real, Bitcoin-backed OtsProvider.
  *
- * Wraps the `opentimestamps` npm package -- an optional dependency,
- * loaded lazily so the rest of tapit-attest installs and runs
- * without it. `MockOtsProvider` (in core/anchor.ts) covers tests;
- * this is the production wiring.
+ * Wraps the `opentimestamps` npm package, loaded lazily at call time.
+ * Since 2026-11-10 it is NOT declared as a dependency at all (not even
+ * optional): its transitive `request` / `form-data` chain carried two
+ * critical advisories into every consumer's tree while no consumer in
+ * this repo ever executed this provider. A consumer that wants real
+ * OpenTimestamps anchoring installs `opentimestamps` itself; without
+ * it, `loadOts` throws the clear error below and nothing else in
+ * tapit-attest is affected. `MockOtsProvider` (in core/anchor.ts)
+ * covers tests; this is the production wiring.
  *
  * UNVERIFIED: exercising this requires reaching public OpenTimestamps
  * calendar servers and waiting for Bitcoin confirmation. The unit
