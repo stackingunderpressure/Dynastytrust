@@ -14,6 +14,7 @@
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
+import { recordEvent } from "./_ledger.js";
 
 const MEMBER_FIELDS =
   "id, created_at, vault_id, user_id, role, label, xpub, fingerprint, pubkey, derivation_path, key_label, status, messaging_pubkey";
@@ -156,7 +157,7 @@ export async function handler(event) {
       .eq("id", id);
     if (error) return json(500, { error: error.message });
 
-    await supabase.from("vault_events").insert({
+    await recordEvent(supabase, {
       vault_id: member.vault_id,
       user_id: u.userId,
       event_type: "member_removed",

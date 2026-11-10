@@ -34,6 +34,7 @@
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
+import { recordEvent } from "./_ledger.js";
 import { pubkeyFromXpub } from "./_xpub.js";
 import { fetchVerifiedTipHeight, relativeToAbsolute, checkTimelockFloor } from "./_chain.js";
 import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
@@ -384,7 +385,7 @@ export async function handler(event) {
     .single();
   if (saveErr) return json(500, { error: saveErr.message });
 
-  await supabase.from("vault_events").insert({
+  await recordEvent(supabase, {
     vault_id: vaultId,
     user_id: u.userId,
     event_type: "draft_compiled",

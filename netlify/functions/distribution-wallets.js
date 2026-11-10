@@ -33,6 +33,7 @@
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
+import { recordEvent } from "./_ledger.js";
 import { activeMembership, canMutate, sanitizeTrancheUpdate, newlyFilledTxids, txMatchesTranche } from "./_authz.js";
 import { MEMPOOL, mempoolFetch } from "./_chain.js";
 import { assertNotPrivateExtendedKey } from "./_xpub.js";
@@ -175,7 +176,7 @@ export async function handler(event) {
       .single();
     if (error) return json(500, { error: error.message });
 
-    await supabase.from("vault_events").insert({
+    await recordEvent(supabase, {
       vault_id,
       user_id: u.userId,
       event_type: "distribution_wallet_created",

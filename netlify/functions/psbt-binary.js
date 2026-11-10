@@ -11,6 +11,7 @@
  */
 
 import { requireUser, json } from './_auth.js';
+import { recordEvent } from './_ledger.js';
 import { getSupabaseAdmin } from './_supabase.js';
 import { pubkeyFromXpub } from './_xpub.js';
 import { MEMPOOL, mempoolFetch, getFeeRate } from './_chain.js';
@@ -470,7 +471,7 @@ export async function handler(event) {
     }
 
     // Log event
-    await supabase.from('vault_events').insert({
+    await recordEvent(supabase, {
       vault_id: vault.id,
       user_id:  u.userId,
       event_type: 'psbt_generated',

@@ -15,6 +15,7 @@
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
+import { recordEvent } from "./_ledger.js";
 import { canMutate } from "./_authz.js";
 import { verifySignedPsbt } from "./_psbt-verify.js";
 
@@ -143,7 +144,7 @@ export async function handler(event) {
       data = inserted;
     }
 
-    await supabase.from("vault_events").insert({
+    await recordEvent(supabase, {
       vault_id: proposal.vault_id,
       user_id: u.userId,
       event_type: "signed",

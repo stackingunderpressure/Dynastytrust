@@ -16,6 +16,7 @@
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
+import { recordEvent } from "./_ledger.js";
 import { activeMembership, canMutate } from "./_authz.js";
 
 const FIELDS =
@@ -122,7 +123,7 @@ export async function handler(event) {
       .single();
     if (error) return json(500, { error: error.message });
 
-    await supabase.from("vault_events").insert({
+    await recordEvent(supabase, {
       vault_id,
       user_id: u.userId,
       event_type: "stipend_created",

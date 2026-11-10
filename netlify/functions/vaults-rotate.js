@@ -27,6 +27,7 @@
  */
 
 import { requireUser, json } from "./_auth.js";
+import { recordEvent } from "./_ledger.js";
 import { getSupabaseAdmin } from "./_supabase.js";
 
 const VAULT_FIELDS =
@@ -161,13 +162,13 @@ export async function handler(event) {
     }
   }
 
-  await supabase.from("vault_events").insert({
+  await recordEvent(supabase, {
     vault_id: created.id,
     user_id: u.userId,
     event_type: "rotated_from_predecessor",
     metadata: { predecessor_id: vault_id, predecessor_name: src.name },
   });
-  await supabase.from("vault_events").insert({
+  await recordEvent(supabase, {
     vault_id,
     user_id: u.userId,
     event_type: "rotated_to_successor",

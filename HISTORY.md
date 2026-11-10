@@ -106,6 +106,59 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Sealed ledger: the vault's record is now hash-chained and
+  append-only -- BUILT, not yet shipped (2026-11-10).** Backlog 15a.
+  Operator: "the chain of actions all the way from the beginning to
+  the end ... tamper evident ... records of every single thing."
+  Grounded first: `vault_events` was an ordinary table -- nothing
+  linked one row to the next, and its original policy (`for all using
+  auth.uid() = user_id`) let any signed-in user UPDATE or DELETE their
+  own event rows straight from the browser, so the record could be
+  changed with no trace. Built:
+  `supabase/migrations/20261110230000_vault_ledger.sql` -- table
+  `vault_ledger` where each entry's `entry_hash` is sha256 over the
+  previous entry's hash, the vault, the sequence number, the time, the
+  actor, the event type and the exact canonical JSON of the details
+  (stored verbatim so anyone can recompute it from the row alone).
+  Rows enter only through `append_vault_ledger()`, which takes a
+  per-vault lock, checks the entry really extends the current tip, and
+  RECOMPUTES the hash itself; a trigger refuses UPDATE, DELETE and
+  TRUNCATE for every role including the service role; `vault_id` is
+  deliberately not a foreign key so deleting a vault cannot erase its
+  history; members may read, nobody may write from the browser. The
+  same migration makes `vault_events` read-only from the browser.
+  `netlify/functions/_ledger.js`: `canonicalJson`, `ledgerEntryHash`,
+  `verifyLedger`, `nextLedgerEntry`, `appendLedger` (retries a lost
+  race from the new tip), `recordEvent`. All 25 places the server wrote
+  an event (19 functions) now call `recordEvent`, which writes the
+  timeline row AND seals a ledger entry; every metadata block was read
+  to confirm no secret enters a ledger all members can read. New
+  `netlify/functions/vault-ledger.js` returns a vault's entries and the
+  server's verification to any active member. Deliberate choice: if
+  the ledger write fails the action still completes and the failure is
+  logged loudly -- a spend that already happened must not be reported
+  as failed -- which also means the functions keep working if they
+  deploy before the migration applies. PROOF, the part that matters:
+  `scripts/test-ledger-db.sh` starts a throwaway REAL PostgreSQL 16,
+  applies the migration (twice -- idempotent), and shows: the
+  database's hash equals the JS hash on awkward text; a fork, a gap, a
+  wrong previous hash and contents that do not match the hash are all
+  refused; UPDATE and DELETE are refused for the service role AND the
+  database owner; TRUNCATE is refused; a signed-in browser can neither
+  insert nor call the append function; an active member can read and a
+  removed one cannot; old event rows can no longer be edited or
+  deleted from the browser; and an edited, removed or reordered entry
+  in a copied dump fails `verifyLedger`. Passed on its first run.
+  `scripts/test-ledger.mjs` (6 cases, in `npm test`) pins the hash to
+  a known answer independently reproduced with `sha256sum`. HONEST
+  LIMITS: a chain alone cannot detect its own TAIL being cut off --
+  that needs the external anchor (15c); vaults that exist today have
+  no sealed history before this ships; not exercised against the real
+  Supabase project (its migration runs on push to main); no screen
+  yet (15d). Measured: npm test exit 0, 17 suites; ledger-db 5 groups;
+  all functions bundle; lint 0 errors / 11 pre-existing warnings;
+  typecheck 10 = baseline; build green.
+
 - **Correction and deploy record (2026-11-10).** The supply-chain entry
   below says `deploy-compiler.yml` "does not trigger on `Cargo.lock`
   alone" and that the Fly compiler would keep the older crates. That

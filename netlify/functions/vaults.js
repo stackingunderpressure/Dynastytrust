@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
+import { recordEvent } from "./_ledger.js";
 import { assertNotPrivateExtendedKey } from "./_xpub.js";
 
 const COMPILER_URL    = process.env.COMPILER_URL;
@@ -311,7 +312,7 @@ export async function handler(event) {
 
     if (error) return json(500, { error: error.message });
 
-    await supabase.from("vault_events").insert({
+    await recordEvent(supabase, {
       vault_id: data.id,
       user_id: u.userId,
       event_type: isDraft || isBlocDraft || isLeavesDraft ? "draft_created" : "created",
@@ -331,7 +332,7 @@ export async function handler(event) {
     // audit trail tied to a specific user and vault_id without
     // adding a separate table.
     if (body.terms_accepted_version) {
-      await supabase.from("vault_events").insert({
+      await recordEvent(supabase, {
         vault_id: data.id,
         user_id: u.userId,
         event_type: "terms_accepted",
@@ -563,7 +564,7 @@ export async function handler(event) {
       .eq("id", id);
     if (delErr) return json(500, { error: delErr.message });
 
-    await supabase.from("vault_events").insert({
+    await recordEvent(supabase, {
       vault_id: id,
       user_id: u.userId,
       event_type: "deleted",

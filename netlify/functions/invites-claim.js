@@ -18,6 +18,7 @@
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
+import { recordEvent } from "./_ledger.js";
 
 export async function handler(event) {
   if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
@@ -118,7 +119,7 @@ export async function handler(event) {
   }
   const memberId = member.id;
 
-  await supabase.from("vault_events").insert({
+  await recordEvent(supabase, {
     vault_id: invite.vault_id,
     user_id: u.userId,
     event_type: "member_joined",

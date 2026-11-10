@@ -15,6 +15,7 @@
  */
 
 import { requireUser, json } from './_auth.js';
+import { recordEvent } from './_ledger.js';
 import { canMutate, isTerminalProposalStatus } from './_authz.js';
 import { getSupabaseAdmin } from './_supabase.js';
 import { findSpendingPath } from './_vault-shape.js';
@@ -130,7 +131,7 @@ export async function handler(event) {
         .eq('vault_id', vault_id);
 
       // Log merge event
-      await supabase.from('vault_events').insert({
+      await recordEvent(supabase, {
         vault_id,
         user_id:    u.userId,
         event_type: 'psbt_merged',

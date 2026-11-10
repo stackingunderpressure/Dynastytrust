@@ -166,6 +166,30 @@ then (c).
      panics a request and huge key sets burn CPU; A12 Rust's timelock floors
      see absolute heights; A13 auth after body parsing, no dust/fee cap.
 
+15. **Tamper-evident record and identity at the door.** Operator,
+    2026-11-10: the chain of actions "all the way from the beginning to the
+    end ... tamper evident ... always checking against the open timestamps
+    hash that cannot be changed ... records of every single thing", and
+    "anyone else logging in is who they're supposed to be." Five slices:
+    - ~~15a Sealed ledger + lock the table.~~ BUILT 2026-11-10, on the
+      branch, not yet shipped (see `HISTORY.md`): `vault_ledger`, hash-chained
+      and append-only for every role; `vault_events` read-only from the
+      browser; every server event write goes through `recordEvent`.
+    - 15b Signed entries: creating the vault, joining with a key, the final
+      key set, each spend signature -- signed by the actor's vault key.
+    - 15c Anchoring: the ledger tip submitted to OpenTimestamps at milestones
+      (vault finalized, spend broadcast, member added/removed) and daily.
+      This is also what catches a TRUNCATED tail, which a chain alone cannot.
+    - 15d Verify screen + downloadable file, for every member: re-walk the
+      chain, check signatures, check the Bitcoin timestamp, green or red.
+    - 15e Identity at the door: invite bound to the invited email; the owner
+      confirms the joiner's key fingerprint before the vault is finalized;
+      two-step sign-in required to join a mainnet vault.
+    Known limits to carry forward: existing vaults have no sealed history
+    before the day this ships; if a ledger write fails the action still
+    completes and the gap is only visible in the function logs; real-world
+    identity (who is holding the phone) is out of scope by design.
+
 9. **Compiler in the browser (WASM), Fly as cross-check.** Compile-first
    migration of `protocol/` to WASM so the descriptor, address and PSBT are
    produced on the device; keep Fly for a byte-identical cross-check until the

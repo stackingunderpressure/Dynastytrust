@@ -7,6 +7,7 @@
  */
 
 import { requireUser, json } from './_auth.js';
+import { recordEvent } from './_ledger.js';
 import { canMutate } from './_authz.js';
 import { getSupabaseAdmin } from './_supabase.js';
 import { fetchTipHeight, MEMPOOL, mempoolFetch } from './_chain.js';
@@ -215,7 +216,7 @@ export async function handler(event) {
     if (propErr) return json(500, { error: propErr.message });
 
     // Log event
-    await supabase.from('vault_events').insert({
+    await recordEvent(supabase, {
       vault_id, user_id: u.userId,
       event_type: 'psbt_generated',
       metadata: { proposal_id: proposal.id, path, amount_sats, destination },
@@ -349,7 +350,7 @@ export async function handler(event) {
           /* non-fatal */
         }
       }
-      await supabase.from('vault_events').insert({
+      await recordEvent(supabase, {
         vault_id: updated.vault_id, user_id: u.userId,
         // event_type used to be hardcoded to 'signed' whenever status
         // became 'broadcast' -- a proposal that was actually broadcast

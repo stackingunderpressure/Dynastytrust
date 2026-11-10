@@ -15,6 +15,7 @@
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
+import { recordEvent } from "./_ledger.js";
 
 const FIELDS = "id, created_at, proposal_id, user_id, body, vote";
 
@@ -100,7 +101,7 @@ export async function handler(event) {
     if (error) return json(500, { error: error.message });
 
     // Emit an event for the activity feed.
-    await supabase.from("vault_events").insert({
+    await recordEvent(supabase, {
       vault_id: proposal.vault_id,
       user_id: u.userId,
       event_type: vote ? `voted_${vote}` : "commented",

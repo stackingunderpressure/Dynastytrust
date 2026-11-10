@@ -16,6 +16,7 @@
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
+import { recordEvent } from "./_ledger.js";
 
 const FIELDS =
   "id, created_at, updated_at, vault_id, requested_by, rule_id, rule_name, amount_sats, recipient_name, reason, status, linked_proposal_id, resolved_by, resolved_at, resolution_note";
@@ -86,7 +87,7 @@ export async function handler(event) {
       .single();
     if (error) return json(500, { error: error.message });
 
-    await supabase.from("vault_events").insert({
+    await recordEvent(supabase, {
       vault_id,
       user_id: u.userId,
       event_type: "request_created",
@@ -207,7 +208,7 @@ export async function handler(event) {
       .single();
     if (error) return json(500, { error: error.message });
 
-    await supabase.from("vault_events").insert({
+    await recordEvent(supabase, {
       vault_id: existing.vault_id,
       user_id: u.userId,
       event_type: `request_${wantsStatus ?? "updated"}`,

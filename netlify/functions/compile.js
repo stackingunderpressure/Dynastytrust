@@ -19,6 +19,7 @@
  */
 
 import { requireUser, json } from "./_auth.js";
+import { recordEvent } from "./_ledger.js";
 import { getSupabaseAdmin } from "./_supabase.js";
 import { fetchVerifiedTipHeight, relativeToAbsolute, checkTimelockFloor } from "./_chain.js";
 import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
@@ -223,7 +224,7 @@ export async function handler(event) {
       }
 
       // Log event
-      await supabase.from("vault_events").insert({
+      await recordEvent(supabase, {
         vault_id:   vault.id,
         user_id:    u.userId,
         event_type: "created",

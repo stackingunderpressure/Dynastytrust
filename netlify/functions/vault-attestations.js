@@ -19,6 +19,7 @@
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
+import { recordEvent } from "./_ledger.js";
 import { verifyAttestationSignature } from "./_attest.js";
 
 const FIELDS =
@@ -155,7 +156,7 @@ export async function handler(event) {
       .single();
     if (error) return json(500, { error: error.message });
 
-    await supabase.from("vault_events").insert({
+    await recordEvent(supabase, {
       vault_id,
       user_id: u.userId,
       event_type: "attestation_" + attestation_type,
@@ -186,7 +187,7 @@ export async function handler(event) {
       .eq("id", id);
     if (error) return json(500, { error: error.message });
 
-    await supabase.from("vault_events").insert({
+    await recordEvent(supabase, {
       vault_id: row.vault_id,
       user_id: u.userId,
       event_type: "attestation_revoked",
