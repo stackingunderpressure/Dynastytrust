@@ -76,6 +76,21 @@ export async function handler(event) {
     });
   }
 
+  // Claim the invite FIRST, atomically: the update only matches while
+  // claimed_at is still null, so two accounts racing on one token cannot
+  // both pass (previously both read claimed_at = null, both inserted a
+  // member row, and one invite minted two members in the invited role).
+  const { data: claimedRows, error: claimErr } = await supabase
+    .from("vault_invites")
+    .update({ claimed_at: new Date().toISOString(), claimed_by: u.userId })
+    .eq("id", invite.id)
+    .is("claimed_at", null)
+    .select("id");
+  if (claimErr) return json(500, { error: claimErr.message });
+  if (!claimedRows || claimedRows.length === 0) {
+    return json(409, { error: "Invite already claimed" });
+  }
+
   const { data: member, error: memberErr } = await supabase
     .from("vault_members")
     .insert({
@@ -92,15 +107,16 @@ export async function handler(event) {
     })
     .select("id")
     .single();
-  if (memberErr) return json(500, { error: memberErr.message });
+  if (memberErr) {
+    // Release the claim so the invite is not burned by a failed join.
+    await supabase
+      .from("vault_invites")
+      .update({ claimed_at: null, claimed_by: null })
+      .eq("id", invite.id)
+      .eq("claimed_by", u.userId);
+    return json(500, { error: memberErr.message });
+  }
   const memberId = member.id;
-
-  // Mark invite consumed. If the update races, the member row still exists
-  // so the user isn't left without access.
-  await supabase
-    .from("vault_invites")
-    .update({ claimed_at: new Date().toISOString(), claimed_by: u.userId })
-    .eq("id", invite.id);
 
   await supabase.from("vault_events").insert({
     vault_id: invite.vault_id,

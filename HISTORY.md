@@ -106,6 +106,75 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Authorization audit of all 40 service-role functions: 13 gaps found
+  and closed (2026-11-10).** Security backlog item 11. Every Netlify
+  function that touches the database uses the Supabase service-role key,
+  which bypasses RLS, so each handler is its own gatekeeper. A fresh-eyes
+  read-only audit read all 40 end to end (PDF layout code and prompt
+  constants grepped, not read); each finding was then re-verified
+  against the code before anything was changed. Verdict: no endpoint
+  let a stranger reach another user's vault by guessing an id -- but two
+  mistakes were repeated across the tree: "is an active member" treated
+  as "may change this", and exports returning whole rows where the
+  regular endpoints redact. Fixed, in severity order: (1)
+  `vault-activity-export.js` and `vault-audit-pdf.js` did `select("*")`
+  on `vault_invites` and `vault_members`, handing any member -- a
+  viewer included -- every unclaimed invite's `token` (the credential
+  to join as founder/heir) and every member's xpub; both now redact
+  exactly as `members.js`/`invites.js` do (token never leaves, invited
+  email owner-only, xpub owner-or-self). (2) `psbt-merge.js` rewrote
+  `status`/`psbt_signed_hex` on a broadcast/cancelled/fulfilled
+  proposal, bypassing the terminal lock `proposals.js` enforces; it now
+  404s an unknown proposal and 409s a terminal one. (3) `proposals.js`
+  POST and PATCH accepted any role; view-only members are refused, and
+  a `txid` may only be set together with the verified `broadcast`
+  transition. (4) `signer-sessions.js` let a viewer record a
+  "signature"; refused. (5) `invites-lookup.js` (unauthenticated)
+  returned every spending path's `keys` despite its own comment saying
+  no keys leave; paths now carry shape only. (6) `vault-requests.js`
+  skipped both role checks when `status` was absent, so any member
+  could rewrite a request's note and linked proposal; now
+  trustee-only (requester while pending or when cancelling), and the
+  linked proposal must belong to the vault. (7) `liveness.js` let any
+  member re-post someone's OLDER signed heartbeat, replacing the
+  current one and making them read as not-alive; a proof now only
+  replaces an older one. (8) `invites-claim.js` was not atomic -- two
+  accounts racing one token both became members; the invite is now
+  claimed first with `update ... where claimed_at is null` and released
+  if the member insert fails. (9) `distribution-wallets.js` let any
+  member set, clear or forge tranche txids and store extra keys; each
+  row is now the STORED row with only the two txids taken from the
+  request, well-formed, fill-in-only for non-owners, viewers refused.
+  (10) `circle-phrase-deliveries.js` upsert could reassign another
+  owner's delivery row; refused when the row belongs to another
+  account. (11) `stipends.js`: viewers refused, `last_proposal_id` must
+  belong to the vault. (12) `members.js`: a removed member could still
+  edit their old row; refused. (13) `proposals.js`: a
+  `distribution_wallet_id` must belong to the proposal's vault. The
+  rules live once in new `netlify/functions/_authz.js` (`canMutate`,
+  `isTerminalProposalStatus`, `redactMember`, `redactInvite`,
+  `stripPathKeys`, `sanitizeTrancheUpdate`, `isNewerProof`,
+  `activeMembership`, `isVaultOwner`). Role rule chosen deliberately
+  narrow: only `viewer` is read-only -- beneficiaries consent-sign and
+  claim tranches, so restricting to owner/founder/heir would have
+  broken real flows. Every client call site of the tightened endpoints
+  was read first to confirm no legitimate flow is refused (the three
+  `proposals.update` shapes, both `distributionWallets.update` calls,
+  both `vaultRequests.update` calls, the stipend bump). Proof:
+  `scripts/test-authz.mjs` (7 cases over the pure rules) in `npm test`;
+  all 13 changed functions pass `node --check` and bundle with esbuild
+  as Netlify does. HONEST LIMIT: the handlers were NOT exercised against
+  a live database -- there is no test Supabase here -- so the wiring is
+  proven by reading and bundling, the rules by test. Deliberately left,
+  listed as backlog 11b: client-set `signed`/`fulfilled` unchecked,
+  signer-session PSBT not verified to carry the member's signature,
+  post-compile key edits by an active member, tranche txid not verified
+  on chain, the wallet sign-in challenge questions, and the original
+  move off the service-role key onto JWT + RLS. Measured: npm test
+  green (all suites incl. authz 7, audit-prod PASS, harness 41), lint 0
+  errors / 11 pre-existing warnings, typecheck 10 = baseline, build
+  green.
+
 - **Chain tip from two independent sources, or no compile (2026-11-10).**
   Security backlog item 12, and the limit left open under item 2. The
   gap: the tip that every absolute timelock is built from (`tip +

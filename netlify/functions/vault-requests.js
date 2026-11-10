@@ -170,6 +170,26 @@ export async function handler(event) {
       return json(403, { error: "Only trustees can approve, decline, or mark fulfilled" });
     }
 
+    // The note and the linked proposal are part of the decision record.
+    // Previously both role checks above were skipped whenever `status`
+    // was absent, so any member could rewrite them on any request in any
+    // state. Trustees may always set them; the requester only while the
+    // request is still pending or as part of cancelling it.
+    const touchesRecord = body.resolution_note !== undefined || body.linked_proposal_id !== undefined;
+    if (touchesRecord && !isTrustee && !(isRequester && (existing.status === "pending" || wantsStatus === "cancelled"))) {
+      return json(403, { error: "Only trustees can edit a request's note or linked proposal" });
+    }
+    if (body.linked_proposal_id) {
+      const { data: lp } = await supabase
+        .from("proposals")
+        .select("vault_id")
+        .eq("id", body.linked_proposal_id)
+        .maybeSingle();
+      if (!lp || lp.vault_id !== existing.vault_id) {
+        return json(400, { error: "linked_proposal_id does not belong to this vault" });
+      }
+    }
+
     const allowed = ["status", "resolution_note", "linked_proposal_id"];
     const updates = Object.fromEntries(
       Object.entries(body).filter(([k]) => allowed.includes(k)),

@@ -7,6 +7,7 @@
  */
 
 import { requireUser, json } from './_auth.js';
+import { canMutate } from './_authz.js';
 import { getSupabaseAdmin } from './_supabase.js';
 import { fetchTipHeight, MEMPOOL, mempoolFetch } from './_chain.js';
 import { checkNumberBounds, MIN_FEE_RATE_SAT_VB, MAX_FEE_RATE_SAT_VB } from './_numeric.js';
@@ -172,12 +173,25 @@ export async function handler(event) {
 
     const { data: membership } = await supabase
       .from('vault_members')
-      .select('id')
+      .select('id, role')
       .eq('vault_id', vault_id)
       .eq('user_id', u.userId)
       .eq('status', 'active')
       .maybeSingle();
     if (!membership) return json(403, { error: 'Not a member of this vault' });
+    if (!canMutate(membership.role)) return json(403, { error: 'View-only members cannot propose a spend' });
+
+    // A proposal may only point at a distribution wallet of its own vault.
+    if (distribution_wallet_id) {
+      const { data: dw } = await supabase
+        .from('distribution_wallets')
+        .select('vault_id')
+        .eq('id', distribution_wallet_id)
+        .maybeSingle();
+      if (!dw || dw.vault_id !== vault_id) {
+        return json(400, { error: 'distribution_wallet_id does not belong to this vault' });
+      }
+    }
 
     // Run governance audit
     const audit = await runGovernanceAudit(vault, { path, destination, amount_sats, utxo_age_blocks, total_vault_sats });
@@ -250,12 +264,19 @@ export async function handler(event) {
 
     const { data: membership } = await supabase
       .from('vault_members')
-      .select('id')
+      .select('id, role')
       .eq('vault_id', existing.vault_id)
       .eq('user_id', u.userId)
       .eq('status', 'active')
       .maybeSingle();
     if (!membership) return json(403, { error: 'Not a member of this vault' });
+    if (!canMutate(membership.role)) return json(403, { error: 'View-only members cannot change a proposal' });
+    // A txid is only ever recorded together with the verified
+    // transition to 'broadcast' below -- never on its own, where nothing
+    // would check it is real.
+    if (updates.txid !== undefined && updates.status !== 'broadcast') {
+      return json(400, { error: "txid can only be set together with status 'broadcast'" });
+    }
 
     // Transitioning to 'broadcast' declares a spend final -- the audit
     // PDF and activity export read this row as the permanent record.

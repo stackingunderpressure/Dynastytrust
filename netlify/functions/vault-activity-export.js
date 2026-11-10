@@ -12,6 +12,7 @@
  */
 
 import { requireUser, json } from "./_auth.js";
+import { isVaultOwner, redactMember, redactInvite } from "./_authz.js";
 import { getSupabaseAdmin } from "./_supabase.js";
 
 export async function handler(event) {
@@ -35,6 +36,10 @@ export async function handler(event) {
     .eq("status", "active")
     .maybeSingle();
   if (!mem) return json(403, { error: "Not a member" });
+  // Exports redact exactly as the regular endpoints do: an invite token is
+  // the credential to join the vault and never leaves; full xpubs go only
+  // to the owner and to the member themselves.
+  const callerIsOwner = await isVaultOwner(supabase, id, u.userId);
 
   const [
     vaultRes, membersRes, invitesRes, proposalsRes,
@@ -67,8 +72,8 @@ export async function handler(event) {
     exported_at: new Date().toISOString(),
     exported_by_user_id: u.userId,
     vault: vaultRes.data,
-    members: membersRes.data ?? [],
-    invites: invitesRes.data ?? [],
+    members: (membersRes.data ?? []).map(m => redactMember(m, { callerIsOwner, callerUserId: u.userId })),
+    invites: (invitesRes.data ?? []).map(i => redactInvite(i, { callerIsOwner })),
     proposals: proposalsRes.data ?? [],
     signer_sessions: signerSessionsRes.data ?? [],
     proposal_comments: commentsRes.data ?? [],

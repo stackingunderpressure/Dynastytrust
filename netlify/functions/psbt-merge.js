@@ -15,6 +15,7 @@
  */
 
 import { requireUser, json } from './_auth.js';
+import { canMutate, isTerminalProposalStatus } from './_authz.js';
 import { getSupabaseAdmin } from './_supabase.js';
 import { findSpendingPath } from './_vault-shape.js';
 
@@ -60,13 +61,15 @@ export async function handler(event) {
   // founder_quorum when no proposal_id is given (nothing to look up) or
   // the path can't be resolved, matching the previous fallback.
   let requiredQuorum = vault.founder_quorum;
+  let proposalStatus;
   if (proposal_id) {
     const { data: proposalForQuorum } = await supabase
       .from('proposals')
-      .select('path')
+      .select('path, status')
       .eq('id', proposal_id)
       .eq('vault_id', vault_id)
       .maybeSingle();
+    proposalStatus = proposalForQuorum ? proposalForQuorum.status : null;
     if (proposalForQuorum?.path) {
       const resolved = findSpendingPath(vault, proposalForQuorum.path);
       if (resolved) requiredQuorum = resolved.quorum;
@@ -75,12 +78,22 @@ export async function handler(event) {
 
   const { data: membership } = await supabase
     .from('vault_members')
-    .select('id')
+    .select('id, role')
     .eq('vault_id', vault_id)
     .eq('user_id', u.userId)
     .eq('status', 'active')
     .maybeSingle();
   if (!membership) return json(403, { error: 'Not a member of this vault' });
+  if (!canMutate(membership.role)) return json(403, { error: 'View-only members cannot merge signatures' });
+  // A merge rewrites the proposal's status and signed PSBT. A proposal
+  // that is broadcast/cancelled/fulfilled is the permanent record --
+  // the same lock proposals.js enforces on PATCH applies here.
+  if (proposal_id) {
+    if (proposalStatus === null) return json(404, { error: 'Proposal not found in this vault' });
+    if (isTerminalProposalStatus(proposalStatus)) {
+      return json(409, { error: `This proposal is already ${proposalStatus} and its record is locked.` });
+    }
+  }
 
   if (!COMPILER_URL) {
     return json(503, { error: 'COMPILER_URL not configured. Deploy the Fly.io compiler to enable PSBT merging.' });

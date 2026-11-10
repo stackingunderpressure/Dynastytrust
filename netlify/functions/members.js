@@ -88,11 +88,16 @@ export async function handler(event) {
 
     const { data: member, error: lookupErr } = await supabase
       .from("vault_members")
-      .select("id, vault_id, user_id")
+      .select("id, vault_id, user_id, status")
       .eq("id", id)
       .maybeSingle();
     if (lookupErr) return json(500, { error: lookupErr.message });
     if (!member) return json(404, { error: "Member not found" });
+    // A removed member keeps no write access to their old row (their
+    // keys feed the key-origin fallback and the attestation check).
+    if (member.status !== "active" && member.user_id === u.userId) {
+      return json(403, { error: "You are no longer an active member of this vault" });
+    }
 
     // A member can only update their own row. The vault owner can
     // also update other members' labels (not their keys).

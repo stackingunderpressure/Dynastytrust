@@ -12,6 +12,7 @@
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { json } from "./_auth.js";
+import { stripPathKeys } from "./_authz.js";
 import { isLeafListVault, getSpendingPaths } from "./_vault-shape.js";
 
 export async function handler(event) {
@@ -101,7 +102,8 @@ export async function handler(event) {
       // can render this shape honestly instead of the fixed
       // Trustees/Successors/Recovery/Inheritance facts.
       is_leaf_list: isLeafListVault(vault),
-      paths: getSpendingPaths(vault),
+      // Shape only -- no keys. This endpoint is unauthenticated.
+      paths: stripPathKeys(getSpendingPaths(vault)),
     } : null,
     members: members ?? [],
   });

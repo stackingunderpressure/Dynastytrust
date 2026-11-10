@@ -35,6 +35,7 @@
  */
 
 import { requireUser, json } from './_auth.js';
+import { isNewerProof } from './_authz.js';
 import { getSupabaseAdmin } from './_supabase.js';
 import { verifyLivenessSignalForStorage, loadVaultLivenessConfig } from './_liveness.js';
 
@@ -137,6 +138,21 @@ export async function handler(event) {
     const { subject, raisedBy } = verdict;
 
     if (kind === 'proof-of-life') {
+      // A heartbeat may only replace an OLDER one. Old proofs are readable
+      // by every member and carry only subject + time + signature, so
+      // without this any member could re-post someone's stale proof and
+      // make them read as not-alive, blocking liveness-gated signing.
+      const { data: prior } = await supabase
+        .from('liveness_signals')
+        .select('signal')
+        .eq('vault_id', vault_id)
+        .eq('subject', subject)
+        .eq('kind', 'proof-of-life');
+      for (const row of prior ?? []) {
+        if (!isNewerProof(row.signal?.issuedAt, signal.issuedAt)) {
+          return json(409, { error: 'A newer or equal proof-of-life is already on file for this subject' });
+        }
+      }
       // Latest heartbeat per subject replaces the prior one: delete any
       // existing proof-of-life for this (vault, subject), then insert.
       const { error: delErr } = await supabase

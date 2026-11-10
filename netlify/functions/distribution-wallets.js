@@ -33,6 +33,7 @@
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
+import { activeMembership, canMutate, sanitizeTrancheUpdate } from "./_authz.js";
 import { assertNotPrivateExtendedKey } from "./_xpub.js";
 import { checkNumberBounds } from "./_numeric.js";
 
@@ -207,6 +208,10 @@ export async function handler(event) {
       return json(403, { error: "Not a member of this vault" });
     }
     const isOwner = await assertOwner(supabase, existing.vault_id, u.userId);
+    const me = await activeMembership(supabase, existing.vault_id, u.userId);
+    if (!isOwner && !canMutate(me?.role)) {
+      return json(403, { error: "View-only members cannot change a distribution wallet" });
+    }
 
     // name / beneficiary_name are metadata, owner-only. tranches is
     // patchable by any member but ONLY to bump funded_txid /
@@ -237,6 +242,13 @@ export async function handler(event) {
           }
         }
       }
+      // A non-owner may only FILL IN an empty txid with a well-formed
+      // one -- never clear or replace a recorded one (a forged
+      // claimed_txid makes psbt-binary-tranche refuse the real claim),
+      // and unknown keys are dropped rather than stored.
+      const clean = sanitizeTrancheUpdate(prior, next, { callerIsOwner: isOwner });
+      if (!clean.ok) return json(400, { error: clean.error });
+      updates.tranches = clean.tranches;
     }
 
     if (!Object.keys(updates).length) {

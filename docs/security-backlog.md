@@ -115,11 +115,30 @@ then (c).
     balances, addresses, member names and pending requests -- coercion
     material even though it moves no coins.
 
-11. **Least privilege for the service-role key.** Every Netlify function runs
-    with the Supabase service-role key; a Netlify account compromise is full
-    database read/write, including the vault addresses and proposal rows that
-    item 1 now defends against. Review which functions truly need service role
-    versus the caller's JWT with RLS, and move the rest.
+11. ~~**Authorization audit of every service-role function.**~~ Closed
+    2026-11-10 (see `HISTORY.md`). All 40 functions that use the service-role
+    key were read end to end. No endpoint let a stranger reach another user's
+    vault by guessing an id, but 13 gaps were confirmed where "is a member" was
+    treated as "may change this" or an export returned whole rows -- the worst
+    let a view-only member read unclaimed invite tokens from the activity
+    export and join as a founder. All 13 fixed; shared rules in
+    `netlify/functions/_authz.js`, proven by `scripts/test-authz.mjs`.
+
+11b. **Follow-ups the audit left open** (none lets a non-member in):
+    - `proposals.js`: `signed` / `fulfilled` can still be set by a client
+      without the server checking the PSBT's signature count.
+    - `signer-sessions.js`: the submitted partial PSBT is not checked to carry
+      a signature from the member's registered key.
+    - `members.js`: an active member can still change their own
+      xpub/pubkey/fingerprint after the vault is compiled. Locking them needs
+      an operator call (`repairPubkeys()` on boot writes these).
+    - `distribution-wallets.js`: a filled-in tranche txid is format-checked,
+      not verified on chain the way a proposal's broadcast txid is.
+    - Wallet sign-in: challenge consumption is not atomic and a challenge is
+      not bound to the requester (`wallet-signin-verify.js`, `wallet-link.js`)
+      -- plausible, unconfirmed; depends on tapit-attest's `verifySignIn`.
+    - Moving functions off the service-role key onto the caller's JWT + RLS
+      (the original item 11) -- needs a live database to prove each policy.
 
 12. ~~**Two independent chain sources for the tip.**~~ Closed 2026-11-10 (see
     `HISTORY.md`). Every compile path now uses `fetchVerifiedTipHeight`

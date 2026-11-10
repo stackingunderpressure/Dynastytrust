@@ -67,6 +67,20 @@ export async function handler(event) {
       return json(400, { error: "status must be 'delivered' or 'queued'" });
     }
 
+    // The row is keyed by (vault_id, recipient_key_id) and the upsert
+    // stamps user_id: without this check any signed-in user who knew
+    // both ids could take over another owner's delivery row (replacing
+    // its reply keypair and clearing its confirmation).
+    const { data: prior } = await supabase
+      .from("circle_phrase_deliveries")
+      .select("user_id")
+      .eq("vault_id", vault_id)
+      .eq("recipient_key_id", recipient_key_id)
+      .maybeSingle();
+    if (prior && prior.user_id !== u.userId) {
+      return json(403, { error: "This delivery belongs to another account" });
+    }
+
     const { data, error } = await supabase
       .from("circle_phrase_deliveries")
       .upsert(

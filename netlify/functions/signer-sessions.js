@@ -15,6 +15,7 @@
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
+import { canMutate } from "./_authz.js";
 
 const FIELDS =
   "id, created_at, proposal_id, signer_index, signer_role, label, signed, signed_at, fingerprint, member_id, psbt_partial_hex";
@@ -83,6 +84,7 @@ export async function handler(event) {
       .eq("status", "active")
       .maybeSingle();
     if (!member) return json(403, { error: "Not a member of this vault" });
+    if (!canMutate(member.role)) return json(403, { error: "View-only members cannot record a signature" });
 
     // Upsert by (proposal_id, member_id). Existing row -> replace the
     // partial PSBT so re-signing after a fix replaces the stale one.

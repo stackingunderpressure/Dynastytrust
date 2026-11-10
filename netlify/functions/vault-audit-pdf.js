@@ -14,6 +14,7 @@
 
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { requireUser } from './_auth.js';
+import { isVaultOwner, redactMember, redactInvite } from './_authz.js';
 import { getSupabaseAdmin } from './_supabase.js';
 
 const GOLD      = rgb(0.788, 0.659, 0.298);
@@ -570,6 +571,10 @@ export async function handler(event) {
              headers: { 'content-type': 'application/json' } };
   }
 
+  // Same redaction as the member list endpoint: full xpubs only for the
+  // owner and the member themselves; invite tokens never leave.
+  const callerIsOwner = await isVaultOwner(supabase, id, u.userId);
+
   const proposalIds = (proposalsRes.data ?? []).map(p => p.id);
   const [signerSessionsRes, commentsRes] = await Promise.all([
     proposalIds.length > 0
@@ -584,8 +589,8 @@ export async function handler(event) {
     const pdf = await buildAuditPdf({
       vault: vaultRes.data,
       trustDoc: vaultRes.data.trust_doc || {},
-      members: membersRes.data ?? [],
-      invites: (invitesRes.data ?? []).filter(i => !i.claimed_at),
+      members: (membersRes.data ?? []).map(m => redactMember(m, { callerIsOwner, callerUserId: u.userId })),
+      invites: (invitesRes.data ?? []).filter(i => !i.claimed_at).map(i => redactInvite(i, { callerIsOwner })),
       proposals: proposalsRes.data ?? [],
       signerSessions: signerSessionsRes.data ?? [],
       comments: commentsRes.data ?? [],

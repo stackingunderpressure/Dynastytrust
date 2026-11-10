@@ -16,6 +16,7 @@
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
+import { activeMembership, canMutate } from "./_authz.js";
 
 const FIELDS =
   "id, created_at, updated_at, vault_id, name, recipient_name, destination, rule_id, amount_sats, interval_kind, next_due_at, last_proposed_at, last_proposal_id, active";
@@ -158,6 +159,21 @@ export async function handler(event) {
     const isOwner = await assertOwner(supabase, existing.vault_id, u.userId);
     const isMember = isOwner || (await assertMember(supabase, existing.vault_id, u.userId));
     if (!isMember) return json(403, { error: "Not a member of this vault" });
+    if (!isOwner) {
+      const me = await activeMembership(supabase, existing.vault_id, u.userId);
+      if (!canMutate(me?.role)) return json(403, { error: "View-only members cannot change a stipend" });
+    }
+    // The bookkeeping link must point at a proposal of this same vault.
+    if (body.last_proposal_id) {
+      const { data: lp } = await supabase
+        .from("proposals")
+        .select("vault_id")
+        .eq("id", body.last_proposal_id)
+        .maybeSingle();
+      if (!lp || lp.vault_id !== existing.vault_id) {
+        return json(400, { error: "last_proposal_id does not belong to this vault" });
+      }
+    }
 
     const allowed = isOwner ? ownerAllowed : memberAllowed;
     const updates = Object.fromEntries(
