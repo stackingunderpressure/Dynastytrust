@@ -30,6 +30,14 @@ export const MEMPOOL = {
 // (and, as happened, sometimes forgetting) it (Kimi K3 scan Family D).
 export const MIN_RECOVERY_BLOCKS = 26_000;
 
+// Ceiling on a relative offset (~100 years of blocks). Bitcoin reads an
+// nLockTime of 500,000,000 or more as a calendar DATE, not a height --
+// tip + a huge offset would cross that line and compile a lock that is
+// already open (a date in 1985) while the record says "locked for
+// thousands of years". The Rust compiler refuses such a height too
+// (LOCKTIME_THRESHOLD); this stops it before it gets there.
+export const MAX_TIMELOCK_OFFSET_BLOCKS = 5_256_000;
+
 /**
  * Floor-check a raw relative block offset before conversion. 0/null/
  * undefined means "no leaf at this path" and is always allowed. Any
@@ -43,6 +51,9 @@ export function checkTimelockFloor(value, fieldName) {
   }
   if (value < MIN_RECOVERY_BLOCKS) {
     return `${fieldName} must be >= ${MIN_RECOVERY_BLOCKS} blocks (or 0 for no leaf).`;
+  }
+  if (value > MAX_TIMELOCK_OFFSET_BLOCKS) {
+    return `${fieldName} must be at most ${MAX_TIMELOCK_OFFSET_BLOCKS} blocks (about 100 years).`;
   }
   return null;
 }

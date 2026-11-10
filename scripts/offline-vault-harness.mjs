@@ -372,5 +372,56 @@ const rejected = (msg) => console.log(`  [ok] REJECTED as it should be: ${msg}`)
   rejected('adversarial / parser: trailing bytes, non-hex text and a duplicate witness-utxo');
 }
 
+// ── Compiler review 2026-11-10: vaults weaker than they look must not compile ─
+// Each request below was ACCEPTED by the compiler before the fix and produced a
+// vault whose real rules were not the ones on the screen.
+{
+  const twin = (pk) => (pk.startsWith('02') ? '03' : '02') + pk.slice(2); // same x-only key, other parity
+  const refuse = async (label, ep, body, needle) => {
+    let msg = null;
+    try { await post(ep, body); } catch (e) { msg = e.message; }
+    assert.ok(msg, `${label}: the compiler ACCEPTED it`);
+    assert.ok(msg.includes(needle), `${label}: refused for the wrong reason: ${msg}`);
+    rejected(label);
+  };
+  const named = (o) => ({ founder_keys: keys(0,1), founder_quorum: 2, heir_keys: [], heir_quorum: 1, recovery_after: 0, inheritance_after: 0, address_type: 'tr_multileaf', network: NET, ...o });
+  const leaf = (o) => ({ label: o.id, decay: null, ...o });
+  const leaves = (extra) => ({ network: NET, leaves: [
+    leaf({ id: 'main', keys: keys(0,1), quorum: 2, unlock: { type: 'immediate' } }),
+    leaf({ id: 'heirs', keys: keys(3), quorum: 1, unlock: { type: 'after', blocks: 1_200_000 } }),
+    ...extra ] });
+  const bloc = (o) => ({ network: NET, parent_keys: keys(0,1), parents_together_quorum: 2, coparent_quorum: 1, kid_keys: keys(2,3,4), kids_with_parent_quorum: 3,
+    parent_solo_after: 900_000, parent_solo_quorum: 1, kids_decay_start_after: 950_000, kids_decay_step_blocks: 52_560, kids_decay_start_quorum: 3, kids_decay_floor_quorum: 1, ...o });
+  console.log('compiler review');
+
+  // One key and its twin: a "2-of-2" that one signature opens.
+  const TWIN = 'same Taproot key';
+  await refuse('compiler / founders are one key and its twin (a 2-of-2 one signature opens)', '/compile', named({ founder_keys: [S[0].pubkey, twin(S[0].pubkey)] }), TWIN);
+  await refuse('compiler / heirs are one key and its twin', '/compile', named({ heir_keys: [S[3].pubkey, twin(S[3].pubkey)], heir_quorum: 2, inheritance_after: 950_000 }), TWIN);
+  await refuse('compiler / the consent key is a founder\'s twin (the consent gate would be void)', '/compile', named({ consent_keys: [twin(S[0].pubkey)], consent_quorum: 1 }), TWIN);
+  await refuse('compiler / a custom leaf with a twin pair', '/compile-leaves', leaves([leaf({ id: 'x', keys: [S[5].pubkey, twin(S[5].pubkey)], quorum: 2, unlock: { type: 'after', blocks: 1_300_000 } })]), TWIN);
+  await refuse('compiler / a kid key is a parent\'s twin', '/compile-bloc', bloc({ kid_keys: [twin(S[0].pubkey), S[3].pubkey, S[4].pubkey] }), TWIN);
+  await refuse('compiler / tranche trustees are a twin pair', '/compile-tranche', { network: NET, beneficiary_key: S[5].pubkey, trustee_keys: [S[0].pubkey, twin(S[0].pubkey)], trustee_quorum: 2, unlock_block: 900_000 }, TWIN);
+  // ... while the same person in two DIFFERENT paths is still allowed.
+  await post('/compile', named({ heir_keys: [S[0].pubkey, S[3].pubkey], heir_quorum: 2, inheritance_after: 950_000 }));
+  console.log('  [ok] compiler / a founder who is also an heir (different paths) still compiles');
+
+  // A decay ladder whose lower rungs wrap BIP 68 and open at once.
+  const relax = (decay, blocks = 60_000) => leaves([leaf({ id: 'relax', keys: keys(5,6,7), quorum: 3, unlock: { type: 'older', blocks }, decay })]);
+  await refuse('compiler / decay rung older(65536) = 0 blocks (a 2-of-3 open at funding)', '/compile-leaves', relax({ step_blocks: 5_536, floor_quorum: 1 }), 'exceeds the');
+  await refuse('compiler / decay rung that sets the BIP 68 time flag', '/compile-leaves', relax({ step_blocks: 4_134_304, floor_quorum: 2 }), 'exceeds the');
+  await refuse('compiler / decay with a zero step (every rung at once)', '/compile-leaves', relax({ step_blocks: 0, floor_quorum: 1 }, 30_000), 'step_blocks');
+  const honest = await post('/compile-leaves', relax({ step_blocks: 10_000, floor_quorum: 1 }, 30_000));
+  for (const want of ['older(30000)', 'older(40000)', 'older(50000)']) assert.ok(honest.descriptor.includes(want) || honest.miniscript_policy.includes(want), `honest ladder lost ${want}`);
+  console.log('  [ok] compiler / an honest ladder inside the cap still compiles (30000 / 40000 / 50000)');
+
+  // A "height" that Bitcoin reads as a date in the past.
+  const DATE = 'not a block height';
+  await refuse('compiler / recovery at height 500,000,001 (really a 1985 date: already open)', '/compile', named({ recovery_quorum: 1, heir_keys: keys(3), recovery_after: 500_000_001, inheritance_after: 600_000_000 }), DATE);
+  await refuse('compiler / a custom leaf after(1700000000)', '/compile-leaves', leaves([leaf({ id: 'x', keys: keys(5), quorum: 1, unlock: { type: 'after', blocks: 1_700_000_000 } })]), DATE);
+  await refuse('compiler / a tranche unlocking at 500,000,000', '/compile-tranche', { network: NET, beneficiary_key: S[5].pubkey, trustee_keys: keys(0,1), trustee_quorum: 2, unlock_block: 500_000_000 }, DATE);
+  await refuse('compiler / a kids ladder whose last rung crosses into dates', '/compile-bloc', bloc({ kids_decay_start_after: 499_999_999, kids_decay_step_blocks: 10_000 }), DATE);
+}
+
 console.log('\noffline-vault-harness OK -- every door of every shape proven end to end');
 console.log('(real Rust compiler + real browser signer + real rust-miniscript finalizer; timelocks baked in, quorum/consent/cohort gates enforced)');

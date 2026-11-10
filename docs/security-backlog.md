@@ -139,6 +139,31 @@ then (c).
      harder (strict parser) but untested on a real device.
    - Not yet reviewed: the compiler path (rust-miniscript / rust-bitcoin).
 
+8e. **Adversarial review of the compiler path.** Done 2026-11-10; the three
+   worst fixed and deployed the same day (see `HISTORY.md`):
+   - ~~A1 twin keys~~: `02..X` / `03..X` are one Taproot key; a "2-of-2" over
+     the pair opened with one signature. Rejected in every validator.
+   - ~~A2 decay ladder~~: only the first rung's relative wait was capped, so
+     lower rungs wrapped BIP 68 and opened at funding. Every rung validated.
+   - ~~A4 height >= 500,000,000~~: read by Bitcoin as a past date. Rejected in
+     Rust; offsets capped at ~100 years in the web tier.
+   STILL OPEN from that review, in the order I would fix them:
+   - A3: a co-signer's `fingerprint` / `derivation_path` are spliced into the
+     stored descriptor unvalidated -- the saved descriptor can describe a
+     different, attacker-spendable vault (real coins unaffected; anyone
+     restoring from that descriptor, incl. Legacy Recovery, is misled).
+   - A6: the consent gate is silently left out of the script when compiled
+     before the beneficiary joins, while the record still says gated.
+   - A5: `vaults.js` / `distribution-wallets.js` store an owner-supplied
+     address + descriptor as "compiled" without recompiling to check.
+   - A8 duplicate leaf ids (one vanishes from `leaf_scripts`); A10 path label
+     not checked against the policy; A7 `address_type` other than
+     `tr_multileaf` compiles a vault the app cannot spend; A9 `/psbt-binary`
+     fails open with no policy and the tranche builder has no input/change
+     check (reachable only by a direct caller); A11 an uncompressed key
+     panics a request and huge key sets burn CPU; A12 Rust's timelock floors
+     see absolute heights; A13 auth after body parsing, no dust/fee cap.
+
 9. **Compiler in the browser (WASM), Fly as cross-check.** Compile-first
    migration of `protocol/` to WASM so the descriptor, address and PSBT are
    produced on the device; keep Fly for a byte-identical cross-check until the

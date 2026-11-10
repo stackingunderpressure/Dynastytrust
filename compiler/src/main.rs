@@ -841,7 +841,14 @@ async fn psbt_binary(
     // BIP68's u16 ceiling) by build_leaf_multileaf's own verify_leaf_policy
     // call above, so the cast below can't truncate.
     if let Some(blocks) = needs_relative_sequence {
-        let seq = bitcoin::Sequence::from_height(blocks as u16);
+        // Never `as u16`: a silent truncation is exactly how older(65536)
+        // became a 0-block wait. verify_leaf_policy rejects such a leaf
+        // now; this refuses to build the spend if one ever reaches here.
+        let height = u16::try_from(blocks).map_err(|_| api_err(
+            StatusCode::BAD_REQUEST,
+            format!("relative timelock of {blocks} blocks does not fit BIP 68"),
+        ))?;
+        let seq = bitcoin::Sequence::from_height(height);
         for input in psbt.unsigned_tx.input.iter_mut() {
             input.sequence = seq;
         }

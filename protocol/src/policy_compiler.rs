@@ -227,6 +227,46 @@ pub enum PolicyError {
     RelativeTimelockTooLong(u32),
     #[error("a relative-timelock (older()) leaf must not be the vault's only non-immediate fallback -- add an absolute after() leaf too")]
     RelativeTimelockNeedsAbsoluteFallback,
+    #[error("two keys in the same spending path are the same Taproot key (they differ only in the 02/03 prefix) -- one signature would count for both")]
+    DuplicateXOnlyKey,
+    #[error("timelock height {0} is not a block height -- Bitcoin reads values of 500,000,000 and above as a calendar date, which is already in the past")]
+    AbsoluteHeightIsTimestamp(u32),
+    #[error("invalid decay ladder: {0}")]
+    InvalidDecay(String),
+}
+
+/// Bitcoin's nLockTime threshold (BIP 65): a value below this is a block
+/// height, a value at or above it is a UNIX timestamp. Every `after(N)`
+/// this compiler emits is meant as a height; an N at or above the
+/// threshold would compile to a date in 1985, i.e. a lock that is already
+/// open while every record says it is locked for millennia.
+pub const LOCKTIME_THRESHOLD: u32 = 500_000_000;
+
+fn check_height(blocks: u32) -> Result<(), PolicyError> {
+    if blocks >= LOCKTIME_THRESHOLD {
+        return Err(PolicyError::AbsoluteHeightIsTimestamp(blocks));
+    }
+    Ok(())
+}
+
+/// Reject keys that are the same key inside a tapscript.
+///
+/// A tapscript commits to 32-byte x-only keys. `02..X` and `03..X` are
+/// different 33-byte keys (so miniscript's own duplicate check, which
+/// compares the 33-byte form, lets them through) but the SAME x-only key:
+/// a "2-of-2" over such a pair opens with ONE signature, placed in both
+/// witness slots. Every list of keys that is counted together in one
+/// leaf must therefore be distinct by x-only form.
+fn check_distinct_xonly(groups: &[&[PublicKey]]) -> Result<(), PolicyError> {
+    let mut seen = std::collections::HashSet::new();
+    for group in groups {
+        for k in group.iter() {
+            if !seen.insert(XOnlyPublicKey::from(k.inner).serialize()) {
+                return Err(PolicyError::DuplicateXOnlyKey);
+            }
+        }
+    }
+    Ok(())
 }
 
 pub fn compile_dynasty_policy(
@@ -783,6 +823,8 @@ pub fn build_tranche(policy: &TranchePolicy) -> Result<TrancheOutput, PolicyErro
     if policy.trustee_quorum == 0 || policy.trustee_quorum > policy.trustee_keys.len() {
         return Err(PolicyError::InvalidQuorum);
     }
+    check_distinct_xonly(&[&policy.trustee_keys])?;
+    check_height(policy.unlock_block)?;
 
     let secp = Secp256k1::verification_only();
 
@@ -904,6 +946,19 @@ fn verify_bloc(p: &DynastyBlocPolicy) -> Result<(), PolicyError> {
     if nk == 0 {
         return Err(PolicyError::InvalidBloc("at least one kid key required".into()));
     }
+    // Parents and kids are counted together in the parent-plus-kids leaf,
+    // so they must be distinct x-only keys across BOTH lists.
+    check_distinct_xonly(&[&p.parent_keys, &p.kid_keys])?;
+    check_height(p.parent_solo_after)?;
+    check_height(p.kids_decay_start_after)?;
+    // The last (lowest-quorum) rung of the kids ladder must also be a
+    // real block height, not a value that has crossed into timestamps.
+    let rungs = p.kids_decay_start_quorum.saturating_sub(p.kids_decay_floor_quorum) as u32;
+    let last_rung = rungs
+        .checked_mul(p.kids_decay_step_blocks)
+        .and_then(|d| p.kids_decay_start_after.checked_add(d))
+        .ok_or(PolicyError::AbsoluteHeightIsTimestamp(u32::MAX))?;
+    check_height(last_rung)?;
     let q_ok = |q: usize, n: usize| q >= 1 && q <= n;
     if !q_ok(p.parents_together_quorum, np) {
         return Err(PolicyError::InvalidBloc(format!(
@@ -1343,9 +1398,40 @@ fn verify_leaf_policy(policy: &LeafPolicy) -> Result<(), PolicyError> {
     if !policy.leaves.iter().any(|l| matches!(l.unlock, Unlock::Immediate)) {
         return Err(PolicyError::NoImmediateLeaf);
     }
+    // The consent gate is AND-ed onto the first immediate leaf, so its
+    // keys are counted together with that leaf's.
+    if policy.consent_quorum.is_some() {
+        if let Some(primary) = policy.leaves.iter().find(|l| matches!(l.unlock, Unlock::Immediate)) {
+            check_distinct_xonly(&[&primary.keys, &policy.consent_keys])?;
+        }
+    }
     for leaf in &policy.leaves {
         if leaf.quorum == 0 || leaf.quorum > leaf.keys.len() {
             return Err(PolicyError::InvalidQuorum);
+        }
+        check_distinct_xonly(&[&leaf.keys])?;
+        // Validate EVERY rung the leaf expands to, not just its first.
+        // The relative cap used to be checked on the base leaf only, so a
+        // ladder could step past BIP 68's 16 bits -- older(65536) is 0
+        // blocks, and bit 22 turns the value into a time lock -- and its
+        // lower-quorum rungs were open the moment the coin confirmed.
+        if let Some(cfg) = &leaf.decay {
+            if leaf.quorum > cfg.floor_quorum && cfg.step_blocks == 0 {
+                return Err(PolicyError::InvalidDecay(
+                    "step_blocks must be > 0 when the quorum steps down".into(),
+                ));
+            }
+        }
+        for rung in expand_decay(leaf)? {
+            match rung.unlock {
+                Unlock::OlderThan { blocks } => {
+                    if blocks == 0 || blocks > MAX_RELATIVE_BLOCKS {
+                        return Err(PolicyError::RelativeTimelockTooLong(blocks));
+                    }
+                }
+                Unlock::After { blocks } => check_height(blocks)?,
+                Unlock::Immediate => {}
+            }
         }
         if let Unlock::OlderThan { blocks } = leaf.unlock {
             if blocks > MAX_RELATIVE_BLOCKS {
@@ -1616,6 +1702,20 @@ fn build_policy_string(policy: &DynastyPolicy) -> String {
 fn verify(policy: &DynastyPolicy) -> Result<(), PolicyError> {
     if policy.founder_quorum == 0 || policy.founder_quorum > policy.founder_keys.len() {
         return Err(PolicyError::InvalidQuorum);
+    }
+
+    // Keys counted together in one leaf must be distinct x-only keys.
+    // Founders and consent keys share the founders-now leaf; each other
+    // key list is its own leaf. (The same person may still hold a key in
+    // two DIFFERENT leaves, e.g. a founder who is also an heir.)
+    check_distinct_xonly(&[&policy.founder_keys, &policy.consent_keys])?;
+    check_distinct_xonly(&[&policy.heir_keys])?;
+    check_distinct_xonly(&[&policy.backup_keys])?;
+    check_distinct_xonly(&[&policy.second_heir_keys])?;
+    check_height(policy.recovery_after)?;
+    check_height(policy.inheritance_after)?;
+    if let Some(h) = policy.second_inheritance_after {
+        check_height(h)?;
     }
 
     if let Some(rq) = policy.recovery_quorum {

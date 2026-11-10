@@ -106,6 +106,59 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Compiler review: three ways to build a vault weaker than it looks,
+  fixed (2026-11-10).** A read-only adversarial review of how we drive
+  rust-miniscript and rust-bitcoin, allowed to run the real compiler.
+  It reported thirteen findings; the three worst were reproduced by
+  the orchestrating session against the real binary BEFORE anything
+  was changed, shown to the operator, and fixed as one slice at his
+  direction. None lets a stranger take coins from a vault built
+  normally with honest co-signers; each let someone build, or trick
+  an owner into building, a vault whose real rules were not the ones
+  on screen. (A1) `02..X` and `03..X` are different 33-byte keys but
+  the SAME 32-byte key inside a tapscript. miniscript's
+  `DuplicatePubKeys` compares the 33-byte form, and none of our four
+  validators deduplicated, so `/compile` accepted founders `[K,
+  twin(K)]` quorum 2 and the reviewer spent it with ONE signature in
+  both witness slots. Same for heirs, for a consent key that is a
+  founder's twin (voiding the gate), custom leaves, Bloc parent/kid,
+  tranche trustees -- and for an invited co-signer submitting the twin
+  of another member's key. New `check_distinct_xonly` in
+  `protocol/src/policy_compiler.rs`, called by `verify`,
+  `verify_leaf_policy`, `verify_bloc` and `build_tranche` over every
+  set of keys counted together in one leaf (founders+consent,
+  parents+kids, each list, primary leaf+consent). The same person in
+  two DIFFERENT leaves (a founder who is also an heir) stays allowed.
+  (A2) `verify_leaf_policy` capped a relative wait at
+  `MAX_RELATIVE_BLOCKS` on the base leaf only; `expand_decay` then
+  added `rung * step_blocks` unchecked and `compiler/src/main.rs` cast
+  the result `as u16`. A ladder from 60,000 with step 5,536 compiled
+  `older(65536)` -- zero blocks under BIP 68's 16 bits -- so a 2-of-3
+  meant to take over a year was open when the coin confirmed; a
+  larger step set the time-type flag. Every expanded rung is now
+  validated (1..=MAX_RELATIVE_BLOCKS for `older`, a real height for
+  `after`), a stepping ladder needs `step_blocks > 0`, and the cast is
+  `u16::try_from` with an error. (A4) Bitcoin reads an nLockTime of
+  500,000,000 or more as a calendar date; `after(500000001)` is a date
+  in 1985, already satisfied, while the record and governance view
+  would say locked for millennia. New `LOCKTIME_THRESHOLD` /
+  `check_height` in all four validators including the last rung of the
+  Bloc kids ladder; and `_chain.js` `checkTimelockFloor` gained
+  `MAX_TIMELOCK_OFFSET_BLOCKS` (5,256,000, about 100 years) so the web
+  tier refuses first. Every fix is a refusal of an input that should
+  never have been accepted: no existing honest vault changes, and all
+  163 pre-existing Rust tests pass untouched. Proof: a "compiler
+  review" section in the harness sends the reviewer's exact requests
+  to the real compiler -- 13 refusals (six twin-key shapes, three
+  decay shapes, four height shapes) and 2 must-still-compile cases (a
+  founder who is also an heir; an honest 30000/40000/50000 ladder) --
+  harness now 71 checks. Measured: npm test exit 0, 16 suites; cargo
+  test 124 + 39; release build of the compiler clean; lint 0 errors /
+  11 pre-existing warnings; typecheck 10 = baseline; build green. The
+  ten remaining findings are listed in `docs/security-backlog.md` 8e,
+  in fix order; the next is A3 (a co-signer's derivation path can
+  rewrite the stored descriptor).
+
 - **Adversarial review of the signing path: 7 findings, all fixed --
   including one in code written two days earlier (2026-11-10).** A
   fresh-eyes read-only review was asked one question: not whether the
