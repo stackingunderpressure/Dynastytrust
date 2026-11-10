@@ -120,6 +120,25 @@ then (c).
    `Cargo.lock`-only change, so the DEPLOYED compiler still has the older
    anyhow/tokio (we call neither affected function) until its next deploy.
 
+8d. ~~**Adversarial review of how we call the signing libraries.**~~ Done
+   2026-11-10 (see `HISTORY.md`). Seven findings, all fixed: a tampered keyring
+   file could seat an attacker's key in a vault (the one that could lose
+   funds); the server's and browser's signature counts could be faked and a
+   real signature shut out; the signer matched keys by substring and never
+   checked a leaf belonged to the coin; the PSBT parser was lenient; seed
+   blobs were not tied to their key; password stretching was below the
+   SHA-256 figure; the keyring export shipped the passkey ciphertext.
+   Still open from that review (not fund-losing):
+   - Legacy Recovery: a hardware signer with randomized nonces would seal a
+     share nobody can reopen -- sign twice and compare before sealing.
+   - `vault-attestations.js` stores `target_data` without recomputing
+     `target_hash` from it.
+   - The same `/0/0` key signs for every vault a key is in (one leaked child
+     key affects them all, and spends link the vaults on chain) -- structural.
+   - A hardware wallet that reads a PSBT differently than we do is now much
+     harder (strict parser) but untested on a real device.
+   - Not yet reviewed: the compiler path (rust-miniscript / rust-bitcoin).
+
 9. **Compiler in the browser (WASM), Fly as cross-check.** Compile-first
    migration of `protocol/` to WASM so the descriptor, address and PSBT are
    produced on the device; keep Fly for a byte-identical cross-check until the

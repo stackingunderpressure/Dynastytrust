@@ -1507,11 +1507,18 @@ function SendTab({ vault, balance, onDone, prefill }: {
       // own coin, change must come back to this vault, and the real fee
       // must be the one the confirm screen will show -- all from the
       // PSBT's bytes, so no coordinator can redirect what is signed.
+      // Without the vault's own address the gate cannot tell this vault's
+      // coins from anyone else's -- refuse rather than skip that half.
+      if (!vault.address) {
+        setErr("Refusing to sign: this vault has no address on file, so the transaction cannot be checked against it.");
+        setBusy(false);
+        return;
+      }
       const psbtCheck = verifyPsbtMatchesRequest(psbtRes.psbt_hex, {
         destination: dest.trim(),
         amountSats: psbtRes.summary.amount_sats,
         network: vault.network,
-        ownAddress: vault.address ?? undefined,
+        ownAddress: vault.address,
         feeSats: psbtRes.summary.fee_sats,
         changeSats: psbtRes.summary.change_sats,
       });

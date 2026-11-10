@@ -23,8 +23,7 @@
  * signature is relayed by the member who collected it. What is recorded
  * is "this PSBT now carries N valid signatures", which is what it says.
  */
-import { schnorr } from "@noble/curves/secp256k1";
-import { parsePsbt, tapLeafHash, tapscriptSighash, toHex } from "@dynastytrust/bip341-psbt-signer";
+import { parsePsbt, leafCommitsToOutput, verifyTapScriptSig, toHex } from "@dynastytrust/bip341-psbt-signer";
 
 function sameUnsignedTx(a, b) {
   if (a.tx.version !== b.tx.version || a.tx.locktime !== b.tx.locktime) return false;
@@ -40,58 +39,59 @@ function sameUnsignedTx(a, b) {
   return true;
 }
 
-/** Count the cryptographically valid tapscript signatures in a parsed PSBT. */
-function countValidSignatures(parsed) {
-  let valid = 0;
-  for (let i = 0; i < parsed.inputs.length; i++) {
-    const inp = parsed.inputs[i];
-    for (const s of inp.tapScriptSigs ?? []) {
-      const leaf = (inp.tapLeafScript ?? []).find(
-        (l) => toHex(tapLeafHash(l.script, l.leafVersion)) === toHex(s.leafHash),
-      );
-      if (!leaf) continue;
-      // The signing key must be one the leaf script actually names.
-      if (!toHex(leaf.script).includes(toHex(s.pubkey))) continue;
-      // 64 bytes = SIGHASH_DEFAULT; 65 = explicit type in the last byte.
-      if (s.sig.length !== 64 && s.sig.length !== 65) continue;
-      const sighashType = s.sig.length === 65 ? s.sig[64] : 0x00;
-      try {
-        const digest = tapscriptSighash(parsed, i, s.leafHash, sighashType);
-        if (schnorr.verify(s.sig.slice(0, 64), digest, s.pubkey)) valid++;
-      } catch {
-        /* an input we cannot compute a sighash for carries no valid signature */
-      }
-    }
-  }
-  return valid;
-}
-
 /**
  * @param {{ psbtHex: string, proposalPsbtHex?: string | null }} args
  * @returns {{ ok: true, validSignatures: number } | { ok: false, error: string }}
+ *
+ * Hardened 2026-11-10 after an adversarial review showed the first
+ * version could be fooled: it read the leaf scripts from the SUBMITTED
+ * PSBT, so a member could attach invented leaves naming fresh keys,
+ * sign those, and be counted as three signers; and it let garbage
+ * filed under a co-signer's key ride along. Now:
+ *   - the proposal's STORED PSBT is required and is the only source of
+ *     leaves, amounts and scripts; the submission contributes
+ *     signatures and nothing else;
+ *   - each stored leaf must really be committed to by the coin it
+ *     spends (control-block check);
+ *   - EVERY tap_script_sig in the submission must verify. One bad
+ *     entry refuses the whole thing -- a submission is a statement
+ *     that "these are signatures", and a false one is not stored.
  */
 export function verifySignedPsbt({ psbtHex, proposalPsbtHex }) {
-  if (typeof psbtHex !== "string" || !/^[0-9a-f]+$/i.test(psbtHex) || psbtHex.length % 2 !== 0) {
-    return { ok: false, error: "psbt_partial_hex is not hex" };
+  if (typeof psbtHex !== "string" || psbtHex.length === 0) {
+    return { ok: false, error: "psbt_partial_hex is missing" };
   }
-  let parsed;
+  if (!proposalPsbtHex) {
+    return { ok: false, error: "this proposal has no transaction on file to sign yet" };
+  }
+  let parsed, base;
   try {
     parsed = parsePsbt(psbtHex);
   } catch (e) {
     return { ok: false, error: `not a valid PSBT: ${e?.message || e}` };
   }
-  if (proposalPsbtHex) {
-    let base;
-    try {
-      base = parsePsbt(proposalPsbtHex);
-    } catch {
-      return { ok: false, error: "this proposal's stored PSBT is unreadable" };
-    }
-    if (!sameUnsignedTx(base, parsed)) {
-      return { ok: false, error: "this PSBT is for a different transaction than the proposal" };
+  try {
+    base = parsePsbt(proposalPsbtHex);
+  } catch {
+    return { ok: false, error: "this proposal's stored PSBT is unreadable" };
+  }
+  if (!sameUnsignedTx(base, parsed)) {
+    return { ok: false, error: "this PSBT is for a different transaction than the proposal" };
+  }
+
+  let validSignatures = 0;
+  const seen = new Set();
+  for (let i = 0; i < parsed.inputs.length; i++) {
+    const spk = base.inputs[i].witnessUtxo?.scriptPubkey;
+    const leaves = spk ? (base.inputs[i].tapLeafScript ?? []).filter((l) => leafCommitsToOutput(l, spk)) : [];
+    for (const s of parsed.inputs[i].tapScriptSigs ?? []) {
+      if (!verifyTapScriptSig(base, i, s, leaves)) {
+        return { ok: false, error: "this PSBT contains a signature that does not verify for this proposal" };
+      }
+      const id = `${i}:${toHex(s.pubkey)}:${toHex(s.leafHash)}`;
+      if (!seen.has(id)) { seen.add(id); validSignatures++; }
     }
   }
-  const validSignatures = countValidSignatures(parsed);
   if (validSignatures === 0) {
     return { ok: false, error: "this PSBT carries no valid signature for this transaction" };
   }

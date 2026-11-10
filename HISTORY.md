@@ -106,6 +106,77 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Adversarial review of the signing path: 7 findings, all fixed --
+  including one in code written two days earlier (2026-11-10).** A
+  fresh-eyes read-only review was asked one question: not whether the
+  crypto libraries are sound, but how WE call them and what hostile
+  input reaches them. It demonstrated its findings with scripts; each
+  was re-read in the code before being changed. (A1, the only one that
+  could lose funds) `importKeyringJson` spread every field of every
+  entry into the keyring. A keyring file altered between two people
+  could carry a co-signer's real xpub, label and fingerprint with an
+  ATTACKER'S `pubkey` -- and `pubkey` is the field `toPubkeyHex` hands
+  the compiler, so a vault would be compiled with the attacker's key in
+  that seat while the screen showed the right xpub. It also accepted
+  planted seeds, reset `compromised` to `active`, and added duplicate
+  ids. Rewritten from a whitelist: pubkey and fingerprint are
+  RECOMPUTED from the xpub with the network's versions (the file's
+  values are ignored), no form of seed is accepted from a file, an
+  entry arrives as `imported_xpub` (it has no seed here), marks
+  survive, ids are de-duplicated. `repairPubkeys` now passes network
+  versions -- without them every tpub threw and was silently skipped,
+  so signet/testnet keys were never repaired. (A2) My own
+  `_psbt-verify.js` from 11b read the leaf scripts from the SUBMITTED
+  PSBT: a member could attach invented leaves naming fresh keys, sign
+  them, and be counted as three signers; and `mergePsbts` kept the
+  first entry per (key, leaf) unverified, so garbage filed under a
+  co-signer's key shut their real signature out while
+  `countSignatures` counted it. Fixed in one place and used by all
+  three callers: `packages/bip341-psbt-signer` gains `leafScriptKeys`
+  / `leafNamesKey` (walks the script opcode by opcode),
+  `leafCommitsToOutput` (BIP 341 control-block check: merkle root ->
+  tweak -> output key == the coin's scriptPubKey) and
+  `verifyTapScriptSig`. The server now takes leaves ONLY from the
+  proposal's stored PSBT, requires one to exist, and refuses a
+  submission containing ANY signature that does not verify; the
+  browser merge and count keep only verified signatures. (A3)
+  `signPsbtWithMnemonic` matched our key by hex substring and never
+  checked the leaf was part of the coin; it now requires the key to be
+  a real pushed key and the leaf to commit to the input's
+  scriptPubKey, and refuses the whole PSBT otherwise. Signing is also
+  refused when the vault has no address on file (the own-coins check
+  used to be skipped). (A4) `parsePsbt` is strict: valid hex only, no
+  duplicate keys in any map, exact key lengths, bounds-checked
+  witness-utxo, nothing after the last map. (A5) `revealMnemonic` now
+  derives the signing pubkey from the decrypted seed and refuses on a
+  definite mismatch with the key's xpub -- a blob moved or planted
+  under another key no longer unlocks silently. (A6) New password
+  blobs use 600,000 PBKDF2 rounds (OWASP's SHA-256 figure; 210,000 was
+  their SHA-512 one) with the count stored in the blob; blobs saved
+  before still open. (A7) `exportKeyring` strips the passkey
+  ciphertext too. Checked by the review and found SOUND, recorded so
+  it is not re-litigated: the BIP 341 sighash field by field; that a
+  lied-about amount or script yields a useless signature, not a
+  spendable one; verify-then-sign uses the same bytes in all three
+  flows; Schnorr nonces; attestation domain separation; key
+  generation; nonce and salt handling. Proof: the harness grew an
+  "adversarial" section replaying the review's own attacks against the
+  real compiler and signer (invented-leaf signatures count for nothing
+  on server and browser; garbage submitted first no longer blocks the
+  real signature and the proposal still finalizes; a planted leaf
+  naming our key is refused before signing; key bytes inside a data
+  push are not our key; trailing bytes, non-hex and duplicate keys
+  refused) -- harness now 56 checks, and every earlier spending path
+  still signs and finalizes under the new control-block check, which
+  is itself evidence that check is right for every vault shape. New
+  `scripts/test-keyring-import.mjs` (6 cases) in `npm test`. The
+  shared package's own parity tests 4/4. Measured: npm test exit 0,
+  16 suites, 100 checks printed; lint 0 errors / 11 pre-existing
+  warnings; typecheck 10 = baseline (two errors I introduced were
+  caught by the gate and fixed); build green. NOT exercised: the
+  server functions against a live database; a real hardware wallet
+  against the stricter parser.
+
 - **Supply-chain defenses: known answers, Rust gate, strict installs,
   and proof the live site is this source (2026-11-10).** Operator,
   after reading about AI-found bugs in widely used libraries: where

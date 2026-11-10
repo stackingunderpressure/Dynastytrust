@@ -41,6 +41,9 @@ export type KeyStatus = 'active' | 'archived' | 'compromised';
 
 export interface EncryptedBlob {
   version: 1;
+  /** PBKDF2 rounds this blob was made with. Absent on blobs written
+   *  before 2026-11-10, which used 210,000. */
+  iterations?: number;
   saltB64: string;
   nonceB64: string;
   ciphertextB64: string;
@@ -116,12 +119,19 @@ function saveAll(keys: LocalKey[]): void {
 
 //
 
-async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
+// 600,000 is OWASP's figure for PBKDF2-HMAC-SHA256 (210,000, used here
+// until 2026-11-10, is their figure for SHA-512). The count travels in
+// the blob, so older blobs still open with the count they were made with
+// and are upgraded the next time the password is set or changed.
+const PBKDF2_ITERATIONS = 600_000;
+const LEGACY_PBKDF2_ITERATIONS = 210_000;
+
+async function deriveKey(password: string, salt: Uint8Array, iterations: number): Promise<CryptoKey> {
   const raw = await crypto.subtle.importKey(
     'raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey'],
   );
   return crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt, iterations: 210_000, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
     raw, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'],
   );
 }
@@ -136,15 +146,19 @@ function unb64(s: string): Uint8Array {
 export async function encryptText(text: string, password: string): Promise<EncryptedBlob> {
   const salt  = crypto.getRandomValues(new Uint8Array(32));
   const nonce = crypto.getRandomValues(new Uint8Array(12));
-  const key   = await deriveKey(password, salt);
+  const key   = await deriveKey(password, salt, PBKDF2_ITERATIONS);
   const ct    = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv: nonce }, key, new TextEncoder().encode(text),
   );
-  return { version: 1, saltB64: b64(salt), nonceB64: b64(nonce), ciphertextB64: b64(new Uint8Array(ct)) };
+  return { version: 1, iterations: PBKDF2_ITERATIONS, saltB64: b64(salt), nonceB64: b64(nonce), ciphertextB64: b64(new Uint8Array(ct)) };
 }
 
 export async function decryptBlob(blob: EncryptedBlob, password: string): Promise<string> {
-  const key   = await deriveKey(password, unb64(blob.saltB64));
+  const rounds = blob.iterations ?? LEGACY_PBKDF2_ITERATIONS;
+  if (!Number.isSafeInteger(rounds) || rounds < LEGACY_PBKDF2_ITERATIONS || rounds > 10_000_000) {
+    throw new Error('Wrong password or corrupted backup');
+  }
+  const key   = await deriveKey(password, unb64(blob.saltB64), rounds);
   const plain = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv: unb64(blob.nonceB64) }, key, unb64(blob.ciphertextB64),
   );
@@ -694,7 +708,41 @@ export function parseXpubText(
 /**
  * Get mnemonic — works for both test keys (no password) and secure keys (needs password).
  */
+/**
+ * Does this seed actually belong to this key? The encrypted blobs are
+ * not tied to the key they sit on, so anything able to write to this
+ * browser's storage could move another key's blob (or a planted one)
+ * onto a key, and unlocking would hand back the wrong seed without a
+ * word. This derives the signing pubkey from the seed and compares it
+ * with the one the key's own xpub yields. Refuses only on a DEFINITE
+ * mismatch; a key whose xpub cannot be read is left alone.
+ */
+function assertSeedMatchesKey(key: LocalKey, mnemonic: string): void {
+  let expected: string, derived: string;
+  try {
+    if (!key.xpub || !key.derivationPath) return;
+    const versions = networkVersions(key.network);
+    const fromXpub = HDKey.fromExtendedKey(key.xpub, versions).deriveChild(0).deriveChild(0).publicKey;
+    const fromSeed = HDKey.fromMasterSeed(mnemonicToSeedSync(mnemonic), versions)
+      .derive(key.derivationPath).deriveChild(0).deriveChild(0).publicKey;
+    if (!fromXpub || !fromSeed) return;
+    expected = toHex(fromXpub); derived = toHex(fromSeed);
+  } catch {
+    return;
+  }
+  if (expected !== derived) {
+    throw new Error('The recovery phrase stored under this key does not belong to it. This browser\'s key storage has been altered -- do not sign. Restore the key from its written recovery phrase.');
+  }
+}
+
 export async function revealMnemonic(keyId: string, password?: string, prf: PrfProvider = webauthnPrf): Promise<string> {
+  const key = getKey(keyId);
+  const mnemonic = await revealMnemonicUnchecked(keyId, password, prf);
+  if (key) assertSeedMatchesKey(key, mnemonic);
+  return mnemonic;
+}
+
+async function revealMnemonicUnchecked(keyId: string, password: string | undefined, prf: PrfProvider): Promise<string> {
   const key = getKey(keyId);
   if (!key)                      throw new Error('Key not found');
   if (key.origin !== 'software') throw new Error('Hardware key — no mnemonic stored');
@@ -914,7 +962,9 @@ export async function deleteKeyVerified(
 
 export function exportKeyring(): string {
   // Strip plaintext mnemonics from export
-  const keys = loadAll().map(({ testMnemonic: _, encryptedMnemonic: __, ...pub }) => pub);
+  // Strip every form of the seed -- plaintext, password-wrapped and
+  // passkey-wrapped. This file is public data only.
+  const keys = loadAll().map(({ testMnemonic: _, encryptedMnemonic: __, passkeyMnemonic: ___, ...pub }) => pub);
   return JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), keys }, null, 2);
 }
 
@@ -946,7 +996,9 @@ export function repairPubkeys(): number {
   const repaired = all.map(key => {
     if (key.origin !== 'software' && key.origin !== 'imported_xpub') return key;
     try {
-      const hd = HDKey.fromExtendedKey(key.xpub);
+      // Versions are required: without them every tpub threw here and was
+      // silently skipped, so signet/testnet keys were never repaired.
+      const hd = HDKey.fromExtendedKey(key.xpub, networkVersions(key.network));
       const child00 = hd.deriveChild(0).deriveChild(0);
       if (!hd.publicKey || !child00.publicKey) return key;
       const correctPubkey = toHex(child00.publicKey);
@@ -974,31 +1026,85 @@ export function renameKey(keyId: string, label: string, persona?: string): Local
   return all[idx];
 }
 
-/** Import a full keyring JSON (public data only — no mnemonics) */
+/**
+ * Import a keyring JSON -- PUBLIC data only, and nothing in the file is
+ * trusted.
+ *
+ * Until 2026-11-10 this spread every field of every entry straight
+ * into the keyring. A file altered anywhere between two people could
+ * therefore carry a co-signer's real xpub, name and fingerprint with an
+ * ATTACKER'S `pubkey` -- and `pubkey` is the one field the vault
+ * compiler actually uses, so the vault would be built with the
+ * attacker's key in that person's seat while the screen showed the
+ * right xpub. It could also plant a seed (`testMnemonic`,
+ * `passkeyMnemonic`, `encryptedMnemonic`) under a real key's name.
+ *
+ * Now each entry is rebuilt from a short whitelist: the signing pubkey
+ * and fingerprint are RECOMPUTED from the xpub (the file's own values
+ * are ignored), no form of seed is ever accepted from a file, and an
+ * entry that held a seed elsewhere arrives here as what it is in this
+ * browser: a public key. A 'compromised' or 'archived' mark survives.
+ */
 export function importKeyringJson(json: string): number {
   let data: { keys?: unknown[] };
   try { data = JSON.parse(json); }
   catch { throw new Error('Invalid JSON'); }
-  if (!Array.isArray(data.keys)) throw new Error('No keys array found');
+  if (!data || !Array.isArray(data.keys)) throw new Error('No keys array found');
   const existing = loadAll();
   const existingIds = new Set(existing.map(k => k.keyId));
+  const str = (v: unknown, max: number): string | null =>
+    typeof v === 'string' && v.length > 0 && v.length <= max ? v : null;
   let added = 0;
-  for (const k of data.keys as LocalKey[]) {
-    // A Tapit-sourced key has no xpub (see importTapitPubkey) -- its
-    // pubkey is the only identifying public data it carries, same as
-    // every other key exports right now (no mnemonics either way).
-    // Requiring xpub unconditionally here would silently drop a Tapit
-    // key on every export/re-import round trip.
-    const hasIdentifyingData = k.origin === 'tapit' ? !!k.pubkey : !!k.xpub;
-    if (!k.keyId || !hasIdentifyingData || existingIds.has(k.keyId)) continue;
-    existing.push({ ...k, status: 'active', backedUp: true });
+  for (const raw of data.keys) {
+    if (!raw || typeof raw !== 'object') continue;
+    const k = raw as Record<string, unknown>;
+    const keyId = str(k.keyId, 64);
+    const label = str(k.label, 120);
+    const network: Network | null = k.network === 'mainnet' || k.network === 'signet' || k.network === 'testnet' ? k.network : null;
+    if (!keyId || !label || !network || existingIds.has(keyId)) continue;
+    const status: KeyStatus = k.status === 'archived' || k.status === 'compromised' ? k.status : 'active';
+    const base = {
+      keyId, label, network, status,
+      persona: str(k.persona, 120) ?? label,
+      createdAt: str(k.createdAt, 40) ?? new Date().toISOString(),
+      // No seed lives here for an imported entry, so there is nothing in
+      // this browser to back up.
+      backedUp: true,
+    };
+    let entry: LocalKey | null = null;
+    if (k.origin === 'tapit') {
+      const xOnly = str(k.tapitXOnlyPubkey, 64) ?? (typeof k.pubkey === 'string' && /^02[0-9a-f]{64}$/i.test(k.pubkey) ? k.pubkey.slice(2) : null);
+      if (xOnly && /^[0-9a-f]{64}$/i.test(xOnly)) {
+        const clean = xOnly.toLowerCase();
+        entry = { ...base, origin: 'tapit', fingerprint: displayTag(clean), derivationPath: '', xpub: '', pubkey: '02' + clean, tapitXOnlyPubkey: clean };
+      }
+    } else {
+      const xpub = str(k.xpub, 200);
+      const path = str(k.derivationPath, 80);
+      if (xpub && path && /^m(\/\d+'?)+$/.test(path)) {
+        try {
+          const hd = HDKey.fromExtendedKey(xpub, networkVersions(network));
+          const child00 = hd.deriveChild(0).deriveChild(0);
+          if (hd.publicKey && child00.publicKey) {
+            const mfp = typeof k.masterFingerprint === 'string' && /^[0-9a-f]{8}$/i.test(k.masterFingerprint) ? k.masterFingerprint.toLowerCase() : undefined;
+            entry = {
+              ...base, origin: 'imported_xpub', derivationPath: path, xpub,
+              pubkey: toHex(child00.publicKey), fingerprint: bip32Fingerprint(hd.publicKey),
+              ...(mfp ? { masterFingerprint: mfp } : {}),
+            };
+          }
+        } catch { /* not a valid extended key for this network: skipped */ }
+      }
+    }
+    if (!entry) continue;
+    existing.push(entry);
+    existingIds.add(keyId);
     added++;
   }
   saveAll(existing);
   return added;
 }
 
-/** Get all keys including archived for a full export */
 export function listAllKeys(): LocalKey[] {
   return loadAll();
 }

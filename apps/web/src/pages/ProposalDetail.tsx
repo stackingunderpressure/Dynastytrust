@@ -251,6 +251,11 @@ export default function ProposalDetail() {
   // check is skipped there (destination, amount and fee still hold).
   const psbtMismatch: string | null = mergedPsbt
     ? (() => {
+        // A missing vault address must refuse, not skip, the own-coins
+        // check (tranche claims are never signed from this page).
+        if (proposal.path !== "tranche_claim" && !vault.address) {
+          return "this vault has no address on file, so the transaction cannot be checked against it";
+        }
         const check = verifyPsbtMatchesRequest(mergedPsbt, {
           destination: proposal.destination,
           amountSats: proposal.amount_sats,
@@ -345,11 +350,14 @@ export default function ProposalDetail() {
       const mnemonic = await revealMnemonic(key.keyId, pw);
       const basePsbt = mergedPsbt || proposal.psbt_hex;
       if (!basePsbt) throw new Error("No PSBT on this proposal");
+      if (proposal.path === "tranche_claim" || !vault.address) {
+        throw new Error("Refusing to sign: this request cannot be checked against the vault's own address from this page.");
+      }
       const check = verifyPsbtMatchesRequest(basePsbt, {
         destination: proposal.destination,
         amountSats: proposal.amount_sats,
         network: vault.network,
-        ownAddress: proposal.path === "tranche_claim" ? undefined : (vault.address ?? undefined),
+        ownAddress: vault.address,
         feeSats: proposal.fee_sats,
       });
       if (!check.ok) {

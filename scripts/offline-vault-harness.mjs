@@ -284,5 +284,93 @@ const rejected = (msg) => console.log(`  [ok] REJECTED as it should be: ${msg}`)
   rejected('sigcheck / a corrupted signature');
 }
 
+// ── Adversarial review 2026-11-10: the attacks, kept as permanent checks ─────
+// A co-signer or the server hands us a PSBT. These are the exact tricks the
+// review demonstrated against the first versions of the signer, the merge and
+// the server check.
+{
+  const { parsePsbt, serializePsbt, tapLeafHash, tapscriptSighash } = await import('../packages/bip341-psbt-signer/src/index.ts');
+  const { schnorr } = await import('@noble/curves/secp256k1');
+  const { countSignatures } = await import('../apps/web/src/lib/psbt-signer.ts');
+  const fromHex = (h) => Uint8Array.from(h.match(/../g).map(b => parseInt(b, 16)));
+  const p = { founder_keys: keys(0,1,2), founder_quorum: 2, recovery_quorum: 2,
+              heir_keys: keys(3,4,5), heir_quorum: 2, recovery_after: 900_000, inheritance_after: 950_000 };
+  const compiled = await post('/compile', { ...p, address_type: 'tr_multileaf', network: NET });
+  const utxo = { txid: '00'.repeat(32), vout: 0, value_sats: 1_000_000, script_pubkey: scriptPubKeyHex(compiled.address) };
+  const proposal = (await post('/psbt-binary', { ...p, path: 'founders_now', address_type: 'tr_multileaf', ...SPEND, inputs: [utxo], change_address: compiled.address, network: NET })).psbt_hex;
+  const NUMS = '50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0';
+  // Insert raw key-value pairs at the start of input 0's map.
+  const withInputKVs = (hex, kvs) => {
+    const b = fromHex(hex); let pos = 5;
+    for (;;) { const kl = b[pos++]; if (kl === 0) break; pos += kl; let vl = b[pos++]; if (vl === 0xfd) { vl = b[pos] | (b[pos + 1] << 8); pos += 2; } pos += vl; }
+    return toHex(b.slice(0, pos)) + kvs.join('') + toHex(b.slice(pos));
+  };
+  const kv = (keyHex, valHex) => { const l = (h) => { const n = h.length / 2; assert.ok(n < 0xfd); return n.toString(16).padStart(2, '0'); }; return l(keyHex) + keyHex + l(valHex) + valHex; };
+  // (a PSBT keys each leaf by its control block, so every planted leaf needs its own internal key)
+  const leafKV = (scriptHex, internal = NUMS) => kv('15' + 'c0' + internal, scriptHex + 'c0');
+  console.log('adversarial');
+
+  // 1. Invented leaves naming fresh attacker keys, each really signed.
+  const atk = [0xa1, 0xa2, 0xa3].map(b => new Uint8Array(32).fill(b));
+  let forged = proposal;
+  const forgedSigs = [];
+  for (const sk of atk) {
+    const script = '20' + toHex(schnorr.getPublicKey(sk)) + 'ac';
+    forged = withInputKVs(forged, [leafKV(script, toHex(schnorr.getPublicKey(sk)))]);
+    forgedSigs.push({ sk, script });
+  }
+  const fp = parsePsbt(forged);
+  fp.inputs[0].tapScriptSigs = forgedSigs.map(({ sk, script }) => {
+    const leafHash = tapLeafHash(fromHex(script), 0xc0);
+    return { pubkey: schnorr.getPublicKey(sk), leafHash, sig: schnorr.sign(tapscriptSighash(fp, 0, leafHash, 0), sk) };
+  });
+  const inventedSigned = serializePsbt(fp);
+  let r = verifySignedPsbt({ psbtHex: inventedSigned, proposalPsbtHex: proposal });
+  assert.equal(r.ok, false, 'server counted signatures over invented leaves');
+  rejected('adversarial / server: three real signatures over INVENTED leaves count for nothing');
+  assert.equal(countSignatures(inventedSigned), 0, 'browser counted signatures over invented leaves');
+  rejected('adversarial / browser: the progress count ignores them too');
+
+  // 2. Garbage filed under an honest signer's key must not shut the real one out.
+  const real0 = (await signPsbtWithMnemonic(proposal, MNEMONIC, S[0].path, 'testnet')).psbt_hex;
+  const realSig = parsePsbt(real0).inputs[0].tapScriptSigs[0];
+  const gp = parsePsbt(proposal);
+  gp.inputs[0].tapScriptSigs = [{ pubkey: realSig.pubkey, leafHash: realSig.leafHash, sig: new Uint8Array(64).fill(7) }];
+  const garbage = serializePsbt(gp);
+  assert.equal(verifySignedPsbt({ psbtHex: garbage, proposalPsbtHex: proposal }).ok, false);
+  rejected('adversarial / server: garbage filed under a co-signer\'s key');
+  const merged = mergePsbts([proposal, garbage, real0]);
+  assert.equal(countSignatures(merged), 1, 'the real signature was shut out by garbage');
+  assert.deepEqual(verifySignedPsbt({ psbtHex: merged, proposalPsbtHex: proposal }), { ok: true, validSignatures: 1 });
+  console.log('  [ok] adversarial / merge: garbage submitted FIRST no longer blocks the real signature');
+  const two = mergePsbts([merged, (await signPsbtWithMnemonic(proposal, MNEMONIC, S[1].path, 'testnet')).psbt_hex]);
+  const fin = await post('/psbt-finalize', { psbt_hex: two });
+  assert.ok(fin.raw_tx_hex, 'a merge that saw garbage must still finalize');
+  console.log('  [ok] adversarial / the poisoned proposal still finalizes with two real signatures');
+
+  // 3. A leaf that names OUR key but is not part of the coin: the signer refuses.
+  const s0x = S[0].pubkey.slice(2);
+  const planted = withInputKVs(proposal, [leafKV('20' + s0x + 'ac')]);
+  await assert.rejects(signPsbtWithMnemonic(planted, MNEMONIC, S[0].path, 'testnet'), /not part of the coin/);
+  rejected('adversarial / signer: a planted leaf naming our key is refused before signing');
+  // ... and our key bytes hidden inside a longer data push are not "our key".
+  const hidden = withInputKVs(proposal, [leafKV('21' + s0x + '0075' + '20' + toHex(schnorr.getPublicKey(atk[0])) + 'ac')]);
+  const hs = parsePsbt((await signPsbtWithMnemonic(hidden, MNEMONIC, S[0].path, 'testnet')).psbt_hex).inputs[0].tapScriptSigs;
+  assert.equal(hs.length, 1, 'signed a leaf that only contains our key bytes as data');
+  console.log('  [ok] adversarial / signer: key bytes inside a data push do not make a leaf ours');
+
+  // 4. No stored transaction, a 65-byte signature with a zero type byte, and parser strictness.
+  assert.equal(verifySignedPsbt({ psbtHex: real0, proposalPsbtHex: null }).ok, false);
+  const zp = parsePsbt(proposal);
+  zp.inputs[0].tapScriptSigs = [{ ...realSig, sig: new Uint8Array([...realSig.sig, 0x00]) }];
+  assert.equal(verifySignedPsbt({ psbtHex: serializePsbt(zp), proposalPsbtHex: proposal }).ok, false);
+  rejected('adversarial / server: no stored transaction, and a 65-byte signature ending 0x00');
+  assert.throws(() => parsePsbt(proposal + '00'), /trailing bytes/);
+  assert.throws(() => parsePsbt(proposal.slice(0, 40) + 'zz' + proposal.slice(42)), /not valid hex/);
+  const dupUtxo = withInputKVs(proposal, [kv('01', '40420f0000000000' + '22' + '5120' + 'ab'.repeat(32))]);
+  assert.throws(() => parsePsbt(dupUtxo), /duplicate key/);
+  rejected('adversarial / parser: trailing bytes, non-hex text and a duplicate witness-utxo');
+}
+
 console.log('\noffline-vault-harness OK -- every door of every shape proven end to end');
 console.log('(real Rust compiler + real browser signer + real rust-miniscript finalizer; timelocks baked in, quorum/consent/cohort gates enforced)');

@@ -25,6 +25,9 @@ import {
   serializePsbt,
   tapLeafHash,
   tapscriptSighash,
+  leafNamesKey,
+  leafCommitsToOutput,
+  verifyTapScriptSig,
   type ParsedPsbt,
 } from "@dynastytrust/bip341-psbt-signer";
 
@@ -72,9 +75,19 @@ export async function signPsbtWithMnemonic(
     if (!inp.tapLeafScript || inp.tapLeafScript.length === 0) continue;
 
     for (const leaf of inp.tapLeafScript) {
-      // Check if our pubkey is in this leaf script
-      const scriptHex = toHex(leaf.script);
-      if (!scriptHex.includes(toHex(xOnlyPubKey))) continue;
+      // Is our key one this leaf script actually NAMES? Walked opcode by
+      // opcode -- a substring search over the hex also matched our key
+      // bytes inside a longer data push or at an odd nibble offset.
+      if (!leafNamesKey(leaf.script, xOnlyPubKey)) continue;
+      // And is this leaf really part of the coin being spent? Recompute
+      // the output key from the control block and compare it with the
+      // input's scriptPubKey. A leaf someone merely attached to the PSBT
+      // fails here, so we never sign for a script that is not ours.
+      if (!inp.witnessUtxo || !leafCommitsToOutput(leaf, inp.witnessUtxo.scriptPubkey)) {
+        throw new Error(
+          `Refusing to sign: input ${i + 1} carries a spending path that is not part of the coin it spends. This PSBT was altered.`,
+        );
+      }
 
       // Compute leaf hash
       const leafHash = tapLeafHash(leaf.script, leaf.leafVersion);
@@ -116,10 +129,34 @@ export async function signPsbtWithMnemonic(
 export function countSignatures(psbtHex: string): number {
   try {
     const parsed = parsePsbt(psbtHex);
-    return parsed.inputs.reduce((sum, inp) => sum + (inp.tapScriptSigs?.length ?? 0), 0);
+    let count = 0;
+    for (let i = 0; i < parsed.inputs.length; i++) count += validSigs(parsed, i, parsed.inputs[i].tapScriptSigs ?? []).length;
+    return count;
   } catch {
     return 0;
   }
+}
+
+type TapSig = { pubkey: Uint8Array; leafHash: Uint8Array; sig: Uint8Array };
+
+/**
+ * The signatures among `sigs` that are REAL for input `i` of `base`:
+ * each must verify (BIP 340 over the BIP 341 sighash) for a key named
+ * by one of `base`'s own leaves, and that leaf must be committed to by
+ * the coin. One per (key, leaf). Garbage bytes filed under a co-signer's
+ * key, and signatures over leaves somebody invented, are dropped -- the
+ * progress bar and the merge only ever count what the chain would.
+ */
+function validSigs(base: ParsedPsbt, i: number, sigs: TapSig[]): TapSig[] {
+  const inp = base.inputs[i];
+  const spk = inp.witnessUtxo?.scriptPubkey;
+  const leaves = spk ? (inp.tapLeafScript ?? []).filter(l => leafCommitsToOutput(l, spk)) : [];
+  const out: TapSig[] = [];
+  for (const s of sigs) {
+    const dup = out.some(o => toHex(o.pubkey) === toHex(s.pubkey) && toHex(o.leafHash) === toHex(s.leafHash));
+    if (!dup && verifyTapScriptSig(base, i, s, leaves)) out.push(s);
+  }
+  return out;
 }
 
 export interface PsbtRequestCheck {
@@ -316,14 +353,19 @@ export function mergePsbts(psbtHexes: string[]): string {
       );
     }
     for (let i = 0; i < first.inputs.length; i++) {
-      const otherSigs = other.inputs[i].tapScriptSigs ?? [];
-      if (!first.inputs[i].tapScriptSigs) first.inputs[i].tapScriptSigs = [];
-      for (const sig of otherSigs) {
-        const exists = first.inputs[i].tapScriptSigs!.some(
-          s => toHex(s.pubkey) === toHex(sig.pubkey) && toHex(s.leafHash) === toHex(sig.leafHash)
-        );
-        if (!exists) first.inputs[i].tapScriptSigs!.push(sig);
-      }
+      // Verify against the FIRST PSBT's own leaves and amounts (the one
+      // the caller already checked), never the ones that arrived with a
+      // signature. An unverifiable entry can no longer occupy a signer's
+      // slot and shut the real signature out.
+      first.inputs[i].tapScriptSigs = validSigs(first, i, [
+        ...(first.inputs[i].tapScriptSigs ?? []),
+        ...(other.inputs[i].tapScriptSigs ?? []),
+      ]);
+    }
+  }
+  if (psbtHexes.length === 1) {
+    for (let i = 0; i < first.inputs.length; i++) {
+      first.inputs[i].tapScriptSigs = validSigs(first, i, first.inputs[i].tapScriptSigs ?? []);
     }
   }
   return serializePsbt(first);
