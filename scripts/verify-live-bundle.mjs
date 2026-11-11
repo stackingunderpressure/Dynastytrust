@@ -99,6 +99,15 @@ try {
 }
 
 if (failed.length) {
+  // A deploy that lands while the ~2 minute rebuild runs makes the site
+  // serve the NEW files against the OLD commit's build: seen twice on
+  // 2026-11-11, both times a false alarm. Ask the site again which
+  // commit it is before calling it a failure.
+  let now = null;
+  try { now = JSON.parse((await get('/version.json')).toString('utf8')).version; } catch { /* reported below as a plain FAIL */ }
+  if (now && now !== live.version) {
+    die(`UNVERIFIED: a new deploy (${now}) replaced ${live.version} while this check was running, so the comparison means nothing. Run it again.`);
+  }
   die(`FAIL: ${failed.length} file(s) served by ${site} are NOT what commit ${commit.slice(0, 12)} builds: ${failed.join(', ')}. Do not sign with this site until this is explained.`);
 }
 console.log(`[verify-live] PASS: every file ${site} serves is byte-identical to a clean build of commit ${commit.slice(0, 12)}`);
