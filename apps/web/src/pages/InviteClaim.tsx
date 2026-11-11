@@ -13,6 +13,7 @@ import { useToast } from '../components/toast';
 import { XpubQrScanner } from '../components/XpubQrScanner';
 import { pubkeyFromXpub } from '../lib/xpub';
 import Auth from './Auth';
+import InviteClaimPath, { type PathInviteInfo } from './InviteClaimPath';
 
 type InvitableRole = Exclude<VaultRole, 'owner'>;
 
@@ -106,6 +107,13 @@ export default function InviteClaim() {
 
   if (error) return <CenteredCard><ErrorBody message={error} /></CenteredCard>;
   if (!invite || !vault) return <CenteredCard><ErrorBody message="Invite not found" /></CenteredCard>;
+
+  // A path invite (one named person, one key slot on one path of a
+  // path-builder vault) has its own page: the key is made here, on this
+  // device, before joining. See InviteClaimPath.tsx.
+  if ((invite as PathInviteInfo).leaf_id) {
+    return <InviteClaimPath token={token!} invite={invite as PathInviteInfo} vault={vault} session={session} />;
+  }
 
   // Not signed in: show Auth inline with a banner + vault preview.
   if (!session) {

@@ -90,4 +90,32 @@ assert.deepEqual(r.unconfirmedMemberKeys(leaves, [{ ...members[1], key_confirmed
 assert.deepEqual(r.unconfirmedMemberKeys([], [], OWNER), []);
 pass('an invited person\'s key blocks finalizing until the owner confirms it; the owner\'s own and pasted keys do not');
 
+// 6. Before the vault is finalized an invited person sees their own
+//    path and the owner -- not the other paths, keys or people.
+const draftVault = { id: 'v1', user_id: OWNER, status: 'draft', name: 'Family vault', consent_keys: [anna.pubkey], key_labels: [{ pubkey: ben.pubkey, label: 'Dad' }], key_origins: [{ pubkey: ben.pubkey }], trust_doc: { purpose: 'all of it' },
+  leaves: [{ id: 'everyday', label: 'Everyday signers', keys: [ben.pubkey], quorum: 1 }, { id: 'kids', label: 'The kids', keys: [anna.pubkey], quorum: 2, planned_keys: 3 }] };
+const seen = r.draftViewForMember(draftVault, { leaf_id: 'kids' }, 'u-anna');
+assert.deepEqual(seen.leaves, [{ id: 'kids', label: 'The kids', keys: [], quorum: 2, planned_keys: 3 }]);
+assert.deepEqual([seen.consent_keys, seen.key_labels, seen.key_origins, seen.trust_doc], [[], [], null, {}]);
+assert.ok(!JSON.stringify(seen).includes(ben.pubkey) && !JSON.stringify(seen).includes('Everyday'));
+assert.equal(seen.name, 'Family vault');
+assert.deepEqual(r.draftViewForMember(draftVault, { leaf_id: null }, 'u-x').leaves, [], 'a member with no path sees no paths');
+assert.equal(r.draftViewForMember(draftVault, { leaf_id: 'kids' }, OWNER), draftVault, 'the owner sees everything');
+const compiled = { ...draftVault, status: 'compiled' };
+assert.equal(r.draftViewForMember(compiled, { leaf_id: 'kids' }, 'u-anna'), compiled, 'a finalized vault is shown whole to its members');
+const named = { id: 'v2', user_id: OWNER, status: 'draft', leaves: null, founder_keys: [] };
+assert.equal(r.draftViewForMember(named, {}, 'u-anna'), named, 'older-shape drafts are untouched');
+const roster = [
+  { id: 'm1', vault_id: 'v1', user_id: OWNER, role: 'owner', label: 'Dad', status: 'active', created_at: 't', fingerprint: ben.fingerprint, pubkey: ben.pubkey },
+  { id: 'm2', vault_id: 'v1', user_id: 'u-anna', role: 'heir', label: 'Anna', status: 'active', created_at: 't', fingerprint: anna.fingerprint, pubkey: anna.pubkey },
+  { id: 'm3', vault_id: 'v1', user_id: 'u-ben', role: 'heir', label: 'Ben', status: 'active', created_at: 't', fingerprint: 'aaaaaaaa', pubkey: '02' + 'e'.repeat(64) },
+];
+const annaSees = r.draftRosterForMember(roster, draftVault, 'u-anna');
+assert.deepEqual(annaSees.map(m => m.label), ['Dad', 'Anna']);
+assert.equal(annaSees[0].pubkey, undefined); assert.equal(annaSees[0].fingerprint, undefined);
+assert.equal(annaSees[1].pubkey, anna.pubkey);
+assert.equal(r.draftRosterForMember(roster, draftVault, OWNER), roster);
+assert.equal(r.draftRosterForMember(roster, compiled, 'u-anna'), roster);
+pass('before finalizing, an invited person sees only their own path without keys, and only themselves and the owner');
+
 console.log(`invite-rules tests passed (${n} cases)`);

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   listKeys, generateTestKey, generateSoftwareKey, importXpub, importTapitPubkey, parseXpubText,
@@ -8,7 +8,9 @@ import {
   upgradeDescriptor, buildKeyOrigins, buildPsbtKeyOrigins, toPubkeyHex,
   type SelectedKey,
 } from '../lib/descriptor-keys';
-import { api, type Vault, type VaultProposal, type BlocPolicy, type TrustDoc } from '../lib/api';
+import { api, type Vault, type VaultProposal, type BlocPolicy, type TrustDoc, type VaultInvite, type VaultMember } from '../lib/api';
+import { hydrateSlots } from '../lib/path-people';
+import { PathInvites } from '../components/vault-builder/PathInvites';
 import { isLeafListVault } from '../lib/vault-spending-paths';
 import { downloadVault } from '../lib/descriptor-backup';
 import { keyNetworkMatches } from '../lib/network';
@@ -149,6 +151,13 @@ function leafShapeIssues(leafDrafts: LeafDraft[]): { hasImmediate: boolean; hasU
 
 function leafDraftToSpec(l: LeafDraft, keys: string[]): LeafSpec {
   return {
+    // planned_keys is a draft-only note of how many key slots the path
+    // has. Without it a resumed draft fell back to "as many slots as
+    // signatures needed", silently dropping the spare slots of a 2-of-3
+    // path -- which matters now that family members fill slots over days.
+    // compile-leaves.js builds the compiled list field by field and does
+    // not carry it over.
+    planned_keys: l.plannedKeys,
     id: l.id, label: l.label, keys, quorum: l.quorum, unlock: leafUnlockOf(l),
     decay: l.decayEnabled ? { step_blocks: l.decayStepBlocks, floor_quorum: l.decayFloorQ } : null,
   };
@@ -173,7 +182,7 @@ function leafDraftFromSpec(spec: LeafSpec): LeafDraft {
   const base = {
     id: spec.id,
     label: spec.label,
-    plannedKeys: Math.max(spec.keys.length, spec.quorum, 1),
+    plannedKeys: Math.max(spec.planned_keys ?? 0, spec.keys.length, spec.quorum, 1),
     quorum: spec.quorum,
     decayEnabled: spec.decay != null,
     decayStepBlocks: spec.decay?.step_blocks ?? 26_280,
@@ -413,6 +422,17 @@ export default function VaultWizard() {
   const [leafKeys, setLeafKeys] = useState<Record<string, SelectedKey[]>>({});
 
   const [draftVault, setDraftVault] = useState<Vault | null>(null);
+  // Path-builder vaults: the people invited to hold keys, and which
+  // draft's slots are safe to save. Slots are saved to the draft as they
+  // change (they used to be thrown away by "Save and finish later"), but
+  // only once this draft's own saved slots have been loaded -- otherwise
+  // the first render of a resumed draft would overwrite them with nothing.
+  const [people, setPeople] = useState<{ members: VaultMember[]; invites: VaultInvite[] }>({ members: [], invites: [] });
+  const [slotsLoadedFor, setSlotsLoadedFor] = useState<string | null>(null);
+  // The resume effect below must run once per resume, not again whenever
+  // the toast object changes, so it reaches the toast through a ref.
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
   const [configuring, setConfiguring] = useState(false);
   const [configureErr, setConfigureErr] = useState<string | null>(null);
   const [networkBusy, setNetworkBusy] = useState(false);
@@ -507,6 +527,16 @@ export default function VaultWizard() {
           // the operator actually configured.
           setShape('leaves');
           setLeafDrafts((v.leaves ?? []).map(leafDraftFromSpec));
+          // Put back the keys already placed: this browser's own, and
+          // invited people's keys the owner has confirmed.
+          let members: VaultMember[] = [];
+          try { members = (await api.members.list(v.id)).members; } catch { /* slots from this device still load */ }
+          const { slots, dropped } = hydrateSlots(v.leaves ?? [], listKeys().filter(k => k.status === 'active'), members, v.user_id, v.network);
+          setLeafKeys(() => slots);
+          setSlotsLoadedFor(v.id);
+          if (dropped > 0) {
+            toastRef.current.error(`${dropped} saved key${dropped === 1 ? ' is' : 's are'} not on this device and not a confirmed member's, so ${dropped === 1 ? 'that slot is' : 'those slots are'} empty again.`);
+          }
         } else if (v.bloc_policy) {
           const bp = v.bloc_policy;
           setShape('bloc');
@@ -618,6 +648,7 @@ export default function VaultWizard() {
           leaves: enabled.map(l => leafDraftToSpec(l, [])),
         });
         setDraftVault(res.vault);
+        setSlotsLoadedFor(res.vault.id);
       } else {
         const c = blocConfig;
         const bp: Partial<BlocPolicy> = {
@@ -665,6 +696,43 @@ export default function VaultWizard() {
       setNetworkBusy(false);
     }
   }
+
+  // ---- People invited to hold keys (path-builder vaults) ----------------
+  const draftId = draftVault?.id ?? null;
+  async function reloadPeople() {
+    if (!draftId) return;
+    const [m, i] = await Promise.all([api.members.list(draftId), api.invites.list(draftId)]);
+    setPeople({ members: m.members, invites: i.invites });
+  }
+  useEffect(() => {
+    if (step !== 'keys' || shape !== 'leaves' || !draftId) return;
+    let live = true;
+    const look = () =>
+      Promise.all([api.members.list(draftId), api.invites.list(draftId)])
+        .then(([m, i]) => { if (live) setPeople({ members: m.members, invites: i.invites }); })
+        .catch(() => { /* the owner can still fill slots from this device */ });
+    void look();
+    // People join on their own time: look again while this step is open.
+    const iv = window.setInterval(() => void look(), 20_000);
+    return () => { live = false; window.clearInterval(iv); };
+  }, [step, shape, draftId]);
+
+  // Save the slots to the draft as they change, so the owner can leave
+  // and come back while family members join over several days.
+  const slotsToSaveJson = useMemo(
+    () => JSON.stringify(leafDrafts.filter(l => l.enabled).map(l =>
+      leafDraftToSpec(l, (leafKeys[l.id] ?? []).filter(k => k.pubkey?.length === 66).map(k => k.pubkey)))),
+    [leafDrafts, leafKeys],
+  );
+  useEffect(() => {
+    if (step !== 'keys' || shape !== 'leaves' || !draftId || slotsLoadedFor !== draftId) return;
+    const t = window.setTimeout(() => {
+      api.vaults.updateLeaves(draftId, JSON.parse(slotsToSaveJson) as LeafSpec[]).catch(() => {
+        toast.error('Your key choices could not be saved to this draft. They are still here, but would be lost if you leave now.');
+      });
+    }, 600);
+    return () => window.clearTimeout(t);
+  }, [step, shape, draftId, slotsLoadedFor, slotsToSaveJson, toast]);
 
   // ---- Keys -> compile once every slot is filled ------------------------
 
@@ -926,10 +994,16 @@ export default function VaultWizard() {
           onGenerateKey={onGenerateKey}
           onImportXpub={onImportXpub}
           onImportTapitKey={onImportTapitKey}
+          vaultId={draftVault.id}
+          ownerUserId={draftVault.user_id}
+          people={people}
+          reloadPeople={reloadPeople}
           slotsReady={slotsReady}
           onContinue={() => { setStep('compile'); void runCompile(); }}
           onSaveForLater={() => {
-            toast.success('Draft saved. Your keys stay in your keystore -- use "Continue setup" on this vault to pick up where you left off.');
+            toast.success(shape === 'leaves'
+              ? 'Draft saved, with the keys placed so far. Use "Continue setup" on this vault to pick up where you left off.'
+              : 'Draft saved. Your keys stay in your keystore -- use "Continue setup" on this vault to pick up where you left off.');
             navigate(`/vaults/${draftVault.id}`, { state: { vault: draftVault } });
           }}
         />
@@ -2033,6 +2107,7 @@ function KeysStep({
   backupKeys, setBackupKeys, secondHeirKeys, setSecondHeirKeys,
   parentKeys, setParentKeys, kidKeys, setKidKeys,
   network, onChangeNetwork, networkBusy, genRole, setGenRole, onGenerateKey, onImportXpub, onImportTapitKey,
+  vaultId, ownerUserId, people, reloadPeople,
   slotsReady, onContinue, onSaveForLater,
 }: {
   shape: Shape; stdConfig: StandardConfig; blocConfig: BlocConfig;
@@ -2053,6 +2128,10 @@ function KeysStep({
   onGenerateKey: (role: string, mode: 'test' | 'secure', password?: string) => void;
   onImportXpub: (role: string, xpub: string, derivationPath: string, masterFingerprint?: string) => void;
   onImportTapitKey: (role: string, xOnlyPubkey: string) => void;
+  vaultId: string;
+  ownerUserId: string;
+  people: { members: VaultMember[]; invites: VaultInvite[] };
+  reloadPeople: () => Promise<void>;
   slotsReady: boolean;
   onContinue: () => void;
   onSaveForLater: () => void;
@@ -2087,6 +2166,7 @@ function KeysStep({
     selected: SelectedKey[], setSelected: (fn: (p: SelectedKey[]) => SelectedKey[]) => void,
     accent: string,
     description?: string,
+    extra?: ReactNode,
   ) {
     return (
       <Card key={key}>
@@ -2121,6 +2201,7 @@ function KeysStep({
             onCancel={() => setGenRole(null)}
           />
         )}
+        {extra}
       </Card>
     );
   }
@@ -2172,7 +2253,20 @@ function KeysStep({
                   + `${leaf.plannedKeys} can then spend. Moving the coins resets this clock.`;
             const mySelected = leafKeys[leaf.id] ?? [];
             const reuseNote = leafReuseNotes.get(leaf.id) ?? '';
-            return role(leaf.id, `${leaf.label} keys`, leaf.plannedKeys, mySelected, setLeafSelected, i === 0 ? colors.gold : colors.blue, description + reuseNote);
+            return role(
+              leaf.id, `${leaf.label} keys`, leaf.plannedKeys, mySelected, setLeafSelected, i === 0 ? colors.gold : colors.blue, description + reuseNote,
+              <PathInvites
+                vaultId={vaultId}
+                network={network}
+                ownerUserId={ownerUserId}
+                leaf={leaf}
+                selected={mySelected}
+                setSelected={setLeafSelected}
+                invites={people.invites}
+                members={people.members}
+                reload={reloadPeople}
+              />,
+            );
           })}
         </>
       )}

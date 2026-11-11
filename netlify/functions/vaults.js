@@ -1,3 +1,4 @@
+import { draftViewForMember } from "./_invite-rules.js";
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 import { recordEvent } from "./_ledger.js";
@@ -78,10 +79,11 @@ export async function handler(event) {
 
     const { data: memberships, error: mErr } = await supabase
       .from("vault_members")
-      .select("vault_id, role")
+      .select("vault_id, role, leaf_id")
       .eq("user_id", u.userId)
       .eq("status", "active");
     if (mErr) return json(500, { error: mErr.message });
+    const membershipById = new Map((memberships ?? []).map(m => [m.vault_id, m]));
 
     const vaultIds = (memberships ?? []).map(m => m.vault_id);
     if (vaultIds.length === 0) return json(200, { ok: true, vaults: [] });
@@ -99,7 +101,9 @@ export async function handler(event) {
     if (error) return json(500, { error: error.message });
     // Attach the caller's role in each vault so the Dashboard can
     // render a role-aware view without an N+1 fetch.
-    const vaults = (data ?? []).map(v => ({ ...v, my_role: roleById.get(v.id) ?? null }));
+    // An invited person sees only their own path of a vault that is still
+    // being set up (see draftViewForMember).
+    const vaults = (data ?? []).map(v => ({ ...draftViewForMember(v, membershipById.get(v.id), u.userId), my_role: roleById.get(v.id) ?? null }));
     return json(200, { ok: true, vaults });
   }
 

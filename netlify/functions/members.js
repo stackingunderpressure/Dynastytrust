@@ -15,7 +15,7 @@
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 import { recordEvent } from "./_ledger.js";
-import { checkClaimedKey } from "./_invite-rules.js";
+import { checkClaimedKey, draftRosterForMember } from "./_invite-rules.js";
 
 const MEMBER_FIELDS =
   "id, created_at, vault_id, user_id, role, label, xpub, fingerprint, pubkey, derivation_path, key_label, status, messaging_pubkey, leaf_id, key_confirmed_at, key_confirmed_by";
@@ -68,7 +68,14 @@ export async function handler(event) {
     // can coordinate, but full xpubs are only returned to the vault
     // owner and to the member themselves. Other members see xpub:null.
     const callerIsOwner = await isOwner(supabase, vaultId, u.userId);
-    const redacted = data.map(m => {
+    // On a path-builder vault still being set up, an invited person
+    // sees themselves and the owner, not who else was invited.
+    let roster = data;
+    if (!callerIsOwner) {
+      const { data: v } = await supabase.from("vaults").select("id, user_id, status, leaves").eq("id", vaultId).maybeSingle();
+      roster = draftRosterForMember(data, v, u.userId);
+    }
+    const redacted = roster.map(m => {
       const visible = callerIsOwner || m.user_id === u.userId;
       return visible ? m : { ...m, xpub: null };
     });

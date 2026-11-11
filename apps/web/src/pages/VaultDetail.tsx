@@ -40,6 +40,7 @@ import { formatDescriptorFingerprint } from "../lib/descriptor-fingerprint";
 import { DescriptorQr } from "../components/DescriptorQr";
 import { QrImage } from "../components/QrImage";
 import { RotatePathVault } from "../components/RotatePathVault";
+import { PathDraftCard } from "../components/PathDraftCard";
 import { pubkeyFromXpub, fingerprintFromXpub } from "../lib/xpub";
 import { isLeafListVault } from "../lib/vault-spending-paths";
 import { buildPsbtKeyOrigins } from "../lib/descriptor-keys";
@@ -513,7 +514,10 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
 
           <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
             {vault.status === "draft" ? (
-              <DraftCompileButton vault={vault} />
+              // A path-builder draft is finished from its own card below
+              // (PathDraftCard); this button counts planned founders,
+              // which that shape does not have.
+              isLeafListVault(vault) ? null : <DraftCompileButton vault={vault} />
             ) : (
               <Button style={{ flex: 1, padding: "12px" }} onClick={() => setTab("send")}>
                 Send
@@ -872,8 +876,12 @@ function OverviewTab({
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <RemindersBanner vaultId={vault.id} />
-        <DraftReadinessCard vault={vault} onOpenTab={onOpenTab} />
-        <TrustDocSection vault={vault} />
+        {/* A path-builder draft has its own card: the older one counts
+            planned founders, which this shape does not have. The trust
+            document describes every path, so it is the owner's to see
+            until the vault is finalized. */}
+        {isLeafList ? <PathDraftCard vault={vault} /> : <DraftReadinessCard vault={vault} onOpenTab={onOpenTab} />}
+        {(!isLeafList || (vault as Vault & { my_role?: string }).my_role === "owner") && <TrustDocSection vault={vault} />}
       </div>
     );
   }

@@ -85,7 +85,12 @@ export async function handler(event) {
         leaf_id: invite.leaf_id,
         email_hint: local && domain ? `${local.slice(0, 1)}***@${domain}` : null,
       },
-      vault: vault ? { id: vault.id, name: vault.name, network: vault.network, status: vault.status, is_leaf_list: true, paths: path ? [path] : [] } : null,
+      // On a draft the path's keys are not all in yet; planned_keys is how
+      // many it will have, which is the "of N" the invited person needs.
+      vault: vault ? {
+        id: vault.id, name: vault.name, network: vault.network, status: vault.status, is_leaf_list: true,
+        paths: path ? [{ ...path, keyCount: (vault.leaves ?? []).find((l) => l.id === invite.leaf_id)?.planned_keys ?? path.keyCount }] : [],
+      } : null,
       members: [],
     });
   }

@@ -340,7 +340,7 @@ J9. **Jargon with no explanation** across the journey: xpub, fingerprint,
     derivation path, PSBT, sat/vb, UTXO, quorum, descriptor, TR_MULTILEAF,
     blocks, founder/heir/successor/trustee used interchangeably.
 
-### J3 plan -- family joins with their own keys (agreed 2026-11-11, NOT built)
+### J3 plan -- family joins with their own keys (agreed 2026-11-11; BUILT the same day, on the branch -- see `HISTORY.md`)
 
 The loop: in the builder's Keys step a slot can be filled by "Invite someone
 to hold this key" (name + email, path-bound link the owner sends); the

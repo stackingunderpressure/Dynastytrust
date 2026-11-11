@@ -105,3 +105,27 @@ export function unconfirmedMemberKeys(leaves, members, ownerUserId) {
   }
   return out;
 }
+
+/**
+ * What an invited person may see of a vault that is still being set
+ * up: their own path, without anyone's keys, and none of the other
+ * paths (operator's decision, 2026-11-11). The owner, a finalized
+ * vault, and vaults of the older shapes are returned untouched.
+ * `membership` is the caller's own vault_members row.
+ */
+export function draftViewForMember(vault, membership, callerUserId) {
+  const isPathDraft = vault?.status === "draft" && Array.isArray(vault.leaves) && vault.leaves.length > 0;
+  if (!isPathDraft || vault.user_id === callerUserId) return vault;
+  const mine = vault.leaves.filter((l) => l && l.id === membership?.leaf_id).map((l) => ({ ...l, keys: [] }));
+  return { ...vault, leaves: mine, consent_keys: [], key_labels: [], key_origins: null, trust_doc: {} };
+}
+
+/** Who an invited person may see listed on a vault still being set up:
+ *  themselves and the owner (by name only). */
+export function draftRosterForMember(members, vault, callerUserId) {
+  const isPathDraft = vault?.status === "draft" && Array.isArray(vault.leaves) && vault.leaves.length > 0;
+  if (!isPathDraft || vault.user_id === callerUserId) return members;
+  return (members ?? [])
+    .filter((m) => m.user_id === callerUserId || m.user_id === vault.user_id)
+    .map((m) => (m.user_id === callerUserId ? m : { id: m.id, vault_id: m.vault_id, user_id: m.user_id, role: m.role, label: m.label, status: m.status, created_at: m.created_at }));
+}

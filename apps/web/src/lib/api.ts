@@ -176,6 +176,9 @@ export interface LeafSpec {
   quorum: number;
   unlock: LeafUnlock;
   decay: LeafDecay | null;
+  /** Draft only: how many key slots this path has (see VaultWizard's
+   *  leafDraftToSpec). Absent on a compiled vault. */
+  planned_keys?: number;
 }
 
 /** The whole Bloc policy the compiler needs to rebuild the exact tree
@@ -479,6 +482,12 @@ export interface VaultMember {
    *  belong to; corresponds to a private key that never leaves
    *  their browser. */
   messaging_pubkey?: string | null;
+  /** Path-builder vaults: the path this person was invited to hold a
+   *  key on, and when the owner confirmed that key by its fingerprint.
+   *  Only a confirmed key can be compiled into a vault. */
+  leaf_id?: string | null;
+  key_confirmed_at?: string | null;
+  key_confirmed_by?: string | null;
 }
 
 export interface VaultMessage {
@@ -525,6 +534,8 @@ export interface VaultInvite {
   invited_role: Exclude<VaultRole, 'owner'>;
   invited_label: string | null;
   invited_email: string | null;
+  /** Path-builder vaults: the path this invite fills a key slot on. */
+  leaf_id?: string | null;
   token: string;
   expires_at: string;
   claimed_at: string | null;
@@ -1324,6 +1335,15 @@ export const api = {
         body: JSON.stringify(body),
       }),
 
+    /** Owner only: confirm a member's key after checking its fingerprint
+     *  with them. The fingerprint is sent back so the confirmation is
+     *  bound to the key the owner actually looked at. */
+    confirmKey: (id: string, fingerprint: string) =>
+      req<{ ok: true; member: VaultMember }>(`/members?id=${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ confirm_key: true, fingerprint }),
+      }),
+
     remove: (id: string) =>
       req<{ ok: true }>(`/members?id=${id}`, { method: 'DELETE' }),
   },
@@ -1334,9 +1354,13 @@ export const api = {
 
     create: (body: {
       vault_id: string;
-      invited_role: Exclude<VaultRole, 'owner'>;
+      /** Omit for a path invite: the server derives it from the path. */
+      invited_role?: Exclude<VaultRole, 'owner'>;
       invited_label?: string;
       invited_email?: string;
+      /** Path-builder vaults: invite one named person, by email, to hold
+       *  one key on this path. Requires invited_label and invited_email. */
+      leaf_id?: string;
     }) =>
       req<{ ok: true; invite: VaultInvite }>(`/invites`, {
         method: 'POST',
@@ -1360,6 +1384,8 @@ export const api = {
             invited_role: Exclude<VaultRole, 'owner'>;
             invited_label: string | null;
             expires_at: string;
+            leaf_id?: string;
+            email_hint?: string | null;
           } | null;
           vault?: {
             id: string;

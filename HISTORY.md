@@ -106,6 +106,82 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Family joins with their own keys (J3, with 15e's identity gates) --
+  BUILT 2026-11-11, on the branch, NOT on main.** For a vault built
+  with the wizard, every key had to come from the owner's own browser
+  or be pasted in; invites existed but `compile-leaves.js` never read
+  them. An invite was a bearer link: whoever opened it first took the
+  slot, and the key details they typed were stored unchecked
+  (compiler-review finding A3).
+  Operator's decisions (chips): invite tied to the invited email; the
+  owner confirms EVERY invited key's fingerprint, test coins included;
+  two-step sign-in to join a real-bitcoin vault; a password-protected
+  phone key (backup required) or a hardware wallet; before finalize an
+  invited person sees their own path only; the owner can still fill
+  any slot themselves as before.
+  The loop: Keys step -> "Invite someone to hold a key" (name + email)
+  -> a link the owner sends -> the person signs in as that address,
+  makes the key on their own device and must write its 24 words down
+  before Join unlocks -> the owner sees the fingerprint, checks it by
+  voice, confirms -> the key fills the slot -> slots are saved to the
+  draft as they change ("Save and finish later" used to throw them
+  away) -> finalize as before -> the vault appears on each person's
+  dashboard.
+  Server: migration `20261111010000_invite_paths.sql` (nullable
+  columns only: the path on invites and members, confirmed-at/by on
+  members). `_invite-rules.js` (pure): `checkPathInvite`,
+  `emailMatches`, `joinAllowedAtAal`, `checkClaimedKey` (the signing
+  key must be the xpub's own first child, right kind of coin, nothing
+  private or malformed -- closes A3 for this flow),
+  `unconfirmedMemberKeys` (x-only match, so the 02/03 twin is caught),
+  `draftViewForMember`, `draftRosterForMember`. Applied in
+  `invites.js`, `invites-lookup.js` (own path only, email masked),
+  `invites-claim.js` (all checks BEFORE the invite is consumed),
+  `members.js` (owner `confirm_key` bound to the fingerprint on
+  record; a confirmed key cannot be changed), `compile-leaves.js`
+  (refuses an unconfirmed member key), `vaults.js` (an invited person
+  gets only their path of a draft). `key_confirmed` is sealed and
+  stamped at once; the email address is never sealed.
+  Browser: `components/vault-builder/PathInvites.tsx`,
+  `pages/InviteClaimPath.tsx` (replaces, for path invites, a page that
+  sent newcomers elsewhere to make a key and called browser keys "for
+  testing only"), `components/PathDraftCard.tsx` (replaces "Ready to
+  compile / 0 of 0 members joined" and its failing button),
+  `lib/path-people.ts`. A draft now remembers how many slots each path
+  has (`planned_keys`): resuming used to shrink a 2-of-3 path to two
+  slots.
+  Tests, all in `npm test`: `test-invite-rules.mjs` (6 cases),
+  `test-invite-handlers.mjs` (7 cases: the REAL handlers through the
+  whole loop against stand-ins), `test-path-people.mjs` (4 cases).
+  The migration applied twice to a throwaway real PostgreSQL 16:
+  idempotent, existing rows untouched.
+  WALKED at 375px, three browsers against a production build with the
+  REAL handlers behind /api (database, sign-in, chain tip and compiler
+  stood in): owner's draft card -> fills his slot -> invites Anna -> a
+  stranger with the link is refused and the invite survives -> Anna
+  sees only her path, makes her key, is forced through the backup,
+  joins, is shown her fingerprint -> owner returns, his slot was
+  saved, sees the SAME fingerprint, confirms -> finalize reaches
+  "Back up your vault" -> the compiled vault holds both keys and both
+  hardware-wallet origins -> Anna sees the vault. No page errors, no
+  overflow. Ledger: invite_created, member_joined, key_confirmed,
+  draft_compiled.
+  NOT SEEN: any of it against the real database, real sign-in or the
+  real compiler; the two-step refusal in a browser (handler-tested
+  only); an invited person SIGNING a spend on a vault made this way
+  (ProposalDetail already lists a member's device keys on a leaf-list
+  vault, but that was not driven); the hardware-wallet route for an
+  invited person; a path with more than one invited person.
+  NOT in this slice: emailing the link; changing people after
+  finalize; Bloc and older-shape drafts (their invite flow is
+  untouched); an invited person holding keys on two paths (the owner
+  can place a confirmed key on a second path, the person is listed
+  under the first); telling people when a spend needs them.
+  Measured: npm test exit 0, 27 suites; lint 0 errors / 11 warnings;
+  typecheck 10 = baseline; build green.
+  DEPLOY NOTE: the small traps batch went to main as 5a4e7cc;
+  `verify:live` PASS.
+
 - **Small traps batch (journey gaps J3-J6, the quick ones) -- BUILT
   2026-11-11, on the branch.** Five places a person got stuck or
   misled, each a small change:
