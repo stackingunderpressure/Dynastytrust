@@ -339,3 +339,37 @@ J8. **If the site is gone.** The forced backup file is right, but the vault
 J9. **Jargon with no explanation** across the journey: xpub, fingerprint,
     derivation path, PSBT, sat/vb, UTXO, quorum, descriptor, TR_MULTILEAF,
     blocks, founder/heir/successor/trustee used interchangeably.
+
+### J3 plan -- family joins with their own keys (agreed 2026-11-11, NOT built)
+
+The loop: in the builder's Keys step a slot can be filled by "Invite someone
+to hold this key" (name + email, path-bound link the owner sends); the
+person signs in with that email and makes their key on their own device
+with the backup step; the owner sees the fingerprint, checks it with them
+by voice, and confirms; only confirmed keys can go into the vault; slots
+persist between visits; finalize as today; the vault then appears on each
+person's dashboard.
+
+Operator's decisions (chips): invite tied to the invited email; owner
+confirms every invited key's fingerprint ALWAYS, test coins included;
+two-step sign-in required to join a real-bitcoin vault; an invited person
+may use a password-protected phone key (backup required before joining) or
+a hardware wallet; before finalize they see their own path only; the
+owner can still fill any slot themselves exactly as today.
+
+Blast radius: one migration (invites and members gain the path; members
+gain confirmed-by/at); invites.js, invites-lookup.js, invites-claim.js
+(email match, key validated -- also closes compiler-review A3), members.js
+(owner confirm; no key change after confirm), compile-leaves.js (refuse an
+unconfirmed member key), vaults.js (persist slots); VaultWizard Keys step,
+InviteClaim, the draft card ("0 of 0" + failing Compile), Members tab, the
+invitee's dashboard for a draft; a new sealed-record entry for the
+confirmation, stamped at once. Not touched: compiler, signing path,
+finalized vaults, the older-shape invite flow.
+
+Left out: emailing the link; changing people after finalize; Bloc and
+older-shape drafts; telling people when a spend needs them; who is
+physically holding the phone.
+
+Ships as one piece only when the whole loop walks; operator walks it on
+signet with a second account before real bitcoin.
