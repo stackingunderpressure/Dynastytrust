@@ -162,6 +162,22 @@ signers" as not yet verified. Item 1 above postdates it.
   no migration). Production therefore logs "NOT SEALED" and carries
   on, exactly the fallback `recordEvent` was given. Waiting on the
   operator to replace the token.
+  DEPLOYED 2026-11-11 00:30-00:40 UTC: the operator replaced the token
+  (first attempt stored the project's legacy JWT secret by mistake --
+  the job answered "JWT could not be decoded"; the second was a real
+  account access token). DB deploy run 65 applied
+  `20261110230000_vault_ledger.sql` ("1 applied, 47 already up to
+  date"); 15c went to main as 29f3f8d and run 66 applied
+  `20261111000000_vault_ledger_anchors.sql`; both tables answer on the
+  live REST API. Gates re-run before the push: npm test exit 0 (19
+  suites, 71 harness checks), lint 0 errors / 11 warnings, typecheck
+  10 = baseline (no web source in the diff), build green.
+  `verify:live` PASS against 29f3f8d. (One run during the deploy
+  window reported a mismatch against 55d04f1: version.json was read
+  before Netlify switched and the assets after; the re-run passed.)
+  STILL NOT SEEN: a real entry sealed or anchored in production --
+  the tables are unreadable without a member session and there is no
+  ledger screen yet (15d) -- nor the scheduled job firing.
 
 - **Sealed ledger: the vault's record is now hash-chained and
   append-only -- BUILT, not yet shipped (2026-11-10).** Backlog 15a.

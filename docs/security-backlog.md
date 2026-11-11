@@ -171,16 +171,15 @@ then (c).
     end ... tamper evident ... always checking against the open timestamps
     hash that cannot be changed ... records of every single thing", and
     "anyone else logging in is who they're supposed to be." Five slices:
-    - ~~15a Sealed ledger + lock the table.~~ BUILT 2026-11-10; code LIVE on
-      main (55d04f1) but its migration has NOT applied -- the Supabase DB
-      deploy job fails with "Invalid access token" (the GitHub secret
-      SUPABASE_ACCESS_TOKEN is expired; it failed on the two earlier pushes
-      that day too). Until that is replaced nothing is sealed in production (see `HISTORY.md`): `vault_ledger`, hash-chained
+    - ~~15a Sealed ledger + lock the table.~~ BUILT 2026-11-10; LIVE 2026-11-11 (code 55d04f1,
+      migration applied by DB deploy run 65 once the expired access token was
+      replaced) (see `HISTORY.md`): `vault_ledger`, hash-chained
       and append-only for every role; `vault_events` read-only from the
       browser; every server event write goes through `recordEvent`.
     - 15b Signed entries: creating the vault, joining with a key, the final
       key set, each spend signature -- signed by the actor's vault key.
-    - ~~15c Anchoring.~~ BUILT 2026-11-11, on the branch (see `HISTORY.md`):
+    - ~~15c Anchoring.~~ BUILT 2026-11-11, LIVE on main 29f3f8d with its
+      migration applied, site verified (see `HISTORY.md`):
       the ledger tip is submitted to two OpenTimestamps calendars at
       milestones and by a daily job, receipts are upgraded to Bitcoin proofs
       checked against the real block from two sources, and
