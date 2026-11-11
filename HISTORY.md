@@ -122,8 +122,12 @@ signers" as not yet verified. Item 1 above postdates it.
   FOUND, not fixed: rotating a leaf-list vault is refused by
   `vaults-rotate.js` ("isn't supported yet"), so for every vault built
   today the only way to push a date out is to build a new vault by
-  hand and move the coins; the heads-up says exactly that. The Rotate
-  button still opens its dialog on such a vault and then fails.
+  hand and move the coins; the heads-up says exactly that.
+  CORRECTION (same day): this entry first said the Rotate button opens
+  its dialog on such a vault and then fails. Wrong -- I had read the
+  server's refusal and not the button. `VaultDetail.tsx` hides Rotate
+  on leaf-list and Bloc vaults, so there is simply no button; the
+  server refusal is the backstop behind it.
   `test-timelock-words.mjs` now 5 cases. WALKED at 375px in a
   production build with a fabricated vault and fixed tip: far from the
   date, three months out, open with none of the path's keys here (no
