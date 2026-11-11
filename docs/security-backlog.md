@@ -305,7 +305,8 @@ J2. ~~**The inheritance moment.**~~ BUILT 2026-11-11 for both vault shapes,
     remaining, so rotating keeps the same deadline; nothing says rotating
     is how a founder pushes inheritance out. (e) Nothing tells a founder
     the inheritance date is approaching.
-J3. **Family cannot join a vault built today with their own keys.** The
+J3. **Family cannot join a vault built today with their own keys.** Only
+    the broken copy-link is fixed (2026-11-11); the rest is open. Was: The
     wizard fills every slot from keys in the owner's browser or a pasted
     xpub; `compile-leaves.js` never reads invited members. Invites still
     exist for old drafts: no email is sent, the link is a bearer token,
@@ -313,15 +314,17 @@ J3. **Family cannot join a vault built today with their own keys.** The
     the draft card's "Copy link" builds `/invite?token=` when the route is
     `/invite/:token`. A leaf-list draft shows "0 of 0 members joined" with
     a Compile button that fails. This is also 15e.
-J4. **Nobody is told when they are needed.** No email or push anywhere. A
+J4. **Nobody is told when they are needed.** The waiting-spend button
+    and Cancel BUILT 2026-11-11; no email or push, and the co-signer still
+    does not see fee or change. Was: No email or push anywhere. A
     second signer must know to open the app; "proposals awaiting
     signatures" has a "Go to Send" button that opens a blank form; the
     co-signer sees amount and destination but not fee or change; "Cancel"
     does not cancel the proposal.
-J5. **Sign-up from the home page.** It says "we sent a confirmation link";
+J5. ~~**Sign-up from the home page.**~~ BUILT 2026-11-11. Was: It says "we sent a confirmation link";
     the email carries a 6-digit code and that page has no box for it. It
     also says the email "can be a burner".
-J6. **Funding.** No receive QR (the only QR is the descriptor, easy to scan
+J6. **Funding.** Deposit QR and test-first note BUILT 2026-11-11; no address check on a signing device yet. Was: No receive QR (the only QR is the descriptor, easy to scan
     by mistake), no "send a small test first", no address check.
 J7. **Builder.** Opens blank with "Path 1"; the heirs' path must be
     invented; Sage's proposal is dropped on "build this"; network buttons

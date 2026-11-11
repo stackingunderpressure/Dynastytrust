@@ -106,6 +106,41 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Small traps batch (journey gaps J3-J6, the quick ones) -- BUILT
+  2026-11-11, on the branch.** Five places a person got stuck or
+  misled, each a small change:
+  (1) Home-page sign-up said "we sent a confirmation link"; the email
+  carries a 6-digit code and that card had no box for it. The card now
+  takes the code (same Supabase calls as `pages/Auth.tsx`), offers
+  Resend, mentions spam, and a sign-in that fails with "email not
+  confirmed" goes to the code box with a fresh code sent. Errors there
+  were raw Supabase text; `friendlyAuthError` moved to
+  `lib/auth-errors.ts` and both screens use it. "Email can be a burner"
+  is replaced with "use an email you will still have in ten years".
+  (2) The draft card's "Copy link" built `/invite?token=...`; the route
+  is `/invite/:token`, so the invited person landed on the vault
+  builder. One-line fix.
+  (3) No way to scan the vault's address: the only QR on the page was
+  the descriptor. Added "Show deposit QR" (the address, with its last
+  eight characters to compare) and "First deposit? Send a small
+  amount, wait until it shows here, then send the rest."
+  (4) "N proposals awaiting signatures -> Go to Send" opened a BLANK
+  send form. One waiting spend now opens that spend; several open
+  History.
+  (5) "Cancel" on the signing screen only cleared the form and left
+  the spend open in History. It is now "Cancel this spend" and marks
+  the proposal cancelled (the server already allows the client to set
+  that), with a separate "Leave it open for the others to sign".
+  WALKED at 375px in a production build with stand-in services: (1)
+  sign-up -> code box -> a wrong code's message -> resend; (3) the QR
+  and both notes; (4) the button lands on the proposal. NOT WALKED:
+  (2) is read, not clicked through; (5) needs a built spend on screen
+  and was not driven -- it is typechecked and read only. None seen
+  live.
+  Measured: npm test exit 0, 24 suites; lint 0 errors / 11 warnings;
+  typecheck 10 = baseline; build green.
+  DEPLOY NOTE: rotate went to main as 26abc82; `verify:live` PASS.
+
 - **Rotate for vaults built with the path builder (J2f) -- BUILT
   2026-11-11, on the branch.** A vault's dates are fixed in its script;
   the only way to push an inheritance date out is a new vault with

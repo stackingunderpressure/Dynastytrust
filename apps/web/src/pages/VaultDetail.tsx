@@ -38,6 +38,7 @@ import { normalizePsbt } from "../lib/psbt-format";
 import { downloadVault, downloadDistributionWalletBackup } from "../lib/descriptor-backup";
 import { formatDescriptorFingerprint } from "../lib/descriptor-fingerprint";
 import { DescriptorQr } from "../components/DescriptorQr";
+import { QrImage } from "../components/QrImage";
 import { RotatePathVault } from "../components/RotatePathVault";
 import { pubkeyFromXpub, fingerprintFromXpub } from "../lib/xpub";
 import { isLeafListVault } from "../lib/vault-spending-paths";
@@ -195,6 +196,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
   // this the old vault showed no warning and no Sweep button until the
   // page was reloaded (caught walking the flow, 2026-11-11).
   const [rotationTick, setRotationTick] = useState(0);
+  const [showReceiveQr, setShowReceiveQr] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [sendPrefill, setSendPrefill] = useState<SendPrefill | null>(null);
   const [myMember, setMyMember] = useState<VaultMember | null>(null);
@@ -548,6 +550,30 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
               </a>
             )}
           </div>
+          {vault.address && (
+            <div style={{ marginTop: 10 }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                style={{ fontSize: 12, minHeight: 40 }}
+                onClick={() => setShowReceiveQr(v => !v)}
+              >
+                {showReceiveQr ? "Hide deposit QR" : "Show deposit QR"}
+              </Button>
+              {showReceiveQr && (
+                <div style={{ marginTop: 10 }}>
+                  <QrImage data={vault.address} size={220} />
+                  <div style={{ fontSize: 12, color: colors.sub, marginTop: 8, lineHeight: 1.5 }}>
+                    Scan this with the wallet you are sending FROM to deposit into this vault. Check that the
+                    address it shows ends in <span style={{ fontFamily: fonts.mono }}>{vault.address.slice(-8)}</span>.
+                  </div>
+                </div>
+              )}
+              <div style={{ fontSize: 12, color: colors.sub, marginTop: 8, lineHeight: 1.5 }}>
+                First deposit? Send a small amount, wait until it shows here, then send the rest.
+              </div>
+            </div>
+          )}
           {vault.address && (
             <div style={{ fontSize: 11, color: colors.muted, marginTop: 10, lineHeight: 1.5 }}>
               This vault has one fixed address, reused for every deposit --
@@ -2395,14 +2421,38 @@ function SendTab({ vault, balance, onDone, prefill }: {
         <Button
           variant="ghost"
           style={{ width: "100%" }}
-          onClick={() => {
+          onClick={async () => {
+            // This used to only clear the form: the spend stayed open in
+            // History, waiting on signatures nobody meant to give.
+            const id = signing?.proposal_id;
+            if (id && !signing?.txid) {
+              try {
+                await api.proposals.update(id, { status: "cancelled" });
+              } catch (e) {
+                setErr(`This spend could not be cancelled: ${e instanceof Error ? e.message : "failed"}. It is still open in History.`);
+                return;
+              }
+            }
             setStep("form");
             setSigning(null);
             setErr(null);
           }}
         >
-          Cancel
+          Cancel this spend
         </Button>
+        {signing?.proposal_id && !signing.txid && (
+          <Button
+            variant="ghost"
+            style={{ width: "100%" }}
+            onClick={() => {
+              setStep("form");
+              setSigning(null);
+              setErr(null);
+            }}
+          >
+            Leave it open for the others to sign
+          </Button>
+        )}
       </div>
     );
   }
@@ -4614,7 +4664,10 @@ function DraftReadinessCard({
   }
 
   async function copyInviteLink(token: string) {
-    const url = `${window.location.origin}/invite?token=${token}`;
+    // The route is /invite/:token (App.tsx). This built /invite?token=...,
+    // which fell through to the catch-all and dropped the invited person
+    // on the vault builder.
+    const url = `${window.location.origin}/invite/${token}`;
     await navigator.clipboard.writeText(url);
     setCopied(token);
     setTimeout(() => setCopied(null), 1600);
@@ -4950,6 +5003,7 @@ function ActionGuide({
   onOpenTab: (id: string) => void;
   onSendPrefill: (p: SendPrefill) => void;
 }) {
+  const navigate = useNavigate();
   const [stipends, setStipends] = useState<ScheduledStipend[]>([]);
   const [requests, setRequests] = useState<VaultRequest[]>([]);
   const [tip, setTip] = useState<number | null>(null);
@@ -5001,10 +5055,16 @@ function ActionGuide({
       items.push({
         key: "trustee-sign",
         label: `${pendingProposals.length} proposal${pendingProposals.length === 1 ? "" : "s"} awaiting signatures`,
-        detail: "Open the signing queue and add your signature.",
-        cta: "Go to Send",
+        // "Go to Send" used to open a BLANK new-send form, not the spend
+        // that is waiting. One waiting: open it. Several: the History tab
+        // lists them.
+        detail: pendingProposals.length === 1 ? "Open it to check the details and add your signature." : "Open History to see each one and add your signature.",
+        cta: pendingProposals.length === 1 ? "Open it" : "See them",
         severity: "warn",
-        onClick: () => onOpenTab("send"),
+        onClick: () =>
+          pendingProposals.length === 1
+            ? navigate(`/vaults/${vault.id}/proposals/${pendingProposals[0].id}`)
+            : onOpenTab("history"),
       });
     }
     if (pendingRequests.length > 0) {

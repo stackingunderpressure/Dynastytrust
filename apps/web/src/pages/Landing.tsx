@@ -5,6 +5,7 @@ import { APP_NAME } from '../config';
 import { colors, fonts, radii, space } from '../theme';
 import { Button, Input } from '../components/ui';
 import { LoadingScreen } from '../components/LoadingScreen';
+import { friendlyAuthError } from '../lib/auth-errors';
 
 /**
  * Landing.tsx -- public first-lander page.
@@ -113,7 +114,15 @@ function InlineAuthForm() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
+  // Waiting for the 6-digit code Supabase emails on sign-up. This card
+  // used to say "we sent a confirmation link" and had no box for the
+  // code the email actually carries, so a new person was stranded on the
+  // home page (found walking the journey, 2026-11-11). Same calls as
+  // pages/Auth.tsx: verifying the code opens a session, and the listener
+  // above sends a signed-in visitor on to /vaults.
+  const [awaitingCode, setAwaitingCode] = useState(false);
+  const [code, setCode] = useState('');
+  const [resent, setResent] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -123,28 +132,91 @@ function InlineAuthForm() {
       if (mode === 'signup') {
         const { error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-        setDone(true);
+        setAwaitingCode(true);
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Authentication failed');
+      const message = err instanceof Error ? err.message : 'Authentication failed';
+      // Signed up earlier but never entered the code: take them to it.
+      if (mode === 'login' && message.toLowerCase().includes('email not confirmed')) {
+        setAwaitingCode(true);
+        void supabase.auth.resend({ type: 'signup', email });
+      } else {
+        setError(friendlyAuthError(message));
+      }
     } finally {
       setBusy(false);
     }
   }
 
-  if (done) {
+  async function verifyCode(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const { error } = await supabase.auth.verifyOtp({ email, token: code, type: 'signup' });
+      if (error) throw error;
+    } catch (err: unknown) {
+      setError(friendlyAuthError(err instanceof Error ? err.message : 'Invalid code'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resendCode() {
+    setBusy(true);
+    setError(null);
+    setResent(false);
+    try {
+      const { error } = await supabase.auth.resend({ type: 'signup', email });
+      if (error) throw error;
+      setResent(true);
+    } catch (err: unknown) {
+      setError(friendlyAuthError(err instanceof Error ? err.message : 'Could not resend code'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (awaitingCode) {
     return (
       <div style={s.authCard}>
         <div style={s.authHeading}>Check your email</div>
         <p style={s.authSub}>
-          We sent a confirmation link to{' '}
-          <strong style={{ color: colors.gold }}>{email}</strong>. Confirm
-          the address, then return here to sign in.
+          We sent a 6-digit code to{' '}
+          <strong style={{ color: colors.gold }}>{email}</strong>. Enter it here to finish. If it is not in
+          your inbox in a minute, look in spam.
         </p>
-        <button style={s.linkBtn} onClick={() => { setDone(false); setMode('login'); }}>
+        <form onSubmit={verifyCode} style={s.authForm}>
+          <label style={s.fieldLabel} htmlFor="lp-code">Code</label>
+          <Input
+            id="lp-code"
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            value={code}
+            onChange={e => setCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+            required
+            minLength={6}
+            maxLength={6}
+            placeholder="000000"
+            style={{ fontSize: 20, padding: '12px 14px', letterSpacing: '0.3em', textAlign: 'center' }}
+          />
+          {error && <p style={s.authError}>{error}</p>}
+          {resent && !error && <p style={s.authSub}>New code sent.</p>}
+          <Button type="submit" disabled={busy || code.length !== 6} style={{ marginTop: space[3], padding: '14px', fontSize: 15 }}>
+            {busy ? 'Working...' : 'Verify code'}
+          </Button>
+        </form>
+        <button style={{ ...s.linkBtn, minHeight: 44 }} disabled={busy} onClick={() => void resendCode()}>
+          Resend code
+        </button>
+        <button
+          style={{ ...s.linkBtn, minHeight: 44 }}
+          onClick={() => { setAwaitingCode(false); setCode(''); setError(null); setResent(false); setMode('login'); }}
+        >
           Back to sign in
         </button>
       </div>
@@ -205,8 +277,9 @@ function InlineAuthForm() {
       </form>
 
       <p style={s.authFine}>
-        No KYC. No credit card. Email can be a burner. Private keys are
-        generated in your browser and never touch our servers.
+        No KYC. No credit card. Use an email you will still have in ten
+        years -- it is how you and your family sign back in. Private keys
+        are generated in your browser and never touch our servers.
       </p>
     </div>
   );

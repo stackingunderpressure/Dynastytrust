@@ -4,6 +4,7 @@ import { APP_NAME } from '../config';
 import { colors, fonts, radii, space } from '../theme';
 import { Button, Input } from '../components/ui';
 import { startTapitFlow } from '../lib/wallet-signin';
+import { friendlyAuthError } from '../lib/auth-errors';
 
 // Set once we've asked Supabase to email a 6-digit code -- 'signup' for
 // account confirmation, 'recovery' for password reset. Identifies which
@@ -293,22 +294,6 @@ export default function Auth() {
 }
 
 // Map Supabase's terse auth errors to friendlier copy.
-function friendlyAuthError(message: string): string {
-  const m = message.toLowerCase();
-  if (m.includes('invalid login') || m.includes('invalid credentials'))
-    return 'Email or password is incorrect.';
-  if (m.includes('already registered') || m.includes('already exists'))
-    return 'An account with this email already exists. Try signing in instead.';
-  if (m.includes('email not confirmed'))
-    return 'Confirm your email first -- check your inbox for the 6-digit code.';
-  if (m.includes('token has expired') || m.includes('otp_expired'))
-    return 'That code has expired. Request a new one.';
-  if (m.includes('invalid') && (m.includes('token') || m.includes('otp')))
-    return 'That code is incorrect. Check it and try again.';
-  if (m.includes('rate') || m.includes('too many'))
-    return 'Too many attempts. Wait a minute and try again.';
-  return message;
-}
 
 // Shown by RequireAuth when Supabase reports a PASSWORD_RECOVERY session
 // (the user verified their reset code above). Lets them set a new
