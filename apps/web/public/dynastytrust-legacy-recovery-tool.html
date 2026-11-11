@@ -115,22 +115,33 @@
 
   <div class="warning" style="margin-top:16px;">
     <strong>Once you have the descriptor:</strong> it alone reconstructs
-    every address this vault can receive on and, combined with at least
-    one signer's seed phrase, everything needed to spend from it -- no
+    the vault's address and, combined with enough signers' seed phrases
+    to open one path, everything needed to spend from it -- no
     DynastyTrust account or server required for either step.<br><br>
-    <strong>Sparrow (recommended for Taproot multileaf):</strong> File &gt;
-    Import Wallet &gt; paste or scan the descriptor above. To spend: File
-    &gt; New Transaction, sign with your seed, export a partial PSBT.
-    Collect PSBTs from co-signers via any channel (a PSBT is safe to
-    share publicly), then merge, finalize, and broadcast from any Sparrow
-    instance.<br><br>
-    <strong>Nunchuk:</strong> imports BSMS, not raw descriptors -- import
-    the descriptor into Sparrow first, then use Sparrow's own File &gt;
-    Export Wallet &gt; BSMS to hand off to Nunchuk.<br><br>
-    <strong>Timelocked paths:</strong> a leaf with an absolute-block
-    timelock requires tx.lock_time to be at or above that leaf's block
-    height -- Sparrow sets this automatically when you choose the
-    corresponding leaf.
+    <strong>Bitcoin Core (the proven way):</strong> on 11 November 2026 a
+    vault made by DynastyTrust was loaded into Bitcoin Core 32.1 on a
+    private test chain, showed the same address, and was spent with
+    Bitcoin Core alone. Use version 29 or newer, fully synced. Get the
+    checksum with <code>getdescriptorinfo</code>, make a watch-only
+    wallet with <code>createwallet "vault" true true</code>, then load
+    the descriptor with <code>importdescriptors</code>. The vault's
+    backup file prints every command in full.<br><br>
+    <strong>To spend:</strong> Bitcoin Core does not read seed words.
+    Each signer signs on a hardware wallet that supports Taproot
+    miniscript (we have not tested one), or turns their words into the
+    account private key on an OFFLINE computer and loads it into a
+    wallet of their own. Then <code>createpsbt</code>,
+    <code>walletprocesspsbt</code>, <code>combinepsbt</code>,
+    <code>finalizepsbt</code>, <code>sendrawtransaction</code>. Get help
+    from a person you trust before typing seed words anywhere.<br><br>
+    <strong>Timelocked paths:</strong> nothing sets the locktime for you.
+    For a dated path the transaction's locktime must be that path's
+    block height, written in the descriptor as <code>after(...)</code>,
+    and the network refuses it until that block has passed.<br><br>
+    <strong>Sparrow and Nunchuk:</strong> we have not seen either load
+    this kind of vault. Sparrow's release notes say it does not accept
+    it; Nunchuk expects a different descriptor form. Do not count on
+    them.
   </div>
 
   <script>(() => {
@@ -17708,6 +17719,7 @@ zone
 zoo`.split("\n");
 
   // apps/web/src/lib/keystore.ts
+  var PASSKEY_INFO = new TextEncoder().encode("dynastytrust-passkey-mnemonic-v1");
   function networkVersions(network) {
     return network === "mainnet" ? { private: 76066276, public: 76067358 } : { private: 70615956, public: 70617039 };
   }

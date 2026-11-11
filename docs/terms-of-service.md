@@ -192,8 +192,9 @@ of end-to-end encrypted messages in either mode.**
 - **Termination does not affect your Bitcoin.** Your vault
   continues to exist on the Bitcoin network independent of our
   service. With your descriptor and seed phrase, you can sign
-  and broadcast transactions from any compatible wallet
-  (Sparrow is the recommended recovery path).
+  and broadcast transactions with Bitcoin Core, the recovery
+  path we have tested. Other wallets may not accept the vault's
+  descriptor; the vault's backup file says which.
 - We may modify these terms. Continued use after notice of
   changes constitutes acceptance.
 

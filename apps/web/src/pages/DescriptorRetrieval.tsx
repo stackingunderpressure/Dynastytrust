@@ -321,9 +321,12 @@ export default function DescriptorRetrieval() {
             Copy
           </Button>
           <div style={{ fontSize: 14, color: colors.sub, marginTop: 8, lineHeight: 1.6 }}>
-            This is the vault's output descriptor -- import it into Sparrow
-            (File &gt; Import Wallet) to reconstruct every address and, with
-            at least one signer's seed phrase, spend from it.
+            This is the vault's output descriptor. Bitcoin Core (version 29 or
+            newer) can load it, show the vault's address and balance, and --
+            with enough signers' seed phrases to open one path -- spend from
+            it. The vault's backup file lists the exact commands. We have not
+            seen Sparrow or Nunchuk load this kind of vault; do not count on
+            them.
           </div>
         </Card>
       )}

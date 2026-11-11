@@ -106,6 +106,45 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Recovery instructions no longer send families to Sparrow -- FIXED
+  2026-11-11.** Every vault backup named Sparrow "the recommended
+  recovery path", said Sparrow sets the timelock for you, and said one
+  signer's seed is enough to spend. Nobody had seen Sparrow load one of
+  these vaults; its release notes (web search, not witnessed) say it
+  rejects a Taproot descriptor with a script tree. Operator approved
+  the replacement wording and chose "apply it and ship". One source of
+  the words now, `apps/web/src/lib/recovery-instructions.ts`: Bitcoin
+  Core as the proven path with the nine commands in full and the right
+  network flag, that Core does not read seed words, that the locktime
+  is set by hand, and "do not count on" Sparrow or Nunchuk. Used by the
+  vault backup and the on-chain recovery note
+  (`descriptor-backup.ts`); the same substance, shortened, in the
+  offline recovery tool (`tools/legacy-recovery/template.html`,
+  rebuilt), `pages/DescriptorRetrieval.tsx`, the vault PDF's five steps
+  (`netlify/functions/vault-pdf.js`), two teaching lines
+  (`lib/literacy.ts` and their copy in `netlify/functions/assistant.js`)
+  and `docs/terms-of-service.md`. "At least one signer's seed" is now
+  "enough signers' seed phrases to open one path".
+  The proof grew to 13 checks: the 13th follows the written steps
+  exactly -- listunspent, createpsbt with the locktime, two people
+  signing in two separate wallets, combinepsbt, finalizepsbt,
+  sendrawtransaction -- on a dated path, mined.
+  Mechanism: `scripts/test-recovery-instructions.mjs` (in `npm test`)
+  fails if the instructions name a Bitcoin Core command the proof does
+  not run, or if a backup recommends Sparrow or Nunchuk again.
+  SEEN: a real backup file printed and read; the offline tool opened
+  at 375px, new text present, no overflow, no page errors.
+  NOT SEEN: the PDF rendered (syntax-checked only; step bodies kept
+  under 200 characters to fit their two-line slots, by count not by
+  eye); the recovered-descriptor card on the Retrieve page (it only
+  shows after a real recovery); Sparrow actually refusing a vault; any
+  of the nine commands on mainnet or signet, or with a hardware wallet.
+  NOT changed: tranche backups say the steps were tested with a vault's
+  descriptor, not a tranche's; older docs under docs/ that mention
+  Sparrow as a design intention.
+  Measured: npm test exit 0, 31 suites; lint 0 errors / 11 warnings;
+  typecheck 10 = the same 10 as before; build green.
+
 - **A vault stands on its own in Bitcoin Core -- PROVEN 2026-11-11 on
   a private test chain.** Operator asked whether Sparrow or Bitcoin
   Core would recognise the same address and signing. New script

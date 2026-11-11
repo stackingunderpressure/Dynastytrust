@@ -129,14 +129,16 @@ const wallet = (name, holders) => {
 wallet('everyday', [0, 1, 2]);
 wallet('kids', [4, 5]);
 wallet('lone-shared', [0]);
+wallet('friend-a', [6]);
+wallet('friend-b', [7]);
 cli(null, 'createwallet', 'watch', true, true);
 assert.equal(cli('watch', 'importdescriptors', [{ desc: exportDesc, timestamp: 'now' }])[0].success, true);
 pass('Core imports the vault watch-only, and as three wallets each holding only some of the seeds');
 
 const fund = () => { const txid = cli('miner', 'sendtoaddress', vaultAddr, 1); mine(1); const tx = cli('miner', 'gettransaction', txid, true, true); return { txid, vout: tx.decoded.vout.findIndex(o => o.scriptPubKey.hex === ourSpk) }; };
-const coins = [fund(), fund(), fund(), fund()];
-assert.equal(cli('watch', 'getbalance'), 4);
-pass('Core sees the deposits: watch-only balance 4.00000000');
+const coins = [fund(), fund(), fund(), fund(), fund()];
+assert.equal(cli('watch', 'getbalance'), 5);
+pass('Core sees the deposits: watch-only balance 5.00000000');
 
 const dest = cli('miner', 'getnewaddress', '', 'bech32m');
 const draft = (coin, locktime) => cli(null, 'createpsbt', [{ txid: coin.txid, vout: coin.vout, sequence: 0xfffffffe }], [{ [dest]: 0.999 }], locktime);
@@ -206,6 +208,25 @@ const confirmed = (txid) => cli(null, 'getrawtransaction', txid, 1).confirmation
   const txid2 = cli(null, 'sendrawtransaction', f.hex); mine(1);
   assert.ok(confirmed(txid2));
   pass('a spend our compiler built is signed and finalized by Core instead of our signer, and mined');
+}
+
+// 4. The written recovery instructions, step for step: two people on two
+// separate computers, each holding one seed, a dated path.
+{
+  const coin = cli('watch', 'listunspent').find(u => u.txid === coins[4].txid);
+  assert.ok(coin && coin.amount === 1);
+  const height = cli(null, 'getblockcount');
+  if (height < 26_300) mine(26_300 - height);
+  const unsigned = cli(null, 'createpsbt', [{ txid: coin.txid, vout: coin.vout, sequence: 4294967294 }], [{ [dest]: 0.9999 }], 26_300);
+  const a = cli('friend-a', 'walletprocesspsbt', unsigned);
+  const b = cli('friend-b', 'walletprocesspsbt', unsigned);
+  assert.equal(a.complete, false); assert.equal(b.complete, false);
+  assert.equal(cli(null, 'finalizepsbt', a.psbt).complete, false);
+  const f = cli(null, 'finalizepsbt', cli(null, 'combinepsbt', [a.psbt, b.psbt]));
+  assert.equal(f.complete, true);
+  const txid = cli(null, 'sendrawtransaction', f.hex); mine(1);
+  assert.ok(confirmed(txid));
+  pass('the written steps: listunspent, createpsbt with the locktime, two people sign in separate wallets, combinepsbt, finalizepsbt, sendrawtransaction -- mined');
 }
 
 console.log(`\nbitcoin-core-proof OK (${n} checks) against ${version}`);

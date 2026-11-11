@@ -3,8 +3,8 @@
  * compiled vault's descriptor + parameters.
  *
  * The descriptor alone is enough to reconstruct addresses and monitor
- * a vault from any Bitcoin wallet that supports miniscript (Sparrow,
- * Nunchuk, Bitcoin Core). Combined with one party's mnemonic + the
+ * a vault from Bitcoin Core (proven, scripts/bitcoin-core-proof.mjs;
+ * Sparrow and Nunchuk are NOT proven -- see recovery-instructions.ts). Combined with one party's mnemonic + the
  * policy parameters, it's enough to spend. So every member should
  * have this file on paper / in cold storage / on a USB.
  *
@@ -25,6 +25,10 @@
 import type { Vault, DistributionWallet, LeafSpec } from './api';
 import { downloadTextFile } from './download-file';
 import { formatDescriptorFingerprint } from './descriptor-fingerprint';
+import { coreRecoveryLines } from './recovery-instructions';
+
+// A line of lib/recovery-instructions.ts as a comment line of a backup file.
+const asComment = (l: string) => (l ? `# ${l}` : '#');
 
 export interface VaultBackupLike {
   name: string;
@@ -120,7 +124,7 @@ export function vaultBackupText(v: VaultBackupLike): string {
     `# Receive address`,
     v.address ?? '(not compiled yet)',
     ``,
-    `# Output descriptor (Sparrow import -- primary recovery path)`,
+    `# Output descriptor (load it into Bitcoin Core -- see RECOVERY below)`,
     v.descriptor ?? '(not compiled yet)',
     ``,
     `# Descriptor fingerprint -- write this down SEPARATELY from this file`,
@@ -144,28 +148,10 @@ export function vaultBackupText(v: VaultBackupLike): string {
     `# The coins in this vault are independent of DynastyTrust. You`,
     `# can monitor and spend from this vault with only:`,
     `#   1. The output descriptor above`,
-    `#   2. At least one signer's seed phrase (metal backup)`,
+    `#   2. Enough signers' seed phrases (metal backups) to open one`,
+    `#      path -- see "Spending rules" above for how many`,
     `#`,
-    `# SPARROW (recommended for Taproot multileaf):`,
-    `#   File > Import Wallet > Paste or scan the descriptor above.`,
-    `#   Sparrow reconstructs every address the vault can receive`,
-    `#   on. To spend: File > New Transaction, sign with your seed,`,
-    `#   export a partial PSBT. Collect PSBTs from co-signers via`,
-    `#   any channel (Signal, USB, QR, email -- the PSBT is safe`,
-    `#   to share publicly). Merge + finalize + broadcast from any`,
-    `#   Sparrow instance.`,
-    `#`,
-    `# NUNCHUK:`,
-    `#   Nunchuk imports BSMS (Bitcoin Secure Multisig Setup), not`,
-    `#   raw descriptors, and DynastyTrust does not export BSMS`,
-    `#   directly. Import the descriptor above into Sparrow first`,
-    `#   (File > Import Wallet > paste descriptor), then use Sparrow's`,
-    `#   own File > Export Wallet > BSMS to hand off to Nunchuk.`,
-    `#`,
-    `# TIMELOCKED PATHS:`,
-    `#   Recovery and inheritance paths require tx.lock_time to be`,
-    `#   >= the absolute block heights above. Sparrow sets this`,
-    `#   automatically when you choose the corresponding leaf.`,
+    ...coreRecoveryLines(v.network).map(asComment),
     `#`,
     `# LEGACY RECOVERY (long-horizon descriptor recovery):`,
     `#   If a keyholder here published a Legacy Recovery share for their`,
@@ -278,27 +264,11 @@ export function legacyOnChainRecoveryNoteText(n: LegacyOnChainRecoveryNoteLike):
     ``,
     `# ONCE YOU HAVE THE DESCRIPTOR`,
     `# The descriptor alone is enough to reconstruct every address this`,
-    `# vault can receive on and, combined with at least one signer's`,
-    `# seed phrase, to spend from it. No DynastyTrust account or server`,
-    `# is needed for either step.`,
+    `# vault can receive on and, combined with enough signers' seed`,
+    `# phrases to open one path, to spend from it. No DynastyTrust`,
+    `# account or server is needed for either step.`,
     `#`,
-    `# SPARROW (recommended for Taproot multileaf):`,
-    `#   File > Import Wallet > Paste or scan the descriptor. Sparrow`,
-    `#   reconstructs every address the vault can receive on. To spend:`,
-    `#   File > New Transaction, sign with your seed, export a partial`,
-    `#   PSBT. Collect PSBTs from co-signers via any channel (Signal,`,
-    `#   USB, QR, email -- a PSBT is safe to share publicly). Merge +`,
-    `#   finalize + broadcast from any Sparrow instance.`,
-    `#`,
-    `# NUNCHUK:`,
-    `#   Nunchuk imports BSMS (Bitcoin Secure Multisig Setup), not raw`,
-    `#   descriptors. Import the descriptor into Sparrow first, then use`,
-    `#   Sparrow's own File > Export Wallet > BSMS to hand off to Nunchuk.`,
-    `#`,
-    `# TIMELOCKED PATHS:`,
-    `#   Any leaf with an absolute-block timelock requires tx.lock_time`,
-    `#   to be >= that leaf's block height. Sparrow sets this`,
-    `#   automatically when you choose the corresponding leaf.`,
+    ...coreRecoveryLines(n.network, 'in the descriptor').map(asComment),
     ``,
     `Address:          ${n.address}`,
     `Derivation path:  ${n.derivationPath}`,
@@ -381,10 +351,10 @@ export function distributionWalletBackupText(
     `# RECOVERY INSTRUCTIONS (if DynastyTrust ever goes offline)`,
     `# ---------------------------------------------------------------`,
     `# Each tranche above is its OWN independent Bitcoin output with`,
-    `# its own descriptor -- import each one separately into Sparrow`,
-    `# (or another miniscript-aware wallet) the same way you would the`,
-    `# main vault's descriptor: File > Import Wallet > paste the`,
-    `# descriptor for that specific tranche.`,
+    `# its own descriptor -- load each one separately into Bitcoin`,
+    `# Core the same way as the main vault's descriptor (the numbered`,
+    `# steps in the main vault's backup file). We have tested those`,
+    `# steps with a vault's descriptor, not with a tranche's.`,
     `#`,
     `# Two ways to spend a given tranche:`,
     `#   1. BENEFICIARY (routine): the beneficiary's own key alone can`,

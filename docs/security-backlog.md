@@ -407,3 +407,32 @@ multi-signature inside one path.
 Left out on purpose: the named-field and Bloc builders; changing an
 existing vault (new rule = new address = Rotate); an anyone-can-spend
 last resort.
+
+## Parked, plan only: an offline "seed words to account key" tool (2026-11-11)
+
+Why: Bitcoin Core is now the proven recovery path, and Core does not
+read seed words. Each signer must turn their words into the account
+private key for the path printed beside their key. Today the backup
+file says "get help from a person you trust". Operator asked for a
+plan, NOT a build.
+
+What it would be: one HTML file, like the existing
+`/dynastytrust-legacy-recovery-tool.html` (same build script pattern,
+`tools/legacy-recovery/build.mjs`), reusing `keystore.ts`'s tested
+derivation. Inputs: the words, the network, the path from the backup
+file. Outputs: the account private key and the ready-to-paste
+descriptor key `[fingerprint/path]xprv/0/0`, plus the fingerprint so
+the person can check it matches the backup file BEFORE using it.
+
+Risks to settle first: it is a page that asks for seed words -- the
+exact thing phishing pages do, so it must never be linked from a
+signed-in screen, must refuse to run when online (or warn loudly), and
+its checksum should be printed in the backup file so a saved copy can
+be checked. A private key shown on screen can be photographed. A
+hardware wallet avoids all of this and stays the better answer where
+one exists.
+
+Proof it would need: the Bitcoin Core proof extended to take the
+tool's output instead of the keys it derives itself.
+
+Left out: any online version; storing anything; signing in the tool.

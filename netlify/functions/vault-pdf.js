@@ -374,7 +374,7 @@ async function buildVaultPDF(vault) {
   // ── Output Descriptor ──────────────────────────────────────────────────────
   p2.drawText('OUTPUT DESCRIPTOR', { x: M, y, size: 8, font: bold, color: GOLD });
   y -= 14;
-  p2.drawText('Import this descriptor into Sparrow Wallet or Nunchuk to watch the vault balance and prepare transactions.',
+  p2.drawText('Load this descriptor into Bitcoin Core (version 29 or newer) to watch the vault balance and prepare transactions.',
     { x: M, y, size: 9, font: regular, color: TEXT_MUTE, maxWidth: W - M * 2 });
   y -= 20;
 
@@ -467,17 +467,17 @@ async function buildVaultPDF(vault) {
   y -= 16;
 
   const steps = [
-    ['1. Import the descriptor', 'Open Sparrow Wallet → File → Import Wallet → Output Descriptor. Paste the descriptor above. This creates a watch-only wallet showing the vault balance.'],
-    ['2. Connect your hardware device', 'Connect your Coldcard, Trezor, or Ledger to Sparrow. The device holds the private key corresponding to your public key above.'],
-    ['3. Build the transaction', 'In Sparrow, go to Send. Enter the destination address and amount. Click Create Transaction. Sparrow builds an unsigned PSBT.'],
+    ['1. Load the descriptor', 'In Bitcoin Core 29 or newer: getdescriptorinfo, createwallet, importdescriptors. That gives a watch-only wallet showing the balance. The vault backup file prints each command. Tested 11 Nov 2026.'],
+    ['2. Get each signer ready', 'Bitcoin Core does not read seed words. Each signer uses a Taproot-miniscript hardware wallet (untested by us), or turns their words into an account key on an OFFLINE computer.'],
+    ['3. Build the transaction', 'createpsbt with the coin, the destination, the amount and the locktime: 0 for a path open now, the path\'s block height for a dated path. Nothing sets it for you.'],
     ['4. Sign with required devices', (() => {
-      if (!isLeafShape) return `This vault requires ${vault.founder_quorum || 2} of ${(vault.founder_keys || []).length} founder signatures. Each signer must sign the PSBT on their hardware device.`;
+      if (!isLeafShape) return `This vault requires ${vault.founder_quorum || 2} of ${(vault.founder_keys || []).length} founder signatures. Each signer signs the PSBT with walletprocesspsbt.`;
       const immediate = vault.leaves.find(l => l.unlock?.type === 'immediate');
       return immediate
-        ? `This vault's "${immediate.label || immediate.id}" path requires ${immediate.quorum} of ${(immediate.keys || []).length} signatures for everyday spending. Each signer must sign the PSBT on their hardware device.`
-        : 'Check which path this spend uses on the Trust tab, then gather the required signers for that path -- each must sign the PSBT on their hardware device.';
+        ? `This vault's "${immediate.label || immediate.id}" path requires ${immediate.quorum} of ${(immediate.keys || []).length} signatures for everyday spending. Each signer signs the PSBT with walletprocesspsbt.`
+        : 'Check which path this spend uses on the Trust tab, then gather the required signers for that path -- each signs the PSBT with walletprocesspsbt.';
     })()],
-    ['5. Broadcast', 'Once enough signatures are collected, Sparrow will allow you to broadcast the transaction to the Bitcoin network.'],
+    ['5. Broadcast', 'combinepsbt, finalizepsbt (must say complete: true), sendrawtransaction. We have not seen Sparrow or Nunchuk load this kind of vault; do not count on them.'],
   ];
 
   for (const [title, body] of steps) {
