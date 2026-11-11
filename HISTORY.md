@@ -112,8 +112,8 @@ signers" as not yet verified. Item 1 above postdates it.
   `scripts/bitcoin-core-proof.mjs` (not in `npm test`; needs a Bitcoin
   Core download, run with BITCOIN_BIN set). Bitcoin Core 32.1.0,
   release checksum matched, regtest. A five-path vault with one key on
-  three paths, compiled by the real Rust compiler. 11 checks, all
-  passed on a real run: Core derives our exact output script from the
+  three paths, compiled by the real Rust compiler. 12 checks, all
+  passed on a real run (11 first, a 12th added the same day): Core derives our exact output script from the
   compiler's raw descriptor AND from the exported
   `[fingerprint/path]xpub/0/0` form; imports it watch-only and as
   wallets holding only some seeds; sees deposits; spends the everyday
@@ -129,6 +129,21 @@ signers" as not yet verified. Item 1 above postdates it.
   NOT SEEN: mainnet or signet; a hardware wallet; Core fed a seed
   phrase (it cannot read one -- the test handed it account xprvs);
   Sparrow; Nunchuk; an "if untouched" (relative) path; a decay path.
+  12th check, for Nunchuk: the same descriptor with every key written
+  ranged (`/0/*`) gives OUR address at index 0 and a different address
+  at index 1. Read from libnunchuk `src/descriptor.cpp` through a web
+  summary, NOT witnessed in Nunchuk: its key pattern expects an
+  optional suffix ending in `*` and it re-builds the descriptor and
+  requires a string match, so our fixed `/0/0` keys are the likely
+  reason the operator's import failed; the literal unspendable top key
+  we use is one it accepts. A ranged copy would let Nunchuk hand out
+  addresses at index 1+ and send change there, which this app does not
+  watch -- the reason docs/sovereignty-education-bot.md gives for one
+  fixed address.
+  ALSO FOUND: Sparrow instructions are in more places than the backup
+  file -- `tools/legacy-recovery/template.html`,
+  `pages/DescriptorRetrieval.tsx`, `netlify/functions/vault-pdf.js`
+  (a five-step Sparrow walk-through), `netlify/functions/assistant.js`.
   FOUND, NOT YET CHANGED: the backup file every vault downloads
   (`apps/web/src/lib/descriptor-backup.ts`, two places) and
   `docs/terms-of-service.md` name Sparrow as the recommended recovery

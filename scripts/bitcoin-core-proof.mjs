@@ -107,6 +107,17 @@ assert.equal(spkOf(exportDesc), ourSpk);
 const vaultAddr = cli(null, 'deriveaddresses', exportDesc)[0];
 pass(`Core derives our exact output script from the exported form ([fingerprint/path]xpub/0/0): ${ourSpk}`);
 
+// The same vault written the way many-address wallets (Nunchuk) expect:
+// every key ranged. Its first receive address must be our address; its
+// second must not be, and is an address this app does not watch.
+{
+  const ranged = withSum(swap(s => s.pub.replace(/\/0\/0$/, '/0/*')));
+  const [first, second] = cli(null, 'deriveaddresses', ranged, [0, 1]);
+  assert.equal(cli(null, 'validateaddress', first).scriptPubKey, ourSpk);
+  assert.notEqual(cli(null, 'validateaddress', second).scriptPubKey, ourSpk);
+  pass('a ranged (many-address) version of the descriptor gives our address at index 0 and a different one at index 1');
+}
+
 // 2. Wallets holding only some seeds, like real people.
 const wallet = (name, holders) => {
   cli(null, 'createwallet', name, false, true);
