@@ -35,7 +35,11 @@ const BIN = process.env.BITCOIN_BIN, STATE = process.env.STATE, phase = process.
 if (!BIN || !STATE || !['setup', 'spend'].includes(phase)) { console.error('Set BITCOIN_BIN and STATE; pass setup or spend.'); process.exit(2); }
 const COMPILER = process.env.COMPILER_URL || 'http://127.0.0.1:8899';
 const SECRET = process.env.COMPILER_SECRET || 'testsecret';
-const API = 'https://mempool.space/signet/api';
+// CHAIN=testnet4 runs the same test on testnet4: both networks write
+// addresses the same way (tb1...), so a coin meant for signet can land
+// there, as the operator's did on 2026-11-11.
+const CHAIN = process.env.CHAIN === 'testnet4' ? 'testnet4' : 'signet';
+const API = `https://mempool.space/${CHAIN}/api`;
 const toHex = (b) => Array.from(b).map(x => x.toString(16).padStart(2, '0')).join('');
 const fromHex = (h) => Uint8Array.from(h.match(/../g).map(x => parseInt(x, 16)));
 const get = async (path) => { const r = await fetch(API + path); if (!r.ok) throw new Error(`${path} -> ${r.status}`); const t = await r.text(); try { return JSON.parse(t); } catch { return t; } };
@@ -62,9 +66,9 @@ const returnAddr = btc.p2wpkh(back.publicKey, btc.TEST_NETWORK).address;
 
 // ---- Bitcoin Core, signet mode, no network
 const DATADIR = mkdtempSync(join(tmpdir(), 'dt-signet-'));
-const daemon = spawn(join(BIN, 'bitcoind'), ['-signet', `-datadir=${DATADIR}`, '-connect=0', '-listen=0', '-dnsseed=0', '-fallbackfee=0.0001', '-printtoconsole=0'], { stdio: 'ignore' });
+const daemon = spawn(join(BIN, 'bitcoind'), [`-${CHAIN}`, `-datadir=${DATADIR}`, '-connect=0', '-listen=0', '-dnsseed=0', '-fallbackfee=0.0001', '-printtoconsole=0'], { stdio: 'ignore' });
 const cli = (wallet, ...args) => {
-  const base = ['-signet', `-datadir=${DATADIR}`, ...(wallet ? [`-rpcwallet=${wallet}`] : [])];
+  const base = [`-${CHAIN}`, `-datadir=${DATADIR}`, ...(wallet ? [`-rpcwallet=${wallet}`] : [])];
   const out = execFileSync(join(BIN, 'bitcoin-cli'), [...base, ...args.map(a => (typeof a === 'string' ? a : JSON.stringify(a)))], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   try { return JSON.parse(out); } catch { return out; }
 };
@@ -87,14 +91,14 @@ const withSum = (d) => `${d}#${cli(null, 'getdescriptorinfo', d).checksum}`;
 const exportDesc = withSum(swap(s => s.pub));
 const coreAddr = cli(null, 'deriveaddresses', exportDesc)[0];
 assert.equal(coreAddr, compiled.address);
-pass(`Bitcoin Core, in signet mode, derives the same address as our compiler: ${coreAddr}`);
+pass(`Bitcoin Core, in ${CHAIN} mode, derives the same address as our compiler: ${coreAddr}`);
 state.address = compiled.address; state.backupHeight = state.policy.leaves[1].unlock.blocks;
 writeFileSync(STATE, JSON.stringify(state, null, 1), { mode: 0o600 });
 
 if (phase === 'setup') {
   const utxos = await get(`/address/${state.address}/utxo`);
-  console.log(`\nFund this signet address: ${state.address}`);
-  console.log(`coins there now: ${utxos.length}; signet tip ${tip}; backup path opens at block ${state.backupHeight}`);
+  console.log(`\nFund this ${CHAIN} address: ${state.address}`);
+  console.log(`coins there now: ${utxos.length}; ${CHAIN} tip ${tip}; backup path opens at block ${state.backupHeight}`);
   process.exit(0);
 }
 
@@ -133,12 +137,13 @@ pass('one signer alone: Core cannot complete the spend');
 
 // The dated path: Core signs it, the public network refuses it.
 {
+  assert.ok(tip < state.backupHeight - 100, 'the backup path is open or nearly open on this chain; this check would spend the coin');
   const f = signedBy(['signer-0', 'signer-2'], state.backupHeight);
   assert.equal(f.complete, true);
   const r = await broadcast(f.hex);
   assert.equal(r.ok, false, `the network ACCEPTED a backup-path spend ${state.backupHeight - tip} blocks early: ${r.text}`);
   assert.match(r.text, /non-final/);
-  pass(`backup path, ${state.backupHeight - tip} blocks before it opens: signed by Core, refused by signet as non-final`);
+  pass(`backup path, ${state.backupHeight - tip} blocks before it opens: signed by Core, refused by ${CHAIN} as non-final`);
   assert.equal(signedBy(['signer-0', 'signer-2'], 0).complete, false);
   pass('backup path with no locktime: Core cannot complete it');
 }
@@ -148,11 +153,11 @@ pass('one signer alone: Core cannot complete the spend');
   const f = signedBy(['signer-0', 'signer-1'], 0);
   assert.equal(f.complete, true);
   const r = await broadcast(f.hex);
-  assert.equal(r.ok, true, `signet refused the everyday spend: ${r.text}`);
+  assert.equal(r.ok, true, `${CHAIN} refused the everyday spend: ${r.text}`);
   assert.match(r.text, /^[0-9a-f]{64}$/);
   state.spendTxid = r.text; writeFileSync(STATE, JSON.stringify(state, null, 1), { mode: 0o600 });
-  pass(`everyday path: signed by two separate Core wallets, accepted by signet. txid ${r.text}`);
-  console.log(`\nLook it up: https://mempool.space/signet/tx/${r.text}`);
+  pass(`everyday path: signed by two separate Core wallets, accepted by ${CHAIN}. txid ${r.text}`);
+  console.log(`\nLook it up: https://mempool.space/${CHAIN}/tx/${r.text}`);
 }
 console.log(`\nsignet-core-spend OK (${n} checks)`);
 process.exit(0);

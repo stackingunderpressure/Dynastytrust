@@ -106,6 +106,34 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **A vault spent on a PUBLIC test network with signatures made by
+  Bitcoin Core alone -- SEEN 2026-11-11.** Operator asked for a signet
+  test. `scripts/signet-core-spend.mjs`: throwaway keys (kept outside
+  the repo), a two-path vault from the real compiler, Bitcoin Core
+  32.1 running offline in the network's own mode. Core derived the
+  same address in signet mode. Four signet faucets refused an
+  automated client (bot checks; not worked around), so the operator
+  funded the address -- and the coin arrived on TESTNET4, not signet
+  (both write addresses as tb1...; found by looking for it on each
+  test network). The script took a CHAIN switch and ran there.
+  5 checks, all passed on the real run: Core in testnet4 mode derives
+  the same address; one signer alone cannot complete; the dated backup
+  path, signed by Core 196,013 blocks early, is REFUSED by the public
+  network as non-final; the backup path with no locktime cannot be
+  completed; the everyday path, signed by two people in two separate
+  Core wallets, is ACCEPTED. Spent coin
+  ab51349c92f312dd567aab4a996c4a2fbd80bbd01bd7cb61077a64f78d76b70e:1
+  (364,351 sats), spend
+  e91e318cbe4c826986f7ed93e5c6cd5c012257ea27b01b0d7afd19a57280d2c8,
+  read back from the explorer: two 64-byte signatures, locktime 0,
+  fee 500, unconfirmed at the time of writing.
+  LIMITS: Core was offline (a sandbox cannot reach peers), so the
+  explorer supplied the coin's amount and script and carried the
+  broadcast; address, signatures and finalizing were Core's. A dated
+  path SUCCEEDING is still proven only on the private chain. Signet
+  itself saw the address check only, no coin. No hardware wallet.
+  Nothing in the app changed.
+
 - **Recovery instructions no longer send families to Sparrow -- FIXED
   2026-11-11.** Every vault backup named Sparrow "the recommended
   recovery path", said Sparrow sets the timelock for you, and said one
