@@ -38,6 +38,7 @@ import { normalizePsbt } from "../lib/psbt-format";
 import { downloadVault, downloadDistributionWalletBackup } from "../lib/descriptor-backup";
 import { formatDescriptorFingerprint } from "../lib/descriptor-fingerprint";
 import { DescriptorQr } from "../components/DescriptorQr";
+import { RotatePathVault } from "../components/RotatePathVault";
 import { pubkeyFromXpub, fingerprintFromXpub } from "../lib/xpub";
 import { isLeafListVault } from "../lib/vault-spending-paths";
 import { buildPsbtKeyOrigins } from "../lib/descriptor-keys";
@@ -189,6 +190,11 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
   const [tab, setTab] = useState<"overview" | "send" | "history" | "members" | "activity" | "requests" | "messages" | "trust">("overview");
   const [archiving, setArchiving] = useState(false);
   const [showRotate, setShowRotate] = useState(false);
+  // Bumped when a rotation dialog closes, to remount the overview: its
+  // succession banner looks the successor up once on mount, so without
+  // this the old vault showed no warning and no Sweep button until the
+  // page was reloaded (caught walking the flow, 2026-11-11).
+  const [rotationTick, setRotationTick] = useState(0);
   const [copied, setCopied] = useState<string | null>(null);
   const [sendPrefill, setSendPrefill] = useState<SendPrefill | null>(null);
   const [myMember, setMyMember] = useState<VaultMember | null>(null);
@@ -401,7 +407,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
           {APP_NAME}
         </span>
         <div style={{ display: "flex", gap: 6 }}>
-          {vault.status === "compiled" && !isLeafListVault(vault) && vault.bloc_policy == null && (
+          {vault.status === "compiled" && vault.bloc_policy == null && (
             <Button
               variant="ghost"
               size="sm"
@@ -423,7 +429,17 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
           </Button>
         </div>
       </header>
-      {showRotate && (
+      {showRotate && isLeafListVault(vault) && (
+        <RotatePathVault
+          vault={vault}
+          onClose={() => { setShowRotate(false); setRotationTick(t => t + 1); void load(); }}
+          onOpenNew={v => {
+            setShowRotate(false);
+            navigate(`/vaults/${v.id}`, { state: { vault: v } });
+          }}
+        />
+      )}
+      {showRotate && !isLeafListVault(vault) && (
         <RotateVaultModal
           vault={vault}
           onClose={() => setShowRotate(false)}
@@ -643,6 +659,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
 
         {tab === "overview" && (
           <OverviewTab
+            key={rotationTick}
             vault={vault}
             copy={copy}
             copied={copied}
@@ -4289,6 +4306,16 @@ function SuccessionBanner({
           >
             Open predecessor
           </Button>
+        </div>
+      )}
+      {successor && (
+        // Standing warning, by the operator's choice (2026-11-11): making
+        // the new vault protects nothing. Until the coins are moved, this
+        // vault's own dates still decide who can spend them.
+        <div style={{ fontSize: 13, color: colors.orange, lineHeight: 1.55 }}>
+          {successor.address
+            ? "The rotation is not finished. Any coins still in this vault are under this vault's dates until you move them to the new one."
+            : "The new vault is not finalized yet, so nothing has changed: this vault's dates still apply."}
         </div>
       )}
       {successor && (

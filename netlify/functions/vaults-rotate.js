@@ -9,8 +9,14 @@
  *     founder_quorum?: number,
  *     heir_quorum?: number,
  *     recovery_quorum?: number | null,
+ *     leaf_offsets?: { [leaf id]: number },   // path-builder vaults only
  *   }
  * }
+ *
+ * A path-builder ("leaf-list") vault is carried forward by _rotate.js:
+ * same paths, same keys, same quorums; only the dated paths' waiting
+ * periods change, to the offsets in `leaf_offsets` (blocks from the
+ * successor's compile, chosen in the owner's browser).
  *
  * Creates a successor DRAFT vault that inherits the predecessor's
  * members, trust document, address type, network, and shape.
@@ -29,9 +35,10 @@
 import { requireUser, json } from "./_auth.js";
 import { recordEvent } from "./_ledger.js";
 import { getSupabaseAdmin } from "./_supabase.js";
+import { rotatedLeaves } from "./_rotate.js";
 
 const VAULT_FIELDS =
-  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc, predecessor_id, leaves, bloc_policy";
+  "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc, predecessor_id, leaves, bloc_policy, key_labels";
 
 export async function handler(event) {
   if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
@@ -61,22 +68,22 @@ export async function handler(event) {
   if (src.status !== "compiled") {
     return json(400, { error: "Only compiled vaults can be rotated" });
   }
-  // 2026-08-25 fix: this endpoint always built the successor draft in
-  // the named-field shape (founder_quorum/founder_keys/etc.), never
-  // carrying forward vault.leaves or vault.bloc_policy -- rotating a
-  // leaf-list or Bloc vault silently produced a broken standard-shape
-  // draft (founder_quorum at its bare default, 0 keys, no leaves/policy
-  // at all) with no way to recover the original structure. Refuse
-  // outright rather than silently corrupting the vault's shape; a real
-  // "carry this shape's own structure forward" rotation is a larger,
-  // separate feature not built here.
-  const srcIsLeafList = Array.isArray(src.leaves) && src.leaves.length > 0;
-  if (srcIsLeafList || src.bloc_policy != null) {
+  // A Dynasty Bloc vault's policy cannot be carried forward here yet;
+  // refuse rather than produce a draft of the wrong shape (the bug this
+  // guard was first added for, 2026-08-25).
+  if (src.bloc_policy != null) {
     return json(400, {
-      error: srcIsLeafList
-        ? "Rotating a custom leaf-list vault isn't supported yet -- its spending paths can't be safely carried forward automatically. Build a fresh vault with the same leaves instead."
-        : "Rotating a Dynasty Bloc vault isn't supported yet -- its policy can't be safely carried forward automatically. Build a fresh Bloc vault instead.",
+      error: "Rotating a Dynasty Bloc vault isn't supported yet -- its policy can't be safely carried forward automatically. Build a fresh Bloc vault instead.",
     });
+  }
+  const srcIsLeafList = Array.isArray(src.leaves) && src.leaves.length > 0;
+  let carriedLeaves = null;
+  if (srcIsLeafList) {
+    try {
+      carriedLeaves = rotatedLeaves(src.leaves, overrides.leaf_offsets);
+    } catch (e) {
+      return json(400, { error: e.message });
+    }
   }
 
   const { data: existingMembers, error: memErr } = await supabase
@@ -93,7 +100,25 @@ export async function handler(event) {
   const recoveryAfter    = overrides.recovery_after    ?? 0;
   const inheritanceAfter = overrides.inheritance_after ?? 0;
 
-  const newRow = {
+  const newRow = srcIsLeafList ? {
+    // Path-builder shape: the same draft row createLeavesDraft makes,
+    // with every path's keys already in place. compile-leaves.js turns
+    // it into a vault exactly as it does any other leaves draft.
+    user_id: u.userId,
+    name: overrides.name || `${src.name} v2`,
+    network: src.network,
+    address_type: src.address_type,
+    address: null,
+    descriptor: null,
+    miniscript_policy: null,
+    leaves: carriedLeaves,
+    consent_keys: src.consent_keys ?? [],
+    consent_quorum: src.consent_quorum ?? null,
+    key_labels: src.key_labels ?? [],
+    status: "draft",
+    trust_doc: src.trust_doc ?? {},
+    predecessor_id: src.id,
+  } : {
     user_id: u.userId,
     name: overrides.name || `${src.name} v2`,
     network: src.network,
@@ -166,7 +191,7 @@ export async function handler(event) {
     vault_id: created.id,
     user_id: u.userId,
     event_type: "rotated_from_predecessor",
-    metadata: { predecessor_id: vault_id, predecessor_name: src.name },
+    metadata: { predecessor_id: vault_id, predecessor_name: src.name, ...(srcIsLeafList ? { shape: "leaves", leaf_offsets: overrides.leaf_offsets } : {}) },
   });
   await recordEvent(supabase, {
     vault_id,

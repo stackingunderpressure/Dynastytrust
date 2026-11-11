@@ -708,6 +708,9 @@ export const api = {
         founder_quorum?: number;
         heir_quorum?: number;
         recovery_quorum?: number | null;
+        /** Path-builder vaults only: blocks from the successor's compile
+         *  for each dated path, keyed by path id (lib/rotate-plan.ts). */
+        leaf_offsets?: Record<string, number>;
       };
     }) =>
       req<{ ok: true; vault: Vault }>(`/vaults-rotate`, {

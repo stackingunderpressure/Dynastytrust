@@ -106,6 +106,59 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Rotate for vaults built with the path builder (J2f) -- BUILT
+  2026-11-11, on the branch.** A vault's dates are fixed in its script;
+  the only way to push an inheritance date out is a new vault with
+  later dates and the coins moved. No vault the wizard builds could be
+  rotated: the button was hidden and the server refused the shape.
+  Operator's decisions (chips): carry the same keys over with a confirm
+  step; shift every dated path together; a standing warning on the old
+  vault until the coins are moved.
+  Server: `_rotate.js` (pure) carries the paths forward changing ONE
+  thing, each dated path's wait; `vaults-rotate.js` inserts a leaves
+  draft (same row `createLeavesDraft` makes, keys already in place,
+  consent rule, key labels, trust doc, predecessor link). Bloc stays
+  refused; the named-field branch is untouched.
+  Browser: `components/RotatePathVault.tsx` -- pick Keep / +1 / +3 / +5
+  years, see each path's old and new date and every key with its name
+  and fingerprint, tick to confirm; then rotate -> compile-leaves ->
+  TWO checks before the vault is accepted: the compiled heights against
+  tip + the chosen wait from two chain sources (the same
+  `timelock-check.ts` gate every new vault passes), and
+  `rotate-plan.ts`'s `checkRotatedVault`, the compiled successor
+  against the old vault field by field (same network, paths, keys in
+  order, quorums, step-downs, untouched-for rules, consent rule; a new
+  address; no date earlier than before). A refused successor is DELETED
+  so the old vault's Sweep button cannot point at it. The new vault's
+  own backup must be saved before the dialog lets go. The old vault
+  shows the standing warning.
+  Tests: `test-rotate.mjs` (4 cases: plan, plan refusals, server
+  carry-forward, 15 tampered successors refused);
+  `test-rotate-handler.mjs` (3 cases: the REAL handler run against
+  stand-ins for sign-in, database and ledger -- what it writes, ten
+  refusals that write nothing, and the named-field branch unchanged).
+  Both in `npm test`.
+  WALKED at 375px in a production build with stand-in services: plan,
+  gating on the confirm tick, create, the backup gate and download,
+  the old vault's warning and Sweep button; and a server that swaps a
+  key -- refused, deleted. The walk caught two things, both fixed: the
+  old vault showed no warning or Sweep button until reloaded (the
+  banner looked its successor up once), and a refused successor stayed
+  linked.
+  NOT SEEN: any of it against the real backend or the real compiler
+  in this flow (compile-leaves itself is unchanged and the offline
+  harness covers leaf-list compile and spend); a real sweep between a
+  real pair of vaults. Walk it on signet before trusting it with coins.
+  NOT in this slice: Bloc rotate; changing signers or quorums while
+  rotating; moving the coins automatically; telling other signers;
+  re-publishing long-horizon recovery (the dialog says to); cleaning
+  up a draft left behind if the dialog is closed after a failed
+  finalize (it can be finished from the draft, or deleted).
+  Measured: npm test exit 0, 24 suites; lint 0 errors / 11 warnings;
+  typecheck 10 = baseline; build green.
+  DEPLOY NOTE: the path-builder inheritance prompts went to main as
+  89d2a07; `verify:live` PASS against that commit.
+
 - **The inheritance moment for vaults built with the path builder --
   BUILT 2026-11-11, on the branch.** The J2 fixes below covered only
   the older named-field shape; the wizard builds leaf-list vaults,
