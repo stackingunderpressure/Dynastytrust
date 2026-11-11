@@ -106,6 +106,21 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Deploy and evidence record, 2026-11-11 13:00 UTC.**
+  Family joins went to main as d19b064. DB deploy run 73 succeeded and
+  the three new columns answer on the live REST API; `verify:live`
+  PASS against d19b064.
+  FIRST BITCOIN CONFIRMATION OF OUR OWN RECEIPT: the calendar receipt
+  saved from a live submission on 2026-11-10 (listed under 15c as "not
+  yet seen") was upgraded by alice.btc.calendar.opentimestamps.org to
+  Bitcoin block 975,362. Replayed with our own reader: our digest
+  leads to the calendar commitment, the commitment leads to the block's
+  merkle root, and mempool.space and blockstream.info agree on that
+  root. That is the whole path, end to end, on a real block. Still not
+  seen: the scheduled `ledger-anchor` job itself running on Netlify
+  (it was due at 09:17 UTC today; the anchors table cannot be read
+  without a member session, so look at the sealed record screen).
+
 - **Family joins with their own keys (J3, with 15e's identity gates) --
   BUILT 2026-11-11, on the branch, NOT on main.** For a vault built
   with the wizard, every key had to come from the owner's own browser
