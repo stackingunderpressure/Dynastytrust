@@ -15,6 +15,7 @@ import { KeySafety } from '../components/KeySafety';
 import { isLeafListVault } from '../lib/vault-spending-paths';
 import { downloadVault } from '../lib/descriptor-backup';
 import { keyNetworkMatches } from '../lib/network';
+import { keyKind, pathNotes, vaultNote, type RiskNote, type RiskPath } from '../lib/path-risk';
 import { blocksToHuman, TIMELOCK_PRESETS, MIN_RECOVERY_BLOCKS } from '../lib/blocks';
 import { approxWallclockDate, blocksUntilDate, verifiedTipHeight } from '../lib/chain';
 import { checkAbsoluteTimelocks, type TimelockPair } from '../lib/timelock-check';
@@ -826,7 +827,9 @@ export default function VaultWizard() {
         const enabled = leafDrafts.filter(l => l.enabled);
         const leavesWithKeys = enabled.map(l => leafDraftToSpec(l, (leafKeys[l.id] ?? []).map(toPubkeyHex)));
         await api.vaults.updateLeaves(draftVault.id, leavesWithKeys);
-        const allLeafKeys = enabled.flatMap(l => leafKeys[l.id] ?? []);
+        // One key may be on several paths; its origin is sent once.
+        const allLeafKeys = enabled.flatMap(l => leafKeys[l.id] ?? [])
+          .filter((k, i, all) => all.findIndex(o => o.keyId === k.keyId) === i);
         const res = await api.vaults.compileLeaves(draftVault.id, buildPsbtKeyOrigins(allLeafKeys));
         await assertTimelocks(draftVault.network, enabled
           .filter(l => l.unlockType !== 'immediate')
@@ -2144,10 +2147,34 @@ function KeysStep({
   ].map(k => k.keyId));
   const availableKeys = allKeys.filter(k => !claimed.has(k.keyId) && keyNetworkMatches(k.network, network));
 
-  // Live cross-role key-reuse warnings -- see vault-education.ts's
-  // keyReuseNotes for the shared computation both shapes below use.
-  const leafReuseNotes = keyReuseNotes(
-    enabledLeaves.map(l => ({ id: l.id, label: l.label, keys: leafKeys[l.id] ?? [] })),
+  // Path-builder vaults: one key may sit on more than one path
+  // (2026-11-11). The compiler has always allowed it -- it checks keys
+  // are distinct within a path, not across them -- and the offline
+  // harness spends a five-path vault with a shared key. What the picker
+  // owes the owner in return is the consequence, computed from these
+  // paths and shown the moment the key is added: lib/path-risk.ts.
+  const riskPaths: RiskPath[] = enabledLeaves.map(l => ({
+    id: l.id,
+    label: l.label,
+    slots: l.plannedKeys,
+    quorum: l.quorum,
+    keys: (leafKeys[l.id] ?? []).map(k => ({ keyId: k.keyId, label: k.label, kind: keyKind(k.origin) })),
+    unlock: l.unlockType,
+    blocks: l.unlockType === 'after' ? l.afterBlocks : l.unlockType === 'older' ? l.olderBlocks : 0,
+    decay: l.decayEnabled ? { stepBlocks: l.decayStepBlocks, floorQuorum: l.decayFloorQ } : null,
+  }));
+  const wholeVaultNote = shape === 'leaves' ? vaultNote(riskPaths) : null;
+  const noteColor = { danger: colors.red, warn: colors.orange, info: colors.sub, good: colors.green } as const;
+  const noteBox = (n: RiskNote, i: number) => (
+    <div
+      key={i}
+      style={{
+        fontSize: 15, lineHeight: 1.55, color: colors.text, background: colors.inset, borderRadius: radii.md,
+        borderLeft: `3px solid ${noteColor[n.level]}`, padding: '10px 12px', marginTop: 8,
+      }}
+    >
+      {n.text}
+    </div>
   );
   const standardRoles: KeyReuseRole[] = [
     { id: 'founder', label: 'Signing keys', keys: founderKeys },
@@ -2168,6 +2195,7 @@ function KeysStep({
     accent: string,
     description?: string,
     extra?: ReactNode,
+    available: LocalKey[] = availableKeys,
   ) {
     return (
       <Card key={key}>
@@ -2180,7 +2208,7 @@ function KeysStep({
         <SlotHint targetCount={target} filledCount={selected.length} role={key} />
         <KeyPicker
           selected={selected}
-          available={availableKeys}
+          available={available}
           onAdd={id => {
             const k = allKeys.find(k => k.keyId === id);
             if (k) setSelected(p => [...p, toSelected(k)]);
@@ -2242,6 +2270,14 @@ function KeysStep({
 
       {shape === 'leaves' && (
         <>
+          <Card>
+            <p style={{ fontSize: 15, color: colors.sub, lineHeight: 1.55, margin: 0 }}>
+              One key can sit on more than one path -- a hardware wallet on your everyday path and your backup
+              path, say. Each time you do that, the path shows what it would cost you if that key were lost or
+              stolen, before anything is final.
+            </p>
+            {wholeVaultNote && noteBox(wholeVaultNote, 0)}
+          </Card>
           {enabledLeaves.map((leaf, i) => {
             const setLeafSelected = (fn: (p: SelectedKey[]) => SelectedKey[]) =>
               setLeafKeys(p => ({ ...p, [leaf.id]: fn(p[leaf.id] ?? []) }));
@@ -2254,9 +2290,15 @@ function KeysStep({
                 : `Opens if the vault sits untouched for ${blocksToHuman(leaf.olderBlocks)} -- ${leaf.quorum} of `
                   + `${leaf.plannedKeys} can then spend. Moving the coins resets this clock.`;
             const mySelected = leafKeys[leaf.id] ?? [];
-            const reuseNote = leafReuseNotes.get(leaf.id) ?? '';
+            // Any key not already on THIS path; a key on another path
+            // stays pickable, and the notes below say what that costs.
+            const pickable = allKeys.filter(k =>
+              !mySelected.some(sk => sk.keyId === k.keyId) && keyNetworkMatches(k.network, network));
+            const notes = pathNotes(riskPaths, leaf.id);
             return role(
-              leaf.id, `${leaf.label} keys`, leaf.plannedKeys, mySelected, setLeafSelected, i === 0 ? colors.gold : colors.blue, description + reuseNote,
+              leaf.id, `${leaf.label} keys`, leaf.plannedKeys, mySelected, setLeafSelected, i === 0 ? colors.gold : colors.blue, description,
+              <>
+              {notes.length > 0 && <div style={{ marginTop: 10 }}>{notes.map(noteBox)}</div>}
               <PathInvites
                 vaultId={vaultId}
                 network={network}
@@ -2267,7 +2309,9 @@ function KeysStep({
                 invites={people.invites}
                 members={people.members}
                 reload={reloadPeople}
-              />,
+              />
+              </>,
+              pickable,
             );
           })}
         </>

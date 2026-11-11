@@ -66,7 +66,12 @@ assert.ok(after.passkeyMnemonic);
 assert.equal(after.encryptedMnemonic, undefined);
 assert.equal(after.testMnemonic, undefined);
 const stored = JSON.stringify(raw(key.keyId));
-for (const w of mnemonic.split(' ').filter(w => w.length > 4)) assert.equal(stored.includes(w), false, 'mnemonic word found in storage');
+// Two words side by side, not single words: the record's own field names
+// ("label", "network", "version") are themselves recovery words, so a
+// single-word check failed by chance whenever the random phrase drew one
+// (seen 2026-11-11). A stored phrase would show its words in order.
+const mw = mnemonic.split(' ');
+for (let i = 0; i + 1 < mw.length; i++) assert.equal(stored.includes(`${mw[i]} ${mw[i + 1]}`), false, 'mnemonic words found in storage');
 assert.equal(ks.keyNeedsPassword(ks.getKey(key.keyId)), false);
 assert.equal(ks.keySigningBlockedReason(ks.getKey(key.keyId)), null, 'a passkey key may sign on mainnet');
 assert.equal(await ks.revealMnemonic(key.keyId, undefined, good), mnemonic);

@@ -106,6 +106,58 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **One key on more than one path, with the cost shown as you pick --
+  BUILT 2026-11-11, on the branch, NOT on main.** Operator: "let one
+  key be chosen on more than one path but let's put the proper warnings
+  in place each time they increase the risk ... the consequence being
+  known upfront." The compiler always allowed it (keys must be distinct
+  within a path, not across paths); the builder's picker hid any key
+  once it was used anywhere. For path-builder vaults the picker now
+  hides only keys already on THAT path (`VaultWizard.tsx` KeysStep,
+  `pickable`); the older named-field and Bloc builders are unchanged.
+  New pure file `apps/web/src/lib/path-risk.ts` computes, from the
+  draft's own paths, what is shown under each path: for a key on two or
+  more paths, which paths stop working for good without it, the soonest
+  path that still opens without it and how long that wait is (decay
+  steps and "if untouched" paths counted), and that a thief holds one
+  signature on each of those paths; and, once a vault mixes a
+  public-only key (hardware wallet, other device, Tapit) with keys held
+  in this browser, whether each path can open with no separate-device
+  key signing, with the number of signers that would make it required.
+  One line for the whole vault above the paths. It replaces the vague
+  "Heads up: one of the keys picked below is also used in..." line on
+  this shape. An invited person's key is treated as "kind unknown", not
+  as a hardware wallet. The same key's signing origin is now sent once
+  at finalize, not once per path.
+  PROVEN: `scripts/offline-vault-harness.mjs` gained a five-path vault
+  with one key on three paths against the REAL Rust compiler and real
+  signer: 6 spends finalize with the right lock_time (including the
+  kids path WITHOUT the shared key) and 3 are refused (all-must-sign
+  and backup without the shared key; the shared key on a path it is not
+  on). `scripts/test-path-risk.mjs`, 10 cases, in `npm test`.
+  WALKED at 375px against a production build with stand-in database,
+  sign-in and compiler: hardware key picked on three of five paths; the
+  note appears on both paths the moment it is added to the second;
+  wording read back from the page; no overflow, no page errors; draft
+  saved, left, resumed with every shared slot restored; finalize
+  reached "Back up your vault" with the compiler receiving the shared
+  key on three paths and 6 distinct origins.
+  NOT SEEN: any of it on a real phone or against the real backend; a
+  real spend from a vault built this way in the app (the harness
+  drives the compiler directly, not the app's spend screens).
+  NOT in this slice: a must-sign key joined to a quorum inside one
+  path (`and(key, quorum)`) -- that is a compiler change; placing an
+  invited person's key on a second path (they are shown one path
+  only); the same freedom in the named-field and Bloc builders; a
+  warning for two or more keys lost together.
+  ALSO: `scripts/test-keystore-passkey.mjs` failed once by chance in
+  this run ("mnemonic word found in storage"): the stored record's
+  field names (label, network, version) are themselves recovery words.
+  The check now looks for two phrase words side by side. 8 of 8 reruns
+  of the old check had passed, so this was pre-existing and rare.
+  Measured: npm test exit 0, 30 suites; lint 0 errors / 11 warnings;
+  typecheck 10 errors = the same 10 before the change; build green.
+
 - **Key lesson and a real password bar -- BUILT 2026-11-11, on the
   branch.** The operator asked whether "generate a new key" should
   walk people through making their own seed (dice), then decided

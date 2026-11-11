@@ -423,5 +423,35 @@ const rejected = (msg) => console.log(`  [ok] REJECTED as it should be: ${msg}`)
   await refuse('compiler / a kids ladder whose last rung crosses into dates', '/compile-bloc', bloc({ kids_decay_start_after: 499_999_999, kids_decay_step_blocks: 10_000 }), DATE);
 }
 
+// ── One key on several paths (2026-11-11) ───────────────────────────────────
+// The builder now lets one key (say, a hardware wallet) be picked on more than
+// one path. Five paths, signer 0 on three of them: it must compile to one
+// address, and each path must spend with exactly the signatures it names --
+// the shared key counting on its own paths and for nothing on the others.
+{
+  const leaf = (o) => ({ label: o.id, decay: null, ...o });
+  const policy = { leaves: [
+    leaf({ id: 'everyday', keys: keys(0,1,2), quorum: 3, unlock: { type: 'immediate' } }),
+    leaf({ id: 'backup',   keys: keys(0,3),   quorum: 2, unlock: { type: 'after', blocks: 900_000 } }),
+    leaf({ id: 'kids',     keys: keys(0,4,5), quorum: 2, unlock: { type: 'after', blocks: 950_000 } }),
+    leaf({ id: 'friends',  keys: keys(6,7),   quorum: 2, unlock: { type: 'after', blocks: 1_000_000 } }),
+    leaf({ id: 'last',     keys: keys(8),     quorum: 1, unlock: { type: 'after', blocks: 1_100_000 } }),
+  ] };
+  const spendLeaves = ({ label, path, signers }) => cycle({
+    label, compileEp: '/compile-leaves', compileBody: { ...policy, network: NET },
+    psbtEp: '/psbt-binary', psbtBody: { ...policy, path }, signers,
+  });
+  console.log('one key on several paths');
+  await ok(spendLeaves, { label: 'shared key / everyday, all three sign (shared key included)', path: 'everyday', signers: who(0,1,2) }, 0);
+  await ok(spendLeaves, { label: 'shared key / backup, shared key + one other', path: 'backup', signers: who(0,3) }, 900_000);
+  await ok(spendLeaves, { label: 'shared key / kids, shared key + one kid', path: 'kids', signers: who(0,4) }, 950_000);
+  await ok(spendLeaves, { label: 'shared key / kids, the two kids WITHOUT the shared key', path: 'kids', signers: who(4,5) }, 950_000);
+  await ok(spendLeaves, { label: 'shared key / friends, a path the shared key is not on', path: 'friends', signers: who(6,7) }, 1_000_000);
+  await ok(spendLeaves, { label: 'shared key / last key alone', path: 'last', signers: who(8) }, 1_100_000);
+  await expectFail(spendLeaves, { label: 'shared key / everyday without the shared key', path: 'everyday', signers: who(1,2) }); rejected('an all-must-sign path does not open without the shared key');
+  await expectFail(spendLeaves, { label: 'shared key / backup without the shared key', path: 'backup', signers: who(3) }); rejected('the backup path does not open without the shared key');
+  await expectFail(spendLeaves, { label: 'shared key / shared key on a path it is not on', path: 'friends', signers: who(0,6) }); rejected('the shared key counts for nothing on a path it is not on');
+}
+
 console.log('\noffline-vault-harness OK -- every door of every shape proven end to end');
 console.log('(real Rust compiler + real browser signer + real rust-miniscript finalizer; timelocks baked in, quorum/consent/cohort gates enforced)');
