@@ -106,6 +106,55 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **The inheritance moment (journey gap J2) -- BUILT 2026-11-11, on the
+  branch.** Every timelock on a named-field vault is an absolute block
+  height; four screens said otherwise or said nothing.
+  (a) The vault page's Path 3 card read "Triggered only if the trustees
+  are unreachable for the full window" -- false: the path opens at that
+  block whatever anyone does. It now says so, and that the only way to
+  keep it closed longer is to rotate and move the coins. The founder's
+  hint "If trustees go silent ..., the recovery path opens" had the same
+  false premise and is corrected.
+  (b) The Dashboard turned the absolute height itself into a duration:
+  an heir saw "~18yr" that never moved and never said open. The same
+  bug sat on the Recovery line and on custom-path lines of every vault
+  card. The Dashboard now fetches the tip per network and counts from
+  the blocks LEFT; with no tip it says nothing rather than something
+  wrong.
+  (c) When the inheritance opened, the heir's one prompt DISAPPEARED
+  (it was only built while blocks remained). There is now a "The
+  inheritance path is open" item with the steps and a button to Send,
+  and the phase card's hint spells the steps out, including restoring
+  a key from its words if it is not on this device.
+  (d) A founder was never told the inheritance date: the phase card now
+  always states it and what it means, and from about six months out
+  the action guide raises it.
+  (e) Rotate defaulted to the time remaining, which keeps the SAME
+  date, and never said rotating is how you push inheritance out. The
+  dialog now states the estimated date for the number in the box,
+  whether that is the same, later or earlier than this vault, and
+  offers Keep the same date / +1 / +3 / +5 years.
+  One source for the words: `lib/timelock-words.ts` (pure; tip and
+  clock are arguments), `scripts/test-timelock-words.mjs` (4 cases, in
+  `npm test`). WALKED at 375px in a production build with a fabricated
+  vault and a fixed tip: dashboard as heir before and after the date,
+  vault page as heir before and after, as founder three months out,
+  and the rotate dialog; no page errors, no horizontal overflow; read
+  from the rendered text, not judged by eye. NOT SEEN: on the live
+  site, or against a real vault whose date has passed.
+  NOT in this slice: vaults built today are leaf-list shaped and have
+  no "heir" role tied to a path -- they still show the generic
+  "Currently spendable / Next to open" text; preselecting the
+  Inheritance path when the heir lands on Send; any alert that reaches
+  someone who is not looking at the app (J4).
+  Also: `verify-live-bundle.mjs` now reports a deploy landing mid-check
+  as such instead of FAIL (seen twice this day; that branch of the
+  script is syntax-checked only, not exercised).
+  Measured: npm test exit 0, 22 suites; lint 0 errors / 11 warnings;
+  typecheck 10 = baseline; build green.
+  DEPLOY NOTE: restore-from-words went to main as 6262974;
+  `verify:live` PASS against that commit.
+
 - **Restore a key from its written words -- BUILT 2026-11-11, on the
   branch.** Found by walking the whole family journey screen by screen
   (see `docs/security-backlog.md`, "Journey gaps"): the app made people

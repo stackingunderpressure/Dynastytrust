@@ -290,7 +290,9 @@ real family. The operator picks the order.
 
 J1. ~~**No way to restore a key from its words.**~~ BUILT 2026-11-11 (see
     `HISTORY.md`); also warns that keys live only in this browser.
-J2. **The inheritance moment.** (a) VaultDetail says inheritance is
+J2. **The inheritance moment.** BUILT 2026-11-11 for named-field vaults
+    (see `HISTORY.md`); STILL OPEN for leaf-list vaults, which is what the
+    wizard builds today, and for preselecting the path on Send. Was: (a) VaultDetail says inheritance is
     "Triggered only if the trustees are unreachable for the full window" --
     false, it opens at a fixed block height whatever anyone does. (b) The
     heir's Dashboard line turns the absolute height into a duration, so it

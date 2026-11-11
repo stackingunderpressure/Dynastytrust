@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type Vault, type BalanceResult } from "../lib/api";
 import { useRealtimeRefresh } from "../lib/realtime";
+import { tipHeight } from "../lib/chain";
+import { blocksLeft, durationWords, heirDashboardLine } from "../lib/timelock-words";
 import { colors, fonts, space } from "../theme";
 import { Button, Input, Label } from "../components/ui";
 import { useToast } from "../components/toast";
@@ -10,14 +12,6 @@ import { RemindersBanner } from "../components/RemindersBanner";
 
 function satsToBtc(sats: number): string {
   return (sats / 1e8).toFixed(8).replace(/\.?0+$/, "") || "0";
-}
-
-function blocksToLabel(blocks: number): string {
-  if (!blocks) return "--";
-  const days = Math.round((blocks * 10) / 60 / 24);
-  if (days < 30) return "~" + days + "d";
-  if (days < 365) return "~" + Math.round(days / 30) + "mo";
-  return "~" + (days / 365).toFixed(1) + "yr";
 }
 
 // Role-aware rendering. Each vault card surfaces the caller's role
@@ -60,7 +54,21 @@ function rolePriority(role: string | null | undefined): number {
   }
 }
 
-function roleStatus(v: Vault): string {
+// `tip` is the current block height on the vault's own network, or
+// null until it loads. Timelocks are absolute heights: a countdown must
+// be made from height minus tip. This used to turn the height itself
+// into a duration, so an heir saw "~18yr" that never moved and never
+// said open.
+/** " (opens in about 2 years)" / " (open now)" for a COMPILED vault's
+ *  stored absolute height; empty when there is no timelock or the tip
+ *  is not known yet. */
+function opensSuffix(absHeight: number, tip: number | null): string {
+  const left = blocksLeft(absHeight, tip);
+  if (left == null) return "";
+  return left === 0 ? " (open now)" : ` (opens in ${durationWords(left)})`;
+}
+
+function roleStatus(v: Vault, tip: number | null): string {
   switch (v.my_role) {
     case "owner":
     case "founder":
@@ -70,9 +78,9 @@ function roleStatus(v: Vault): string {
       // (same gap the card summary above just closed) -- honest fallback
       // text instead of a countdown computed from a number that was
       // never actually configured for this vault shape.
-      return v.inheritance_after && !(Array.isArray(v.leaves) && v.leaves.length > 0)
-        ? `Inheritance unlocks in ${blocksToLabel(v.inheritance_after)}`
-        : "Successor on standby";
+      return (v.inheritance_after && !(Array.isArray(v.leaves) && v.leaves.length > 0)
+        ? heirDashboardLine(v.inheritance_after, tip)
+        : null) ?? "Successor on standby";
     case "protector":
       return "Protector role (no timelock)";
     case "beneficiary":
@@ -157,6 +165,21 @@ export default function Dashboard() {
     void load();
   }, [load]);
 
+  // Chain tip per network in use, for the countdowns (cached 60s in
+  // lib/chain.ts). A failed lookup leaves that network's tip unknown and
+  // the cards say nothing rather than something wrong.
+  const [tips, setTips] = useState<Record<string, number>>({});
+  const networksKey = [...new Set(vaults.map(v => v.network))].sort().join(",");
+  useEffect(() => {
+    let live = true;
+    for (const net of networksKey.split(",").filter(Boolean)) {
+      tipHeight(net as Vault["network"])
+        .then(h => { if (live) setTips(t => ({ ...t, [net]: h })); })
+        .catch(() => {});
+    }
+    return () => { live = false; };
+  }, [networksKey]);
+
   const drafts = vaults.filter(v => v.status === 'draft');
   const liveVaults = vaults.filter(v => v.status !== 'draft');
 
@@ -174,7 +197,7 @@ export default function Dashboard() {
   return (
     <div style={{ fontFamily: fonts.sans }}>
       <RemindersBanner />
-      <RoleSummary vaults={vaults} />
+      <RoleSummary vaults={vaults} tips={tips} />
       <PendingFeed />
       {drafts.length > 0 && <DraftsSection drafts={drafts} />}
 
@@ -340,9 +363,9 @@ export default function Dashboard() {
                   ? `${v.address.slice(0, 14)}...${v.address.slice(-8)}`
                   : "Draft -- awaiting compile"}
               </div>
-              {roleStatus(v) && (
+              {roleStatus(v, tips[v.network] ?? null) && (
                 <div style={{ fontSize: 12, color: roleAccent(v.my_role), marginBottom: 12 }}>
-                  {roleStatus(v)}
+                  {roleStatus(v, tips[v.network] ?? null)}
                 </div>
               )}
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", borderTop: `1px solid ${colors.divider}`, paddingTop: 12 }}>
@@ -369,7 +392,7 @@ export default function Dashboard() {
                   v.leaves.map(leaf => (
                     <span key={leaf.id} style={{ fontSize: 11, color: colors.muted }}>
                       {leaf.label}: {leaf.quorum}/{leaf.keys.length}
-                      {leaf.unlock.type === "after" ? ` (${blocksToLabel(leaf.unlock.blocks)})` : ""}
+                      {leaf.unlock.type === "after" ? opensSuffix(leaf.unlock.blocks, tips[v.network] ?? null) : ""}
                     </span>
                   ))
                 ) : (
@@ -381,7 +404,7 @@ export default function Dashboard() {
                       {v.heir_quorum}/{v.heir_keys.length} heirs
                     </span>
                     <span style={{ fontSize: 11, color: colors.muted }}>
-                      Recovery {blocksToLabel(v.recovery_after)}
+                      Recovery{opensSuffix(v.recovery_after, tips[v.network] ?? null)}
                     </span>
                   </>
                 )}
@@ -593,7 +616,7 @@ function ModalShell({
 // sees what's coming without drilling
 // into each vault.
 
-function RoleSummary({ vaults }: { vaults: Vault[] }) {
+function RoleSummary({ vaults, tips }: { vaults: Vault[]; tips: Record<string, number> }) {
   if (vaults.length === 0) return null;
 
   // Bucket vaults by caller's role (owners count as trustees).
@@ -627,14 +650,15 @@ function RoleSummary({ vaults }: { vaults: Vault[] }) {
       // real value -- exclude them rather than let a bogus number win
       // the "soonest" comparison against a real named-field vault's.
       .filter(v => !(Array.isArray(v.leaves) && v.leaves.length > 0))
-      .map(v => v.inheritance_after)
-      .filter(n => n > 0)
+      // blocks LEFT on each vault's own network; unknown tips drop out
+      .map(v => blocksLeft(v.inheritance_after, tips[v.network] ?? null))
+      .filter((n): n is number => n != null)
       .sort((a, b) => a - b)[0];
     cards.push({
       label: "Successor",
       count: byRole.heir.length,
-      detail: soonest
-        ? `soonest inheritance in ${blocksToLabel(soonest)}`
+      detail: soonest != null
+        ? (soonest === 0 ? "an inheritance is open now" : `soonest inheritance in ${durationWords(soonest)}`)
         : `${byRole.heir.length} vault${byRole.heir.length === 1 ? "" : "s"}`,
       color: colors.green,
     });

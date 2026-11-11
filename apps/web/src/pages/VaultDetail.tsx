@@ -66,6 +66,7 @@ import { VaultMembershipSetup } from "../components/VaultMembershipSetup";
 import { NotifyCircleViaNostr } from "../components/NotifyCircleViaNostr";
 import { MessagingKeyBackupPanel } from "../components/MessagingKeyBackupPanel";
 import { tipHeight, txConfirmations, blocksToApproxLabel } from "../lib/chain";
+import { opensWords, durationWords, rotateDateWords, ROTATE_EXTENSIONS } from "../lib/timelock-words";
 import { buildStandardTrustDoc, standardConfigFromCompiledVault } from "../lib/trust-doc";
 
 
@@ -809,8 +810,15 @@ function OverviewTab({
         {
           num: 3,
           color: colors.green,
-          title: "Inheritance - " + blocksToLabel(blocksFromNow(vault.inheritance_after)),
-          body: `${vault.heir_quorum} of ${vault.heir_keys.length} successor signatures after ${blocksFromNow(vault.inheritance_after).toLocaleString()} blocks. Triggered only if the trustees are unreachable for the full window.`,
+          // The date is fixed in the vault's script. It used to say here
+          // "Triggered only if the trustees are unreachable for the full
+          // window", which is false for an absolute timelock: nothing
+          // anyone does or does not do moves it (see lib/timelock-words.ts).
+          title: "Inheritance - " + (chainTip == null ? "checking the chain..." : opensWords(vault.inheritance_after, chainTip, new Date())),
+          body:
+            chainTip != null && chainTip >= vault.inheritance_after
+              ? `Open now: ${vault.heir_quorum} of ${vault.heir_keys.length} successors can spend without the trustees.`
+              : `${vault.heir_quorum} of ${vault.heir_keys.length} successor signatures, from block ${vault.inheritance_after.toLocaleString()}. It opens on that date whatever happens before it -- it does not wait for anyone to go silent. To keep it closed longer, the trustees rotate the vault and move the coins before then.`,
         },
       ];
 
@@ -4428,7 +4436,7 @@ function RotateVaultModal({
           Rotate vault
         </div>
         <div style={{ fontSize: 13, color: colors.muted, lineHeight: 1.5, marginBottom: 16 }}>
-          Creates a successor draft that inherits this vault's trust document, members, and shape. Adjust timelocks below if desired. After compiling the successor, sweep funds from this vault to the new address; old and new stay linked in the audit trail.
+          Creates a successor draft that inherits this vault's trust document, members, and shape. A vault's dates are fixed for good, so this is also the only way to push the inheritance date out: choose a later date below, compile the new vault, then move the coins to it. Old and new stay linked in the audit trail.
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -4446,8 +4454,8 @@ function RotateVaultModal({
                   value={recoveryOffsetText ?? ''}
                   onChange={e => setRecoveryOffsetText(e.target.value)}
                 />
-                <div style={{ fontSize: 11, color: colors.muted, marginTop: 3 }}>
-                  ~{blocksToLabel(recoveryOffset)} at 10-min blocks
+                <div style={{ fontSize: 12, color: colors.sub, marginTop: 4, lineHeight: 1.5 }}>
+                  {tip == null ? "Checking the chain..." : rotateDateWords(recoveryOffset, vault.recovery_after, tip, new Date())}
                 </div>
               </div>
               <div>
@@ -4458,9 +4466,25 @@ function RotateVaultModal({
                   value={inheritanceOffsetText ?? ''}
                   onChange={e => setInheritanceOffsetText(e.target.value)}
                 />
-                <div style={{ fontSize: 11, color: colors.muted, marginTop: 3 }}>
-                  ~{blocksToLabel(inheritanceOffset)} at 10-min blocks
+                <div style={{ fontSize: 12, color: colors.sub, marginTop: 4, lineHeight: 1.5 }}>
+                  {tip == null ? "Checking the chain..." : rotateDateWords(inheritanceOffset, vault.inheritance_after, tip, new Date())}
                 </div>
+                {tip != null && vault.inheritance_after > 0 && (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                    {ROTATE_EXTENSIONS.map(x => (
+                      <Button
+                        key={x.label}
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        style={{ minHeight: 40 }}
+                        onClick={() => setInheritanceOffsetText(String(Math.max(0, vault.inheritance_after - tip) + x.extraBlocks))}
+                      >
+                        {x.label}
+                      </Button>
+                    ))}
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -5022,6 +5046,36 @@ function ActionGuide({
     }
   }
 
+  // inheritance_after is a bare database default on a leaf-list vault,
+  // and a vault with no successor keys has no inheritance path at all.
+  const hasInheritance = !(Array.isArray(vault.leaves) && vault.leaves.length > 0) && (vault.heir_keys?.length ?? 0) > 0;
+  const founderHeadsUp = 180 * 24 * 6; // ~6 months: rotating takes every signer
+  if (isTrustee && hasInheritance && inheritanceLeft != null && inheritanceLeft <= founderHeadsUp) {
+    items.push({
+      key: "trustee-inheritance",
+      label: inheritanceLeft === 0 ? "Inheritance is open" : `Inheritance opens in ${durationWords(inheritanceLeft)}`,
+      detail: inheritanceLeft === 0
+        ? "Your successors can now spend without you. If that is not what you want, rotate this vault (top of the page) and move the coins today."
+        : "The date is fixed: after it your successors can spend without you, whether or not you are active. To push it out, rotate this vault (top of the page) and move the coins before then.",
+      cta: "See who can sign",
+      severity: "warn",
+      onClick: () => onOpenTab("members"),
+    });
+  }
+  // The moment the whole product exists for. This prompt used to
+  // DISAPPEAR when the path opened (it was only built while blocks
+  // remained), leaving an heir with a card and no next step.
+  if (isHeir && hasInheritance && inheritanceLeft === 0) {
+    items.push({
+      key: "heir-open",
+      label: "The inheritance path is open",
+      detail: `${vault.heir_quorum} of ${vault.heir_keys.length} successors can now move the coins without the trustees. Open Send, choose the Inheritance path, enter an address you control, and sign with your key.`,
+      cta: "Go to Send",
+      severity: "warn",
+      onClick: () => onOpenTab("send"),
+    });
+  }
+
   if (isHeir && inheritanceLeft != null && inheritanceLeft > 0) {
     items.push({
       key: "heir-countdown",
@@ -5029,7 +5083,7 @@ function ActionGuide({
       detail:
         inheritanceLeft <= approachingDays
           ? "Your window is approaching. Confirm your successor keys are backed up."
-          : "You will be able to spend after the window without the original trustees.",
+          : "The date is fixed. From then on you and the other successors can spend without the original trustees.",
       cta: "Review your key",
       severity: inheritanceLeft <= approachingDays ? "warn" : "info",
       onClick: () => onOpenTab("members"),
@@ -5150,17 +5204,26 @@ function rolePhaseHint(
     }
     if (!recoveryOpen && vault.recovery_after > 0 && tip != null) {
       lines.push(
-        `If trustees go silent ${blocksToLabel(vault.recovery_after - t)}, the recovery path opens.`,
+        `The recovery path opens ${opensWords(vault.recovery_after, t, new Date())} (block ${vault.recovery_after.toLocaleString()}), whether or not anyone signs before then.`,
       );
     } else if (recoveryOpen && vault.recovery_quorum != null && vault.recovery_quorum < vault.founder_quorum) {
       lines.push(`Recovery is OPEN: ${vault.recovery_quorum} of ${vault.founder_keys.length} can sign.`);
+    }
+    // A founder must hear the inheritance date too: it is fixed, and
+    // after it the successors can spend without them.
+    if ((vault.heir_keys?.length ?? 0) > 0 && vault.inheritance_after > 0 && tip != null) {
+      lines.push(
+        inheritanceOpen
+          ? `Inheritance is OPEN: ${vault.heir_quorum} of ${vault.heir_keys.length} successors can spend without you now. If that is not what you want, rotate the vault and move the coins today.`
+          : `Inheritance opens ${opensWords(vault.inheritance_after, t, new Date())}. After that, ${vault.heir_quorum} of ${vault.heir_keys.length} successors can spend without you, whatever you do. To push it out, rotate the vault and move the coins before then.`,
+      );
     }
   } else if (role === "heir") {
     if (inheritanceOpen) {
       lines.push(
         `Inheritance is OPEN. ${vault.heir_quorum} of ${vault.heir_keys.length} successors can spend without the trustees.`,
       );
-      cta = "Coordinate with the other successors to sweep funds to a fresh vault you control.";
+      cta = "What to do: open Send, choose the Inheritance path, enter the address of a wallet you control, and sign with your key. Each successor signs from their own account. If your key is not on this device, open Keys and restore it from its words first.";
     } else if (tip != null) {
       const blocksLeft = vault.inheritance_after - t;
       lines.push(`Your inheritance path unlocks in ${blocksToLabel(blocksLeft)} (block ${vault.inheritance_after.toLocaleString()}).`);
