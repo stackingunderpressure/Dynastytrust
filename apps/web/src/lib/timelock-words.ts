@@ -94,3 +94,75 @@ export function rotateDateWords(offsetBlocks: number, oldAbsHeight: number | nul
     ? `${base} That is ${durationWords(diff)} LATER than this vault.`
     : `${base} That is ${durationWords(-diff)} EARLIER than this vault.`;
 }
+
+// ---- Vaults built with the path builder ("leaf-list") --------------------
+//
+// These have no founder/heir roles: a path is a set of keys, a number
+// that must sign, and a rule for when it opens. So "is this mine, and
+// is it open?" is answered by which keys sit on THIS device, not by a
+// role the server assigns.
+
+export interface PathLike {
+  id: string;
+  label: string;
+  keys: string[];
+  quorum: number;
+  unlock: { type: 'immediate' } | { type: 'after'; blocks: number } | { type: 'older'; blocks: number };
+}
+
+export interface PathMoment {
+  kind: 'open' | 'approaching';
+  pathId: string;
+  label: string;
+  detail: string;
+}
+
+/** A Taproot script names a key by its 32-byte x coordinate, so the
+ *  02... and 03... forms of a pubkey are the same signer. */
+const xOnly = (pubkeyHex: string): string => pubkeyHex.toLowerCase().slice(-64);
+
+/** About six months: moving coins to a new vault takes every signer. */
+export const HEADS_UP_BLOCKS = 180 * BLOCKS_PER_DAY;
+
+/**
+ * What a person should be told about a path-builder vault's dated
+ * paths right now. `myPubkeys` are the keys on this device.
+ *  - 'open': a dated path has opened AND this device holds one of its
+ *    keys -- the "it is time, here is what to do" moment.
+ *  - 'approaching': a dated path opens within the heads-up window --
+ *    told to everyone, because after that date its keys can spend
+ *    whatever the everyday signers do.
+ * Rotating is not supported for this vault shape (vaults-rotate.js
+ * refuses it), so the honest instruction is to build a new vault with a
+ * later date and move the coins.
+ */
+export function pathMoments(
+  paths: readonly PathLike[],
+  tip: number | null | undefined,
+  myPubkeys: readonly string[],
+  now: Date,
+  headsUpBlocks = HEADS_UP_BLOCKS,
+): PathMoment[] {
+  if (tip == null) return [];
+  const mine = new Set(myPubkeys.map(xOnly));
+  const out: PathMoment[] = [];
+  for (const p of paths) {
+    if (p.unlock.type !== 'after' || !(p.unlock.blocks > 0)) continue;
+    const left = Math.max(0, p.unlock.blocks - tip);
+    const n = p.keys.length;
+    if (left === 0) {
+      const held = p.keys.filter(k => mine.has(xOnly(k))).length;
+      if (held === 0) continue;
+      out.push({
+        kind: 'open', pathId: p.id, label: `"${p.label}" is open`,
+        detail: `${p.quorum} of ${n} of this path's keys can now move the coins. ${held === 1 ? 'One of them is' : `${held} of them are`} on this device. Open Send, choose "${p.label}", enter an address you control, and sign.`,
+      });
+    } else if (left <= headsUpBlocks) {
+      out.push({
+        kind: 'approaching', pathId: p.id, label: `"${p.label}" opens in ${durationWords(left)}`,
+        detail: `The date is fixed (around ${dateWords(estimatedDate(p.unlock.blocks, tip, now), left)}): from then on ${p.quorum} of ${n} of that path's keys can spend, whatever else happens. To push it out, build a new vault with a later date and move the coins to it before then.`,
+      });
+    }
+  }
+  return out;
+}

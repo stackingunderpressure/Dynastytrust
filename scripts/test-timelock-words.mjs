@@ -62,4 +62,29 @@ assert.equal(w.rotateDateWords(YEAR, 0, TIP, NOW), 'Opens around November 2027 (
 assert.deepEqual(w.ROTATE_EXTENSIONS.map(e => e.extraBlocks), [0, YEAR, 3 * YEAR, 5 * YEAR]);
 pass('the rotate dialog says whether the new date is the same, later or earlier than the vault it replaces');
 
+// 5. Path-builder vaults: no roles, so "is it mine and is it open?" is
+//    answered by the keys on this device.
+const K = (c) => '02' + c.repeat(64);
+const paths = [
+  { id: 'everyday', label: 'Everyday signers', keys: [K('a'), K('b')], quorum: 2, unlock: { type: 'immediate' } },
+  { id: 'kids', label: 'The kids', keys: [K('c'), K('d'), K('e')], quorum: 2, unlock: { type: 'after', blocks: TIP + 5 * YEAR } },
+  { id: 'stale', label: 'If untouched', keys: [K('a')], quorum: 1, unlock: { type: 'older', blocks: 26_280 } },
+];
+assert.deepEqual(w.pathMoments(paths, TIP, [K('c')], NOW), [], 'five years out: nothing to raise');
+assert.deepEqual(w.pathMoments(paths, null, [K('c')], NOW), [], 'no tip: say nothing');
+// within six months: everyone is told, whether or not they hold a key on it
+const near = w.pathMoments(paths, TIP + 5 * YEAR - 90 * 144, [K('a')], NOW);
+assert.equal(near.length, 1);
+assert.equal(near[0].kind, 'approaching'); assert.equal(near[0].pathId, 'kids');
+assert.equal(near[0].label, '"The kids" opens in about 3 months');
+assert.match(near[0].detail, /The date is fixed \(around February 2027\): from then on 2 of 3 of that path's keys can spend, whatever else happens\. To push it out, build a new vault with a later date/);
+// open, and this device holds one of its keys (the 03 form of the same key counts)
+const open = w.pathMoments(paths, TIP + 5 * YEAR, ['03' + 'c'.repeat(64), K('z')], NOW);
+assert.deepEqual(open.map(m => [m.kind, m.pathId, m.label]), [['open', 'kids', '"The kids" is open']]);
+assert.match(open[0].detail, /^2 of 3 of this path's keys can now move the coins\. One of them is on this device\. Open Send, choose "The kids"/);
+assert.match(w.pathMoments(paths, TIP + 6 * YEAR, [K('c'), K('d')], NOW)[0].detail, /2 of them are on this device/);
+// open but none of its keys are here: no prompt to do something this device cannot do
+assert.deepEqual(w.pathMoments(paths, TIP + 5 * YEAR, [K('a'), K('b')], NOW), []);
+pass('a path-builder vault raises a dated path when it nears, and says it is open only to a device holding one of its keys');
+
 console.log(`timelock-words tests passed (${n} cases)`);

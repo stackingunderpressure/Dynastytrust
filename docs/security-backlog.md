@@ -290,9 +290,12 @@ real family. The operator picks the order.
 
 J1. ~~**No way to restore a key from its words.**~~ BUILT 2026-11-11 (see
     `HISTORY.md`); also warns that keys live only in this browser.
-J2. **The inheritance moment.** BUILT 2026-11-11 for named-field vaults
-    (see `HISTORY.md`); STILL OPEN for leaf-list vaults, which is what the
-    wizard builds today, and for preselecting the path on Send. Was: (a) VaultDetail says inheritance is
+J2. ~~**The inheritance moment.**~~ BUILT 2026-11-11 for both vault shapes,
+    including opening Send on the right path (see `HISTORY.md`). STILL
+    OPEN: (f) a leaf-list vault cannot be rotated at all -- the server
+    refuses and the Rotate button fails after its dialog -- so pushing a
+    date out on any vault built today means building a new vault by hand;
+    (g) nothing reaches a person who is not looking at the app (J4). Was: (a) VaultDetail says inheritance is
     "Triggered only if the trustees are unreachable for the full window" --
     false, it opens at a fixed block height whatever anyone does. (b) The
     heir's Dashboard line turns the absolute height into a duration, so it

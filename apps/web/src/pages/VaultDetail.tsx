@@ -66,7 +66,7 @@ import { VaultMembershipSetup } from "../components/VaultMembershipSetup";
 import { NotifyCircleViaNostr } from "../components/NotifyCircleViaNostr";
 import { MessagingKeyBackupPanel } from "../components/MessagingKeyBackupPanel";
 import { tipHeight, txConfirmations, blocksToApproxLabel } from "../lib/chain";
-import { opensWords, durationWords, rotateDateWords, ROTATE_EXTENSIONS } from "../lib/timelock-words";
+import { opensWords, durationWords, rotateDateWords, pathMoments, ROTATE_EXTENSIONS } from "../lib/timelock-words";
 import { buildStandardTrustDoc, standardConfigFromCompiledVault } from "../lib/trust-doc";
 
 
@@ -1298,6 +1298,10 @@ interface SendPrefill {
   memo?: string;
   name?: string;
   selected_utxos?: { txid: string; vout: number }[];
+  // Which spending path to open the form on -- set by the "inheritance
+  // is open" prompts so an heir does not have to find the right entry
+  // in a dropdown. Ignored if the vault has no such path.
+  path?: string;
   // Set when this send was started from a beneficiary's distribution
   // request (RequestsTab). On successful broadcast the request is
   // marked fulfilled and linked to the resulting proposal so the
@@ -1402,9 +1406,13 @@ function SendTab({ vault, balance, onDone, prefill }: {
   const [standardPath, setStandardPath] = useState<string>(() => {
     if (isLeafList) {
       const leaves = vault.leaves!;
+      if (prefill?.path && leaves.some(l => l.id === prefill.path)) return prefill.path;
       return leaves.find(l => l.unlock.type === "immediate")?.id ?? leaves[0].id;
     }
-    return "founders_now";
+    const available: Record<string, boolean> = {
+      recovery: hasRecovery, inheritance: hasInheritance, backup: hasBackup, second_inheritance: hasSecondInheritance,
+    };
+    return prefill?.path && available[prefill.path] ? prefill.path : "founders_now";
   });
 
   const confirmedSats = balance?.confirmed_sats ?? 0;
@@ -5072,8 +5080,21 @@ function ActionGuide({
       detail: `${vault.heir_quorum} of ${vault.heir_keys.length} successors can now move the coins without the trustees. Open Send, choose the Inheritance path, enter an address you control, and sign with your key.`,
       cta: "Go to Send",
       severity: "warn",
-      onClick: () => onOpenTab("send"),
+      onClick: () => onSendPrefill({ path: "inheritance" }),
     });
+  }
+
+  // Vaults from the path builder have no heir role: the prompt goes to
+  // whoever holds one of the path's keys on this device.
+  if (Array.isArray(vault.leaves) && vault.leaves.length > 0 && vault.status !== "draft") {
+    const mine = listKeys().filter(k => k.status === "active").map(k => k.pubkey);
+    for (const m of pathMoments(vault.leaves, tip, mine, new Date())) {
+      items.push(
+        m.kind === "open"
+          ? { key: `path-open-${m.pathId}`, label: m.label, detail: m.detail, cta: "Go to Send", severity: "warn", onClick: () => onSendPrefill({ path: m.pathId }) }
+          : { key: `path-near-${m.pathId}`, label: m.label, detail: m.detail, cta: "See the keys", severity: "warn", onClick: () => onOpenTab("members") },
+      );
+    }
   }
 
   if (isHeir && inheritanceLeft != null && inheritanceLeft > 0) {
@@ -5183,7 +5204,7 @@ function rolePhaseHint(
     );
     if (locked.length > 0 && tip != null) {
       const next = locked.sort((a, b) => (a.absHeight ?? 0) - (b.absHeight ?? 0))[0];
-      lines.push(`Next to open: "${next.label}" in ${blocksToLabel((next.absHeight ?? 0) - tip)}.`);
+      lines.push(`Next to open: "${next.label}", ${opensWords(next.absHeight ?? 0, tip, new Date())}. That date is fixed in the vault: it opens whatever happens before then.`);
     }
     return { lines };
   }

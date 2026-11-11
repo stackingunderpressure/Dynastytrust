@@ -106,6 +106,35 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **The inheritance moment for vaults built with the path builder --
+  BUILT 2026-11-11, on the branch.** The J2 fixes below covered only
+  the older named-field shape; the wizard builds leaf-list vaults,
+  which have no heir role at all, so nothing told anyone a dated path
+  had opened. `timelock-words.ts` gains `pathMoments`: "is it mine and
+  is it open?" is answered by the keys on THIS device (x-only match,
+  so the 02 and 03 forms of a key are one signer). A dated path that
+  has opened raises "<path> is open" with the steps, only on a device
+  holding one of its keys; a dated path within about six months raises
+  a heads-up for everyone. Both prompts, and the named-field heir
+  prompt, now open Send ON that path (`SendPrefill.path`) instead of
+  leaving the person to find it in a dropdown. The "Next to open" line
+  gives the estimated date and says it is fixed.
+  FOUND, not fixed: rotating a leaf-list vault is refused by
+  `vaults-rotate.js` ("isn't supported yet"), so for every vault built
+  today the only way to push a date out is to build a new vault by
+  hand and move the coins; the heads-up says exactly that. The Rotate
+  button still opens its dialog on such a vault and then fails.
+  `test-timelock-words.mjs` now 5 cases. WALKED at 375px in a
+  production build with a fabricated vault and fixed tip: far from the
+  date, three months out, open with none of the path's keys here (no
+  prompt), open with one here (prompt, and Send opens on "The kids"),
+  and the named-field heir (Send opens on Inheritance); no page errors
+  or overflow. NOT SEEN live or on a real vault.
+  Measured: npm test exit 0, 22 suites; lint 0 errors / 11 warnings;
+  typecheck 10 = baseline; build green.
+  DEPLOY NOTE: the J2 fixes went to main as 4310a74; `verify:live`
+  PASS against that commit.
+
 - **The inheritance moment (journey gap J2) -- BUILT 2026-11-11, on the
   branch.** Every timelock on a named-field vault is an absolute block
   height; four screens said otherwise or said nothing.
