@@ -361,6 +361,7 @@ const EVENT_WORDS: Record<string, string> = {
   invite_created: 'Invite sent',
   member_joined: 'Member joined',
   member_removed: 'Member removed',
+  key_confirmed: "A member's key confirmed by the owner",
   psbt_generated: 'Spend proposed',
   psbt_merged: 'Signatures combined',
   signed: 'Spend signed',

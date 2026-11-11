@@ -25,7 +25,7 @@ export async function handler(event) {
 
   const { data: invite, error } = await supabase
     .from("vault_invites")
-    .select("id, vault_id, invited_role, invited_label, expires_at, claimed_at")
+    .select("id, vault_id, invited_role, invited_label, invited_email, leaf_id, expires_at, claimed_at")
     .eq("token", token)
     .maybeSingle();
   if (error) return json(500, { error: error.message });
@@ -66,6 +66,29 @@ export async function handler(event) {
     .eq("vault_id", invite.vault_id)
     .neq("status", "removed")
     .order("created_at", { ascending: true });
+
+  // A path invite shows the invited person THEIR path and nothing else
+  // (operator's decision, 2026-11-11): not the other paths, not the
+  // other people. The email is shown masked so they know which of their
+  // addresses to sign in with without the page publishing it.
+  if (invite.leaf_id) {
+    const path = vault ? stripPathKeys(getSpendingPaths(vault)).find((p) => p.id === invite.leaf_id) ?? null : null;
+    const [local, domain] = String(invite.invited_email || "").split("@");
+    return json(200, {
+      ok: true,
+      invite: {
+        id: invite.id,
+        vault_id: invite.vault_id,
+        invited_role: invite.invited_role,
+        invited_label: invite.invited_label,
+        expires_at: invite.expires_at,
+        leaf_id: invite.leaf_id,
+        email_hint: local && domain ? `${local.slice(0, 1)}***@${domain}` : null,
+      },
+      vault: vault ? { id: vault.id, name: vault.name, network: vault.network, status: vault.status, is_leaf_list: true, paths: path ? [path] : [] } : null,
+      members: [],
+    });
+  }
 
   return json(200, {
     ok: true,

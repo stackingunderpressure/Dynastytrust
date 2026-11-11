@@ -36,6 +36,7 @@ import { fetchVerifiedTipHeight, relativeToAbsolute, checkTimelockFloor } from "
 import { checkNumberBounds } from "./_numeric.js";
 import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
 import { assertNotPrivateExtendedKey } from "./_xpub.js";
+import { unconfirmedMemberKeys } from "./_invite-rules.js";
 
 const COMPILER_URL = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -133,6 +134,22 @@ export async function handler(event) {
       assertNotPrivateExtendedKey(k);
     } catch (e) {
       return json(400, { error: e.message });
+    }
+  }
+
+  // A key that belongs to an invited person goes into the vault only
+  // after the owner has confirmed it by its fingerprint (operator's
+  // decision, 2026-11-11: always, test coins included).
+  {
+    const { data: members, error: mErr } = await supabase
+      .from("vault_members")
+      .select("user_id, label, pubkey, status, key_confirmed_at")
+      .eq("vault_id", vaultId);
+    if (mErr) return json(500, { error: mErr.message });
+    const waiting = unconfirmedMemberKeys(leaves, members, vault.user_id);
+    if (waiting.length > 0) {
+      const w = waiting[0];
+      return json(400, { error: `${w.member}'s key on "${w.path}" has not been confirmed. Check its fingerprint with them and confirm it before finalizing.` });
     }
   }
 

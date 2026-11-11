@@ -19,6 +19,7 @@
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 import { recordEvent } from "./_ledger.js";
+import { emailMatches, joinAllowedAtAal, checkClaimedKey } from "./_invite-rules.js";
 
 export async function handler(event) {
   if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
@@ -40,7 +41,7 @@ export async function handler(event) {
 
   const { data: invite, error: lookupErr } = await supabase
     .from("vault_invites")
-    .select("id, vault_id, invited_role, invited_label, expires_at, claimed_at")
+    .select("id, vault_id, invited_role, invited_label, invited_email, leaf_id, expires_at, claimed_at")
     .eq("token", token)
     .maybeSingle();
   if (lookupErr) return json(500, { error: lookupErr.message });
@@ -77,6 +78,38 @@ export async function handler(event) {
     });
   }
 
+  // A path invite (path-builder vaults) is for one named person and
+  // must arrive with their key. All three checks run BEFORE the invite
+  // is consumed, so a refused attempt leaves it usable by the right
+  // person. See _invite-rules.js for what each one closes.
+  let claimedKey = null;
+  if (invite.leaf_id) {
+    if (!emailMatches(u.claims?.email, invite.invited_email)) {
+      return json(403, { error: "This invite is for a different email address. Sign in with the address it was sent to." });
+    }
+    const { data: vault, error: vErr } = await supabase
+      .from("vaults").select("id, network, status").eq("id", invite.vault_id).maybeSingle();
+    if (vErr) return json(500, { error: vErr.message });
+    if (!vault) return json(404, { error: "This vault no longer exists." });
+    if (vault.status !== "draft") {
+      return json(409, { error: "This vault has already been finalized, so nobody new can join it." });
+    }
+    if (!joinAllowedAtAal(vault.network, u.claims?.aal)) {
+      return json(403, {
+        error: "Joining a real-bitcoin vault needs two-step sign-in. Turn it on under Keys, sign in again with your code, then open this link again.",
+        needs_two_step: true,
+      });
+    }
+    try {
+      claimedKey = checkClaimedKey(body, vault.network);
+    } catch (e) {
+      return json(400, { error: e.message });
+    }
+    const { data: clash } = await supabase
+      .from("vault_members").select("id").eq("vault_id", invite.vault_id).eq("fingerprint", claimedKey.fingerprint).neq("status", "removed").maybeSingle();
+    if (clash) return json(409, { error: "A key with this fingerprint is already in this vault. Each person needs their own key." });
+  }
+
   // Claim the invite FIRST, atomically: the update only matches while
   // claimed_at is still null, so two accounts racing on one token cannot
   // both pass (previously both read claimed_at = null, both inserted a
@@ -99,11 +132,12 @@ export async function handler(event) {
       user_id: u.userId,
       role: invite.invited_role,
       label: body.label || invite.invited_label || null,
-      xpub: body.xpub || null,
-      fingerprint: body.fingerprint || null,
-      pubkey: body.pubkey || null,
-      derivation_path: body.derivation_path || null,
+      xpub: claimedKey ? claimedKey.xpub : body.xpub || null,
+      fingerprint: claimedKey ? claimedKey.fingerprint : body.fingerprint || null,
+      pubkey: claimedKey ? claimedKey.pubkey : body.pubkey || null,
+      derivation_path: claimedKey ? claimedKey.derivation_path : body.derivation_path || null,
       key_label: body.key_label || null,
+      ...(invite.leaf_id ? { leaf_id: invite.leaf_id } : {}),
       status: "active",
     })
     .select("id")
@@ -123,7 +157,7 @@ export async function handler(event) {
     vault_id: invite.vault_id,
     user_id: u.userId,
     event_type: "member_joined",
-    metadata: { member_id: memberId, role: invite.invited_role, via_invite: invite.id },
+    metadata: { member_id: memberId, role: invite.invited_role, via_invite: invite.id, ...(claimedKey ? { leaf_id: invite.leaf_id, fingerprint: claimedKey.fingerprint } : {}) },
   });
 
   return json(200, { ok: true, member_id: memberId, vault_id: invite.vault_id });

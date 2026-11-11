@@ -20,6 +20,8 @@ import { MEMPOOL, SECOND_SOURCE } from "./_chain.js";
 export const MILESTONE_EVENTS = new Set([
   "created", "draft_compiled", "broadcast", "member_joined", "member_removed",
   "rotated_to_successor", "rotated_from_predecessor", "deleted",
+  // The owner vouching for a person's key is a moment worth pinning.
+  "key_confirmed",
 ]);
 export function isMilestone(eventType) {
   return MILESTONE_EVENTS.has(eventType);

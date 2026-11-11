@@ -15,9 +15,10 @@
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 import { recordEvent } from "./_ledger.js";
+import { checkClaimedKey } from "./_invite-rules.js";
 
 const MEMBER_FIELDS =
-  "id, created_at, vault_id, user_id, role, label, xpub, fingerprint, pubkey, derivation_path, key_label, status, messaging_pubkey";
+  "id, created_at, vault_id, user_id, role, label, xpub, fingerprint, pubkey, derivation_path, key_label, status, messaging_pubkey, leaf_id, key_confirmed_at, key_confirmed_by";
 
 async function isMember(supabase, vaultId, userId) {
   const { data } = await supabase
@@ -89,11 +90,41 @@ export async function handler(event) {
 
     const { data: member, error: lookupErr } = await supabase
       .from("vault_members")
-      .select("id, vault_id, user_id, status")
+      .select("id, vault_id, user_id, status, label, pubkey, fingerprint, leaf_id, key_confirmed_at")
       .eq("id", id)
       .maybeSingle();
     if (lookupErr) return json(500, { error: lookupErr.message });
     if (!member) return json(404, { error: "Member not found" });
+
+    // The owner confirms a member's key by its fingerprint (they check it
+    // with the person, by voice). The fingerprint is sent back so the
+    // confirmation is bound to the key the owner actually looked at.
+    // Only a confirmed key can be compiled into a vault.
+    if (body.confirm_key === true) {
+      if (!(await isOwner(supabase, member.vault_id, u.userId))) {
+        return json(403, { error: "Only the vault owner can confirm a key" });
+      }
+      if (member.status !== "active") return json(409, { error: "This person is no longer a member of the vault." });
+      if (!member.pubkey || !member.fingerprint) return json(409, { error: "This person has not added a key yet." });
+      if (typeof body.fingerprint !== "string" || body.fingerprint.toLowerCase() !== member.fingerprint.toLowerCase()) {
+        return json(409, { error: "The fingerprint you confirmed is not this person's current key. Reload and check again." });
+      }
+      const { data: confirmed, error: cErr } = await supabase
+        .from("vault_members")
+        .update({ key_confirmed_at: new Date().toISOString(), key_confirmed_by: u.userId })
+        .eq("id", id)
+        .eq("fingerprint", member.fingerprint)
+        .select(MEMBER_FIELDS)
+        .single();
+      if (cErr) return json(500, { error: cErr.message });
+      await recordEvent(supabase, {
+        vault_id: member.vault_id,
+        user_id: u.userId,
+        event_type: "key_confirmed",
+        metadata: { member_id: id, label: member.label, fingerprint: member.fingerprint, ...(member.leaf_id ? { leaf_id: member.leaf_id } : {}) },
+      });
+      return json(200, { ok: true, member: confirmed });
+    }
     // A removed member keeps no write access to their old row (their
     // keys feed the key-origin fallback and the attestation check).
     if (member.status !== "active" && member.user_id === u.userId) {
@@ -117,6 +148,22 @@ export async function handler(event) {
       return json(400, {
         error: `No updatable fields provided (allowed: ${allowed.join(", ")})`,
       });
+    }
+
+    const KEY_FIELDS = ["xpub", "fingerprint", "pubkey", "derivation_path"];
+    const touchesKey = KEY_FIELDS.some((k) => k in updates);
+    if (touchesKey && member.key_confirmed_at) {
+      // What the owner confirmed must be what goes into the vault.
+      return json(409, { error: "Your key has been confirmed by the vault owner and can no longer be changed. Ask them to remove you and invite you again." });
+    }
+    if (touchesKey && member.leaf_id) {
+      // A path member's key gets the same checks as at joining.
+      const { data: vault } = await supabase.from("vaults").select("network").eq("id", member.vault_id).maybeSingle();
+      try {
+        Object.assign(updates, checkClaimedKey(updates, vault?.network));
+      } catch (e) {
+        return json(400, { error: e.message });
+      }
     }
 
     const { data, error } = await supabase

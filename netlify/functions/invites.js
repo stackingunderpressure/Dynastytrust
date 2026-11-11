@@ -17,9 +17,10 @@ import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 import { recordEvent } from "./_ledger.js";
 import { randomBytes } from "node:crypto";
+import { checkPathInvite } from "./_invite-rules.js";
 
 const INVITE_FIELDS =
-  "id, created_at, vault_id, invited_by, invited_role, invited_label, invited_email, token, expires_at, claimed_at, claimed_by";
+  "id, created_at, vault_id, invited_by, invited_role, invited_label, invited_email, leaf_id, token, expires_at, claimed_at, claimed_by";
 
 function newToken() {
   // 32 url-safe bytes -> 43 chars. Unlikely to collide in the token column.
@@ -70,21 +71,39 @@ export async function handler(event) {
       return json(400, { error: "Invalid JSON body" });
     }
 
-    const { vault_id, invited_role } = body;
+    const { vault_id } = body;
+    let { invited_role } = body;
     if (!vault_id) return json(400, { error: "Missing: vault_id" });
-    if (!["founder", "heir", "beneficiary", "viewer"].includes(invited_role)) {
+    // A path invite (path-builder vaults) names the path, the person and
+    // their email; the role follows from the path. See _invite-rules.js.
+    const isPathInvite = body.leaf_id != null;
+    if (!isPathInvite && !["founder", "heir", "beneficiary", "viewer"].includes(invited_role)) {
       return json(400, { error: "Invalid invited_role" });
     }
 
     const ok = await assertOwner(supabase, vault_id, u.userId);
     if (ok.error) return json(403, ok);
 
+    let pathInvite = null;
+    if (isPathInvite) {
+      const { data: vault, error: vErr } = await supabase
+        .from("vaults").select("id, status, leaves").eq("id", vault_id).maybeSingle();
+      if (vErr) return json(500, { error: vErr.message });
+      try {
+        pathInvite = checkPathInvite(vault, body);
+      } catch (e) {
+        return json(400, { error: e.message });
+      }
+      invited_role = pathInvite.role;
+    }
+
     const insert = {
       vault_id,
       invited_by: u.userId,
       invited_role,
-      invited_label: body.invited_label || null,
-      invited_email: body.invited_email || null,
+      invited_label: pathInvite ? pathInvite.label : body.invited_label || null,
+      invited_email: pathInvite ? pathInvite.email : body.invited_email || null,
+      ...(pathInvite ? { leaf_id: body.leaf_id } : {}),
       token: newToken(),
     };
 
@@ -99,7 +118,8 @@ export async function handler(event) {
       vault_id,
       user_id: u.userId,
       event_type: "invite_created",
-      metadata: { invite_id: data.id, role: invited_role },
+      // The email address is deliberately not sealed into the record.
+      metadata: { invite_id: data.id, role: invited_role, ...(pathInvite ? { leaf_id: body.leaf_id, label: pathInvite.label } : {}) },
     });
 
     return json(201, { ok: true, invite: data });
