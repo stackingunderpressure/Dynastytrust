@@ -16,6 +16,9 @@ import { XpubQrScanner } from "../components/XpubQrScanner";
 import { WalletLinkCard } from "../components/WalletLinkCard";
 import { TwoStepCard } from "../components/TwoStepCard";
 import { PasskeyProtect } from "../components/PasskeyProtect";
+import { KeySafety } from "../components/KeySafety";
+import { RESTORE_WARNING } from "../lib/key-education";
+import { passwordHint, passwordProblem } from "../lib/password-rules";
 import { WordGrid } from "../components/vault-builder/BackupFlow";
 import {
   BackupFlow, KeyCreatedPrompt,
@@ -115,7 +118,7 @@ function GenerateKeyModal({ onDone, onClose }: { onClose: () => void; onDone: (k
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    const validationError = validatePasswordProtection(pw);
+    const validationError = validatePasswordProtection(pw, network);
     if (validationError) {
       setErr(validationError);
       return;
@@ -161,7 +164,8 @@ function GenerateKeyModal({ onDone, onClose }: { onClose: () => void; onDone: (k
             <option value="mainnet">Mainnet</option>
           </select>
         </div>
-        <PasswordProtectFields state={pw} onChange={setPw} />
+        <PasswordProtectFields state={pw} onChange={setPw} network={network} />
+        <KeySafety />
         {err && <p style={{ color: colors.red, fontSize: 15, margin: 0 }}>{err}</p>}
         <div style={{ display: "flex", gap: 10 }}>
           <Button type="button" variant="ghost" onClick={onClose}>
@@ -207,7 +211,7 @@ function RestoreKeyModal({ onDone, onClose }: { onClose: () => void; onDone: (ke
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     const pwState = real ? { ...pw, enabled: true } : pw;
-    const validationError = validatePasswordProtection(pwState);
+    const validationError = validatePasswordProtection(pwState, network);
     if (validationError) {
       setErr(validationError);
       return;
@@ -241,6 +245,7 @@ function RestoreKeyModal({ onDone, onClose }: { onClose: () => void; onDone: (ke
         Only for a key that was made in this app. Never type a hardware wallet's words into a phone or
         computer.
       </p>
+      <p style={{ fontSize: 13, color: colors.orange, marginBottom: 18, lineHeight: 1.55 }}>{RESTORE_WARNING}</p>
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <div>
           <Label>Name for this key</Label>
@@ -288,8 +293,11 @@ function RestoreKeyModal({ onDone, onClose }: { onClose: () => void; onDone: (ke
                 onChange={e => setPw({ ...pw, password: e.target.value })}
                 required
                 minLength={8}
-                placeholder="Min 8 characters"
+                placeholder="Four unrelated words is ideal"
               />
+              <p style={{ fontSize: 13, color: passwordHint(pw.password, network).level === "weak" ? colors.orange : colors.sub, margin: "6px 0 0", lineHeight: 1.5 }}>
+                {passwordHint(pw.password, network).text}
+              </p>
             </div>
             <div>
               <Label>Confirm password</Label>
@@ -297,7 +305,7 @@ function RestoreKeyModal({ onDone, onClose }: { onClose: () => void; onDone: (ke
             </div>
           </>
         ) : (
-          <PasswordProtectFields state={pw} onChange={setPw} label="Password-protect this key on this device" />
+          <PasswordProtectFields state={pw} onChange={setPw} label="Password-protect this key on this device" network={network} />
         )}
         {err && <p style={{ color: colors.red, fontSize: 15, margin: 0, lineHeight: 1.5 }}>{err}</p>}
         <div style={{ display: "flex", gap: 10 }}>
@@ -441,8 +449,9 @@ function SecureUpgradeModal({ keyData, onDone, onClose }: { keyData: LocalKey; o
       setErr("Passwords do not match");
       return;
     }
-    if (pw.length < 8) {
-      setErr("Min 8 characters");
+    const weak = passwordProblem(pw, keyData.network);
+    if (weak) {
+      setErr(weak);
       return;
     }
     setBusy(true);
@@ -552,8 +561,9 @@ function ChangePasswordModal({ keyData, onDone, onClose }: { keyData: LocalKey; 
       setErr("New passwords do not match");
       return;
     }
-    if (next.length < 8) {
-      setErr("New password must be at least 8 characters");
+    const weak = passwordProblem(next, keyData.network);
+    if (weak) {
+      setErr(weak);
       return;
     }
     setBusy(true);
@@ -580,7 +590,7 @@ function ChangePasswordModal({ keyData, onDone, onClose }: { keyData: LocalKey; 
         </div>
         <div>
           <Label>New password</Label>
-          <Input type="password" value={next} onChange={e => setNext(e.target.value)} required minLength={8} placeholder="Min 8 characters" />
+          <Input type="password" value={next} onChange={e => setNext(e.target.value)} required minLength={8} placeholder="Four unrelated words is ideal" />
         </div>
         <div>
           <Label>Confirm new password</Label>

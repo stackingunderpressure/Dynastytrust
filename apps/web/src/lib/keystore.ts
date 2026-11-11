@@ -25,6 +25,7 @@ import { sha256 } from '@noble/hashes/sha256';
 import { ripemd160 } from '@noble/hashes/ripemd160';
 import { base58check } from '@scure/base';
 import { webauthnPrf, type PrfProvider } from './passkey';
+import { passwordProblem } from './password-rules';
 
 const STORE_KEY = 'dynastytrust:keyring:v1';
 
@@ -400,6 +401,10 @@ export async function generateSoftwareKey(opts: {
   password: string;
   persona: string;
 }): Promise<KeyCreateResult> {
+  // The one strength the user chooses. Checked here, not only in the
+  // forms, so no screen can set a password the rule would refuse.
+  const weak = passwordProblem(opts.password, opts.network);
+  if (weak) throw new Error(weak);
   const mnemonic = generateMnemonic(wordlist, 256);
   const { account, child00, path, masterFingerprint } = deriveAccount(mnemonic, opts.network);
   const encryptedMnemonic = await encryptText(mnemonic, opts.password);
@@ -530,8 +535,9 @@ export async function restoreKeyFromWords(opts: {
         ? `These words belong to your real-bitcoin key "${existing.label}". A real-bitcoin key must be protected with a password -- set one and restore again.`
         : 'A real-bitcoin (mainnet) key must be protected with a password. Set one and restore again.');
     }
-  } else if (password.length < 8) {
-    throw new Error('Password must be at least 8 characters');
+  } else {
+    const weak = passwordProblem(password, network);
+    if (weak) throw new Error(weak);
   }
 
   const { account, child00, path, masterFingerprint } = derived;
@@ -925,6 +931,8 @@ export async function secureTestKey(keyId: string, password: string): Promise<Lo
   const key = getKey(keyId);
   if (!key)               throw new Error('Key not found');
   if (!key.testMnemonic)  throw new Error('Not a test key');
+  const weak = passwordProblem(password, key.network);
+  if (weak) throw new Error(weak);
 
   const encryptedMnemonic = await encryptText(key.testMnemonic, password);
   const all = loadAll();
@@ -1020,6 +1028,8 @@ export async function passkeyToPassword(keyId: string, newPassword: string, prf:
   if (!key)                 throw new Error('Key not found');
   if (!key.passkeyMnemonic) throw new Error('Not a passkey-protected key');
   if (!newPassword)         throw new Error('A new password is required');
+  const weak = passwordProblem(newPassword, key.network);
+  if (weak) throw new Error(weak);
   const mnemonic = await revealMnemonic(keyId, undefined, prf);
   const encryptedMnemonic = await encryptText(mnemonic, newPassword);
   const all = loadAll();
@@ -1039,6 +1049,8 @@ export async function changeKeyPassword(keyId: string, currentPassword: string, 
   const key = getKey(keyId);
   if (!key)                   throw new Error('Key not found');
   if (!key.encryptedMnemonic) throw new Error('Not a password-protected key');
+  const weak = passwordProblem(newPassword, key.network);
+  if (weak) throw new Error(weak);
 
   const mnemonic = await decryptBlob(key.encryptedMnemonic, currentPassword);
   const encryptedMnemonic = await encryptText(mnemonic, newPassword);

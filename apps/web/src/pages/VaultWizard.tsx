@@ -11,6 +11,7 @@ import {
 import { api, type Vault, type VaultProposal, type BlocPolicy, type TrustDoc, type VaultInvite, type VaultMember } from '../lib/api';
 import { hydrateSlots } from '../lib/path-people';
 import { PathInvites } from '../components/vault-builder/PathInvites';
+import { KeySafety } from '../components/KeySafety';
 import { isLeafListVault } from '../lib/vault-spending-paths';
 import { downloadVault } from '../lib/descriptor-backup';
 import { keyNetworkMatches } from '../lib/network';
@@ -2195,6 +2196,7 @@ function KeysStep({
         {genRole === key && (
           <InlineKeyCreate
             role={key}
+            network={network}
             onGenerate={(mode, pw) => onGenerateKey(key, mode, pw)}
             onImport={(xpub, path, fp) => onImportXpub(key, xpub, path, fp)}
             onImportTapit={xOnlyPubkey => onImportTapitKey(key, xOnlyPubkey)}
@@ -2338,9 +2340,10 @@ function KeysStep({
 }
 
 function InlineKeyCreate({
-  role, onGenerate, onImport, onImportTapit, onCancel,
+  role, network, onGenerate, onImport, onImportTapit, onCancel,
 }: {
   role: string;
+  network: NetworkChoice;
   onGenerate: (mode: 'test' | 'secure', password?: string) => void;
   onImport: (xpub: string, derivationPath: string, masterFingerprint?: string) => void;
   onImportTapit: (xOnlyPubkey: string) => void;
@@ -2401,12 +2404,13 @@ function InlineKeyCreate({
       </div>
       {tab === 'generate' ? (
         <>
-          <PasswordProtectFields state={pw} onChange={next => { setPw(next); setPwErr(null); }} />
+          <PasswordProtectFields state={pw} onChange={next => { setPw(next); setPwErr(null); }} network={network} />
+          <KeySafety />
           {pwErr && <div style={{ fontSize: 14, color: colors.red }}>{pwErr}</div>}
           <Button
             size="sm"
             onClick={() => {
-              const validationError = validatePasswordProtection(pw);
+              const validationError = validatePasswordProtection(pw, network);
               if (validationError) { setPwErr(validationError); return; }
               onGenerate(pw.enabled ? 'secure' : 'test', pw.enabled ? pw.password : undefined);
             }}

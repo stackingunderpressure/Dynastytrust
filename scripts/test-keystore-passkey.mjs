@@ -80,9 +80,9 @@ await assert.rejects(ks.protectKeyWithPasskey(key.keyId, { prf: good }), /alread
 pass('a wrong passkey secret cannot unlock; double-protect refused');
 
 // 6. Back to a password; passkey blob gone; old password does not work, new one does.
-const back = await ks.passkeyToPassword(key.keyId, 'new-password-123', good);
+const back = await ks.passkeyToPassword(key.keyId, 'third-quartz-meadow-123', good);
 assert.equal(back.passkeyMnemonic, undefined);
-assert.equal(await ks.revealMnemonic(key.keyId, 'new-password-123'), mnemonic);
+assert.equal(await ks.revealMnemonic(key.keyId, 'third-quartz-meadow-123'), mnemonic);
 await assert.rejects(ks.revealMnemonic(key.keyId, PW), /Wrong password/);
 pass('passkey -> password restores a password-protected key');
 

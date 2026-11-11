@@ -74,7 +74,7 @@ pass('invalid xpubs, wrong networks, bad paths, duplicates and overwrites are al
 
 // 4. The export never carries a seed in any form.
 store.clear();
-const sec = await ks.generateSoftwareKey({ label: 's', network: 'signet', password: 'pw-pw-pw-pw', persona: 's' });
+const sec = await ks.generateSoftwareKey({ label: 's', network: 'signet', password: 'maple-ridge-lantern-42', persona: 's' });
 const tst = ks.generateTestKey({ label: 't', network: 'signet', persona: 't' });
 ks.markBackedUp(tst.key.keyId);
 const fake = { async create() { return { credentialIdB64: 'AAAA' }; }, async evaluate() { return new Uint8Array(32).fill(9); } };
@@ -84,13 +84,13 @@ for (const f of ['testMnemonic', 'encryptedMnemonic', 'passkeyMnemonic', 'cipher
 pass('export strips plaintext, password-wrapped and passkey-wrapped seeds');
 
 // 5. A seed blob moved onto another key is refused at unlock.
-const other = await ks.generateSoftwareKey({ label: 'o', network: 'signet', password: 'pw-pw-pw-pw', persona: 'o' });
+const other = await ks.generateSoftwareKey({ label: 'o', network: 'signet', password: 'maple-ridge-lantern-42', persona: 'o' });
 const keys = all();
 const a = keys.find(k => k.keyId === sec.key.keyId), b = keys.find(k => k.keyId === other.key.keyId);
 a.encryptedMnemonic = b.encryptedMnemonic;
 put(keys);
-await assert.rejects(ks.revealMnemonic(sec.key.keyId, 'pw-pw-pw-pw'), /does not belong to it/);
-assert.equal(await ks.revealMnemonic(other.key.keyId, 'pw-pw-pw-pw'), other.mnemonic, 'the untouched key must still unlock');
+await assert.rejects(ks.revealMnemonic(sec.key.keyId, 'maple-ridge-lantern-42'), /does not belong to it/);
+assert.equal(await ks.revealMnemonic(other.key.keyId, 'maple-ridge-lantern-42'), other.mnemonic, 'the untouched key must still unlock');
 // ... and a planted plaintext seed on a real key is refused the same way.
 const keys2 = all(); const c = keys2.find(k => k.keyId === other.key.keyId);
 c.testMnemonic = tst.mnemonic; delete c.encryptedMnemonic; put(keys2);

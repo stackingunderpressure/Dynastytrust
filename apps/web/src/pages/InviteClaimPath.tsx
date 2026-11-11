@@ -10,6 +10,8 @@ import { APP_NAME } from '../config';
 import { colors, fonts, radii, space } from '../theme';
 import { Button, Card, Input, Label } from '../components/ui';
 import { BackupFlow } from '../components/vault-builder';
+import { KeySafety } from '../components/KeySafety';
+import { passwordHint, passwordProblem } from '../lib/password-rules';
 import Auth from './Auth';
 
 // Joining a vault with a key made on your own device (journey gap J3).
@@ -150,7 +152,8 @@ export default function InviteClaimPath({
     setErr(null);
     const label = `${vault.name} -- my key`;
     if (real || password) {
-      if (password.length < 8) { setErr('Password must be at least 8 characters'); return; }
+      const weak = passwordProblem(password, vault.network);
+      if (weak) { setErr(weak); return; }
       if (password !== confirm) { setErr('Passwords do not match'); return; }
     }
     setBusy(true);
@@ -232,7 +235,12 @@ export default function InviteClaimPath({
               </p>
               <div>
                 <Label>{real ? 'Password to lock the key on this device' : 'Password (optional for test coins)'}</Label>
-                <Input type="password" value={password} onChange={e => setPassword(e.target.value)} required={real} minLength={real ? 8 : undefined} placeholder="Min 8 characters" />
+                <Input type="password" value={password} onChange={e => setPassword(e.target.value)} required={real} placeholder="Four unrelated words is ideal" />
+                {(real || password) && (
+                  <p style={{ ...sub, fontSize: 13, marginTop: 6, color: passwordHint(password, vault.network).level === 'weak' ? colors.orange : colors.sub }}>
+                    {passwordHint(password, vault.network).text}
+                  </p>
+                )}
               </div>
               {(real || password) && (
                 <div>
@@ -243,6 +251,7 @@ export default function InviteClaimPath({
               <p style={{ ...sub, fontSize: 15 }}>
                 The password cannot be recovered. If you forget it, the 24 words still bring the key back.
               </p>
+              <KeySafety />
               <Button type="submit" style={{ minHeight: 44 }} disabled={busy}>{busy ? 'Making your key...' : 'Make my key'}</Button>
             </form>
           )}

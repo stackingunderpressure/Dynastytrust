@@ -106,6 +106,51 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Key lesson and a real password bar -- BUILT 2026-11-11, on the
+  branch.** The operator asked whether "generate a new key" should
+  walk people through making their own seed (dice), then decided
+  against it: "the dice rolls belongs on a seed signer ... it's not
+  really something you should do in DynastyTrust. I would like to have
+  the education be informative of entropy and a good seed ... I don't
+  want to skimp on security ... it's still a hot key." No dice code was
+  written. Decisions (chips): teach that a seed must come from real
+  randomness; teach AND enforce a stronger password on real-bitcoin
+  keys.
+  Two facts shaped it: a seed made here is always 256 bits, so its
+  strength is not the user's to get wrong (the one way a weak seed
+  enters is by being RESTORED); the strength a user does choose is the
+  password, and the bar was eight characters of anything, mainnet
+  included.
+  `lib/password-rules.ts`: a real-bitcoin key needs 12+ characters
+  that are not a repeat, a simple run, or built on a first-guess word
+  (a long phrase containing one is fine); test-coin keys keep 8.
+  Enforced in `keystore.ts` wherever a password is SET
+  (generateSoftwareKey, restoreKeyFromWords, secureTestKey,
+  changeKeyPassword, passkeyToPassword), so no screen can bypass it; a
+  key already locked with a shorter password still opens. The forms
+  show a hint as you type (weak / acceptable / strong).
+  `lib/key-education.ts` + `components/KeySafety.tsx`: "What makes a
+  key safe", six short lessons, shown closed-by-default wherever a key
+  is made (Key Manager, the builder's inline key form, the invited
+  person's page). It calls a browser key a hot key, says no password
+  changes that, says never to choose words yourself, says to make at
+  least one key per path a hardware wallet, and points dice-rollers to
+  a signing device. The restore form carries a warning that only words
+  this app or a signing device generated should be brought in.
+  `scripts/test-password-rules.mjs` (6 cases, in `npm test`) pins the
+  rule, the enforcement, the old-password case, and the lesson's two
+  hard statements plus a list of safety promises it must never make.
+  Four older key tests used passwords the new rule refuses ("first-
+  password" is built on "password"); their passwords were changed,
+  nothing else.
+  WALKED at 375px in a production build: the hint through empty,
+  short, first-guess, acceptable and strong; a weak mainnet password
+  refused with nothing stored; the lesson open; a strong password
+  accepted and the key stored encrypted. Not seen on a phone; the
+  wording was sent to the operator for review before shipping.
+  Measured: npm test exit 0, 29 suites; lint 0 errors / 11 warnings;
+  typecheck 10 = baseline; build green.
+
 - **Small, faint type (operator on his phone, 2026-11-11) -- FIXED, on
   the branch.** His words: "The type is pretty small in the explainers.
   Little hard to read fine print. Not sure how big we can go without

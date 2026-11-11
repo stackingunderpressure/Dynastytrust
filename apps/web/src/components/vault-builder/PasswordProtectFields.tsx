@@ -1,5 +1,8 @@
 import { colors, fonts } from '../../theme';
 import { Input, Label } from '../ui';
+import { passwordHint, passwordProblem } from '../../lib/password-rules';
+
+type AnyNetwork = 'mainnet' | 'bitcoin' | 'signet' | 'testnet';
 
 // The one password-protection control block for key generation, shared
 // by KeyManager's standalone "New key" flow and VaultWizard's inline
@@ -26,9 +29,12 @@ export const DEFAULT_PASSWORD_PROTECT_STATE: PasswordProtectState = {
 };
 
 /** null = valid. Enforces the same min-length + match rule everywhere this control appears. */
-export function validatePasswordProtection(state: PasswordProtectState): string | null {
+export function validatePasswordProtection(state: PasswordProtectState, network: AnyNetwork = 'testnet'): string | null {
   if (!state.enabled) return null;
-  if (state.password.length < 8) return 'Password must be at least 8 characters';
+  // The real rule lives in lib/password-rules.ts (and is enforced again
+  // in keystore.ts); a real-bitcoin key asks for more than a test key.
+  const weak = passwordProblem(state.password, network);
+  if (weak) return weak;
   if (state.password !== state.confirm) return 'Passwords do not match';
   return null;
 }
@@ -37,11 +43,16 @@ export function PasswordProtectFields({
   state,
   onChange,
   label = 'Password-protect this key (recommended for real funds)',
+  network = 'testnet',
 }: {
   state: PasswordProtectState;
   onChange: (next: PasswordProtectState) => void;
   label?: string;
+  /** Which coins the key is for: a real-bitcoin key needs a stronger password. */
+  network?: AnyNetwork;
 }) {
+  const hint = passwordHint(state.password, network);
+  const hintColor = hint.level === 'weak' ? colors.orange : hint.level === 'strong' ? colors.green : colors.sub;
   return (
     <>
       <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 15, color: colors.sub, fontFamily: fonts.sans }}>
@@ -62,8 +73,9 @@ export function PasswordProtectFields({
               onChange={e => onChange({ ...state, password: e.target.value })}
               required
               minLength={8}
-              placeholder="Min 8 characters"
+              placeholder="Four unrelated words is ideal"
             />
+            <div style={{ fontSize: 13, color: hintColor, marginTop: 6, lineHeight: 1.5, fontFamily: fonts.sans }}>{hint.text}</div>
           </div>
           <div>
             <Label>Confirm password</Label>
