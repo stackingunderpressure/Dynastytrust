@@ -106,6 +106,37 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **A vault stands on its own in Bitcoin Core -- PROVEN 2026-11-11 on
+  a private test chain.** Operator asked whether Sparrow or Bitcoin
+  Core would recognise the same address and signing. New script
+  `scripts/bitcoin-core-proof.mjs` (not in `npm test`; needs a Bitcoin
+  Core download, run with BITCOIN_BIN set). Bitcoin Core 32.1.0,
+  release checksum matched, regtest. A five-path vault with one key on
+  three paths, compiled by the real Rust compiler. 11 checks, all
+  passed on a real run: Core derives our exact output script from the
+  compiler's raw descriptor AND from the exported
+  `[fingerprint/path]xpub/0/0` form; imports it watch-only and as
+  wallets holding only some seeds; sees deposits; spends the everyday
+  path signing with Core alone (3 signatures); the shared key alone
+  completes nothing; the kids path will not complete with no locktime,
+  is refused by the network as non-final at height 106, and the same
+  transaction is mined at 26,200 signed by the two kids only; a
+  backup-path spend built, signed and finalized by OUR compiler and
+  browser signer is accepted and mined by Core with change returned to
+  the vault; and a spend our compiler built is signed and finalized by
+  Core in place of our signer. This is the first time one of our own
+  transactions was judged by a real node's consensus rules.
+  NOT SEEN: mainnet or signet; a hardware wallet; Core fed a seed
+  phrase (it cannot read one -- the test handed it account xprvs);
+  Sparrow; Nunchuk; an "if untouched" (relative) path; a decay path.
+  FOUND, NOT YET CHANGED: the backup file every vault downloads
+  (`apps/web/src/lib/descriptor-backup.ts`, two places) and
+  `docs/terms-of-service.md` name Sparrow as the recommended recovery
+  path and say Sparrow sets the locktime for you. Sparrow's release
+  notes, as found by web search today, say it rejects Taproot
+  descriptors with a script tree. Not witnessed here. Replacement
+  wording shown to the operator before any change.
+
 - **One key on more than one path, with the cost shown as you pick --
   BUILT 2026-11-11, on the branch, NOT on main.** Operator: "let one
   key be chosen on more than one path but let's put the proper warnings
