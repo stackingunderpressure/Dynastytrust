@@ -8,6 +8,7 @@ import VaultWizard from './pages/VaultWizard';
 import Dashboard from './pages/Dashboard';
 import VaultDetail from './pages/VaultDetail';
 import LegacyRecoverySetup from './pages/LegacyRecoverySetup';
+import VaultLedger from './pages/VaultLedger';
 import DescriptorRetrieval from './pages/DescriptorRetrieval';
 import ProposalDetail from './pages/ProposalDetail';
 import TapitCosignCallback from './pages/TapitCosignCallback';
@@ -139,6 +140,18 @@ function AuthedApp() {
               sub="Seal a recovery copy of this vault's descriptor to each signer's own key -- so any one surviving key can recover it, decades from now, with nothing extra to back up."
             />
             <LegacyRecoverySetup />
+          </Layout>
+        }
+      />
+      <Route
+        path="/vaults/:id/record"
+        element={
+          <Layout activeNavId={activeNavId} onSignOut={() => { markIntentionalSignOut(); void supabase.auth.signOut(); }}>
+            <PageHeader
+              title="Sealed record"
+              sub="Every action on this vault, chained together and stamped into Bitcoin. Your browser re-checks all of it here -- it does not take our server's word."
+            />
+            <VaultLedger />
           </Layout>
         }
       />

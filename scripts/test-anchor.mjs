@@ -52,12 +52,20 @@ const row = (seq, kind, extra = {}) => {
 const p2 = row(2, 'pending'), p4 = row(4, 'pending'), b4 = row(4, 'bitcoin', { rc: p4.rc });
 const anchors = [p2, p4, b4];
 const ROOT4 = bitcoinUpgrade(p4.commitment, 900123).merkleRootDisplayHex;
-assert.deepEqual(verifyAnchors(entries, anchors, { 900123: ROOT4 }), { ok: true, anchoredThrough: 4, confirmedThrough: 4, bitcoinHeight: 900123, blocksChecked: true, problems: [] });
+assert.deepEqual(verifyAnchors(entries, anchors, { 900123: ROOT4 }), { ok: true, anchoredThrough: 4, confirmedThrough: 4, bitcoinHeight: 900123, blocksChecked: true, blocksUnchecked: 0, problems: [] });
 assert.equal(verifyAnchors(entries, anchors).blocksChecked, false, 'without block data the result must say the block was not checked');
-assert.deepEqual(verifyAnchors(entries, []), { ok: true, anchoredThrough: 0, confirmedThrough: 0, bitcoinHeight: null, blocksChecked: false, problems: [] });
+assert.deepEqual(verifyAnchors(entries, []), { ok: true, anchoredThrough: 0, confirmedThrough: 0, bitcoinHeight: null, blocksChecked: false, blocksUnchecked: 0, problems: [] });
 // the proof must be in the REAL block, and an unreachable block is not a pass
 assert.match(verifyAnchors(entries, anchors, { 900123: '00'.repeat(32) }).problems.join(' '), /is not in block 900123/);
-assert.match(verifyAnchors(entries, anchors, {}).problems.join(' '), /could not be looked up/);
+assert.match(verifyAnchors(entries, anchors, { 900123: null }).problems.join(' '), /could not be looked up/);
+// A caller may look up only the most recent blocks (a long-lived vault
+// has hundreds). A block it did not ask about is reported as unchecked,
+// never as a failure and never as checked.
+{
+  const r0 = verifyAnchors(entries, anchors, { 111: 'ab'.repeat(32) });
+  assert.equal(r0.ok, true, 'a block the caller did not look up must not turn the record red');
+  assert.equal(r0.blocksUnchecked, 1);
+}
 pass('an honest ledger matches its anchors: anchored through entry 4, confirmed in a Bitcoin block');
 
 // THE POINT: what a hash chain alone cannot see.
@@ -122,7 +130,7 @@ let res = await upgradePending(db, {
   rootAt: async () => ups.get(db.rows.find(r => r.calendar === 'a').commitment).merkleRootDisplayHex,
 });
 assert.deepEqual(res, { upgraded: 1, stillPending: 1 });
-assert.deepEqual(verifyAnchors(entries, db.rows), { ok: true, anchoredThrough: 5, confirmedThrough: 5, bitcoinHeight: 900200, blocksChecked: false, problems: [] });
+assert.deepEqual(verifyAnchors(entries, db.rows), { ok: true, anchoredThrough: 5, confirmedThrough: 5, bitcoinHeight: 900200, blocksChecked: false, blocksUnchecked: 0, problems: [] });
 // a calendar that claims a block the proof is not actually in is NOT recorded
 const before = db.rows.length;
 res = await upgradePending(db, {

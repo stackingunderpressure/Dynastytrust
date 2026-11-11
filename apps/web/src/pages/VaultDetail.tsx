@@ -994,6 +994,14 @@ function OverviewTab({
               variant="ghost"
               size="sm"
               style={{ padding: "3px 9px", fontSize: 11, whiteSpace: "normal" }}
+              onClick={() => navigate(`/vaults/${vault.id}/record`, { state: { vaultName: vault.name } })}
+            >
+              Sealed record
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              style={{ padding: "3px 9px", fontSize: 11, whiteSpace: "normal" }}
               onClick={async () => {
                 const url = await api.auditPdfUrl(vault.id);
                 window.open(url, "_blank");

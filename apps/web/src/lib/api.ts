@@ -2,6 +2,7 @@ import { supabase } from './supabase';
 import { broadcastTxUrl, type Network } from '../config';
 import type { ProofOfLife, DuressFlag } from 'tapit-attest';
 import type { SpendingPathSummary } from './vault-spending-paths';
+import type { AnchorCheck, LedgerAnchor, LedgerCheck, LedgerEntry } from './ledger-verify';
 
 // In production, /api/* is redirected to /.netlify/functions/* by netlify.toml.
 // In local dev with `netlify dev`, the same redirect applies automatically.
@@ -1181,6 +1182,20 @@ export const api = {
           metadata: Record<string, unknown>;
         }[];
       }>(`/vault-events?vault_id=${vault_id}&limit=${limit}`),
+  },
+
+  // The vault's sealed record. `verification` and `anchoring` are the
+  // SERVER's verdicts; the ledger page re-checks the raw rows itself
+  // (lib/ledger-verify.ts) and treats these as a second opinion only.
+  ledger: {
+    get: (vault_id: string) =>
+      req<{
+        ok: true;
+        entries: LedgerEntry[];
+        anchors: LedgerAnchor[];
+        verification: LedgerCheck;
+        anchoring: AnchorCheck;
+      }>(`/vault-ledger?vault_id=${vault_id}`),
   },
 
   vaultRequests: {

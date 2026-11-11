@@ -40,11 +40,16 @@ export function isMilestone(eventType) {
  * it }) is supplied, that value IS that block's merkle root. Without
  * `merkleRoots` the block itself is not checked and `blocksChecked` is
  * false -- the caller must say so rather than show a green tick.
+ * A caller may supply only some heights (a long-lived vault has
+ * hundreds of stamps; the newest prove everything before them through
+ * the hash chain). A height with NO key in `merkleRoots` is counted in
+ * `blocksUnchecked`; a key whose value is empty means the lookup was
+ * tried and failed, and that is a problem.
  */
 export function verifyAnchors(entries, anchors, merkleRoots = null) {
   const bySeq = new Map((entries ?? []).map((e) => [Number(e.seq), e]));
   const problems = [];
-  let anchoredThrough = 0, confirmedThrough = 0, bitcoinHeight = null;
+  let anchoredThrough = 0, confirmedThrough = 0, bitcoinHeight = null, blocksUnchecked = 0;
   const receipts = new Set(); // `${seq}:${commitment}` proven to follow from our digest
   const base = (a) => {
     const seq = Number(a.seq);
@@ -79,13 +84,17 @@ export function verifyAnchors(entries, anchors, merkleRoots = null) {
     const att = atts.find((t) => t.kind === "bitcoin" && t.height === a.bitcoin_height);
     if (!att) { problems.push(`Bitcoin proof for entry ${b.seq} does not reach block ${a.bitcoin_height}`); continue; }
     if (merkleRoots) {
-      const root = merkleRoots[a.bitcoin_height];
-      if (!root) { problems.push(`Bitcoin block ${a.bitcoin_height} could not be looked up to check entry ${b.seq}`); continue; }
-      if (!matchesBlock(att, root)) { problems.push(`Bitcoin proof for entry ${b.seq} is not in block ${a.bitcoin_height}`); continue; }
+      if (!Object.hasOwn(merkleRoots, a.bitcoin_height)) {
+        blocksUnchecked++;          // the caller did not look this block up
+      } else {
+        const root = merkleRoots[a.bitcoin_height];
+        if (!root) { problems.push(`Bitcoin block ${a.bitcoin_height} could not be looked up to check entry ${b.seq}`); continue; }
+        if (!matchesBlock(att, root)) { problems.push(`Bitcoin proof for entry ${b.seq} is not in block ${a.bitcoin_height}`); continue; }
+      }
     }
     if (b.seq > confirmedThrough) { confirmedThrough = b.seq; bitcoinHeight = a.bitcoin_height; }
   }
-  return { ok: problems.length === 0, anchoredThrough, confirmedThrough, bitcoinHeight, blocksChecked: !!merkleRoots, problems };
+  return { ok: problems.length === 0, anchoredThrough, confirmedThrough, bitcoinHeight, blocksChecked: !!merkleRoots, blocksUnchecked, problems };
 }
 
 /**

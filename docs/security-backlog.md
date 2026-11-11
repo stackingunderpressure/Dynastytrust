@@ -188,8 +188,11 @@ then (c).
       proof and Bitcoin block 358,391. NOT yet seen: one of OUR receipts
       upgrading to a Bitcoin proof (takes hours; a live receipt from
       2026-11-11 is saved to check), and the scheduled job running on Netlify.
-    - 15d Verify screen + downloadable file, for every member: re-walk the
-      chain, check signatures, check the Bitcoin timestamp, green or red.
+    - ~~15d Verify screen + downloadable file, for every member.~~ BUILT
+      2026-11-11, on the branch (see `HISTORY.md`): `/vaults/:id/record`
+      re-walks the chain and checks the Bitcoin timestamps in the member's
+      own browser, green or red, with a file to keep. Signature checks wait
+      for 15b. Not yet seen against a real sealed entry.
     - 15e Identity at the door: invite bound to the invited email; the owner
       confirms the joiner's key fingerprint before the vault is finalized;
       two-step sign-in required to join a mainnet vault.
@@ -272,3 +275,9 @@ then (c).
 14. **The Kimi K3 report text.** The 146-finding scan's per-finding text is not
     in the repo. When found, commit it under `docs/audits/` so the next scan
     can be diffed against it.
+
+16. **`npm run dev` is broken (found 2026-11-11).** `tapit-attest/dist/anchor/
+    opentimestamps-provider.js` still imports the `opentimestamps` package
+    removed on 2026-11-10. Production builds drop that file and are
+    unaffected (the live bundle is verified); only the local dev server
+    fails. Fix in tapit-attest: remove or stub the provider, rebuild dist.

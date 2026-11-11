@@ -106,6 +106,45 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Sealed record screen (15d) -- BUILT 2026-11-11, on the branch.**
+  Until this there was no way for anyone, the operator included, to
+  LOOK at the ledger: the tables are readable only through
+  `vault-ledger.js` with a member session and no page called it.
+  `/vaults/:id/record` (`pages/VaultLedger.tsx`, button "Sealed record"
+  on the vault) shows every entry in plain words, who and when, and
+  whether it is proven in Bitcoin, holds a receipt, or is waiting.
+  The verdict on the page is the BROWSER's, not the server's:
+  `lib/ledger-verify.ts` is a second implementation (noble hashes +
+  Uint8Array, no Buffer) that re-walks the chain, replays every
+  OpenTimestamps proof, and matches it to the real block fetched from
+  mempool.space and blockstream.info, which must agree. The server's
+  verdict is a second opinion and a disagreement is itself shown.
+  "Save a copy" downloads every row plus how to check it without us.
+  `scripts/test-ledger-verify.mjs` (6 cases, in `npm test`) holds the
+  two implementations to the same answer in the same words on honest,
+  altered, removed, reordered, re-hashed, cut-off and forged records,
+  and replays the reference client's proof to block 358,391.
+  FOUND AND FIXED on the way: `verifyAnchors` treated a block the
+  caller had not looked up as a failure, and `vault-ledger.js` looks up
+  only the newest 12 -- so a vault with more than 12 stamped blocks
+  would have gone red for no reason. Reproduced in `test-anchor.mjs`
+  first; a height with no key is now counted in `blocksUnchecked`, a
+  key with an empty value (lookup tried and failed) is still a problem.
+  WALKED at 375px against a production build with fabricated data and
+  every outside service intercepted (honest, empty, altered with a
+  lying server, tail cut off, chain sources down): no horizontal
+  overflow, expand and download work. The walk caught the page saying
+  "Proven in Bitcoin" in green when the block could not be fetched;
+  it now says the proof is held but unchecked, in orange. NOT SEEN:
+  the page against the real backend with a real sealed entry.
+  NOT in this slice: signatures on entries (15b is not built).
+  ALSO FOUND, not fixed: `npm run dev` is broken since opentimestamps
+  was removed from tapit-attest -- its dist still imports it
+  (`anchor/opentimestamps-provider.js`); production builds tree-shake
+  it and are unaffected. Backlog item 16.
+  Measured: npm test exit 0, 20 suites, 71 harness checks; lint 0
+  errors / 11 warnings; typecheck 10 = baseline; build green.
+
 - **Bitcoin anchoring of the ledger via OpenTimestamps -- BUILT, on the
   branch (2026-11-11).** Backlog 15c. Operator: "each stage submitted
   to the open time stamps ... always checking against the open
