@@ -373,3 +373,37 @@ physically holding the phone.
 
 Ships as one piece only when the whole loop walks; operator walks it on
 signet with a second account before real bitcoin.
+
+## Parked, decided, not started: a must-sign key on any path (2026-11-11)
+
+Operator: "each leaf could have the and and it could be the hardware
+signer and whatever the other part of the leaf would be." Plan given
+2026-11-11; he chose to WAIT until he has walked the shared-key change
+and the earlier items on his phone. Nothing is built.
+
+His decisions, by chip:
+- One OR MORE keys on a path may be marked must-sign.
+- On a path that relaxes over time, a must-sign key STAYS required at
+  every step; only the quorum of the other keys steps down.
+
+Shape: `Leaf` gains an optional must-sign list; the path's script
+becomes `and(pk(A), and(pk(B), thresh(q, others)))`, the same form the
+consent group on the first path already compiles to
+(`protocol/src/policy_compiler.rs`, `build_leaf_multileaf`). A vault
+with no must-sign keys must keep its address (prove with
+`scripts/test-known-answers.mjs` first).
+
+Two slices: (1) compiler + offline harness proof, nothing visible;
+(2) everything a person sees together -- builder, `lib/path-risk.ts`
+(a must-sign key is required by definition), draft save, finalize,
+spend build and fee estimate, signature counting on proposals, rotate,
+what an invited person is told, the three PDFs, the assistant, vault
+and proposal pages, trust document, backup file. No migration.
+
+Unverified and cannot be verified from the sandbox: whether Coldcard,
+Sparrow and Nunchuk import a descriptor with a lone key joined to a
+multi-signature inside one path.
+
+Left out on purpose: the named-field and Bloc builders; changing an
+existing vault (new rule = new address = Rotate); an anyone-can-spend
+last resort.
