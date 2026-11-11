@@ -44,7 +44,7 @@ export function PasswordProtectFields({
 }) {
   return (
     <>
-      <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, color: colors.sub, fontFamily: fonts.sans }}>
+      <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 15, color: colors.sub, fontFamily: fonts.sans }}>
         <input
           type="checkbox"
           checked={state.enabled}

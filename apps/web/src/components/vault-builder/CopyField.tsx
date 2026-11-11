@@ -22,7 +22,7 @@ export function CopyField({
         <Button
           variant="ghost"
           size="sm"
-          style={{ padding: '3px 9px', fontSize: 11 }}
+          style={{ padding: '3px 9px', fontSize: 13 }}
           onClick={() =>
             navigator.clipboard.writeText(value).then(() => {
               setCopied(true);
@@ -39,7 +39,7 @@ export function CopyField({
           borderRadius: radii.md,
           padding: '10px 12px',
           fontFamily: fonts.mono,
-          fontSize: 11,
+          fontSize: 13,
           color: colors.sub,
           wordBreak: 'break-all',
           lineHeight: 1.7,

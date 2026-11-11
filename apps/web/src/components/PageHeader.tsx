@@ -20,7 +20,7 @@ export function PageHeader({ title, sub }: PageHeaderProps) {
         {title}
       </h1>
       {sub ? (
-        <p style={{ fontSize: 14, color: colors.muted, margin: 0 }}>{sub}</p>
+        <p style={{ fontSize: 15, color: colors.muted, margin: 0 }}>{sub}</p>
       ) : null}
     </div>
   );

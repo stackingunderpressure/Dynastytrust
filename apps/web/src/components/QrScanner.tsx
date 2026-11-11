@@ -36,7 +36,7 @@ export function QrScanner({ onResult, onCancel }: QrScannerProps) {
             border: `1px solid ${colors.borderDanger}`,
             borderRadius: radii.md,
             color: colors.red,
-            fontSize: 13,
+            fontSize: 15,
             fontFamily: fonts.sans,
           }}
         >

@@ -77,14 +77,14 @@ export function PasskeyProtect({ k, onChanged }: { k: LocalKey; onChanged: () =>
 
   if (k.passkeyMnemonic) {
     return (
-      <Button variant="ghost" style={{ fontSize: 13 }} disabled={busy} onClick={() => void toPassword()}>
+      <Button variant="ghost" style={{ fontSize: 15 }} disabled={busy} onClick={() => void toPassword()}>
         {busy ? 'Working...' : 'Use a password instead'}
       </Button>
     );
   }
   if (!passkeysAvailable()) return null;
   return (
-    <Button variant="ghost" style={{ fontSize: 13 }} disabled={busy} onClick={() => void toPasskey()}>
+    <Button variant="ghost" style={{ fontSize: 15 }} disabled={busy} onClick={() => void toPasskey()}>
       {busy ? 'Waiting for your device...' : 'Use a passkey instead'}
     </Button>
   );

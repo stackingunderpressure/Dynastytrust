@@ -150,7 +150,7 @@ export function XpubQrScanner({ onResult, onCancel }: XpubQrScannerProps) {
             border: `1px solid ${colors.borderDanger}`,
             borderRadius: radii.md,
             color: colors.red,
-            fontSize: 13,
+            fontSize: 15,
             fontFamily: fonts.sans,
           }}
         >
@@ -179,7 +179,7 @@ export function XpubQrScanner({ onResult, onCancel }: XpubQrScannerProps) {
         </div>
       )}
       {expected > 0 && (
-        <div style={{ fontSize: 12, color: colors.muted, textAlign: 'center', fontFamily: fonts.mono }}>
+        <div style={{ fontSize: 14, color: colors.muted, textAlign: 'center', fontFamily: fonts.mono }}>
           {received} of {expected} fragments received ({Math.round(progress * 100)}%)
         </div>
       )}

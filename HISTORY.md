@@ -106,6 +106,39 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Small, faint type (operator on his phone, 2026-11-11) -- FIXED, on
+  the branch.** His words: "The type is pretty small in the explainers.
+  Little hard to read fine print. Not sure how big we can go without
+  messing everything up." Measured before touching anything: of 927
+  inline text sizes, 697 were below 14px; across fourteen screens at
+  375px, 610 of 788 visible text elements were under 14px and 226 under
+  12px (smallest 10px); and the fine-print grey `colors.muted` (#5A5570,
+  319 uses) was 2.7:1 against the card background, where 4.5:1 is the
+  floor for body text. So it was small AND faint.
+  "How big can we go" was answered by building the site at three size
+  levels and measuring every screen: two steps up (9,10->12, 11->13,
+  12->14, 13->15, 14->15) broke nothing at 375px; three steps pushed
+  the vault page 19px off the side. Operator chose two steps and to
+  lighten the grey. Applied by a mechanical rewrite of the inline
+  sizes (804 changed, plus three 11.5px the rewrite missed and the new
+  check caught); `muted` is now #827D96 (4.5:1 at worst, still quieter
+  than `sub`).
+  After, same fourteen screens: under 12px 226 -> 0; under 14px 610 ->
+  247; smallest 10 -> 12; sideways overflow at 375px 0 -> 0; clipped
+  text 4 -> 4. At 320px the vault page ALREADY ran 32px off the side
+  (the header's Rotate/Delete row); the name now gives way and it is
+  0 (the landing page's pre-existing 4px remains).
+  `scripts/test-readability.mjs` (3 cases, in `npm test`) fails on any
+  inline text size below 12px, on more than a sliver at 12px, and on
+  any text colour under 4.5:1 against any background token.
+  NOT covered: screens I could not render with stand-ins (the send
+  flow past the form, the builder's later steps, legacy recovery,
+  modals) were resized by the same rewrite but not measured; the PDF
+  exports keep their own colours. Seen in a desktop browser at phone
+  width, not on a phone.
+  Measured: npm test exit 0, 28 suites; lint 0 errors / 11 warnings;
+  typecheck 10 = baseline; build green.
+
 - **Deploy and evidence record, 2026-11-11 13:00 UTC.**
   Family joins went to main as d19b064. DB deploy run 73 succeeded and
   the three new columns answer on the live REST API; `verify:live`

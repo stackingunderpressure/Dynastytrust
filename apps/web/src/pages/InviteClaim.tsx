@@ -168,7 +168,7 @@ function InviteBanner({ invite, vault }: { invite: InviteInfo; vault: VaultInfo 
       <div style={{ fontSize: 15, color: colors.text, marginBottom: 4 }}>
         You've been invited to <strong>{vault.name}</strong> as {invite.invited_role}
       </div>
-      <div style={{ fontSize: 12, color: colors.muted }}>
+      <div style={{ fontSize: 14, color: colors.muted }}>
         Sign in or create an account to claim your spot.
       </div>
     </div>
@@ -303,7 +303,7 @@ function ClaimForm({
             You have been invited to join <strong>{vault.name}</strong> as{' '}
             <strong>{invite.invited_role}</strong>.
           </div>
-          <div style={{ fontSize: 13, color: colors.sub, lineHeight: 1.6 }}>
+          <div style={{ fontSize: 15, color: colors.sub, lineHeight: 1.6 }}>
             On the next steps you will:
             <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
               <li>Review the vault&apos;s trust document and governance rules</li>
@@ -312,7 +312,7 @@ function ClaimForm({
               <li>Confirm and claim your spot</li>
             </ul>
           </div>
-          <div style={{ fontSize: 12, color: colors.muted, marginTop: 4 }}>
+          <div style={{ fontSize: 14, color: colors.muted, marginTop: 4 }}>
             You can back out anytime -- no commitment until you click <em>Claim</em> on the last step.
           </div>
         </div>
@@ -332,7 +332,7 @@ function ClaimForm({
               onChange={e => setLabel(e.target.value)}
               placeholder={invite.invited_label ?? 'e.g. Dad, Sister, Lawyer'}
             />
-            <div style={{ fontSize: 11, color: colors.muted, marginTop: 4 }}>
+            <div style={{ fontSize: 13, color: colors.muted, marginTop: 4 }}>
               How other members see you on the roster.
             </div>
           </div>
@@ -341,7 +341,7 @@ function ClaimForm({
 
       {stepId === 'key' && needsKey && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ fontSize: 13, color: colors.sub, lineHeight: 1.55 }}>
+          <div style={{ fontSize: 15, color: colors.sub, lineHeight: 1.55 }}>
             Attach a signing key so you can sign transactions for this vault.
             You can change it later from the Members tab.
           </div>
@@ -366,7 +366,7 @@ function ClaimForm({
                   borderRadius: radii.sm,
                   background: mode === m ? colors.border : 'transparent',
                   color: mode === m ? colors.text : colors.muted,
-                  fontSize: 12,
+                  fontSize: 14,
                   fontFamily: fonts.sans,
                   cursor: 'pointer',
                 }}
@@ -392,7 +392,7 @@ function ClaimForm({
                   border: `1px solid ${colors.border}`,
                   borderRadius: radii.md,
                   color: colors.text,
-                  fontSize: 14,
+                  fontSize: 15,
                   fontFamily: fonts.sans,
                   boxSizing: 'border-box',
                 }}
@@ -405,18 +405,18 @@ function ClaimForm({
                 ))}
               </select>
               {keys.length === 0 && (
-                <div style={{ fontSize: 12, color: colors.muted, marginTop: 2 }}>
+                <div style={{ fontSize: 14, color: colors.muted, marginTop: 2 }}>
                   No {vault.network} keys in this browser. Generate one on the Keys tab first, or switch to hardware wallet / I&apos;ll add later.
                 </div>
               )}
-              <div style={{ fontSize: 11, color: colors.orange }}>
+              <div style={{ fontSize: 13, color: colors.orange }}>
                 Browser keys are for testing only. Use a hardware wallet for real funds.
               </div>
             </>
           )}
 
           {mode === 'skip' && (
-            <div style={{ fontSize: 13, color: colors.muted, lineHeight: 1.5, padding: 10, background: colors.input, borderRadius: radii.sm }}>
+            <div style={{ fontSize: 15, color: colors.muted, lineHeight: 1.5, padding: 10, background: colors.input, borderRadius: radii.sm }}>
               No problem -- you will claim your slot now and attach a key later from the vault&apos;s Members tab. The vault cannot be compiled until every slot has a key, so try not to leave it too long.
             </div>
           )}
@@ -425,10 +425,10 @@ function ClaimForm({
 
       {stepId === 'confirm' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ fontSize: 14, color: colors.text, lineHeight: 1.55 }}>
+          <div style={{ fontSize: 15, color: colors.text, lineHeight: 1.55 }}>
             Ready to join <strong>{vault.name}</strong>.
           </div>
-          <div style={{ fontSize: 13, color: colors.sub, lineHeight: 1.7 }}>
+          <div style={{ fontSize: 15, color: colors.sub, lineHeight: 1.7 }}>
             <div>Role: <strong style={{ color: colors.text }}>{invite.invited_role}</strong></div>
             <div>Display name: <strong style={{ color: colors.text }}>{label.trim() || invite.invited_label || '(none)'}</strong></div>
             {needsKey && (
@@ -444,13 +444,13 @@ function ClaimForm({
             )}
             <div>Network: <strong style={{ color: colors.text }}>{vault.network.toUpperCase()}</strong></div>
           </div>
-          <div style={{ fontSize: 12, color: colors.muted, marginTop: 4 }}>
+          <div style={{ fontSize: 14, color: colors.muted, marginTop: 4 }}>
             Clicking Claim links your account to this slot on the vault. The vault will show up on your Dashboard.
           </div>
         </div>
       )}
 
-      {err && <p style={{ color: colors.red, fontSize: 13, margin: 0 }}>{err}</p>}
+      {err && <p style={{ color: colors.red, fontSize: 15, margin: 0 }}>{err}</p>}
 
       <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
         {!isFirst && (
@@ -499,10 +499,10 @@ function WizardHeader({
       >
         {APP_NAME}
       </div>
-      <div style={{ fontSize: 14, color: colors.text, marginBottom: 2 }}>
+      <div style={{ fontSize: 15, color: colors.text, marginBottom: 2 }}>
         Join <strong>{vault.name}</strong> as {invite.invited_role}
       </div>
-      <div style={{ fontSize: 11, color: colors.muted, marginBottom: 12 }}>
+      <div style={{ fontSize: 13, color: colors.muted, marginBottom: 12 }}>
         Step {activeIdx + 1} of {steps.length} - {steps[activeIdx].title}
       </div>
       <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
@@ -583,7 +583,7 @@ function ErrorBody({ message }: { message: string }) {
       <div style={{ fontSize: 18, fontWeight: 600, color: colors.text, marginBottom: 8 }}>
         Can't use this invite
       </div>
-      <div style={{ fontSize: 14, color: colors.sub, marginBottom: 22 }}>
+      <div style={{ fontSize: 15, color: colors.sub, marginBottom: 22 }}>
         {friendlyInviteError(message)}
       </div>
       <Button variant="ghost" onClick={() => navigate('/vaults')}>
@@ -648,10 +648,10 @@ function RolePrimer({ role }: { role: InvitableRole }) {
         marginBottom: 12,
       }}
     >
-      <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+      <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
         {p.title}
       </div>
-      <div style={{ fontSize: 13, color: colors.sub, lineHeight: 1.55 }}>{p.body}</div>
+      <div style={{ fontSize: 15, color: colors.sub, lineHeight: 1.55 }}>{p.body}</div>
     </div>
   );
 }
@@ -695,7 +695,7 @@ function VaultPreviewBlock({
     >
       <div
         style={{
-          fontSize: 11,
+          fontSize: 13,
           fontWeight: 700,
           letterSpacing: '0.1em',
           color: colors.gold,
@@ -727,7 +727,7 @@ function VaultPreviewBlock({
           )}
         </div>
       ) : (
-        <div style={{ fontSize: 12, color: colors.muted, lineHeight: 1.5, marginBottom: 10 }}>
+        <div style={{ fontSize: 14, color: colors.muted, lineHeight: 1.5, marginBottom: 10 }}>
           No trust document has been drafted yet. Ask the inviter to fill
           it in before you commit to the vault if the governance rules
           matter to you.
@@ -769,12 +769,12 @@ function VaultPreviewBlock({
 
       {activeMembers.length > 0 && (
         <div style={{ marginTop: 8 }}>
-          <div style={{ fontSize: 11, color: colors.muted, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+          <div style={{ fontSize: 13, color: colors.muted, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
             Members already on this vault
           </div>
           <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
             {activeMembers.map(m => (
-              <li key={m.id} style={{ fontSize: 12, color: colors.text }}>
+              <li key={m.id} style={{ fontSize: 14, color: colors.text }}>
                 {m.label ?? '(unlabeled)'} <span style={{ color: colors.muted }}>-- {m.role}</span>
               </li>
             ))}
@@ -782,7 +782,7 @@ function VaultPreviewBlock({
         </div>
       )}
 
-      <div style={{ marginTop: 10, fontSize: 11, color: colors.muted, fontStyle: 'italic' }}>
+      <div style={{ marginTop: 10, fontSize: 13, color: colors.muted, fontStyle: 'italic' }}>
         You are being invited as {invite.invited_role}. If the vault or any
         of the numbers above do not match what the inviter told you, stop
         and confirm before accepting.
@@ -794,10 +794,10 @@ function VaultPreviewBlock({
 function PreviewField({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ marginBottom: 8 }}>
-      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', color: colors.muted, textTransform: 'uppercase', marginBottom: 2 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.12em', color: colors.muted, textTransform: 'uppercase', marginBottom: 2 }}>
         {label}
       </div>
-      <div style={{ fontSize: 13, color: colors.text, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{value}</div>
+      <div style={{ fontSize: 15, color: colors.text, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{value}</div>
     </div>
   );
 }
@@ -805,8 +805,8 @@ function PreviewField({ label, value }: { label: string; value: string }) {
 function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ background: colors.input, borderRadius: radii.sm, padding: '6px 10px' }}>
-      <div style={{ fontSize: 10, color: colors.muted, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{label}</div>
-      <div style={{ fontSize: 12, color: colors.text, marginTop: 2 }}>{value}</div>
+      <div style={{ fontSize: 12, color: colors.muted, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{label}</div>
+      <div style={{ fontSize: 14, color: colors.text, marginTop: 2 }}>{value}</div>
     </div>
   );
 }
@@ -887,7 +887,7 @@ function HardwareKeyInput({
           Scan QR
         </Button>
         {value && (
-          <div style={{ fontSize: 12, color: colors.green, alignSelf: 'center' }}>
+          <div style={{ fontSize: 14, color: colors.green, alignSelf: 'center' }}>
             Key ready to submit
           </div>
         )}
@@ -900,7 +900,7 @@ function HardwareKeyInput({
           onChange={e => setRaw(e.target.value)}
           placeholder={network === 'bitcoin' ? 'xpub6...' : 'tpub...'}
         />
-        <p style={{ fontSize: 11, color: colors.muted, margin: '4px 0 0' }}>
+        <p style={{ fontSize: 13, color: colors.muted, margin: '4px 0 0' }}>
           {network === 'bitcoin'
             ? 'Mainnet vault -- paste an account xpub (starts with xpub).'
             : `${network} vault -- paste a testnet account xpub (starts with tpub).`}
@@ -921,7 +921,7 @@ function HardwareKeyInput({
           <Input mono value={path} onChange={e => setPath(e.target.value)} />
         </div>
       </div>
-      {err && <p style={{ color: colors.red, fontSize: 12, margin: 0 }}>{err}</p>}
+      {err && <p style={{ color: colors.red, fontSize: 14, margin: 0 }}>{err}</p>}
       <Button type="button" variant="ghost" size="sm" onClick={commit}>
         Save key
       </Button>

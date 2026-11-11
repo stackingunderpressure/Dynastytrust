@@ -126,9 +126,9 @@ export function PathInvites({
 
   const row: React.CSSProperties = {
     background: colors.inset, borderRadius: radii.md, padding: space[3], marginTop: space[2],
-    fontSize: 14, color: colors.text, lineHeight: 1.55,
+    fontSize: 15, color: colors.text, lineHeight: 1.55,
   };
-  const sub: React.CSSProperties = { fontSize: 13, color: colors.sub, lineHeight: 1.55, margin: `${space[1]}px 0 ${space[2]}px` };
+  const sub: React.CSSProperties = { fontSize: 15, color: colors.sub, lineHeight: 1.55, margin: `${space[1]}px 0 ${space[2]}px` };
   const fp: React.CSSProperties = { fontFamily: fonts.mono, color: colors.gold, letterSpacing: '0.08em' };
 
   // Nothing to offer on a path whose slots are all filled from this device.
@@ -137,7 +137,7 @@ export function PathInvites({
   return (
     <div style={{ marginTop: space[3], borderTop: `1px solid ${colors.divider}`, paddingTop: space[3] }}>
       {free > 0 && (
-        <div style={{ fontSize: 13, color: colors.sub, lineHeight: 1.55 }}>
+        <div style={{ fontSize: 15, color: colors.sub, lineHeight: 1.55 }}>
           Should someone else hold a key on this path? They make it on their own phone, so it never touches yours.
         </div>
       )}
@@ -151,7 +151,7 @@ export function PathInvites({
                 Send them this link yourself. It only works when they sign in as {p.invite.invited_email}, and it
                 expires on {new Date(p.invite.expires_at).toLocaleDateString()}.
               </div>
-              <div style={{ fontFamily: fonts.mono, fontSize: 12, color: colors.muted, wordBreak: 'break-all', marginBottom: space[2] }}>
+              <div style={{ fontFamily: fonts.mono, fontSize: 14, color: colors.muted, wordBreak: 'break-all', marginBottom: space[2] }}>
                 {linkFor(p.invite)}
               </div>
               <div style={{ display: 'flex', gap: space[2], flexWrap: 'wrap' }}>
@@ -226,11 +226,11 @@ export function PathInvites({
               required
             />
           </div>
-          <div style={{ fontSize: 13, color: colors.sub, lineHeight: 1.55 }}>
+          <div style={{ fontSize: 15, color: colors.sub, lineHeight: 1.55 }}>
             You get a link to send them. Only that email address can use it, and their key goes into the vault
             only after you confirm it with them.
           </div>
-          {err && <div style={{ fontSize: 13, color: colors.red }}>{err}</div>}
+          {err && <div style={{ fontSize: 15, color: colors.red }}>{err}</div>}
           <div style={{ display: 'flex', gap: space[2] }}>
             <Button type="button" size="sm" variant="ghost" style={{ minHeight: 40 }} onClick={() => { setFormOpen(false); setErr(null); }}>
               Cancel

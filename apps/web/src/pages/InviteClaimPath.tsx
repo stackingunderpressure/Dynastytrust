@@ -80,12 +80,12 @@ export default function InviteClaimPath({
   const page: React.CSSProperties = { minHeight: '100vh', fontFamily: fonts.sans, padding: space[4], display: 'flex', justifyContent: 'center' };
   const col: React.CSSProperties = { width: '100%', maxWidth: 520, display: 'flex', flexDirection: 'column', gap: space[3] };
   const p: React.CSSProperties = { fontSize: 15, color: colors.text, lineHeight: 1.6, margin: 0 };
-  const sub: React.CSSProperties = { fontSize: 14, color: colors.sub, lineHeight: 1.6, margin: 0 };
+  const sub: React.CSSProperties = { fontSize: 15, color: colors.sub, lineHeight: 1.6, margin: 0 };
   const h: React.CSSProperties = { fontFamily: fonts.display, fontSize: 20, color: colors.gold, marginBottom: space[2] };
 
   const intro = (
     <Card>
-      <div style={{ fontFamily: fonts.display, fontSize: 14, letterSpacing: '0.12em', color: colors.gold, marginBottom: space[2] }}>{APP_NAME}</div>
+      <div style={{ fontFamily: fonts.display, fontSize: 15, letterSpacing: '0.12em', color: colors.gold, marginBottom: space[2] }}>{APP_NAME}</div>
       <p style={p}>
         {invite.invited_label ? `${invite.invited_label}, you` : 'You'} have been invited to hold a key for{' '}
         <strong>{path ? `"${path.label}"` : 'a path'}</strong> in the Bitcoin vault <strong>{vault.name}</strong>
@@ -240,7 +240,7 @@ export default function InviteClaimPath({
                   <Input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} required />
                 </div>
               )}
-              <p style={{ ...sub, fontSize: 13 }}>
+              <p style={{ ...sub, fontSize: 15 }}>
                 The password cannot be recovered. If you forget it, the 24 words still bring the key back.
               </p>
               <Button type="submit" style={{ minHeight: 44 }} disabled={busy}>{busy ? 'Making your key...' : 'Make my key'}</Button>

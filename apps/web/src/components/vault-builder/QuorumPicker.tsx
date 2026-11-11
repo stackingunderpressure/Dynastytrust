@@ -54,7 +54,7 @@ export function QuorumPicker({
           );
         })}
       </div>
-      <div style={{ fontSize: 13, color: colors.sub, marginTop: 10 }}>
+      <div style={{ fontSize: 15, color: colors.sub, marginTop: 10 }}>
         <span style={{ color, fontWeight: 700 }}>{value}</span> of {max} must agree to spend.
       </div>
     </div>

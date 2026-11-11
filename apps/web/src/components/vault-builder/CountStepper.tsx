@@ -70,7 +70,7 @@ export function CountStepper({
         >
           {value}
         </div>
-        <div style={{ fontSize: 11, color: colors.muted, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+        <div style={{ fontSize: 13, color: colors.muted, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
           {label}
         </div>
       </div>

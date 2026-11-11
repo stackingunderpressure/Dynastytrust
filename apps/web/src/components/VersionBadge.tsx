@@ -59,7 +59,7 @@ export function VersionBadge() {
         border: `1px solid ${updateAvailable ? colors.gold : colors.border}`,
         borderRadius: radii.md,
         color: updateAvailable ? colors.gold : colors.muted,
-        fontSize: 12,
+        fontSize: 14,
         fontWeight: updateAvailable ? 700 : 400,
         padding: '6px 10px',
         cursor: 'pointer',

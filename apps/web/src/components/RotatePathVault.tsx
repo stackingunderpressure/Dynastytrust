@@ -131,7 +131,7 @@ export function RotatePathVault({
   }
 
   const busy = stage.at === 'working';
-  const p: React.CSSProperties = { fontSize: 14, color: colors.sub, lineHeight: 1.6, margin: `0 0 ${space[3]}px` };
+  const p: React.CSSProperties = { fontSize: 15, color: colors.sub, lineHeight: 1.6, margin: `0 0 ${space[3]}px` };
 
   if (stage.at === 'refused') {
     return (
@@ -191,7 +191,7 @@ export function RotatePathVault({
             Open the new vault
           </Button>
         </div>
-        {!stage.saved && <p style={{ ...p, marginTop: space[3], fontSize: 13 }}>Save the backup to continue.</p>}
+        {!stage.saved && <p style={{ ...p, marginTop: space[3], fontSize: 15 }}>Save the backup to continue.</p>}
       </Modal>
     );
   }
@@ -232,13 +232,13 @@ export function RotatePathVault({
       {plan && (
         <div style={{ background: colors.inset, borderRadius: radii.md, padding: space[3], marginBottom: space[3] }}>
           {plan.rows.map(r => (
-            <div key={r.id} style={{ fontSize: 14, color: colors.text, lineHeight: 1.6 }}>
+            <div key={r.id} style={{ fontSize: 15, color: colors.text, lineHeight: 1.6 }}>
               {r.label}: {r.oldWords} <span style={{ color: colors.muted }}>becomes</span>{' '}
               <span style={{ color: colors.gold }}>{r.newWords}</span>
             </div>
           ))}
           {plan.problems.map(x => (
-            <div key={x} style={{ fontSize: 14, color: colors.red, lineHeight: 1.6, marginTop: space[2] }}>{x}</div>
+            <div key={x} style={{ fontSize: 15, color: colors.red, lineHeight: 1.6, marginTop: space[2] }}>{x}</div>
           ))}
         </div>
       )}
@@ -247,11 +247,11 @@ export function RotatePathVault({
       <div style={{ background: colors.inset, borderRadius: radii.md, padding: space[3], marginBottom: space[3] }}>
         {paths.map(path => (
           <div key={path.id} style={{ marginBottom: space[2] }}>
-            <div style={{ fontSize: 14, color: colors.text }}>
+            <div style={{ fontSize: 15, color: colors.text }}>
               {path.label} <span style={{ color: colors.muted }}>-- {path.quorum} of {path.keys.length} must sign</span>
             </div>
             {path.keys.map(k => (
-              <div key={k} style={{ fontSize: 13, color: colors.sub, lineHeight: 1.6, paddingLeft: space[3] }}>
+              <div key={k} style={{ fontSize: 15, color: colors.sub, lineHeight: 1.6, paddingLeft: space[3] }}>
                 {names.get(xOnly(k)) ?? 'Unnamed key'}{' '}
                 <span style={{ fontFamily: fonts.mono, color: colors.muted }}>
                   {prints.get(xOnly(k)) ?? `...${k.slice(-8)}`}
@@ -262,7 +262,7 @@ export function RotatePathVault({
         ))}
       </div>
 
-      <label style={{ display: 'flex', gap: space[2], alignItems: 'flex-start', fontSize: 14, color: colors.text, lineHeight: 1.5, marginBottom: space[3], minHeight: 44 }}>
+      <label style={{ display: 'flex', gap: space[2], alignItems: 'flex-start', fontSize: 15, color: colors.text, lineHeight: 1.5, marginBottom: space[3], minHeight: 44 }}>
         <input type="checkbox" checked={confirmed} disabled={busy} onChange={e => setConfirmed(e.target.checked)} style={{ marginTop: 4 }} />
         These are the right keys. I understand the new vault gets a new address and its own backup, and that
         nothing is protected until the coins are moved.

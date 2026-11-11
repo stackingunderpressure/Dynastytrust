@@ -256,7 +256,7 @@ export default function VaultLedger() {
                 {waiting} newer {waiting === 1 ? 'entry is' : 'entries are'} waiting for the next daily stamp.
               </p>
             )}
-            <p style={{ color: colors.sub, lineHeight: 1.6, marginBottom: 0, fontSize: 14 }}>
+            <p style={{ color: colors.sub, lineHeight: 1.6, marginBottom: 0, fontSize: 15 }}>
               Why this matters: each entry carries the fingerprint of the one before it, so changing any
               old entry breaks every entry after it. Once the newest fingerprint is inside a Bitcoin block,
               the history up to that point is fixed. Nobody -- not DynastyTrust, not whoever runs its
@@ -306,11 +306,11 @@ export default function VaultLedger() {
                       <span style={{ fontFamily: fonts.mono, color: colors.muted, minWidth: 28 }}>{seq}</span>
                       <span style={{ flex: 1, minWidth: 0 }}>
                         <span style={{ display: 'block', fontSize: 15 }}>{ledgerEventWords(e.event_type)}</span>
-                        <span style={{ display: 'block', fontSize: 13, color: colors.sub, marginTop: 2 }}>
+                        <span style={{ display: 'block', fontSize: 15, color: colors.sub, marginTop: 2 }}>
                           {who(e.actor_user_id)} - {new Date(e.recorded_at).toLocaleString()}
                         </span>
                       </span>
-                      <span style={{ fontSize: 12, color: standing.color, whiteSpace: 'nowrap', paddingTop: 2 }}>
+                      <span style={{ fontSize: 14, color: standing.color, whiteSpace: 'nowrap', paddingTop: 2 }}>
                         {standing.label}
                       </span>
                     </button>
@@ -321,7 +321,7 @@ export default function VaultLedger() {
                           borderRadius: radii.md,
                           padding: space[3],
                           marginBottom: space[3],
-                          fontSize: 13,
+                          fontSize: 15,
                           color: colors.sub,
                         }}
                       >
@@ -329,7 +329,7 @@ export default function VaultLedger() {
                         <pre
                           style={{
                             fontFamily: fonts.mono,
-                            fontSize: 12,
+                            fontSize: 14,
                             color: colors.text,
                             margin: 0,
                             whiteSpace: 'pre-wrap',
@@ -339,7 +339,7 @@ export default function VaultLedger() {
                           {sealedDetails(e)}
                         </pre>
                         <div style={{ margin: `${space[3]}px 0 ${space[1]}px` }}>Fingerprint of this entry:</div>
-                        <div style={{ fontFamily: fonts.mono, fontSize: 12, color: colors.text, wordBreak: 'break-all' }}>
+                        <div style={{ fontFamily: fonts.mono, fontSize: 14, color: colors.text, wordBreak: 'break-all' }}>
                           {e.entry_hash}
                         </div>
                       </div>

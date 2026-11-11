@@ -147,7 +147,7 @@ export default function DescriptorRetrieval() {
       </p>
 
       <Card>
-        <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
+        <label style={{ display: 'block', fontSize: 14, color: colors.muted, marginBottom: 4 }}>
           Network
         </label>
         <select
@@ -164,7 +164,7 @@ export default function DescriptorRetrieval() {
           <option value="signet">Signet</option>
         </select>
 
-        <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
+        <label style={{ display: 'block', fontSize: 14, color: colors.muted, marginBottom: 4 }}>
           Address (from your recovery note)
         </label>
         <Textarea
@@ -176,7 +176,7 @@ export default function DescriptorRetrieval() {
           style={{ marginBottom: 10 }}
         />
 
-        <div style={{ fontSize: 12, color: colors.muted, marginBottom: 6 }}>
+        <div style={{ fontSize: 14, color: colors.muted, marginBottom: 6 }}>
           Don't have the note, but this key is in this browser?
         </div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -218,7 +218,7 @@ export default function DescriptorRetrieval() {
         </Button>
 
         {checked && !candidate && (
-          <div style={{ marginTop: 12, fontSize: 14, color: colors.sub }}>
+          <div style={{ marginTop: 12, fontSize: 15, color: colors.sub }}>
             Nothing published at that address yet. Double-check the address came from the same
             recovery note, and that you picked the right network.
           </div>
@@ -230,7 +230,7 @@ export default function DescriptorRetrieval() {
           <div style={{ fontSize: 15, fontWeight: 600, color: colors.gold, marginBottom: 4 }}>
             Found it.
           </div>
-          <p style={{ fontSize: 14, color: colors.sub, lineHeight: 1.6, marginBottom: 14 }}>
+          <p style={{ fontSize: 15, color: colors.sub, lineHeight: 1.6, marginBottom: 14 }}>
             Prove you hold this key by signing the exact message below -- built from the nonce
             published in this transaction, nothing memorized -- at derivation path{' '}
             <code style={{ fontFamily: fonts.mono, color: colors.text }}>
@@ -240,7 +240,7 @@ export default function DescriptorRetrieval() {
             message signing).
           </p>
 
-          <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
+          <label style={{ display: 'block', fontSize: 14, color: colors.muted, marginBottom: 4 }}>
             Message to sign
           </label>
           <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
@@ -264,7 +264,7 @@ export default function DescriptorRetrieval() {
             </div>
           )}
 
-          <p style={{ fontSize: 13, color: colors.red, lineHeight: 1.6, marginBottom: 14 }}>
+          <p style={{ fontSize: 15, color: colors.red, lineHeight: 1.6, marginBottom: 14 }}>
             Use the CLASSIC message-signing method (plain ECDSA), not BIP-322 or a Taproot-address
             signature -- most hardware wallets' "Sign Message" feature against a custom
             derivation path does this natively. If it offers a "scan message QR" option, scan the
@@ -281,7 +281,7 @@ export default function DescriptorRetrieval() {
             </Button>
           )}
 
-          <label style={{ display: 'block', fontSize: 12, color: colors.muted, marginBottom: 4 }}>
+          <label style={{ display: 'block', fontSize: 14, color: colors.muted, marginBottom: 4 }}>
             Signature
           </label>
           <Textarea
@@ -320,7 +320,7 @@ export default function DescriptorRetrieval() {
           <Button variant="ghost" size="sm" onClick={() => copyText(recoveredBundle, 'Descriptor')}>
             Copy
           </Button>
-          <div style={{ fontSize: 12, color: colors.sub, marginTop: 8, lineHeight: 1.6 }}>
+          <div style={{ fontSize: 14, color: colors.sub, marginTop: 8, lineHeight: 1.6 }}>
             This is the vault's output descriptor -- import it into Sparrow
             (File &gt; Import Wallet) to reconstruct every address and, with
             at least one signer's seed phrase, spend from it.
@@ -331,7 +331,7 @@ export default function DescriptorRetrieval() {
       <div
         style={{
           background: colors.input, border: `1px solid ${colors.gold}33`, borderRadius: radii.md,
-          padding: '14px 18px', fontSize: 13, color: colors.sub, lineHeight: 1.6,
+          padding: '14px 18px', fontSize: 15, color: colors.sub, lineHeight: 1.6,
         }}
       >
         DynastyTrust is doing the chain lookup and the decrypt here as a convenience -- nothing on

@@ -128,10 +128,10 @@ export function SentSecretsPanel({ vaultId }: { vaultId: string }) {
         marginBottom: space[4],
       }}
     >
-      <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+      <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
         Secrets sent
       </div>
-      <p style={{ fontSize: 12, color: colors.muted, marginBottom: 14 }}>
+      <p style={{ fontSize: 14, color: colors.muted, marginBottom: 14 }}>
         Things you've saved a recoverable copy of, like the circle safety phrase. Encrypted with
         the password you set when you saved each one -- there is no reset, so the first Reveal on
         a new device still needs that exact password. After that, Face ID / Touch ID unlocks it on
@@ -152,8 +152,8 @@ export function SentSecretsPanel({ vaultId }: { vaultId: string }) {
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>{s.label}</div>
-                  <div style={{ fontSize: 11, color: colors.muted }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>{s.label}</div>
+                  <div style={{ fontSize: 13, color: colors.muted }}>
                     Sent to {s.recipients.length === 0
                       ? 'nobody yet'
                       : s.recipients.map(r => `${r.label} (${r.persona})`).join(', ')}
@@ -163,14 +163,14 @@ export function SentSecretsPanel({ vaultId }: { vaultId: string }) {
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                   {fields ? (
-                    <Button variant="ghost" size="sm" style={{ fontSize: 12 }} onClick={() => hide(s.id)}>
+                    <Button variant="ghost" size="sm" style={{ fontSize: 14 }} onClick={() => hide(s.id)}>
                       Hide
                     </Button>
                   ) : (
                     <Button
                       variant="ghost"
                       size="sm"
-                      style={{ fontSize: 12 }}
+                      style={{ fontSize: 14 }}
                       disabled={busyId === s.id}
                       onClick={() => void reveal(s)}
                     >
@@ -180,7 +180,7 @@ export function SentSecretsPanel({ vaultId }: { vaultId: string }) {
                   <Button
                     variant="ghost"
                     size="sm"
-                    style={{ fontSize: 12, color: colors.red }}
+                    style={{ fontSize: 14, color: colors.red }}
                     onClick={() => void remove(s)}
                   >
                     Delete
@@ -199,7 +199,7 @@ export function SentSecretsPanel({ vaultId }: { vaultId: string }) {
                   }}
                 >
                   {Object.entries(fields).map(([k, v]) => (
-                    <div key={k} style={{ fontSize: 12 }}>
+                    <div key={k} style={{ fontSize: 14 }}>
                       <span style={{ color: colors.muted }}>{FIELD_LABEL[k] ?? k}: </span>
                       <span style={{ color: colors.text, fontFamily: 'monospace' }}>{v}</span>
                     </div>

@@ -17,8 +17,8 @@ const base: CSSProperties = {
 };
 
 const sizeStyles: Record<Size, CSSProperties> = {
-  sm: { padding: '9px 16px', fontSize: 13 },
-  md: { padding: '11px 22px', fontSize: 14 },
+  sm: { padding: '9px 16px', fontSize: 15 },
+  md: { padding: '11px 22px', fontSize: 15 },
 };
 
 const variantStyles: Record<Variant, CSSProperties> = {

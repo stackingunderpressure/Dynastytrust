@@ -391,7 +391,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
             background: "none",
             border: "none",
             color: colors.muted,
-            fontSize: 14,
+            fontSize: 15,
             cursor: "pointer",
             fontFamily: fonts.sans,
           }}
@@ -405,17 +405,24 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
             fontWeight: 700,
             letterSpacing: "0.12em",
             color: colors.gold,
+            // On a very narrow phone the name gives way so Rotate and
+            // Delete stay on screen (they ran 32px off the side at 320px).
+            minWidth: 0,
+            flex: "0 1 auto",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
           }}
         >
           {APP_NAME}
         </span>
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
           {vault.status === "compiled" && vault.bloc_policy == null && (
             <Button
               variant="ghost"
               size="sm"
               disabled={archiving}
-              style={{ fontSize: 12 }}
+              style={{ fontSize: 14 }}
               onClick={() => setShowRotate(true)}
             >
               Rotate
@@ -425,7 +432,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
             variant="danger"
             size="sm"
             disabled={archiving}
-            style={{ fontSize: 12 }}
+            style={{ fontSize: 14 }}
             onClick={deleteVault}
           >
             Delete
@@ -480,7 +487,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
         >
           <div
             style={{
-              fontSize: 11,
+              fontSize: 13,
               fontWeight: 700,
               letterSpacing: "0.1em",
               color: colors.muted,
@@ -507,7 +514,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
             </div>
           )}
           {balance && balance.unconfirmed_sats !== 0 && (
-            <div style={{ fontSize: 12, color: colors.orange, marginBottom: 8 }}>
+            <div style={{ fontSize: 14, color: colors.orange, marginBottom: 8 }}>
               + {satsToBtc(balance.unconfirmed_sats)} BTC unconfirmed
             </div>
           )}
@@ -526,7 +533,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
             <Button
               variant="ghost"
               size="sm"
-              style={{ fontSize: 12 }}
+              style={{ fontSize: 14 }}
               disabled={!vault.address}
               onClick={() => vault.address && copy(vault.address, "addr")}
             >
@@ -543,7 +550,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
                   border: `1px solid ${colors.border}`,
                   borderRadius: radii.md,
                   color: colors.sub,
-                  fontSize: 12,
+                  fontSize: 14,
                   fontFamily: fonts.sans,
                   textDecoration: "none",
                   display: "flex",
@@ -559,7 +566,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
               <Button
                 variant="ghost"
                 size="sm"
-                style={{ fontSize: 12, minHeight: 40 }}
+                style={{ fontSize: 14, minHeight: 40 }}
                 onClick={() => setShowReceiveQr(v => !v)}
               >
                 {showReceiveQr ? "Hide deposit QR" : "Show deposit QR"}
@@ -567,19 +574,19 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
               {showReceiveQr && (
                 <div style={{ marginTop: 10 }}>
                   <QrImage data={vault.address} size={220} />
-                  <div style={{ fontSize: 12, color: colors.sub, marginTop: 8, lineHeight: 1.5 }}>
+                  <div style={{ fontSize: 14, color: colors.sub, marginTop: 8, lineHeight: 1.5 }}>
                     Scan this with the wallet you are sending FROM to deposit into this vault. Check that the
                     address it shows ends in <span style={{ fontFamily: fonts.mono }}>{vault.address.slice(-8)}</span>.
                   </div>
                 </div>
               )}
-              <div style={{ fontSize: 12, color: colors.sub, marginTop: 8, lineHeight: 1.5 }}>
+              <div style={{ fontSize: 14, color: colors.sub, marginTop: 8, lineHeight: 1.5 }}>
                 First deposit? Send a small amount, wait until it shows here, then send the rest.
               </div>
             </div>
           )}
           {vault.address && (
-            <div style={{ fontSize: 11, color: colors.muted, marginTop: 10, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 13, color: colors.muted, marginTop: 10, lineHeight: 1.5 }}>
               This vault has one fixed address, reused for every deposit --
               anyone who sees one payment to it can see every payment to it
               and the eventual full spend. That's the tradeoff for hardware-
@@ -604,7 +611,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
               marginBottom: 16,
             }}
           >
-            <div style={{ fontSize: 13, color: colors.text, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 15, color: colors.text, lineHeight: 1.5 }}>
               You claimed the <strong>{roleLabel(myMember!.role)}</strong> slot but haven't attached a
               signing key. The vault can't be compiled or signed by you until you do.
             </div>
@@ -652,7 +659,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
                 minWidth: 76,
                 padding: "8px 10px",
                 border: "none",
-                fontSize: 13,
+                fontSize: 15,
                 cursor: "pointer",
                 fontFamily: fonts.sans,
                 background: tab === t.id ? colors.input : "transparent",
@@ -674,7 +681,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
                   style={{
                     background: colors.orange,
                     color: colors.bg,
-                    fontSize: 10,
+                    fontSize: 12,
                     fontWeight: 700,
                     borderRadius: 10,
                     padding: "1px 6px",
@@ -926,7 +933,7 @@ function OverviewTab({
             >
               <div
                 style={{
-                  fontSize: 10,
+                  fontSize: 12,
                   fontWeight: 700,
                   letterSpacing: "0.1em",
                   color: p.color,
@@ -935,10 +942,10 @@ function OverviewTab({
               >
                 PATH {p.num}
               </div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
                 {p.title}
               </div>
-              <div style={{ fontSize: 12, color: colors.sub, lineHeight: 1.5 }}>{p.body}</div>
+              <div style={{ fontSize: 14, color: colors.sub, lineHeight: 1.5 }}>{p.body}</div>
             </div>
           ))}
 
@@ -972,8 +979,8 @@ function OverviewTab({
                   borderBottom: `1px solid ${colors.border}`,
                 }}
               >
-                <span style={{ fontSize: 13, color: colors.muted }}>{k}</span>
-                <span style={{ fontSize: 13, color: colors.text }}>{v}</span>
+                <span style={{ fontSize: 15, color: colors.muted }}>{k}</span>
+                <span style={{ fontSize: 15, color: colors.text }}>{v}</span>
               </div>
             ))}
           </div>
@@ -992,7 +999,7 @@ function OverviewTab({
         <div style={{ marginBottom: 8 }}>
           <span
             style={{
-              fontSize: 11,
+              fontSize: 13,
               fontWeight: 700,
               letterSpacing: "0.08em",
               color: colors.muted,
@@ -1005,7 +1012,7 @@ function OverviewTab({
             <Button
               variant="ghost"
               size="sm"
-              style={{ padding: "3px 9px", fontSize: 11, whiteSpace: "normal" }}
+              style={{ padding: "3px 9px", fontSize: 13, whiteSpace: "normal" }}
               disabled={!vault.descriptor}
               onClick={() => vault.descriptor && copy(vault.descriptor, "desc")}
             >
@@ -1014,7 +1021,7 @@ function OverviewTab({
             <Button
               variant="ghost"
               size="sm"
-              style={{ padding: "3px 9px", fontSize: 11, whiteSpace: "normal" }}
+              style={{ padding: "3px 9px", fontSize: 13, whiteSpace: "normal" }}
               onClick={() => void downloadVault(vault)}
             >
               Download backup
@@ -1022,7 +1029,7 @@ function OverviewTab({
             <Button
               variant="ghost"
               size="sm"
-              style={{ padding: "3px 9px", fontSize: 11, whiteSpace: "normal" }}
+              style={{ padding: "3px 9px", fontSize: 13, whiteSpace: "normal" }}
               disabled={vault.status !== "compiled"}
               onClick={async () => {
                 const url = await api.pdfUrl(vault.id);
@@ -1034,7 +1041,7 @@ function OverviewTab({
             <Button
               variant="ghost"
               size="sm"
-              style={{ padding: "3px 9px", fontSize: 11, whiteSpace: "normal" }}
+              style={{ padding: "3px 9px", fontSize: 13, whiteSpace: "normal" }}
               disabled={!vault.descriptor}
               onClick={() => setShowDescriptorQr(v => !v)}
             >
@@ -1043,7 +1050,7 @@ function OverviewTab({
             <Button
               variant="ghost"
               size="sm"
-              style={{ padding: "3px 9px", fontSize: 11, whiteSpace: "normal" }}
+              style={{ padding: "3px 9px", fontSize: 13, whiteSpace: "normal" }}
               disabled={!vault.descriptor}
               onClick={() => navigate(`/vaults/${vault.id}/legacy-recovery`)}
             >
@@ -1052,7 +1059,7 @@ function OverviewTab({
             <Button
               variant="ghost"
               size="sm"
-              style={{ padding: "3px 9px", fontSize: 11, whiteSpace: "normal" }}
+              style={{ padding: "3px 9px", fontSize: 13, whiteSpace: "normal" }}
               onClick={() => navigate(`/vaults/${vault.id}/record`, { state: { vaultName: vault.name } })}
             >
               Sealed record
@@ -1060,7 +1067,7 @@ function OverviewTab({
             <Button
               variant="ghost"
               size="sm"
-              style={{ padding: "3px 9px", fontSize: 11, whiteSpace: "normal" }}
+              style={{ padding: "3px 9px", fontSize: 13, whiteSpace: "normal" }}
               onClick={async () => {
                 const url = await api.auditPdfUrl(vault.id);
                 window.open(url, "_blank");
@@ -1071,7 +1078,7 @@ function OverviewTab({
             <Button
               variant="ghost"
               size="sm"
-              style={{ padding: "3px 9px", fontSize: 11, whiteSpace: "normal" }}
+              style={{ padding: "3px 9px", fontSize: 13, whiteSpace: "normal" }}
               onClick={async () => {
                 // Default to last completed tax year. The server
                 // accepts any year between 2020 and 2099.
@@ -1098,7 +1105,7 @@ function OverviewTab({
             <Button
               variant="ghost"
               size="sm"
-              style={{ padding: "3px 9px", fontSize: 11, whiteSpace: "normal" }}
+              style={{ padding: "3px 9px", fontSize: 13, whiteSpace: "normal" }}
               onClick={async () => {
                 const url = await api.activityExportUrl(vault.id);
                 window.open(url, "_blank");
@@ -1110,7 +1117,7 @@ function OverviewTab({
         <div
           style={{
             fontFamily: fonts.mono,
-            fontSize: 10,
+            fontSize: 12,
             color: colors.sub,
             wordBreak: "break-all",
             lineHeight: 1.6,
@@ -1131,13 +1138,13 @@ function OverviewTab({
               borderRadius: radii.md,
             }}
           >
-            <span style={{ fontSize: 10, color: colors.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            <span style={{ fontSize: 12, color: colors.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>
               Descriptor fingerprint
             </span>
             <span style={{ fontSize: 18, color: colors.gold, fontFamily: fonts.mono, letterSpacing: 2 }}>
               {formatDescriptorFingerprint(vault.descriptor)}
             </span>
-            <span style={{ fontSize: 10, color: colors.muted, textAlign: "center", maxWidth: 380 }}>
+            <span style={{ fontSize: 12, color: colors.muted, textAlign: "center", maxWidth: 380 }}>
               Write this down separately (paper, not this screen). Before trusting a
               descriptor on a signer or a re-downloaded backup, recompute its
               fingerprint and compare -- a mismatch means don't sign.
@@ -1252,7 +1259,7 @@ function BlocOverviewTab({
           padding: 16,
         }}
       >
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: colors.muted, marginBottom: 10 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: "0.08em", color: colors.muted, marginBottom: 10 }}>
           HOW THIS VAULT BEHAVES OVER TIME
         </div>
         <BehaviorTimeline legs={legs} floorWarning={floorWarning} kidCount={bp.kid_pubkeys.length} />
@@ -1271,8 +1278,8 @@ function BlocOverviewTab({
           ["Kids decay floor", `${bp.kids_decay_floor_quorum} of ${bp.kid_pubkeys.length}`],
         ].map(([k, v]) => (
           <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "11px 16px", borderBottom: `1px solid ${colors.border}` }}>
-            <span style={{ fontSize: 13, color: colors.muted }}>{k}</span>
-            <span style={{ fontSize: 13, color: colors.text }}>{v}</span>
+            <span style={{ fontSize: 15, color: colors.muted }}>{k}</span>
+            <span style={{ fontSize: 15, color: colors.text }}>{v}</span>
           </div>
         ))}
       </div>
@@ -1280,20 +1287,20 @@ function BlocOverviewTab({
       {/* Descriptor */}
       <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, gap: 8 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: colors.muted }}>DESCRIPTOR</span>
+          <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: "0.08em", color: colors.muted }}>DESCRIPTOR</span>
           <div style={{ display: "flex", gap: 6 }}>
-            <Button variant="ghost" size="sm" style={{ padding: "3px 9px", fontSize: 11 }} disabled={!vault.descriptor} onClick={() => vault.descriptor && copy(vault.descriptor, "desc")}>
+            <Button variant="ghost" size="sm" style={{ padding: "3px 9px", fontSize: 13 }} disabled={!vault.descriptor} onClick={() => vault.descriptor && copy(vault.descriptor, "desc")}>
               {copied === "desc" ? "Copied" : "Copy"}
             </Button>
-            <Button variant="ghost" size="sm" style={{ padding: "3px 9px", fontSize: 11 }} onClick={() => void downloadVault(vault)}>
+            <Button variant="ghost" size="sm" style={{ padding: "3px 9px", fontSize: 13 }} onClick={() => void downloadVault(vault)}>
               Download backup
             </Button>
-            <Button variant="ghost" size="sm" style={{ padding: "3px 9px", fontSize: 11 }} disabled={!vault.descriptor} onClick={() => setShowDescriptorQr(v => !v)}>
+            <Button variant="ghost" size="sm" style={{ padding: "3px 9px", fontSize: 13 }} disabled={!vault.descriptor} onClick={() => setShowDescriptorQr(v => !v)}>
               {showDescriptorQr ? "Hide QR" : "Show QR"}
             </Button>
           </div>
         </div>
-        <div style={{ fontFamily: fonts.mono, fontSize: 10, color: colors.sub, wordBreak: "break-all", lineHeight: 1.6 }}>
+        <div style={{ fontFamily: fonts.mono, fontSize: 12, color: colors.sub, wordBreak: "break-all", lineHeight: 1.6 }}>
           {vault.descriptor}
         </div>
         {vault.descriptor && (
@@ -1309,13 +1316,13 @@ function BlocOverviewTab({
               borderRadius: radii.md,
             }}
           >
-            <span style={{ fontSize: 10, color: colors.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            <span style={{ fontSize: 12, color: colors.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>
               Descriptor fingerprint
             </span>
             <span style={{ fontSize: 18, color: colors.gold, fontFamily: fonts.mono, letterSpacing: 2 }}>
               {formatDescriptorFingerprint(vault.descriptor)}
             </span>
-            <span style={{ fontSize: 10, color: colors.muted, textAlign: "center", maxWidth: 380 }}>
+            <span style={{ fontSize: 12, color: colors.muted, textAlign: "center", maxWidth: 380 }}>
               Write this down separately (paper, not this screen). Before trusting a
               descriptor on a signer or a re-downloaded backup, recompute its
               fingerprint and compare -- a mismatch means don't sign.
@@ -2127,7 +2134,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
         <div
           style={{
             fontFamily: fonts.mono,
-            fontSize: 11,
+            fontSize: 13,
             color: colors.muted,
             marginBottom: 20,
             wordBreak: "break-all",
@@ -2139,7 +2146,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
           href={explorerTxUrl(vault.network, signing.txid)}
           target="_blank"
           rel="noreferrer"
-          style={{ color: colors.gold, fontSize: 14 }}
+          style={{ color: colors.gold, fontSize: 15 }}
         >
           View on mempool.space
         </a>
@@ -2169,7 +2176,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
             padding: 20,
           }}
         >
-          <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 14 }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 14 }}>
             Transaction
           </div>
           {[
@@ -2187,10 +2194,10 @@ function SendTab({ vault, balance, onDone, prefill }: {
                 borderBottom: `1px solid ${colors.border}`,
               }}
             >
-              <span style={{ fontSize: 13, color: colors.muted }}>{k}</span>
+              <span style={{ fontSize: 15, color: colors.muted }}>{k}</span>
               <span
                 style={{
-                  fontSize: 13,
+                  fontSize: 15,
                   color: colors.text,
                   fontFamily: k === "To" ? fonts.mono : "inherit",
                   wordBreak: "break-all",
@@ -2206,8 +2213,8 @@ function SendTab({ vault, balance, onDone, prefill }: {
           {/* Signature progress */}
           <div style={{ marginTop: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-              <span style={{ fontSize: 12, color: colors.muted }}>Signatures</span>
-              <span style={{ fontSize: 12, color: quorumMet ? colors.green : colors.orange }}>
+              <span style={{ fontSize: 14, color: colors.muted }}>Signatures</span>
+              <span style={{ fontSize: 14, color: quorumMet ? colors.green : colors.orange }}>
                 {signing.signaturesCollected} / {signing.requiredSignatures} required
               </span>
             </div>
@@ -2243,10 +2250,10 @@ function SendTab({ vault, balance, onDone, prefill }: {
               padding: 20,
             }}
           >
-            <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
               Sign with browser keys
             </div>
-            <div style={{ fontSize: 12, color: colors.muted, marginBottom: 14 }}>
+            <div style={{ fontSize: 14, color: colors.muted, marginBottom: 14 }}>
               Tap a key to sign.{" "}
               {signing.requiredSignatures > 1
                 ? `Need ${signing.requiredSignatures} signatures.`
@@ -2294,20 +2301,20 @@ function SendTab({ vault, balance, onDone, prefill }: {
                   }
                 >
                   <div>
-                    <div style={{ fontSize: 14, fontWeight: 500, color: colors.text }}>
+                    <div style={{ fontSize: 15, fontWeight: 500, color: colors.text }}>
                       {signer.key.label}
                     </div>
-                    <div style={{ fontSize: 11, color: colors.muted }}>
+                    <div style={{ fontSize: 13, color: colors.muted }}>
                       {signer.key.persona} / {signer.key.fingerprint}
                       {signer.key.testMnemonic ? " / test key" : ""}
                     </div>
                     {signer.error && (
-                      <div style={{ fontSize: 11, color: colors.red, marginTop: 4 }}>
+                      <div style={{ fontSize: 13, color: colors.red, marginTop: 4 }}>
                         {signer.error} -- tap to retry
                       </div>
                     )}
                   </div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: accent }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: accent }}>
                     {statusIcon}
                   </div>
                 </div>
@@ -2345,17 +2352,17 @@ function SendTab({ vault, balance, onDone, prefill }: {
             padding: 20,
           }}
         >
-          <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
             Sign with hardware wallet
           </div>
-          <div style={{ fontSize: 12, color: colors.muted, marginBottom: 14 }}>
+          <div style={{ fontSize: 14, color: colors.muted, marginBottom: 14 }}>
             Export this transaction to your signing device, then paste or scan the signed result back here.
           </div>
           <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
             <Button
               variant="ghost"
               size="sm"
-              style={{ fontSize: 12 }}
+              style={{ fontSize: 14 }}
               onClick={() => copyPsbt(signing.psbt_hex, "hex")}
             >
               {copied === "hex" ? "Copied!" : "Copy PSBT hex"}
@@ -2363,7 +2370,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
             <Button
               variant="ghost"
               size="sm"
-              style={{ fontSize: 12 }}
+              style={{ fontSize: 14 }}
               onClick={() => copyPsbt(signing.psbt_b64, "b64")}
             >
               {copied === "b64" ? "Copied!" : "Copy base64"}
@@ -2371,7 +2378,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
             <Button
               variant="ghost"
               size="sm"
-              style={{ fontSize: 12 }}
+              style={{ fontSize: 14 }}
               onClick={() => setShowQrDisplay(s => !s)}
             >
               {showQrDisplay ? "Hide QR" : "Show QR"}
@@ -2379,7 +2386,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
             <Button
               variant="ghost"
               size="sm"
-              style={{ fontSize: 12 }}
+              style={{ fontSize: 14 }}
               onClick={() => setShowQrScanner(s => !s)}
             >
               {showQrScanner ? "Hide scanner" : "Scan signed QR"}
@@ -2388,7 +2395,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
           {showQrDisplay && (
             <div style={{ marginBottom: 14 }}>
               <PsbtQrDisplay psbtHex={signing.psbt_hex} />
-              <div style={{ fontSize: 11, color: colors.muted, marginTop: 6, textAlign: "center" }}>
+              <div style={{ fontSize: 13, color: colors.muted, marginTop: 6, textAlign: "center" }}>
                 UR `crypto-psbt` animated. Stateless -- no pairing needed. Point your air-gapped signer at the screen.
               </div>
             </div>
@@ -2410,7 +2417,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
         </div>
 
         {/* Action buttons */}
-        {err && <p style={{ color: colors.red, fontSize: 13, margin: 0 }}>{err}</p>}
+        {err && <p style={{ color: colors.red, fontSize: 15, margin: 0 }}>{err}</p>}
 
         {quorumMet ? (
           <Button
@@ -2421,7 +2428,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
             {busy ? "Broadcasting..." : err ? "Retry broadcast" : "Broadcast transaction"}
           </Button>
         ) : (
-          <div style={{ fontSize: 13, color: colors.muted, textAlign: "center", padding: "10px 0" }}>
+          <div style={{ fontSize: 15, color: colors.muted, textAlign: "center", padding: "10px 0" }}>
             {needed} more signature{needed !== 1 ? "s" : ""} needed
           </div>
         )}
@@ -2478,13 +2485,13 @@ function SendTab({ vault, balance, onDone, prefill }: {
             background: colors.gold + "11",
             border: `1px solid ${colors.gold}44`,
             borderRadius: radii.md,
-            fontSize: 12,
+            fontSize: 14,
             color: colors.gold,
           }}
         >
           Locked to {prefill.selected_utxos.length} UTXO
           {prefill.selected_utxos.length === 1 ? "" : "s"}:{" "}
-          <span style={{ fontFamily: fonts.mono, fontSize: 11 }}>
+          <span style={{ fontFamily: fonts.mono, fontSize: 13 }}>
             {prefill.selected_utxos.map(u => `${u.txid.slice(0, 8)}:${u.vout}`).join(", ")}
           </span>
           {prefill.selected_utxos.length > 1 && (
@@ -2496,7 +2503,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
         </div>
       )}
       {(!prefill?.selected_utxos || prefill.selected_utxos.length === 0) && (
-        <div style={{ fontSize: 11.5, color: colors.muted, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 13, color: colors.muted, lineHeight: 1.5 }}>
           This picks your largest confirmed deposits first. If you are not
           spending the full balance, that may combine several previously-
           separate deposits into one public transaction. Pick specific
@@ -2566,7 +2573,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
             )}
           </select>
           {standardPath !== "founders_now" && (
-            <div style={{ fontSize: 11, color: colors.muted, marginTop: 5 }}>
+            <div style={{ fontSize: 13, color: colors.muted, marginTop: 5 }}>
               {standardPath === "backup"
                 ? "This path has no timelock, but it needs a separate set of keys from the day-to-day founders."
                 : standardPath === "second_inheritance"
@@ -2602,7 +2609,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
             ))}
           </select>
           {vault.leaves!.find(l => l.id === standardPath)?.unlock.type !== "immediate" && (
-            <div style={{ fontSize: 11, color: colors.muted, marginTop: 5 }}>
+            <div style={{ fontSize: 13, color: colors.muted, marginTop: 5 }}>
               This path is only spendable once its timelock has passed -- the compiler will reject
               the build otherwise.
             </div>
@@ -2630,7 +2637,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
                 border: `1px solid ${colors.border}`,
                 borderRadius: 8,
                 padding: "10px 12px",
-                fontSize: 14,
+                fontSize: 15,
                 color: colors.text,
               }}
             >
@@ -2648,7 +2655,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
             />
           )}
           {confirmedSats > 0 && (
-            <div style={{ fontSize: 11, color: colors.muted, marginTop: 5 }}>
+            <div style={{ fontSize: 13, color: colors.muted, marginTop: 5 }}>
               {satsToBtc(confirmedSats)} BTC available
               <button
                 type="button"
@@ -2657,7 +2664,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
                   border: "none",
                   color: colors.gold,
                   cursor: "pointer",
-                  fontSize: 11,
+                  fontSize: 13,
                   marginLeft: 8,
                 }}
                 onClick={() => {
@@ -2696,7 +2703,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
               border: `1px solid ${colors.border}`,
               borderRadius: radii.md,
               color: colors.text,
-              fontSize: 14,
+              fontSize: 15,
               fontFamily: fonts.sans,
               boxSizing: "border-box",
             }}
@@ -2710,7 +2717,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
             ))}
           </select>
           {selectedRule?.notes && (
-            <div style={{ fontSize: 11, color: colors.muted, marginTop: 6 }}>
+            <div style={{ fontSize: 13, color: colors.muted, marginTop: 6 }}>
               {selectedRule.notes}
             </div>
           )}
@@ -2734,7 +2741,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
         />
       </div>
 
-      {err && <p style={{ color: colors.red, fontSize: 13, margin: 0 }}>{err}</p>}
+      {err && <p style={{ color: colors.red, fontSize: 15, margin: 0 }}>{err}</p>}
 
       <Button
         type="submit"
@@ -2778,7 +2785,7 @@ function ExternalPsbtInput({ onImport }: { onImport: (hex: string) => void }) {
         onChange={e => setPsbtHex(e.target.value)}
         placeholder="Paste signed PSBT (hex or base64 both work)"
       />
-      {err && <p style={{ color: colors.red, fontSize: 12, margin: "4px 0" }}>{err}</p>}
+      {err && <p style={{ color: colors.red, fontSize: 14, margin: "4px 0" }}>{err}</p>}
       <Button
         type="submit"
         variant="ghost"
@@ -2803,7 +2810,7 @@ function HistoryTab({
   onRefresh: () => void;
 }) {
   if (proposals.length === 0) {
-    return <p style={{ color: colors.muted, fontSize: 14 }}>No transactions yet.</p>;
+    return <p style={{ color: colors.muted, fontSize: 15 }}>No transactions yet.</p>;
   }
   // A proposal still waiting on signatures or broadcast is the thing the
   // operator actually needs to act on -- it should never sit buried below
@@ -2930,7 +2937,7 @@ function ProposalCard({
             >
               {satsToBtc(p.amount_sats)} BTC
             </div>
-            <div style={{ fontSize: 11, color: colors.muted }}>
+            <div style={{ fontSize: 13, color: colors.muted }}>
               {new Date(p.created_at).toLocaleDateString()}
               {p.status === "broadcast" && (
                 <>
@@ -2950,7 +2957,7 @@ function ProposalCard({
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span
             style={{
-              fontSize: 11,
+              fontSize: 13,
               fontWeight: 700,
               letterSpacing: "0.06em",
               padding: "3px 8px",
@@ -2965,7 +2972,7 @@ function ProposalCard({
           <span
             style={{
               color: colors.muted,
-              fontSize: 12,
+              fontSize: 14,
               padding: 8,
               margin: -8,
               lineHeight: 1,
@@ -2980,7 +2987,7 @@ function ProposalCard({
         <div style={{ padding: "0 16px 16px", borderTop: `1px solid ${colors.border}` }}>
           <div
             style={{
-              fontSize: 12,
+              fontSize: 14,
               color: colors.muted,
               marginBottom: 8,
               marginTop: 12,
@@ -2991,7 +2998,7 @@ function ProposalCard({
             To: {p.destination}
           </div>
           {p.memo && (
-            <div style={{ fontSize: 12, color: colors.sub, marginBottom: 8 }}>
+            <div style={{ fontSize: 14, color: colors.sub, marginBottom: 8 }}>
               Note: {p.memo}
             </div>
           )}
@@ -3005,7 +3012,7 @@ function ProposalCard({
                 border: `1px solid ${colors.border}`,
               }}
             >
-              <div style={{ fontSize: 12, fontWeight: 600, color: colors.text, marginBottom: 6 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 6 }}>
                 {p.signer_sessions.filter(s => s.signed).length} of {p.signer_sessions.length} signed
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -3016,7 +3023,7 @@ function ProposalCard({
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "center",
-                      fontSize: 12,
+                      fontSize: 14,
                     }}
                   >
                     <span style={{ color: colors.sub }}>
@@ -3035,7 +3042,7 @@ function ProposalCard({
               href={explorerTxUrl(vault.network, p.txid)}
               target="_blank"
               rel="noreferrer"
-              style={{ fontSize: 13, color: colors.gold, textDecoration: "none" }}
+              style={{ fontSize: 15, color: colors.gold, textDecoration: "none" }}
             >
               View on mempool.space
             </a>
@@ -3044,7 +3051,7 @@ function ProposalCard({
             <Button
               variant={terminal ? "ghost" : "primary"}
               size="sm"
-              style={{ fontSize: 12 }}
+              style={{ fontSize: 14 }}
               onClick={() => navigate(`/vaults/${vault.id}/proposals/${p.id}`)}
             >
               {terminal ? "View votes & history" : "Sign / manage"}
@@ -3053,7 +3060,7 @@ function ProposalCard({
               <Button
                 variant="ghost"
                 size="sm"
-                style={{ fontSize: 12 }}
+                style={{ fontSize: 14 }}
                 onClick={() => navigator.clipboard.writeText(p.psbt_hex!)}
               >
                 Copy PSBT
@@ -3064,7 +3071,7 @@ function ProposalCard({
                 variant="danger"
                 size="sm"
                 disabled={cancelling}
-                style={{ fontSize: 12 }}
+                style={{ fontSize: 14 }}
                 onClick={() => void cancelProposal()}
               >
                 {cancelling ? "Cancelling..." : "Cancel"}
@@ -3188,8 +3195,8 @@ function MembersTab({ vault }: { vault: Vault }) {
     }
   }
 
-  if (loading) return <p style={{ color: colors.muted, fontSize: 14 }}>Loading members...</p>;
-  if (err) return <p style={{ color: colors.red, fontSize: 14 }}>{err}</p>;
+  if (loading) return <p style={{ color: colors.muted, fontSize: 15 }}>Loading members...</p>;
+  if (err) return <p style={{ color: colors.red, fontSize: 15 }}>{err}</p>;
 
   const pendingInvites = invites.filter(i => !i.claimed_at && new Date(i.expires_at).getTime() > Date.now());
   const myself = members.find(m => m.user_id === sessionUserId) ?? null;
@@ -3226,7 +3233,7 @@ function MembersTab({ vault }: { vault: Vault }) {
             background: `${colors.gold}11`,
             border: `1px solid ${colors.gold}44`,
             borderRadius: radii.md,
-            fontSize: 13,
+            fontSize: 15,
             color: colors.sub,
             display: "flex",
             flexDirection: "column",
@@ -3237,7 +3244,7 @@ function MembersTab({ vault }: { vault: Vault }) {
           <div
             style={{
               fontFamily: fonts.mono,
-              fontSize: 11,
+              fontSize: 13,
               background: colors.inset,
               padding: "8px 10px",
               borderRadius: radii.sm,
@@ -3281,7 +3288,7 @@ function MembersTab({ vault }: { vault: Vault }) {
             borderBottom: `1px solid ${colors.border}`,
           }}
         >
-          <div style={{ fontSize: 14, fontWeight: 600, color: colors.text }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>
             Members ({members.length})
           </div>
           <Button size="sm" onClick={() => setShowInvite(true)}>
@@ -3306,7 +3313,7 @@ function MembersTab({ vault }: { vault: Vault }) {
             border: `1px solid ${colors.gold}44`,
             borderRadius: 12,
             padding: "12px 16px",
-            fontSize: 12,
+            fontSize: 14,
             color: colors.sub,
           }}
         >
@@ -3336,7 +3343,7 @@ function MembersTab({ vault }: { vault: Vault }) {
             style={{
               padding: "12px 16px",
               borderBottom: `1px solid ${colors.border}`,
-              fontSize: 14,
+              fontSize: 15,
               fontWeight: 600,
               color: colors.text,
             }}
@@ -3419,13 +3426,13 @@ function YourMembershipCard({
       }}
     >
       <div>
-        <div style={{ fontSize: 11, fontWeight: 700, color: colors.gold, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: colors.gold, letterSpacing: "0.1em", textTransform: "uppercase" }}>
           Your slot
         </div>
-        <div style={{ fontSize: 14, color: colors.text, marginTop: 2 }}>
+        <div style={{ fontSize: 15, color: colors.text, marginTop: 2 }}>
           {me.label ?? "Unnamed"} <span style={{ color: colors.muted }}>({roleLabel(me.role)})</span>
         </div>
-        <div style={{ fontSize: 12, color: hasKey ? colors.sub : colors.orange, marginTop: 4 }}>
+        <div style={{ fontSize: 14, color: hasKey ? colors.sub : colors.orange, marginTop: 4 }}>
           {hasKey
             ? `Key ready -- fingerprint ${me.fingerprint} on ${netLabel}`
             : `No key yet -- you won't be able to sign until you add one`}
@@ -3516,7 +3523,7 @@ function MyKeyModal({
         <div style={{ fontSize: 18, fontWeight: 600, color: colors.text, marginBottom: 6 }}>
           {me.xpub ? "Change your key" : "Add your key"}
         </div>
-        <p style={{ fontSize: 13, color: colors.sub, lineHeight: 1.5, marginBottom: 14 }}>
+        <p style={{ fontSize: 15, color: colors.sub, lineHeight: 1.5, marginBottom: 14 }}>
           Pick an {vault.network.toUpperCase()} key from your local keystore to
           attach to your slot in {vault.name}. Private material stays in this
           browser -- only the xpub and derivation metadata go to the server.
@@ -3528,7 +3535,7 @@ function MyKeyModal({
               borderRadius: 10,
               background: colors.input,
               color: colors.orange,
-              fontSize: 13,
+              fontSize: 15,
               marginBottom: 12,
             }}
           >
@@ -3553,7 +3560,7 @@ function MyKeyModal({
                   border: `1px solid ${colors.border}`,
                   borderRadius: radii.md,
                   color: colors.text,
-                  fontSize: 14,
+                  fontSize: 15,
                   fontFamily: fonts.sans,
                   boxSizing: "border-box",
                 }}
@@ -3608,7 +3615,7 @@ function MemberRow({
       }}
     >
       <div>
-        <div style={{ fontSize: 14, fontWeight: 500, color: colors.text }}>
+        <div style={{ fontSize: 15, fontWeight: 500, color: colors.text }}>
           {tapitName ?? m.label ?? "Unnamed"}
           {tapitName && m.label && tapitName !== m.label && (
             <span style={{ fontWeight: 400, color: colors.muted }}> ({m.label})</span>
@@ -3617,7 +3624,7 @@ function MemberRow({
             <span
               style={{
                 marginLeft: 8,
-                fontSize: 10,
+                fontSize: 12,
                 fontWeight: 700,
                 padding: "2px 6px",
                 borderRadius: 4,
@@ -3633,7 +3640,7 @@ function MemberRow({
             <span
               style={{
                 marginLeft: 8,
-                fontSize: 10,
+                fontSize: 12,
                 fontWeight: 700,
                 padding: "2px 6px",
                 borderRadius: 4,
@@ -3646,13 +3653,13 @@ function MemberRow({
             </span>
           )}
         </div>
-        <div style={{ fontSize: 11, color: colors.muted }}>
+        <div style={{ fontSize: 13, color: colors.muted }}>
           {roleLabel(m.role)}
           {m.fingerprint ? ` / ${m.fingerprint}` : " / no key yet"}
         </div>
       </div>
       {m.role !== "owner" && (
-        <Button variant="ghost" size="sm" style={{ fontSize: 12 }} onClick={onRemove}>
+        <Button variant="ghost" size="sm" style={{ fontSize: 14 }} onClick={onRemove}>
           Remove
         </Button>
       )}
@@ -3685,21 +3692,21 @@ function InviteRow({
       }}
     >
       <div>
-        <div style={{ fontSize: 14, color: colors.text }}>
+        <div style={{ fontSize: 15, color: colors.text }}>
           {invite.invited_label ?? "Unnamed"} ({roleLabel(invite.invited_role)})
         </div>
-        <div style={{ fontSize: 11, color: colors.muted }}>
+        <div style={{ fontSize: 13, color: colors.muted }}>
           Expires {expires.toLocaleDateString()}
         </div>
       </div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        <Button variant="ghost" size="sm" style={{ fontSize: 12 }} onClick={onCopyLink}>
+        <Button variant="ghost" size="sm" style={{ fontSize: 14 }} onClick={onCopyLink}>
           Copy link
         </Button>
-        <Button variant="ghost" size="sm" style={{ fontSize: 12 }} onClick={onCopyCode}>
+        <Button variant="ghost" size="sm" style={{ fontSize: 14 }} onClick={onCopyCode}>
           Copy code
         </Button>
-        <Button variant="danger" size="sm" style={{ fontSize: 12 }} onClick={onRevoke}>
+        <Button variant="danger" size="sm" style={{ fontSize: 14 }} onClick={onRevoke}>
           Revoke
         </Button>
       </div>
@@ -3790,7 +3797,7 @@ function InviteModal({
                 border: `1px solid ${colors.border}`,
                 borderRadius: radii.md,
                 color: colors.text,
-                fontSize: 14,
+                fontSize: 15,
                 fontFamily: fonts.sans,
                 boxSizing: "border-box",
               }}
@@ -3809,7 +3816,7 @@ function InviteModal({
               placeholder="e.g. Dad, Sister, Lawyer"
             />
           </div>
-          {err && <p style={{ color: colors.red, fontSize: 13, margin: 0 }}>{err}</p>}
+          {err && <p style={{ color: colors.red, fontSize: 15, margin: 0 }}>{err}</p>}
           <div style={{ display: "flex", gap: 10 }}>
             <Button type="button" variant="ghost" onClick={onClose}>
               Cancel
@@ -3925,7 +3932,7 @@ function MessagesTab({ vault }: { vault: Vault }) {
           background: colors.gold + "0C",
           border: `1px solid ${colors.gold}33`,
           borderRadius: radii.sm,
-          fontSize: 12,
+          fontSize: 14,
           color: colors.sub,
           lineHeight: 1.5,
         }}
@@ -3942,7 +3949,7 @@ function MessagesTab({ vault }: { vault: Vault }) {
             background: colors.orange + "0C",
             border: `1px solid ${colors.orange}33`,
             borderRadius: radii.sm,
-            fontSize: 12,
+            fontSize: 14,
             color: colors.sub,
           }}
         >
@@ -3969,14 +3976,14 @@ function MessagesTab({ vault }: { vault: Vault }) {
           placeholder={`Message to ${keyedMembers.length} member${keyedMembers.length === 1 ? "" : "s"}...`}
         />
         {keyedMembers.length === 0 && (
-          <div style={{ fontSize: 12, color: colors.orange, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 14, color: colors.orange, lineHeight: 1.5 }}>
             {pendingMembers.length > 0
               ? `Can't send yet -- ${pendingMembers.length} member${pendingMembers.length === 1 ? " hasn't" : "s haven't"} opened this vault to publish a messaging key. Messages are end-to-end encrypted to each recipient, so everyone must visit the vault once first.`
               : "No other members can receive messages yet. Invite co-signers from the Members tab; each publishes a messaging key the first time they open the vault."}
           </div>
         )}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-          <div style={{ fontSize: 11, color: colors.muted }}>
+          <div style={{ fontSize: 13, color: colors.muted }}>
             {keyedMembers.length} recipient{keyedMembers.length === 1 ? "" : "s"}
             {pendingMembers.length > 0 && keyedMembers.length > 0
               ? ` (${pendingMembers.length} not ready)`
@@ -3987,7 +3994,7 @@ function MessagesTab({ vault }: { vault: Vault }) {
               variant="ghost"
               size="sm"
               type="button"
-              style={{ fontSize: 11 }}
+              style={{ fontSize: 13 }}
               onClick={() => setShowKeyReset(s => !s)}
             >
               {showKeyReset ? "Cancel" : "Key settings"}
@@ -4000,7 +4007,7 @@ function MessagesTab({ vault }: { vault: Vault }) {
         {showKeyReset && (
           <div
             style={{
-              fontSize: 11,
+              fontSize: 13,
               color: colors.muted,
               padding: "8px 10px",
               background: colors.bg,
@@ -4013,7 +4020,7 @@ function MessagesTab({ vault }: { vault: Vault }) {
                 variant="danger"
                 size="sm"
                 type="button"
-                style={{ fontSize: 11 }}
+                style={{ fontSize: 13 }}
                 onClick={rekey}
               >
                 Regenerate key
@@ -4026,7 +4033,7 @@ function MessagesTab({ vault }: { vault: Vault }) {
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {messages.length === 0 && (
-          <div style={{ fontSize: 13, color: colors.muted, textAlign: "center", padding: "24px 0" }}>
+          <div style={{ fontSize: 15, color: colors.muted, textAlign: "center", padding: "24px 0" }}>
             No messages yet. Trustees + beneficiaries use this thread for off-chain coordination -- visible only to vault members.
           </div>
         )}
@@ -4046,14 +4053,14 @@ function MessagesTab({ vault }: { vault: Vault }) {
                 borderRadius: radii.md,
               }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: colors.muted, marginBottom: 4 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: colors.muted, marginBottom: 4 }}>
                 <span>
                   <strong style={{ color: mine ? colors.gold : colors.text }}>{senderLabel}</strong>
                   {sender?.role ? ` . ${sender.role}` : ""}
                 </span>
                 <span>{new Date(m.created_at).toLocaleString()}</span>
               </div>
-              <div style={{ fontSize: 14, color: colors.text, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+              <div style={{ fontSize: 15, color: colors.text, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
                 {plaintext !== null ? plaintext : (
                   <span style={{ color: colors.muted, fontStyle: "italic" }}>
                     {m.recipients.some(r => r.user_id === myUserId)
@@ -4102,10 +4109,10 @@ function ActivityTab({ vault, onOpenTab }: { vault: Vault; onOpenTab: (id: strin
     () => void load(),
   );
 
-  if (loading) return <p style={{ color: colors.muted, fontSize: 14 }}>Loading activity...</p>;
-  if (err) return <p style={{ color: colors.red, fontSize: 14 }}>{err}</p>;
+  if (loading) return <p style={{ color: colors.muted, fontSize: 15 }}>Loading activity...</p>;
+  if (err) return <p style={{ color: colors.red, fontSize: 15 }}>{err}</p>;
   if (events.length === 0)
-    return <p style={{ color: colors.muted, fontSize: 14 }}>No activity yet.</p>;
+    return <p style={{ color: colors.muted, fontSize: 15 }}>No activity yet.</p>;
 
   const memberLabel = (userId: string): string => {
     const m = members.find(m => m.user_id === userId);
@@ -4121,7 +4128,7 @@ function ActivityTab({ vault, onOpenTab }: { vault: Vault; onOpenTab: (id: strin
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-      <div style={{ fontSize: 12, color: colors.muted, marginBottom: 10, lineHeight: 1.5 }}>
+      <div style={{ fontSize: 14, color: colors.muted, marginBottom: 10, lineHeight: 1.5 }}>
         Every action taken on this vault, who took it, and a link to the full
         record -- the proposal it belongs to, or the Trust / Requests /
         Members tab that holds the source-of-truth detail.
@@ -4189,20 +4196,20 @@ function EventRow({
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          fontSize: 13,
+          fontSize: 15,
           fontWeight: 700,
         }}
       >
         {icon}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, color: colors.text }}>{title}</div>
-        <div style={{ fontSize: 11, color: colors.muted, marginTop: 2 }}>
+        <div style={{ fontSize: 15, color: colors.text }}>{title}</div>
+        <div style={{ fontSize: 13, color: colors.muted, marginTop: 2 }}>
           {new Date(event.created_at).toLocaleString()}
         </div>
       </div>
       {clickable && (
-        <div style={{ color: colors.muted, fontSize: 14, alignSelf: "center", flexShrink: 0 }}>
+        <div style={{ color: colors.muted, fontSize: 15, alignSelf: "center", flexShrink: 0 }}>
           &gt;
         </div>
       )}
@@ -4337,7 +4344,7 @@ function SuccessionBanner({
     >
       <div
         style={{
-          fontSize: 11,
+          fontSize: 13,
           fontWeight: 700,
           letterSpacing: "0.1em",
           color: colors.blue,
@@ -4348,10 +4355,10 @@ function SuccessionBanner({
       </div>
       {predecessor && (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-          <div style={{ fontSize: 12, color: colors.sub }}>
+          <div style={{ fontSize: 14, color: colors.sub }}>
             Rotated from <strong style={{ color: colors.text }}>{predecessor.name}</strong>
             {predecessor.address && (
-              <span style={{ color: colors.muted, marginLeft: 6, fontFamily: fonts.mono, fontSize: 11 }}>
+              <span style={{ color: colors.muted, marginLeft: 6, fontFamily: fonts.mono, fontSize: 13 }}>
                 {predecessor.address.slice(0, 10)}...{predecessor.address.slice(-6)}
               </span>
             )}
@@ -4359,7 +4366,7 @@ function SuccessionBanner({
           <Button
             variant="ghost"
             size="sm"
-            style={{ fontSize: 11 }}
+            style={{ fontSize: 13 }}
             onClick={() => navigate(`/vaults/${predecessor.id}`, { state: { vault: predecessor } })}
           >
             Open predecessor
@@ -4370,7 +4377,7 @@ function SuccessionBanner({
         // Standing warning, by the operator's choice (2026-11-11): making
         // the new vault protects nothing. Until the coins are moved, this
         // vault's own dates still decide who can spend them.
-        <div style={{ fontSize: 13, color: colors.orange, lineHeight: 1.55 }}>
+        <div style={{ fontSize: 15, color: colors.orange, lineHeight: 1.55 }}>
           {successor.address
             ? "The rotation is not finished. Any coins still in this vault are under this vault's dates until you move them to the new one."
             : "The new vault is not finalized yet, so nothing has changed: this vault's dates still apply."}
@@ -4378,16 +4385,16 @@ function SuccessionBanner({
       )}
       {successor && (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-          <div style={{ fontSize: 12, color: colors.sub }}>
+          <div style={{ fontSize: 14, color: colors.sub }}>
             Rotated to <strong style={{ color: colors.text }}>{successor.name}</strong>
             {successor.address
               ? (
-                  <span style={{ color: colors.muted, marginLeft: 6, fontFamily: fonts.mono, fontSize: 11 }}>
+                  <span style={{ color: colors.muted, marginLeft: 6, fontFamily: fonts.mono, fontSize: 13 }}>
                     {successor.address.slice(0, 10)}...{successor.address.slice(-6)}
                   </span>
                 )
               : (
-                  <span style={{ color: colors.orange, marginLeft: 6, fontSize: 11 }}>
+                  <span style={{ color: colors.orange, marginLeft: 6, fontSize: 13 }}>
                     draft -- awaiting compile
                   </span>
                 )}
@@ -4396,7 +4403,7 @@ function SuccessionBanner({
             {successor.address && (
               <Button
                 size="sm"
-                style={{ fontSize: 11 }}
+                style={{ fontSize: 13 }}
                 onClick={() =>
                   onSendPrefill({
                     destination: successor.address!,
@@ -4410,7 +4417,7 @@ function SuccessionBanner({
             <Button
               variant="ghost"
               size="sm"
-              style={{ fontSize: 11 }}
+              style={{ fontSize: 13 }}
               onClick={() => navigate(`/vaults/${successor.id}`, { state: { vault: successor } })}
             >
               Open successor
@@ -4528,7 +4535,7 @@ function RotateVaultModal({
         <div style={{ fontSize: 20, fontWeight: 600, fontFamily: fonts.display, color: colors.text, marginBottom: 6 }}>
           Rotate vault
         </div>
-        <div style={{ fontSize: 13, color: colors.muted, lineHeight: 1.5, marginBottom: 16 }}>
+        <div style={{ fontSize: 15, color: colors.muted, lineHeight: 1.5, marginBottom: 16 }}>
           Creates a successor draft that inherits this vault's trust document, members, and shape. A vault's dates are fixed for good, so this is also the only way to push the inheritance date out: choose a later date below, compile the new vault, then move the coins to it. Old and new stay linked in the audit trail.
         </div>
 
@@ -4547,7 +4554,7 @@ function RotateVaultModal({
                   value={recoveryOffsetText ?? ''}
                   onChange={e => setRecoveryOffsetText(e.target.value)}
                 />
-                <div style={{ fontSize: 12, color: colors.sub, marginTop: 4, lineHeight: 1.5 }}>
+                <div style={{ fontSize: 14, color: colors.sub, marginTop: 4, lineHeight: 1.5 }}>
                   {tip == null ? "Checking the chain..." : rotateDateWords(recoveryOffset, vault.recovery_after, tip, new Date())}
                 </div>
               </div>
@@ -4559,7 +4566,7 @@ function RotateVaultModal({
                   value={inheritanceOffsetText ?? ''}
                   onChange={e => setInheritanceOffsetText(e.target.value)}
                 />
-                <div style={{ fontSize: 12, color: colors.sub, marginTop: 4, lineHeight: 1.5 }}>
+                <div style={{ fontSize: 14, color: colors.sub, marginTop: 4, lineHeight: 1.5 }}>
                   {tip == null ? "Checking the chain..." : rotateDateWords(inheritanceOffset, vault.inheritance_after, tip, new Date())}
                 </div>
                 {tip != null && vault.inheritance_after > 0 && (
@@ -4587,7 +4594,7 @@ function RotateVaultModal({
               background: colors.gold + "0C",
               border: `1px solid ${colors.gold}33`,
               borderRadius: radii.sm,
-              fontSize: 12,
+              fontSize: 14,
               color: colors.sub,
               lineHeight: 1.5,
               marginTop: 4,
@@ -4734,7 +4741,7 @@ function DraftReadinessCard({
       <div>
         <div
           style={{
-            fontSize: 11,
+            fontSize: 13,
             fontWeight: 700,
             letterSpacing: "0.1em",
             color: slotsFilled ? colors.green : colors.gold,
@@ -4773,7 +4780,7 @@ function DraftReadinessCard({
           background: colors.gold + "0C",
           border: `1px solid ${colors.gold}33`,
           borderRadius: radii.sm,
-          fontSize: 12,
+          fontSize: 14,
           color: colors.sub,
           lineHeight: 1.5,
         }}
@@ -4803,11 +4810,11 @@ function DraftReadinessCard({
               }}
             >
               <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontSize: 13, color: colors.text, fontWeight: 500 }}>
+                <div style={{ fontSize: 15, color: colors.text, fontWeight: 500 }}>
                   {s.label}
                   <span
                     style={{
-                      fontSize: 10,
+                      fontSize: 12,
                       fontWeight: 700,
                       letterSpacing: "0.08em",
                       color: colors.muted,
@@ -4818,7 +4825,7 @@ function DraftReadinessCard({
                     {s.role}
                   </span>
                 </div>
-                <div style={{ fontSize: 11, color: colors.muted, fontFamily: fonts.mono, marginTop: 2 }}>
+                <div style={{ fontSize: 13, color: colors.muted, fontFamily: fonts.mono, marginTop: 2 }}>
                   {s.status === "claimed"
                     ? `claimed . ${s.fingerprint || "fp missing"}`
                     : "pending"}
@@ -4829,7 +4836,7 @@ function DraftReadinessCard({
                   <Button
                     variant="ghost"
                     size="sm"
-                    style={{ fontSize: 11, padding: "4px 8px" }}
+                    style={{ fontSize: 13, padding: "4px 8px" }}
                     onClick={() => void copyInviteLink(s.invite!.token)}
                   >
                     {copied === s.invite.token ? "Copied" : "Copy link"}
@@ -4837,7 +4844,7 @@ function DraftReadinessCard({
                   <Button
                     variant="ghost"
                     size="sm"
-                    style={{ fontSize: 11, padding: "4px 8px" }}
+                    style={{ fontSize: 13, padding: "4px 8px" }}
                     onClick={() => copyTrustCode(s.invite!.token)}
                   >
                     {copied === s.invite.token + "-code" ? "Copied" : "Copy code"}
@@ -4879,7 +4886,7 @@ function DraftReadinessCard({
       )}
 
       {!isOwner && !slotsFilled && (
-        <div style={{ fontSize: 12, color: colors.muted, textAlign: "center" }}>
+        <div style={{ fontSize: 14, color: colors.muted, textAlign: "center" }}>
           The primary trustee compiles the vault once every member has joined.
         </div>
       )}
@@ -5222,7 +5229,7 @@ function ActionGuide({
     >
       <div
         style={{
-          fontSize: 11,
+          fontSize: 13,
           fontWeight: 700,
           letterSpacing: "0.1em",
           color: colors.muted,
@@ -5252,14 +5259,14 @@ function ActionGuide({
             }}
           >
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>
                 {it.label}
               </div>
-              <div style={{ fontSize: 11, color: colors.muted, marginTop: 2 }}>
+              <div style={{ fontSize: 13, color: colors.muted, marginTop: 2 }}>
                 {it.detail}
               </div>
             </div>
-            <Button size="sm" style={{ fontSize: 11, padding: "5px 10px" }} onClick={it.onClick}>
+            <Button size="sm" style={{ fontSize: 13, padding: "5px 10px" }} onClick={it.onClick}>
               {it.cta}
             </Button>
           </div>
@@ -5493,7 +5500,7 @@ function VaultPhaseCard({ vault }: { vault: Vault }) {
       >
         <span
           style={{
-            fontSize: 11,
+            fontSize: 13,
             fontWeight: 700,
             letterSpacing: "0.1em",
             color: phase.accent,
@@ -5503,16 +5510,16 @@ function VaultPhaseCard({ vault }: { vault: Vault }) {
           {phase.label}
         </span>
         {tip != null && (
-          <span style={{ fontSize: 11, color: colors.muted, fontFamily: fonts.mono }}>
+          <span style={{ fontSize: 13, color: colors.muted, fontFamily: fonts.mono }}>
             tip {tip.toLocaleString()}
           </span>
         )}
       </div>
-      <div style={{ fontSize: 13, color: colors.text, lineHeight: 1.5, marginBottom: 8 }}>
+      <div style={{ fontSize: 15, color: colors.text, lineHeight: 1.5, marginBottom: 8 }}>
         {phase.description}
       </div>
       {phase.paths.length > 0 && (
-        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: colors.sub, lineHeight: 1.7 }}>
+        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 14, color: colors.sub, lineHeight: 1.7 }}>
           {phase.paths.map((p, i) => <li key={i}>{p}</li>)}
         </ul>
       )}
@@ -5526,7 +5533,7 @@ function VaultPhaseCard({ vault }: { vault: Vault }) {
         >
           <div
             style={{
-              fontSize: 10,
+              fontSize: 12,
               fontWeight: 700,
               letterSpacing: "0.1em",
               color: colors.muted,
@@ -5537,12 +5544,12 @@ function VaultPhaseCard({ vault }: { vault: Vault }) {
             Your role
           </div>
           {roleHint.lines.map((l, i) => (
-            <div key={i} style={{ fontSize: 12, color: colors.sub, lineHeight: 1.5 }}>
+            <div key={i} style={{ fontSize: 14, color: colors.sub, lineHeight: 1.5 }}>
               {l}
             </div>
           ))}
           {roleHint.cta && (
-            <div style={{ fontSize: 12, color: phase.accent, marginTop: 6, fontWeight: 600 }}>
+            <div style={{ fontSize: 14, color: phase.accent, marginTop: 6, fontWeight: 600 }}>
               {roleHint.cta}
             </div>
           )}
@@ -5697,21 +5704,21 @@ function buildVaultLeaves(vault: Vault, tip: number | null): VaultLeaf[] {
 function VaultLeafStatusPill({ status, absHeight, tip }: { status: VaultLeafStatus; absHeight: number | null; tip: number | null }) {
   if (status === "active") {
     return (
-      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", color: colors.gold, textTransform: "uppercase", whiteSpace: "nowrap" }}>
+      <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", color: colors.gold, textTransform: "uppercase", whiteSpace: "nowrap" }}>
         Active now
       </span>
     );
   }
   if (status === "unlocked") {
     return (
-      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", color: colors.green, textTransform: "uppercase", whiteSpace: "nowrap" }}>
+      <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", color: colors.green, textTransform: "uppercase", whiteSpace: "nowrap" }}>
         Unlocked
       </span>
     );
   }
   const blocksLeft = tip != null && absHeight != null ? Math.max(0, absHeight - tip) : null;
   return (
-    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", color: colors.muted, textTransform: "uppercase", whiteSpace: "nowrap" }}>
+    <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", color: colors.muted, textTransform: "uppercase", whiteSpace: "nowrap" }}>
       {blocksLeft != null ? `Locked -- ${blocksToApproxLabel(blocksLeft)}` : "Locked"}
     </span>
   );
@@ -5863,7 +5870,7 @@ function VaultStructureTree({ vault }: { vault: Vault }) {
     >
       <div
         style={{
-          fontSize: 11,
+          fontSize: 13,
           fontWeight: 700,
           letterSpacing: "0.1em",
           color: colors.muted,
@@ -5875,7 +5882,7 @@ function VaultStructureTree({ vault }: { vault: Vault }) {
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
         <div style={{ width: 8, height: 8, borderRadius: "50%", background: colors.text, flexShrink: 0 }} />
-        <div style={{ fontSize: 12, color: colors.sub, fontFamily: fonts.mono, wordBreak: "break-all" }}>
+        <div style={{ fontSize: 14, color: colors.sub, fontFamily: fonts.mono, wordBreak: "break-all" }}>
           {vault.address ? `${vault.address.slice(0, 10)}...${vault.address.slice(-6)}` : "This vault"}
         </div>
       </div>
@@ -5911,14 +5918,14 @@ function VaultStructureTree({ vault }: { vault: Vault }) {
               }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>{leaf.label}</div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>{leaf.label}</div>
                 <VaultLeafStatusPill status={leaf.status} absHeight={leaf.absHeight} tip={tip} />
               </div>
-              <div style={{ fontSize: 12, color: colors.sub, marginTop: 4 }}>
+              <div style={{ fontSize: 14, color: colors.sub, marginTop: 4 }}>
                 {leaf.quorum} of {leaf.keyPubkeys.length} required
                 {leaf.absHeight ? ` -- unlocks at block ${leaf.absHeight.toLocaleString()}` : ""}
               </div>
-              <div style={{ fontSize: 11, color: colors.muted, marginTop: 6, display: "flex", flexWrap: "wrap", gap: 6 }}>
+              <div style={{ fontSize: 13, color: colors.muted, marginTop: 6, display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {leaf.keyPubkeys.map((pk, idx) =>
                   editingPubkey === pk ? (
                     <span key={idx} style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
@@ -5933,7 +5940,7 @@ function VaultStructureTree({ vault }: { vault: Vault }) {
                         placeholder="e.g. Owner, Trustee, Dad"
                         maxLength={60}
                         style={{
-                          fontSize: 11,
+                          fontSize: 13,
                           padding: "2px 6px",
                           borderRadius: 4,
                           border: `1px solid ${colors.gold}`,
@@ -5946,14 +5953,14 @@ function VaultStructureTree({ vault }: { vault: Vault }) {
                         type="button"
                         disabled={saving}
                         onClick={() => void saveLabel(pk)}
-                        style={{ fontSize: 11, color: colors.gold, background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                        style={{ fontSize: 13, color: colors.gold, background: "none", border: "none", cursor: "pointer", padding: 0 }}
                       >
                         {saving ? "..." : "Save"}
                       </button>
                       <button
                         type="button"
                         onClick={() => setEditingPubkey(null)}
-                        style={{ fontSize: 11, color: colors.muted, background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                        style={{ fontSize: 13, color: colors.muted, background: "none", border: "none", cursor: "pointer", padding: 0 }}
                       >
                         Cancel
                       </button>
@@ -5984,7 +5991,7 @@ function VaultStructureTree({ vault }: { vault: Vault }) {
                 )}
               </div>
               {leaf.note && (
-                <div style={{ fontSize: 11, color: colors.orange, marginTop: 6 }}>{leaf.note}</div>
+                <div style={{ fontSize: 13, color: colors.orange, marginTop: 6 }}>{leaf.note}</div>
               )}
             </div>
           </div>
@@ -6052,7 +6059,7 @@ function TrustDocSection({ vault }: { vault: Vault }) {
         >
           <div
             style={{
-              fontSize: 11,
+              fontSize: 13,
               fontWeight: 700,
               letterSpacing: "0.1em",
               color: colors.muted,
@@ -6065,7 +6072,7 @@ function TrustDocSection({ vault }: { vault: Vault }) {
             <Button
               variant="ghost"
               size="sm"
-              style={{ fontSize: 11, padding: "3px 9px" }}
+              style={{ fontSize: 13, padding: "3px 9px" }}
               onClick={() => setEditing(true)}
             >
               {empty ? "Add" : "Edit"}
@@ -6073,7 +6080,7 @@ function TrustDocSection({ vault }: { vault: Vault }) {
           )}
         </div>
         {empty ? (
-          <div style={{ fontSize: 12, color: colors.muted, marginTop: 8 }}>
+          <div style={{ fontSize: 14, color: colors.muted, marginTop: 8 }}>
             No trust document yet. {isOwner ? "Describe the purpose, beneficiaries, and distribution rules so every member signs with context." : "The trustee hasn't filled this in yet."}
           </div>
         ) : (
@@ -6083,18 +6090,18 @@ function TrustDocSection({ vault }: { vault: Vault }) {
             )}
             {(doc.beneficiaries ?? []).length > 0 && (
               <div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: colors.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: colors.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>
                   Beneficiaries
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                   {(doc.beneficiaries ?? []).map((b, i) => (
-                    <div key={i} style={{ fontSize: 13, color: colors.text }}>
+                    <div key={i} style={{ fontSize: 15, color: colors.text }}>
                       {b.name}
                       {b.relation ? (
                         <span style={{ color: colors.muted }}> -- {b.relation}</span>
                       ) : null}
                       {b.notes ? (
-                        <div style={{ fontSize: 11, color: colors.muted }}>
+                        <div style={{ fontSize: 13, color: colors.muted }}>
                           {b.notes}
                         </div>
                       ) : null}
@@ -6108,12 +6115,12 @@ function TrustDocSection({ vault }: { vault: Vault }) {
             )}
             {(doc.rules ?? []).length > 0 && (
               <div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: colors.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: colors.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>
                   Enforced rules
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {(doc.rules ?? []).map(r => (
-                    <div key={r.id} style={{ fontSize: 13, color: colors.text }}>
+                    <div key={r.id} style={{ fontSize: 15, color: colors.text }}>
                       {r.name}
                       {r.max_sats ? (
                         <span style={{ color: colors.muted }}>
@@ -6121,12 +6128,12 @@ function TrustDocSection({ vault }: { vault: Vault }) {
                         </span>
                       ) : null}
                       {r.requires_comment && (
-                        <span style={{ color: colors.orange, marginLeft: 6, fontSize: 11 }}>
+                        <span style={{ color: colors.orange, marginLeft: 6, fontSize: 13 }}>
                           requires reason
                         </span>
                       )}
                       {r.notes && (
-                        <div style={{ fontSize: 11, color: colors.muted }}>
+                        <div style={{ fontSize: 13, color: colors.muted }}>
                           {r.notes}
                         </div>
                       )}
@@ -6156,7 +6163,7 @@ function TrustDocSection({ vault }: { vault: Vault }) {
     >
       <div
         style={{
-          fontSize: 11,
+          fontSize: 13,
           fontWeight: 700,
           letterSpacing: "0.1em",
           color: colors.gold,
@@ -6344,7 +6351,7 @@ function StipendsSection({
       >
         <div
           style={{
-            fontSize: 11,
+            fontSize: 13,
             fontWeight: 700,
             letterSpacing: "0.1em",
             color: colors.muted,
@@ -6360,7 +6367,7 @@ function StipendsSection({
               style={{
                 background: colors.orange,
                 color: colors.bg,
-                fontSize: 10,
+                fontSize: 12,
                 fontWeight: 700,
                 borderRadius: 10,
                 padding: "1px 6px",
@@ -6374,7 +6381,7 @@ function StipendsSection({
           <Button
             variant="ghost"
             size="sm"
-            style={{ fontSize: 11, padding: "3px 9px" }}
+            style={{ fontSize: 13, padding: "3px 9px" }}
             onClick={() => setAdding(true)}
           >
             Add
@@ -6383,7 +6390,7 @@ function StipendsSection({
       </div>
 
       {list.length === 0 && !adding && isOwner && (
-        <div style={{ fontSize: 12, color: colors.muted, marginTop: 8 }}>
+        <div style={{ fontSize: 14, color: colors.muted, marginTop: 8 }}>
           No stipends yet. Add a recurring distribution (monthly living expenses, quarterly tuition, annual charitable grants) so trustees see what's due without tracking dates manually. Every spend still needs real trustee signatures.
         </div>
       )}
@@ -6470,36 +6477,36 @@ function StipendRow({
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: colors.text }}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>
           {s.name}
           {!s.active && (
-            <span style={{ color: colors.muted, fontSize: 11, marginLeft: 6 }}>paused</span>
+            <span style={{ color: colors.muted, fontSize: 13, marginLeft: 6 }}>paused</span>
           )}
         </div>
-        <div style={{ fontSize: 12, color: overdue ? colors.orange : colors.sub }}>
+        <div style={{ fontSize: 14, color: overdue ? colors.orange : colors.sub }}>
           {overdue ? "Due " : "Next "} {dueLabel}
         </div>
       </div>
-      <div style={{ fontSize: 12, color: colors.muted, display: "flex", gap: 10, flexWrap: "wrap" }}>
+      <div style={{ fontSize: 14, color: colors.muted, display: "flex", gap: 10, flexWrap: "wrap" }}>
         <span>{satsToBtc(s.amount_sats)} BTC</span>
         <span>{intervalLabel(s.interval_kind)}</span>
         {s.recipient_name && <span>{s.recipient_name}</span>}
       </div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
         {s.active && (
-          <Button size="sm" style={{ fontSize: 11 }} onClick={onSend}>
+          <Button size="sm" style={{ fontSize: 13 }} onClick={onSend}>
             {overdue ? "Send now" : "Prefill send"}
           </Button>
         )}
         {isOwner && (
           <>
-            <Button variant="ghost" size="sm" style={{ fontSize: 11 }} onClick={onEdit}>
+            <Button variant="ghost" size="sm" style={{ fontSize: 13 }} onClick={onEdit}>
               Edit
             </Button>
-            <Button variant="ghost" size="sm" style={{ fontSize: 11 }} onClick={onToggle}>
+            <Button variant="ghost" size="sm" style={{ fontSize: 13 }} onClick={onToggle}>
               {s.active ? "Pause" : "Resume"}
             </Button>
-            <Button variant="danger" size="sm" style={{ fontSize: 11 }} onClick={onRemove}>
+            <Button variant="danger" size="sm" style={{ fontSize: 13 }} onClick={onRemove}>
               Remove
             </Button>
           </>
@@ -6640,7 +6647,7 @@ function StipendEditor({
               borderRadius: radii.md,
               color: colors.text,
               fontFamily: fonts.sans,
-              fontSize: 13,
+              fontSize: 15,
             }}
           >
             {INTERVAL_OPTIONS.map(k => (
@@ -6671,7 +6678,7 @@ function StipendEditor({
               borderRadius: radii.md,
               color: colors.text,
               fontFamily: fonts.sans,
-              fontSize: 13,
+              fontSize: 15,
             }}
           >
             <option value="">No rule</option>
@@ -6682,10 +6689,10 @@ function StipendEditor({
         </div>
       )}
       <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-        <Button variant="ghost" size="sm" style={{ fontSize: 12 }} type="button" onClick={onCancel}>
+        <Button variant="ghost" size="sm" style={{ fontSize: 14 }} type="button" onClick={onCancel}>
           Cancel
         </Button>
-        <Button size="sm" style={{ fontSize: 12 }} disabled={saving} type="submit">
+        <Button size="sm" style={{ fontSize: 14 }} disabled={saving} type="submit">
           {saving ? "Saving..." : existing ? "Save" : "Create"}
         </Button>
       </div>
@@ -6698,7 +6705,7 @@ function TrustField({ label, value }: { label: string; value: string }) {
     <div>
       <div
         style={{
-          fontSize: 11,
+          fontSize: 13,
           fontWeight: 600,
           color: colors.muted,
           textTransform: "uppercase",
@@ -6708,7 +6715,7 @@ function TrustField({ label, value }: { label: string; value: string }) {
       >
         {label}
       </div>
-      <div style={{ fontSize: 13, color: colors.text, whiteSpace: "pre-wrap" }}>
+      <div style={{ fontSize: 15, color: colors.text, whiteSpace: "pre-wrap" }}>
         {value}
       </div>
     </div>
@@ -6744,7 +6751,7 @@ function TrustRulesEditor({
   return (
     <div>
       <Label>Enforced distribution rules</Label>
-      <div style={{ fontSize: 12, color: colors.muted, marginBottom: 10 }}>
+      <div style={{ fontSize: 14, color: colors.muted, marginBottom: 10 }}>
         Each rule gives the Send form a named category trustees must pick
         from. Optional amount cap; optional required reason. These are
         soft-enforced client-side, not on-chain.
@@ -6799,7 +6806,7 @@ function TrustRulesEditor({
                   gap: 8,
                   alignItems: "center",
                   cursor: "pointer",
-                  fontSize: 12,
+                  fontSize: 14,
                   color: colors.sub,
                 }}
               >
@@ -6810,7 +6817,7 @@ function TrustRulesEditor({
                 />
                 Requires a reason note
               </label>
-              <Button variant="ghost" size="sm" style={{ fontSize: 11 }} onClick={() => remove(i)}>
+              <Button variant="ghost" size="sm" style={{ fontSize: 13 }} onClick={() => remove(i)}>
                 Remove
               </Button>
             </div>
@@ -6904,7 +6911,7 @@ function RequestsTab({ vault, onSendPrefill }: { vault: Vault; onSendPrefill: (p
     toast.info("Request loaded into the Send tab -- enter the destination address to finish.");
   }
 
-  if (loading) return <p style={{ color: colors.muted, fontSize: 14 }}>Loading...</p>;
+  if (loading) return <p style={{ color: colors.muted, fontSize: 15 }}>Loading...</p>;
 
   const pending = requests.filter(r => r.status === "pending");
   const resolved = requests.filter(r => r.status !== "pending");
@@ -6918,7 +6925,7 @@ function RequestsTab({ vault, onSendPrefill }: { vault: Vault; onSendPrefill: (p
           alignItems: "center",
         }}
       >
-        <div style={{ fontSize: 14, color: colors.muted }}>
+        <div style={{ fontSize: 15, color: colors.muted }}>
           {pending.length} pending, {resolved.length} resolved
         </div>
         <Button size="sm" onClick={() => setShowCreate(true)}>
@@ -6939,7 +6946,7 @@ function RequestsTab({ vault, onSendPrefill }: { vault: Vault; onSendPrefill: (p
             style={{
               padding: "10px 16px",
               borderBottom: `1px solid ${colors.border}`,
-              fontSize: 13,
+              fontSize: 15,
               fontWeight: 600,
               color: colors.text,
             }}
@@ -6973,7 +6980,7 @@ function RequestsTab({ vault, onSendPrefill }: { vault: Vault; onSendPrefill: (p
           ))}
         </div>
       ) : (
-        <p style={{ color: colors.muted, fontSize: 13 }}>
+        <p style={{ color: colors.muted, fontSize: 15 }}>
           No pending requests. {iAmTrustee ? "Beneficiaries file here." : "Tap + New request to ask for a distribution."}
         </p>
       )}
@@ -6991,7 +6998,7 @@ function RequestsTab({ vault, onSendPrefill }: { vault: Vault; onSendPrefill: (p
             style={{
               padding: "10px 16px",
               borderBottom: `1px solid ${colors.border}`,
-              fontSize: 13,
+              fontSize: 15,
               fontWeight: 600,
               color: colors.muted,
             }}
@@ -7060,18 +7067,18 @@ function RequestRow({
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
         <div>
-          <span style={{ fontSize: 14, fontWeight: 600, color: colors.text, fontFamily: fonts.display }}>
+          <span style={{ fontSize: 15, fontWeight: 600, color: colors.text, fontFamily: fonts.display }}>
             {(r.amount_sats / 1e8).toFixed(8).replace(/\.?0+$/, "") || "0"} BTC
           </span>
           {r.rule_name && (
-            <span style={{ color: colors.muted, fontSize: 12, marginLeft: 8 }}>
+            <span style={{ color: colors.muted, fontSize: 14, marginLeft: 8 }}>
               via {r.rule_name}
             </span>
           )}
         </div>
         <span
           style={{
-            fontSize: 10,
+            fontSize: 12,
             fontWeight: 700,
             padding: "2px 7px",
             borderRadius: 4,
@@ -7084,34 +7091,34 @@ function RequestRow({
           {r.status}
         </span>
       </div>
-      <div style={{ fontSize: 12, color: colors.muted }}>
+      <div style={{ fontSize: 14, color: colors.muted }}>
         Requested by {requesterLabel}
         {r.recipient_name ? ` for ${r.recipient_name}` : ""}
         {" / "}
         {new Date(r.created_at).toLocaleDateString()}
       </div>
       {r.reason && (
-        <div style={{ fontSize: 13, color: colors.sub, whiteSpace: "pre-wrap" }}>{r.reason}</div>
+        <div style={{ fontSize: 15, color: colors.sub, whiteSpace: "pre-wrap" }}>{r.reason}</div>
       )}
       {r.resolution_note && (
-        <div style={{ fontSize: 12, color: colors.muted, fontStyle: "italic" }}>
+        <div style={{ fontSize: 14, color: colors.muted, fontStyle: "italic" }}>
           Note: {r.resolution_note}
         </div>
       )}
       {r.status === "pending" && (iAmTrustee || iAmRequester) && (
         <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
           {iAmTrustee && onApprove && (
-            <Button size="sm" style={{ fontSize: 12 }} onClick={onApprove}>
+            <Button size="sm" style={{ fontSize: 14 }} onClick={onApprove}>
               Approve + create proposal
             </Button>
           )}
           {iAmTrustee && onDecline && (
-            <Button variant="danger" size="sm" style={{ fontSize: 12 }} onClick={onDecline}>
+            <Button variant="danger" size="sm" style={{ fontSize: 14 }} onClick={onDecline}>
               Decline
             </Button>
           )}
           {iAmRequester && onCancel && (
-            <Button variant="ghost" size="sm" style={{ fontSize: 12 }} onClick={onCancel}>
+            <Button variant="ghost" size="sm" style={{ fontSize: 14 }} onClick={onCancel}>
               Cancel
             </Button>
           )}
@@ -7229,7 +7236,7 @@ function NewRequestModal({
                   border: `1px solid ${colors.border}`,
                   borderRadius: radii.md,
                   color: colors.text,
-                  fontSize: 14,
+                  fontSize: 15,
                   fontFamily: fonts.sans,
                   boxSizing: "border-box",
                 }}
@@ -7275,7 +7282,7 @@ function NewRequestModal({
               placeholder="Why this distribution? Which clause of the trust does it satisfy?"
             />
           </div>
-          {err && <p style={{ color: colors.red, fontSize: 13, margin: 0 }}>{err}</p>}
+          {err && <p style={{ color: colors.red, fontSize: 15, margin: 0 }}>{err}</p>}
           <div style={{ display: "flex", gap: 10 }}>
             <Button type="button" variant="ghost" onClick={onClose}>
               Cancel
@@ -7365,7 +7372,7 @@ function DistributionWalletsSection({
       >
         <div
           style={{
-            fontSize: 11,
+            fontSize: 13,
             fontWeight: 700,
             letterSpacing: "0.1em",
             color: colors.muted,
@@ -7378,7 +7385,7 @@ function DistributionWalletsSection({
           <Button
             variant="ghost"
             size="sm"
-            style={{ fontSize: 11, padding: "3px 9px" }}
+            style={{ fontSize: 13, padding: "3px 9px" }}
             onClick={() => setCreating(true)}
           >
             New plan
@@ -7387,7 +7394,7 @@ function DistributionWalletsSection({
       </div>
 
       {wallets.length === 0 && !creating && isOwner && (
-        <div style={{ fontSize: 12, color: colors.muted, marginTop: 8 }}>
+        <div style={{ fontSize: 14, color: colors.muted, marginTop: 8 }}>
           No distribution wallets yet. Create one to split a lump sum
           into N tranches that unlock on a schedule (annual, quarterly,
           monthly). Each tranche is claimable by the beneficiary alone
@@ -7458,7 +7465,7 @@ function DistributionWalletRow({
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: colors.text }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>
             {wallet.name}
             {wallet.beneficiary_name && (
               <span style={{ color: colors.muted, fontWeight: 400, marginLeft: 6 }}>
@@ -7466,7 +7473,7 @@ function DistributionWalletRow({
               </span>
             )}
           </div>
-          <div style={{ fontSize: 12, color: colors.muted }}>
+          <div style={{ fontSize: 14, color: colors.muted }}>
             {wallet.tranches.length} tranches . {satsToBtc(total)} BTC total
             {funded > 0 && <> . {funded} funded</>}
             {claimed > 0 && <> . {claimed} claimed</>}
@@ -7476,12 +7483,12 @@ function DistributionWalletRow({
           <Button
             variant="ghost"
             size="sm"
-            style={{ fontSize: 11 }}
+            style={{ fontSize: 13 }}
             onClick={() => void downloadDistributionWalletBackup(wallet, vault.name)}
           >
             Download backup
           </Button>
-          <Button variant="ghost" size="sm" style={{ fontSize: 11 }} onClick={() => setExpanded(e => !e)}>
+          <Button variant="ghost" size="sm" style={{ fontSize: 13 }} onClick={() => setExpanded(e => !e)}>
             {expanded ? "Hide" : "Show"}
           </Button>
         </div>
@@ -7541,7 +7548,7 @@ function TrancheRow({
         justifyContent: "space-between",
         alignItems: "center",
         gap: 8,
-        fontSize: 12,
+        fontSize: 14,
         padding: "6px 8px",
         borderRadius: 6,
         background: isClaimed
@@ -7556,11 +7563,11 @@ function TrancheRow({
         <div style={{ color: colors.text }}>
           Tranche {t.index + 1} . {satsToBtc(t.amount_sats)} BTC
         </div>
-        <div style={{ fontSize: 11, color: colors.muted, fontFamily: fonts.mono, wordBreak: "break-all" }}>
+        <div style={{ fontSize: 13, color: colors.muted, fontFamily: fonts.mono, wordBreak: "break-all" }}>
           {t.address}
         </div>
       </div>
-      <div style={{ textAlign: "right", fontSize: 11, color: colors.sub }}>
+      <div style={{ textAlign: "right", fontSize: 13, color: colors.sub }}>
         <div>Unlock block {t.unlock_block.toLocaleString()}</div>
         {blocksLeft != null && blocksLeft > 0 && (
           <div style={{ color: colors.muted }}>{blocksLeft.toLocaleString()} blocks left</div>
@@ -7584,14 +7591,14 @@ function TrancheRow({
           </div>
         )}
         {!isClaimed && !isFunded && (
-          <Button size="sm" style={{ fontSize: 10, padding: "2px 6px", marginTop: 3 }} onClick={onFund}>
+          <Button size="sm" style={{ fontSize: 12, padding: "2px 6px", marginTop: 3 }} onClick={onFund}>
             Fund
           </Button>
         )}
         {!isClaimed && isFunded && (
           <div style={{ display: "flex", gap: 4, marginTop: 3, justifyContent: "flex-end" }}>
             {unlocked && (
-              <Button size="sm" style={{ fontSize: 10, padding: "2px 6px" }} onClick={() => setClaimPath("beneficiary")}>
+              <Button size="sm" style={{ fontSize: 12, padding: "2px 6px" }} onClick={() => setClaimPath("beneficiary")}>
                 Claim
               </Button>
             )}
@@ -7599,7 +7606,7 @@ function TrancheRow({
               <Button
                 variant="ghost"
                 size="sm"
-                style={{ fontSize: 10, padding: "2px 6px" }}
+                style={{ fontSize: 12, padding: "2px 6px" }}
                 onClick={() => setClaimPath("trustee")}
               >
                 Trustee escape
@@ -7888,7 +7895,7 @@ function TrancheClaimModal({
               <Label>Send to</Label>
               <Input mono value={dest} onChange={e => setDest(e.target.value)} placeholder="Destination address" />
             </div>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: colors.text }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, color: colors.text }}>
               <input type="checkbox" checked={sweepAll} onChange={e => setSweepAll(e.target.checked)} />
               Sweep the full tranche balance
             </label>
@@ -7898,7 +7905,7 @@ function TrancheClaimModal({
                 <Input mono value={amountBtc} onChange={e => setAmountBtc(e.target.value)} placeholder="0.00" />
               </div>
             )}
-            {err && <p style={{ color: colors.red, fontSize: 13, margin: 0 }}>{err}</p>}
+            {err && <p style={{ color: colors.red, fontSize: 15, margin: 0 }}>{err}</p>}
             <div style={{ display: "flex", gap: 8 }}>
               <Button type="submit" disabled={busy} style={{ flex: 1 }}>
                 {busy ? "Building..." : "Build transaction"}
@@ -7910,11 +7917,11 @@ function TrancheClaimModal({
 
         {step === "signing" && summary && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ fontSize: 13, color: colors.muted }}>
+            <div style={{ fontSize: 15, color: colors.muted }}>
               {satsToBtc(summary.amount_sats)} BTC + {summary.fee_sats} sats fee
               {summary.change_sats > 0 && <> . {satsToBtc(summary.change_sats)} BTC change</>}
             </div>
-            <div style={{ fontSize: 12, color: colors.muted }}>
+            <div style={{ fontSize: 14, color: colors.muted }}>
               {signaturesCollected} of {requiredSignatures} signature{requiredSignatures !== 1 ? "s" : ""} collected
             </div>
 
@@ -7938,10 +7945,10 @@ function TrancheClaimModal({
                       onClick={() => (signer.status === "pending" || signer.status === "error") && void signWithKey(i)}
                     >
                       <div>
-                        <div style={{ fontSize: 14, color: colors.text }}>{signer.key.label}</div>
-                        {signer.error && <div style={{ fontSize: 11, color: colors.red }}>{signer.error}</div>}
+                        <div style={{ fontSize: 15, color: colors.text }}>{signer.key.label}</div>
+                        {signer.error && <div style={{ fontSize: 13, color: colors.red }}>{signer.error}</div>}
                       </div>
-                      <div style={{ fontSize: 12, color: colors.muted }}>
+                      <div style={{ fontSize: 14, color: colors.muted }}>
                         {signer.status === "signed" ? "signed" : signer.status === "signing" ? "signing..." : "tap to sign"}
                       </div>
                     </div>
@@ -7975,17 +7982,17 @@ function TrancheClaimModal({
                 padding: 16,
               }}
             >
-              <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
                 Sign with hardware wallet
               </div>
-              <div style={{ fontSize: 11, color: colors.muted, marginBottom: 10 }}>
+              <div style={{ fontSize: 13, color: colors.muted, marginBottom: 10 }}>
                 Export this transaction to your signing device, then paste or scan the signed result back here.
               </div>
               <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-                <Button variant="ghost" size="sm" style={{ fontSize: 11 }} onClick={() => setShowQrDisplay(s => !s)}>
+                <Button variant="ghost" size="sm" style={{ fontSize: 13 }} onClick={() => setShowQrDisplay(s => !s)}>
                   {showQrDisplay ? "Hide QR" : "Show QR"}
                 </Button>
-                <Button variant="ghost" size="sm" style={{ fontSize: 11 }} onClick={() => setShowQrScanner(s => !s)}>
+                <Button variant="ghost" size="sm" style={{ fontSize: 13 }} onClick={() => setShowQrScanner(s => !s)}>
                   {showQrScanner ? "Hide scanner" : "Scan signed QR"}
                 </Button>
               </div>
@@ -8005,14 +8012,14 @@ function TrancheClaimModal({
               <ExternalPsbtInput onImport={externalImport} />
             </div>
 
-            {err && <p style={{ color: colors.red, fontSize: 13, margin: 0 }}>{err}</p>}
+            {err && <p style={{ color: colors.red, fontSize: 15, margin: 0 }}>{err}</p>}
 
             {signaturesCollected >= requiredSignatures ? (
               <Button disabled={busy} style={{ background: colors.green }} onClick={() => void broadcast()}>
                 {busy ? "Broadcasting..." : "Broadcast claim"}
               </Button>
             ) : (
-              <div style={{ fontSize: 13, color: colors.muted, textAlign: "center" }}>
+              <div style={{ fontSize: 15, color: colors.muted, textAlign: "center" }}>
                 {requiredSignatures - signaturesCollected} more signature{requiredSignatures - signaturesCollected !== 1 ? "s" : ""} needed
               </div>
             )}
@@ -8025,10 +8032,10 @@ function TrancheClaimModal({
             <div style={{ fontSize: 18, fontWeight: 600, color: colors.green, marginBottom: 8 }}>
               Tranche claimed
             </div>
-            <div style={{ fontFamily: fonts.mono, fontSize: 11, color: colors.muted, wordBreak: "break-all", marginBottom: 14 }}>
+            <div style={{ fontFamily: fonts.mono, fontSize: 13, color: colors.muted, wordBreak: "break-all", marginBottom: 14 }}>
               {txid}
             </div>
-            <a href={explorerTxUrl(wallet.network, txid)} target="_blank" rel="noreferrer" style={{ color: colors.gold, fontSize: 13 }}>
+            <a href={explorerTxUrl(wallet.network, txid)} target="_blank" rel="noreferrer" style={{ color: colors.gold, fontSize: 15 }}>
               View on mempool.space
             </a>
             {proposalId && (
@@ -8036,7 +8043,7 @@ function TrancheClaimModal({
                 <Button
                   variant="ghost"
                   size="sm"
-                  style={{ fontSize: 12 }}
+                  style={{ fontSize: 14 }}
                   onClick={() => navigate(`/vaults/${wallet.vault_id}/proposals/${proposalId}`)}
                 >
                   View votes & history
@@ -8270,7 +8277,7 @@ function DistributionWalletCreator({
               borderRadius: radii.md,
               color: colors.text,
               fontFamily: fonts.sans,
-              fontSize: 13,
+              fontSize: 15,
               marginBottom: 6,
             }}
           >
@@ -8319,7 +8326,7 @@ function DistributionWalletCreator({
             value={intervalBlocksText}
             onChange={e => setIntervalBlocksText(e.target.value)}
           />
-          <div style={{ fontSize: 11, color: colors.muted, marginTop: 4 }}>
+          <div style={{ fontSize: 13, color: colors.muted, marginTop: 4 }}>
             {blocksToLabel(intervalBlocks)} . 4380 =~ 1 month, 13140 =~ 3 months, 52560 =~ 1 year
           </div>
         </div>
@@ -8330,22 +8337,22 @@ function DistributionWalletCreator({
             value={firstUnlockBlockText ?? ""}
             onChange={e => setFirstUnlockBlockText(e.target.value)}
           />
-          <div style={{ fontSize: 11, color: colors.muted, marginTop: 4 }}>
+          <div style={{ fontSize: 13, color: colors.muted, marginTop: 4 }}>
             Absolute height where the first tranche unlocks.
           </div>
         </div>
       </div>
-      {err && <div style={{ color: colors.orange, fontSize: 12 }}>{err}</div>}
-      <div style={{ fontSize: 11, color: colors.muted }}>
+      {err && <div style={{ color: colors.orange, fontSize: 14 }}>{err}</div>}
+      <div style={{ fontSize: 13, color: colors.muted }}>
         Compiles one Taproot address per tranche via the Fly.io
         compiler. Each tranche: beneficiary alone after its unlock
         block, or trustees any time (escape hatch).
       </div>
       <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-        <Button variant="ghost" size="sm" style={{ fontSize: 12 }} type="button" onClick={onCancel} disabled={busy}>
+        <Button variant="ghost" size="sm" style={{ fontSize: 14 }} type="button" onClick={onCancel} disabled={busy}>
           Cancel
         </Button>
-        <Button size="sm" style={{ fontSize: 12 }} type="submit" disabled={busy}>
+        <Button size="sm" style={{ fontSize: 14 }} type="submit" disabled={busy}>
           {busy ? `Compiling ${trancheCount} tranches...` : `Create (${trancheCount} tranches)`}
         </Button>
       </div>
@@ -8404,7 +8411,7 @@ function UtxosSection({
           border: `1px solid ${colors.border}`,
           borderRadius: 12,
           padding: "14px 16px",
-          fontSize: 12,
+          fontSize: 14,
           color: colors.muted,
         }}
       >
@@ -8482,7 +8489,7 @@ function UtxosSection({
       >
         <div
           style={{
-            fontSize: 11,
+            fontSize: 13,
             fontWeight: 700,
             letterSpacing: "0.1em",
             color: colors.muted,
@@ -8495,7 +8502,7 @@ function UtxosSection({
           <Button
             variant="ghost"
             size="sm"
-            style={{ fontSize: 11, padding: "3px 9px" }}
+            style={{ fontSize: 13, padding: "3px 9px" }}
             onClick={selectAll}
           >
             All
@@ -8503,7 +8510,7 @@ function UtxosSection({
           <Button
             variant="ghost"
             size="sm"
-            style={{ fontSize: 11, padding: "3px 9px" }}
+            style={{ fontSize: 13, padding: "3px 9px" }}
             onClick={clearPicked}
             disabled={picked.size === 0}
           >
@@ -8512,7 +8519,7 @@ function UtxosSection({
           <Button
             variant="ghost"
             size="sm"
-            style={{ fontSize: 11, padding: "3px 9px" }}
+            style={{ fontSize: 13, padding: "3px 9px" }}
             onClick={() => void load()}
           >
             Refresh
@@ -8527,7 +8534,7 @@ function UtxosSection({
             background: colors.gold + "11",
             border: `1px solid ${colors.gold}44`,
             borderRadius: radii.md,
-            fontSize: 12,
+            fontSize: 14,
             marginBottom: 10,
           }}
         >
@@ -8542,12 +8549,12 @@ function UtxosSection({
             <span style={{ color: colors.gold }}>
               {pickedCount} selected . {satsToBtc(pickedTotal)} BTC
             </span>
-            <Button size="sm" style={{ fontSize: 11 }} onClick={spendPicked}>
+            <Button size="sm" style={{ fontSize: 13 }} onClick={spendPicked}>
               Spend selected
             </Button>
           </div>
           {pickedCount > 1 && (
-            <div style={{ marginTop: 6, color: colors.muted, fontSize: 11.5, lineHeight: 1.4 }}>
+            <div style={{ marginTop: 6, color: colors.muted, fontSize: 13, lineHeight: 1.4 }}>
               Spending these {pickedCount} together publicly links them to
               the same owner forever, even though they arrived separately.
             </div>
@@ -8596,11 +8603,11 @@ function UtxosSection({
                     onChange={() => toggle(id)}
                     style={{ accentColor: colors.gold }}
                   />
-                  <span style={{ fontSize: 14, fontWeight: 600, color: colors.text }}>
+                  <span style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>
                     {satsToBtc(u.value_sats)} BTC
                   </span>
                 </label>
-                <span style={{ fontSize: 11, color: u.confirmed ? colors.muted : colors.orange }}>
+                <span style={{ fontSize: 13, color: u.confirmed ? colors.muted : colors.orange }}>
                   {label}
                   {u.confirmed && tip != null && u.block_height != null && (
                     <> . block {u.block_height.toLocaleString()}</>
@@ -8610,7 +8617,7 @@ function UtxosSection({
               <div
                 style={{
                   fontFamily: fonts.mono,
-                  fontSize: 10,
+                  fontSize: 12,
                   color: colors.muted,
                   wordBreak: "break-all",
                 }}
@@ -8621,7 +8628,7 @@ function UtxosSection({
                 {u.confirmed && (
                   <Button
                     size="sm"
-                    style={{ fontSize: 11, padding: "3px 9px" }}
+                    style={{ fontSize: 13, padding: "3px 9px" }}
                     onClick={() => spendOnly(u)}
                   >
                     Spend only this
@@ -8630,7 +8637,7 @@ function UtxosSection({
                 <Button
                   variant="ghost"
                   size="sm"
-                  style={{ fontSize: 11, padding: "3px 9px" }}
+                  style={{ fontSize: 13, padding: "3px 9px" }}
                   onClick={() => copy(u.txid, id)}
                 >
                   {copied === id ? "Copied" : "Copy txid"}
@@ -8640,7 +8647,7 @@ function UtxosSection({
                   target="_blank"
                   rel="noreferrer"
                   style={{
-                    fontSize: 11,
+                    fontSize: 13,
                     color: colors.gold,
                     textDecoration: "none",
                     padding: "3px 9px",

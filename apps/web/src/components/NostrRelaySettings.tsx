@@ -45,7 +45,7 @@ export function NostrRelaySettings() {
           background: 'none',
           border: 'none',
           padding: 0,
-          fontSize: 11,
+          fontSize: 13,
           color: colors.muted,
           cursor: 'pointer',
           textDecoration: 'underline',
@@ -63,7 +63,7 @@ export function NostrRelaySettings() {
             borderRadius: radii.md,
           }}
         >
-          <p style={{ fontSize: 11.5, color: colors.muted, margin: '0 0 8px', lineHeight: 1.5 }}>
+          <p style={{ fontSize: 13, color: colors.muted, margin: '0 0 8px', lineHeight: 1.5 }}>
             One wss:// URL per line. This applies to every membership
             request and safety-phrase delivery sent from this browser --
             not just this vault. Run your own relay and put it here if
@@ -79,18 +79,18 @@ export function NostrRelaySettings() {
             spellCheck={false}
             autoCapitalize="none"
             autoCorrect="off"
-            style={{ fontSize: 12 }}
+            style={{ fontSize: 14 }}
           />
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <Button size="sm" style={{ fontSize: 11 }} onClick={save}>
+            <Button size="sm" style={{ fontSize: 13 }} onClick={save}>
               Save relays
             </Button>
-            <Button variant="ghost" size="sm" style={{ fontSize: 11 }} onClick={restoreDefaults}>
+            <Button variant="ghost" size="sm" style={{ fontSize: 13 }} onClick={restoreDefaults}>
               Restore defaults
             </Button>
           </div>
           {status && (
-            <p style={{ fontSize: 11, color: colors.muted, marginTop: 8, fontFamily: fonts.sans }}>
+            <p style={{ fontSize: 13, color: colors.muted, marginTop: 8, fontFamily: fonts.sans }}>
               {status}
             </p>
           )}

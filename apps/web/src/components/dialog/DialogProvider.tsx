@@ -108,7 +108,7 @@ function ConfirmDialog({
 }) {
   return (
     <Modal title={opts.title ?? 'Please confirm'} onClose={onCancel}>
-      <div style={{ fontSize: 14, color: colors.sub, lineHeight: 1.55, marginBottom: 22 }}>
+      <div style={{ fontSize: 15, color: colors.sub, lineHeight: 1.55, marginBottom: 22 }}>
         {opts.message}
       </div>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
@@ -144,7 +144,7 @@ function PromptDialog({
   return (
     <Modal title={opts.title ?? 'Enter value'} onClose={onCancel}>
       <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div style={{ fontSize: 14, color: colors.sub, lineHeight: 1.55 }}>{opts.message}</div>
+        <div style={{ fontSize: 15, color: colors.sub, lineHeight: 1.55 }}>{opts.message}</div>
         <Input
           autoFocus
           type={opts.password ? 'password' : 'text'}

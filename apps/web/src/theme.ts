@@ -14,7 +14,10 @@ export const colors = {
   gold: '#C9A84C',
   goldDim: '#8B6914',
   text: '#E8E4D8',
-  muted: '#5A5570',
+  // Lightened 2026-11-11 from #5A5570, which measured 2.7:1 against the
+  // card background -- too faint for the fine print it is used for (319
+  // places). This is 4.8:1. scripts/test-readability.mjs holds the floor.
+  muted: '#827D96',
   sub: '#9994A8',
 
   red: '#E05C5C',

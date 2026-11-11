@@ -155,7 +155,7 @@ export default function Auth() {
           >
             Resend code
           </button>
-          <button style={{ ...s.link, marginTop: space[2], fontSize: 13 }} onClick={backToSignIn}>
+          <button style={{ ...s.link, marginTop: space[2], fontSize: 15 }} onClick={backToSignIn}>
             Back to sign in
           </button>
         </div>
@@ -282,7 +282,7 @@ export default function Auth() {
 
         {mode === 'login' && (
           <button
-            style={{ ...s.link, marginTop: space[4], fontSize: 13 }}
+            style={{ ...s.link, marginTop: space[4], fontSize: 15 }}
             onClick={() => { setMode('reset'); setError(null); }}
           >
             Forgot password?
@@ -394,7 +394,7 @@ const s: Record<string, CSSProperties> = {
     marginBottom: space[2],
   },
   tagline: {
-    fontSize: 13,
+    fontSize: 15,
     color: colors.muted,
     marginBottom: 36,
     lineHeight: 1.5,
@@ -406,7 +406,7 @@ const s: Record<string, CSSProperties> = {
     marginBottom: space[3],
   },
   sub: {
-    fontSize: 14,
+    fontSize: 15,
     color: colors.sub,
     lineHeight: 1.6,
     marginBottom: space[6],
@@ -431,13 +431,13 @@ const s: Record<string, CSSProperties> = {
     background: colors.border,
   },
   orText: {
-    fontSize: 12,
+    fontSize: 14,
     color: colors.muted,
     textTransform: 'uppercase',
     letterSpacing: '0.08em',
   },
   tapitHint: {
-    fontSize: 12,
+    fontSize: 14,
     color: colors.muted,
     lineHeight: 1.5,
     marginTop: space[3],
@@ -449,7 +449,7 @@ const s: Record<string, CSSProperties> = {
     borderRadius: radii.md,
     background: 'transparent',
     color: colors.muted,
-    fontSize: 14,
+    fontSize: 15,
     fontFamily: fonts.sans,
     cursor: 'pointer',
     transition: 'all 0.15s',
@@ -464,7 +464,7 @@ const s: Record<string, CSSProperties> = {
     gap: space[2],
   },
   label: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: 500,
     letterSpacing: '0.06em',
     color: colors.sub,
@@ -472,12 +472,12 @@ const s: Record<string, CSSProperties> = {
     marginTop: space[2],
   },
   error: {
-    fontSize: 13,
+    fontSize: 15,
     color: colors.red,
     margin: '4px 0',
   },
   resent: {
-    fontSize: 13,
+    fontSize: 15,
     color: colors.gold,
     margin: '4px 0',
   },
@@ -485,7 +485,7 @@ const s: Record<string, CSSProperties> = {
     background: 'none',
     border: 'none',
     color: colors.gold,
-    fontSize: 14,
+    fontSize: 15,
     cursor: 'pointer',
     padding: 0,
     fontFamily: fonts.sans,

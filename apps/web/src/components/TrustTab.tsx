@@ -123,14 +123,14 @@ export function TrustTab({ vault }: { vault: Vault }) {
   );
 
   if (loading) {
-    return <p style={{ color: colors.muted, fontSize: 13 }}>Loading trust activity...</p>;
+    return <p style={{ color: colors.muted, fontSize: 15 }}>Loading trust activity...</p>;
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <div
         style={{
-          fontSize: 13,
+          fontSize: 15,
           color: colors.muted,
           lineHeight: 1.55,
           padding: 12,
@@ -201,7 +201,7 @@ function PanelShell({
     >
       <div
         style={{
-          fontSize: 11,
+          fontSize: 13,
           fontWeight: 700,
           letterSpacing: '0.12em',
           textTransform: 'uppercase',
@@ -261,7 +261,7 @@ function MemberAttestList({
   emptyLabel: string;
 }) {
   if (attestations.length === 0) {
-    return <p style={{ color: colors.muted, fontSize: 12, margin: 0 }}>{emptyLabel}</p>;
+    return <p style={{ color: colors.muted, fontSize: 14, margin: 0 }}>{emptyLabel}</p>;
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -288,18 +288,18 @@ function MemberAttestList({
               display: 'flex',
               justifyContent: 'space-between',
               gap: 10,
-              fontSize: 12,
+              fontSize: 14,
               color: colors.text,
               padding: '4px 0',
             }}
           >
             <span>
               {member?.label || '(unknown member)'}{' '}
-              <span style={{ color: colors.muted, fontFamily: fonts.mono, fontSize: 11 }}>
+              <span style={{ color: colors.muted, fontFamily: fonts.mono, fontSize: 13 }}>
                 {a.pubkey.slice(0, 10)}...
               </span>
             </span>
-            <span style={{ color: ok ? colors.green : colors.red, fontSize: 11 }}>
+            <span style={{ color: ok ? colors.green : colors.red, fontSize: 13 }}>
               {ok ? '[valid]' : '[bad sig]'} · {relativeTime(a.signed_at)}
             </span>
           </div>
@@ -343,7 +343,7 @@ function PastVersionsList({
           <div
             style={{
               fontFamily: fonts.mono,
-              fontSize: 11,
+              fontSize: 13,
               color: colors.muted,
               marginBottom: 6,
               wordBreak: 'break-all',
@@ -432,7 +432,7 @@ function DescriptorPanel({
 
   return (
     <PanelShell title="Descriptor attestation" accent={colors.blue}>
-      <div style={{ fontSize: 13, color: colors.text, marginBottom: 10, lineHeight: 1.5 }}>
+      <div style={{ fontSize: 15, color: colors.text, marginBottom: 10, lineHeight: 1.5 }}>
         Members sign the hash of the vault's compiled descriptor plus its
         receive address. This binds the members' keys to the exact on-chain
         output -- an attacker who swaps the address in our database cannot
@@ -440,7 +440,7 @@ function DescriptorPanel({
         know before funding.
       </div>
       {!hasDescriptor ? (
-        <div style={{ fontSize: 12, color: colors.muted, fontStyle: 'italic' }}>
+        <div style={{ fontSize: 14, color: colors.muted, fontStyle: 'italic' }}>
           Vault has not been compiled yet. Compile first, then members attest.
         </div>
       ) : (
@@ -448,7 +448,7 @@ function DescriptorPanel({
           <div
             style={{
               fontFamily: fonts.mono,
-              fontSize: 11,
+              fontSize: 13,
               color: colors.muted,
               marginBottom: 12,
               wordBreak: 'break-all',
@@ -458,7 +458,7 @@ function DescriptorPanel({
           </div>
           <div
             style={{
-              fontSize: 12,
+              fontSize: 14,
               color: colors.sub,
               marginBottom: 8,
               fontWeight: 600,
@@ -480,7 +480,7 @@ function DescriptorPanel({
           />
           {staleCount > 0 && (
             <details style={{ marginTop: 12 }}>
-              <summary style={{ fontSize: 12, color: colors.muted, cursor: 'pointer' }}>
+              <summary style={{ fontSize: 14, color: colors.muted, cursor: 'pointer' }}>
                 Past versions ({staleCount})
               </summary>
               <div style={{ marginTop: 8 }}>
@@ -499,7 +499,7 @@ function DescriptorPanel({
             </div>
           )}
           {iHaveSigned && (
-            <div style={{ marginTop: 10, fontSize: 12, color: colors.green }}>
+            <div style={{ marginTop: 10, fontSize: 14, color: colors.green }}>
               You attested this descriptor.
             </div>
           )}
@@ -565,7 +565,7 @@ function TrustDocPanel({
 
   return (
     <PanelShell title="Trust doc attestation" accent={colors.gold}>
-      <div style={{ fontSize: 13, color: colors.text, marginBottom: 10, lineHeight: 1.5 }}>
+      <div style={{ fontSize: 15, color: colors.text, marginBottom: 10, lineHeight: 1.5 }}>
         Each member signs the hash of the current trust doc to confirm they
         have read and agreed to the terms. If the doc changes, everyone
         re-attests to the new version.
@@ -573,7 +573,7 @@ function TrustDocPanel({
       <div
         style={{
           fontFamily: fonts.mono,
-          fontSize: 11,
+          fontSize: 13,
           color: colors.muted,
           marginBottom: 12,
         }}
@@ -582,7 +582,7 @@ function TrustDocPanel({
       </div>
       <div
         style={{
-          fontSize: 12,
+          fontSize: 14,
           color: colors.sub,
           marginBottom: 8,
           fontWeight: 600,
@@ -597,7 +597,7 @@ function TrustDocPanel({
       />
       {staleSigs.length > 0 && (
         <details style={{ marginTop: 12 }}>
-          <summary style={{ fontSize: 12, color: colors.muted, cursor: 'pointer' }}>
+          <summary style={{ fontSize: 14, color: colors.muted, cursor: 'pointer' }}>
             Past versions ({staleSigs.length})
           </summary>
           <div style={{ marginTop: 8 }}>
@@ -613,7 +613,7 @@ function TrustDocPanel({
         </div>
       )}
       {iHaveSigned && (
-        <div style={{ marginTop: 10, fontSize: 12, color: colors.green }}>
+        <div style={{ marginTop: 10, fontSize: 14, color: colors.green }}>
           You signed this version.
         </div>
       )}
@@ -687,14 +687,14 @@ function ProofOfLifePanel({
 
   return (
     <PanelShell title="Proof of life" accent={colors.green}>
-      <div style={{ fontSize: 13, color: colors.text, marginBottom: 12, lineHeight: 1.5 }}>
+      <div style={{ fontSize: 15, color: colors.text, marginBottom: 12, lineHeight: 1.5 }}>
         Founders sign a fresh timestamp periodically. Heirs and beneficiaries
         see "last heard from" so silent drift doesn't get mistaken for
         ordinary quiet periods.
       </div>
 
       {founders.length === 0 ? (
-        <p style={{ color: colors.muted, fontSize: 12 }}>No founders yet.</p>
+        <p style={{ color: colors.muted, fontSize: 14 }}>No founders yet.</p>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
           {founders.map(f => {
@@ -705,7 +705,7 @@ function ProofOfLifePanel({
                 style={{
                   display: 'flex',
                   justifyContent: 'space-between',
-                  fontSize: 12,
+                  fontSize: 14,
                   color: colors.text,
                   padding: '4px 0',
                   borderBottom: `1px dashed ${colors.border}`,
@@ -739,7 +739,7 @@ function ProofOfLifePanel({
 
       {polSigs.length > 0 && (
         <details style={{ marginTop: 14 }}>
-          <summary style={{ fontSize: 12, color: colors.muted, cursor: 'pointer' }}>
+          <summary style={{ fontSize: 14, color: colors.muted, cursor: 'pointer' }}>
             Full check-in history ({polSigs.length})
           </summary>
           <div style={{ marginTop: 8 }}>
@@ -851,14 +851,14 @@ function DeathDeclarationPanel({
     border: `1px solid ${colors.border}`,
     borderRadius: 6,
     color: colors.text,
-    fontSize: 14,
+    fontSize: 15,
     fontFamily: fonts.sans,
     boxSizing: 'border-box' as const,
   };
 
   return (
     <PanelShell title="Death declaration" accent={colors.red}>
-      <div style={{ fontSize: 13, color: colors.text, marginBottom: 12, lineHeight: 1.5 }}>
+      <div style={{ fontSize: 15, color: colors.text, marginBottom: 12, lineHeight: 1.5 }}>
         A governance signal only. Bitcoin timelocks are immutable -- this does
         not unlock the inheritance path on-chain. It records a witnessed
         declaration in the audit trail so trustees can prepare for rotation
@@ -881,11 +881,11 @@ function DeathDeclarationPanel({
                   padding: '10px 12px',
                 }}
               >
-                <div style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>
+                <div style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>
                   {subjectMember?.label || '(unknown subject)'} -- {hashSigs.length} signature
                   {hashSigs.length === 1 ? '' : 's'}
                 </div>
-                <div style={{ fontSize: 11, color: colors.muted, marginTop: 2, fontFamily: fonts.mono }}>
+                <div style={{ fontSize: 13, color: colors.muted, marginTop: 2, fontFamily: fonts.mono }}>
                   {shortHash(hash)}
                 </div>
                 <div style={{ marginTop: 6 }}>
@@ -907,14 +907,14 @@ function DeathDeclarationPanel({
           })}
         </div>
       ) : (
-        <p style={{ fontSize: 12, color: colors.muted, marginBottom: 14 }}>
+        <p style={{ fontSize: 14, color: colors.muted, marginBottom: 14 }}>
           No declarations filed.
         </p>
       )}
 
       {me && (
         <details>
-          <summary style={{ fontSize: 12, color: colors.muted, cursor: 'pointer' }}>
+          <summary style={{ fontSize: 14, color: colors.muted, cursor: 'pointer' }}>
             File a new declaration
           </summary>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>

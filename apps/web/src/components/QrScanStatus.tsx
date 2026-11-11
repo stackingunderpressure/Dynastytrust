@@ -14,12 +14,12 @@ export function QrScanStatus({ elapsedMs }: { elapsedMs: number }) {
   const seconds = Math.floor(elapsedMs / 1000);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: colors.sub, fontFamily: fonts.sans }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: colors.sub, fontFamily: fonts.sans }}>
         <span style={{ width: 8, height: 8, borderRadius: '50%', background: colors.gold }} />
         Scanning... {seconds}s
       </div>
       {seconds >= 5 && (
-        <div style={{ fontSize: 12, color: colors.muted, fontFamily: fonts.sans, textAlign: 'center', maxWidth: 280 }}>
+        <div style={{ fontSize: 14, color: colors.muted, fontFamily: fonts.sans, textAlign: 'center', maxWidth: 280 }}>
           Still looking -- make sure the whole QR code fills the frame, hold steady, and check the lighting.
         </div>
       )}

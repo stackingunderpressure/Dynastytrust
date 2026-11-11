@@ -335,7 +335,7 @@ function StepRail({ current }: { current: Step }) {
           <div
             key={s}
             style={{
-              display: 'flex', alignItems: 'center', gap: 6, fontSize: 12,
+              display: 'flex', alignItems: 'center', gap: 6, fontSize: 14,
               color: active ? colors.gold : done ? colors.green : colors.muted,
               fontWeight: active ? 700 : 500,
             }}
@@ -343,7 +343,7 @@ function StepRail({ current }: { current: Step }) {
             <span
               style={{
                 width: 18, height: 18, borderRadius: '50%', display: 'inline-flex',
-                alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700,
+                alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700,
                 background: active ? colors.gold : done ? colors.green : colors.raised,
                 color: active || done ? colors.bg : colors.muted,
               }}
@@ -1185,7 +1185,7 @@ function ConfigureStep({
 
       {shape === 'standard' && (
         <Card>
-          <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 10 }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 10 }}>
             How this vault behaves over time
           </div>
           <BehaviorTimeline legs={stdLegs} />
@@ -1193,7 +1193,7 @@ function ConfigureStep({
       )}
       {shape === 'bloc' && (
         <Card>
-          <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 10 }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 10 }}>
             How this vault behaves over time
           </div>
           <BehaviorTimeline legs={blocLegs} floorWarning={blocConfig.kidsDecayFloorQ === 1} kidCount={blocConfig.plannedKids} />
@@ -1201,22 +1201,22 @@ function ConfigureStep({
       )}
       {shape === 'leaves' && (
         <Card>
-          <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 10 }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 10 }}>
             How this vault behaves over time
           </div>
           <BehaviorTimeline legs={leafLegs} floorWarningText={leafFloorWarningText(leafDrafts)} />
         </Card>
       )}
 
-      {err && <p style={{ color: colors.red, fontSize: 13 }}>{err}</p>}
+      {err && <p style={{ color: colors.red, fontSize: 15 }}>{err}</p>}
       {leafShapeBlocked && (
-        <p style={{ color: colors.red, fontSize: 13 }}>
+        <p style={{ color: colors.red, fontSize: 15 }}>
           Fix the path warning above before continuing -- Keys and Compile have no way back to
           change a path's timing.
         </p>
       )}
       {(stdShapeBlocked || blocShapeBlocked) && (
-        <p style={{ color: colors.red, fontSize: 13 }}>
+        <p style={{ color: colors.red, fontSize: 15 }}>
           Fix the timelock warning above before continuing -- a fixed-date path this short will be
           rejected when the vault compiles.
         </p>
@@ -1245,7 +1245,7 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <Card>
         <SectionHeader step={1} title="Spend now" color={colors.gold} />
-        <p style={{ fontSize: 13, color: colors.muted, marginTop: -4, marginBottom: 14 }}>
+        <p style={{ fontSize: 15, color: colors.muted, marginTop: -4, marginBottom: 14 }}>
           Your everyday signers. The moment enough of them agree, funds move -- no waiting.
         </p>
         <Field label="How many people sign?">
@@ -1266,7 +1266,7 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
           />
           <QuorumPicker max={config.plannedFounders} value={config.founderQ} onChange={n => setConfig(c => ({ ...c, founderQ: n }))} color={colors.gold} />
         </Field>
-        <p style={{ fontSize: 12, color: colors.muted, marginTop: -8 }}>
+        <p style={{ fontSize: 14, color: colors.muted, marginTop: -8 }}>
           {config.founderQ} of {config.plannedFounders} of these signers must agree to move funds, any time, forever --
           this path never expires and is never disabled by anything else on this page.
         </p>
@@ -1274,7 +1274,7 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
 
       <Card>
         <SectionHeader step={2} title="Backup -- no waiting" color={colors.orange} />
-        <p style={{ fontSize: 13, color: colors.muted, marginTop: -4, marginBottom: 14 }}>
+        <p style={{ fontSize: 15, color: colors.muted, marginTop: -4, marginBottom: 14 }}>
           A second, separate set of keys that also works right away, with no waiting period -- for when your
           everyday signers above are lost, unavailable, or compromised. Keep these keys somewhere different
           from your everyday signers; making them harder to gather on purpose is what keeps this path safe.
@@ -1291,7 +1291,7 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
               recoveryEnabled: e.target.checked ? false : c.recoveryEnabled,
             }))}
           />
-          <span style={{ fontSize: 13, color: colors.sub }}>Add a backup path</span>
+          <span style={{ fontSize: 15, color: colors.sub }}>Add a backup path</span>
         </label>
         {config.backupEnabled ? (
           <div style={{ marginTop: 12 }}>
@@ -1307,14 +1307,14 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
               />
               <QuorumPicker max={config.plannedBackups} value={config.backupQ} onChange={n => setConfig(c => ({ ...c, backupQ: n }))} color={colors.orange} />
             </Field>
-            <p style={{ fontSize: 12, color: colors.muted, marginTop: -8 }}>
+            <p style={{ fontSize: 14, color: colors.muted, marginTop: -8 }}>
               {config.backupQ} of {config.plannedBackups} of these backup keys can move funds any time, with
               zero wait. Nothing about this path is on a clock -- the only friction is physically gathering
               enough of these keys, which is the point.
             </p>
           </div>
         ) : (
-          <p style={{ fontSize: 12, color: colors.muted, marginTop: 8 }}>
+          <p style={{ fontSize: 14, color: colors.muted, marginTop: 8 }}>
             Off. If your everyday signers above are ever lost or compromised, there is no separate way in
             until the inheritance wait below finishes.
           </p>
@@ -1323,7 +1323,7 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
 
       <Card>
         <SectionHeader step={3} title="Inheritance -- heirs only, after a wait" color={colors.blue} />
-        <p style={{ fontSize: 13, color: colors.muted, marginTop: -4, marginBottom: 14 }}>
+        <p style={{ fontSize: 15, color: colors.muted, marginTop: -4, marginBottom: 14 }}>
           After the waiting period you set below, your heirs -- and only your heirs -- can move funds.
           Your everyday signers above cannot use this path once it opens, and nobody can use it before
           the wait is up.
@@ -1334,7 +1334,7 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
             checked={config.mode === 'inheritance'}
             onChange={e => setConfig(c => ({ ...c, mode: e.target.checked ? 'inheritance' : 'plain' }))}
           />
-          <span style={{ fontSize: 13, color: colors.sub }}>Add heirs + an inheritance path</span>
+          <span style={{ fontSize: 15, color: colors.sub }}>Add heirs + an inheritance path</span>
         </label>
         {config.mode === 'inheritance' ? (
           <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -1355,7 +1355,7 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
             </Field>
             <TimelockField label="Inheritance unlocks after" value={config.inheritanceAfter} onChange={v => setConfig(c => ({ ...c, inheritanceAfter: v }))} minBlocks={MIN_RECOVERY_BLOCKS} />
             {config.plannedHeirs > 0 && (
-              <p style={{ fontSize: 12, color: colors.muted, marginTop: -8 }}>
+              <p style={{ fontSize: 14, color: colors.muted, marginTop: -8 }}>
                 Before {blocksToHuman(config.inheritanceAfter)}: only your everyday signers (and backup keys,
                 if you turned that on above) can spend. After {blocksToHuman(config.inheritanceAfter)}:
                 {' '}{config.heirQ} of {config.plannedHeirs} heirs can spend, on their own -- your everyday
@@ -1364,7 +1364,7 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
             )}
           </div>
         ) : (
-          <p style={{ fontSize: 12, color: colors.muted, marginTop: 8 }}>
+          <p style={{ fontSize: 14, color: colors.muted, marginTop: 8 }}>
             Off. Funds only ever move through your everyday signers above (and backup keys, if that path
             is on) -- nothing passes to anyone else automatically.
           </p>
@@ -1374,7 +1374,7 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
       {config.mode === 'inheritance' && config.plannedHeirs > 0 && (
         <Card>
           <SectionHeader step={4} title="Second inheritance -- a different heir group, its own wait" color={colors.green} />
-          <p style={{ fontSize: 13, color: colors.muted, marginTop: -4, marginBottom: 14 }}>
+          <p style={{ fontSize: 15, color: colors.muted, marginTop: -4, marginBottom: 14 }}>
             Optional. A completely separate group of heirs, with their own keys and their own waiting
             period -- independent of the inheritance path above. Use this for a second beneficiary group
             that should unlock sooner (or later) than the first, e.g. a spouse who can act quickly and
@@ -1386,7 +1386,7 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
               checked={config.secondInheritanceEnabled}
               onChange={e => setConfig(c => ({ ...c, secondInheritanceEnabled: e.target.checked }))}
             />
-            <span style={{ fontSize: 13, color: colors.sub }}>Add a second inheritance path</span>
+            <span style={{ fontSize: 15, color: colors.sub }}>Add a second inheritance path</span>
           </label>
           {config.secondInheritanceEnabled ? (
             <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -1403,14 +1403,14 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
                 <QuorumPicker max={config.plannedSecondHeirs} value={config.secondHeirQ} onChange={n => setConfig(c => ({ ...c, secondHeirQ: n }))} color={colors.green} />
               </Field>
               <TimelockField label="Second inheritance unlocks after" value={config.secondInheritanceAfter} onChange={v => setConfig(c => ({ ...c, secondInheritanceAfter: v }))} minBlocks={MIN_RECOVERY_BLOCKS} />
-              <p style={{ fontSize: 12, color: colors.muted, marginTop: -8 }}>
+              <p style={{ fontSize: 14, color: colors.muted, marginTop: -8 }}>
                 After {blocksToHuman(config.secondInheritanceAfter)}, {config.secondHeirQ} of {config.plannedSecondHeirs}
                 {' '}second-group heirs can spend, on their own -- entirely independent of the first inheritance
                 path above; this timing has no required relationship to it, sooner or later both work.
               </p>
             </div>
           ) : (
-            <p style={{ fontSize: 12, color: colors.muted, marginTop: 8 }}>
+            <p style={{ fontSize: 14, color: colors.muted, marginTop: 8 }}>
               Off. Only the single inheritance path above exists.
             </p>
           )}
@@ -1418,7 +1418,7 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
       )}
 
       <details open={config.recoveryEnabled || config.consentEnabled}>
-        <summary style={{ fontSize: 12, color: colors.muted, cursor: 'pointer' }}>
+        <summary style={{ fontSize: 14, color: colors.muted, cursor: 'pointer' }}>
           More options: recovery + beneficiary consent
         </summary>
         <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -1429,7 +1429,7 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
               disabled={config.backupEnabled}
               onChange={e => setConfig(c => ({ ...c, recoveryEnabled: e.target.checked }))}
             />
-            <span style={{ fontSize: 13, color: config.backupEnabled ? colors.muted : colors.sub }}>
+            <span style={{ fontSize: 15, color: config.backupEnabled ? colors.muted : colors.sub }}>
               Also let everyday signers spend after a delay, before the heir-only path opens
               {config.backupEnabled && ' -- turned off while your backup path (section 2 above) is on; a vault can only have one of the two'}
             </span>
@@ -1439,7 +1439,7 @@ function StandardConfigureFields({ config, setConfig }: { config: StandardConfig
           )}
           <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
             <input type="checkbox" checked={config.consentEnabled} onChange={e => setConfig(c => ({ ...c, consentEnabled: e.target.checked }))} />
-            <span style={{ fontSize: 13, color: colors.sub }}>Require beneficiary consent on every normal spend</span>
+            <span style={{ fontSize: 15, color: colors.sub }}>Require beneficiary consent on every normal spend</span>
           </label>
         </div>
       </details>
@@ -1453,7 +1453,7 @@ function SectionHeader({ step, title, color }: { step: number; title: string; co
       <div
         style={{
           width: 22, height: 22, borderRadius: '50%', background: color,
-          color: colors.bg, fontSize: 12, fontWeight: 700,
+          color: colors.bg, fontSize: 14, fontWeight: 700,
           display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
         }}
       >
@@ -1478,7 +1478,7 @@ function BlocConfigureFields({ config, setConfig }: { config: BlocConfig; setCon
               ...c, plannedParents, parentsTogetherQ: Math.min(c.parentsTogetherQ, plannedParents),
             }))}
           />
-          <div style={{ fontSize: 12, color: colors.muted, marginTop: 8 }}>Parents together, right away:</div>
+          <div style={{ fontSize: 14, color: colors.muted, marginTop: 8 }}>Parents together, right away:</div>
           <QuorumPicker max={config.plannedParents} value={config.parentsTogetherQ} onChange={n => setConfig(c => ({ ...c, parentsTogetherQ: n }))} color={colors.gold} />
         </Field>
         <Field label="How many kids?">
@@ -1606,7 +1606,7 @@ function LeavesConfigureFields({
         open={storyOpen}
         onToggle={() => setStoryOpen(o => !o)}
       >
-        <p style={{ fontSize: 12, color: colors.sub, margin: 0, lineHeight: 1.5 }}>
+        <p style={{ fontSize: 14, color: colors.sub, margin: 0, lineHeight: 1.5 }}>
           Building it replaces everything you have with its own complete set of paths. Every path
           it builds stays fully editable below, and you can add more with "+ Add another path."
         </p>
@@ -1617,7 +1617,7 @@ function LeavesConfigureFields({
         </div>
         {pendingTab && (
           <div style={{ padding: 12, background: colors.inset, borderRadius: radii.md }}>
-            <p style={{ fontSize: 12, color: colors.sub, marginTop: 0, marginBottom: 10 }}>
+            <p style={{ fontSize: 14, color: colors.sub, marginTop: 0, marginBottom: 10 }}>
               Switching starting points replaces what you've set up below. Switch anyway?
             </p>
             <div style={{ display: 'flex', gap: 8 }}>
@@ -1636,10 +1636,10 @@ function LeavesConfigureFields({
             style={{ width: 18, height: 18, marginTop: 2, flexShrink: 0 }}
           />
           <span>
-            <span style={{ fontSize: 14, fontWeight: 600, color: colors.text, display: 'block' }}>
+            <span style={{ fontSize: 15, fontWeight: 600, color: colors.text, display: 'block' }}>
               Use trust wording (Grantor / Successor Trustee / Beneficiary)
             </span>
-            <span style={{ fontSize: 12, color: colors.sub, lineHeight: 1.5, display: 'block', marginTop: 4 }}>
+            <span style={{ fontSize: 14, color: colors.sub, lineHeight: 1.5, display: 'block', marginTop: 4 }}>
               Relabels the paths below with formal trust terminology, no matter which shape you started
               from -- a right-away path reads as the Grantor(s), an "if untouched" path reads as an
               incapacity backstop, and the longest "after a fixed date" path reads as the Successor
@@ -1651,19 +1651,19 @@ function LeavesConfigureFields({
       </CollapsibleRow>
 
       {hasImmediate ? null : (
-        <div style={{ padding: 12, background: colors.red + '11', border: `1px solid ${colors.red}33`, borderRadius: radii.md, color: colors.red, fontSize: 12, lineHeight: 1.5 }}>
+        <div style={{ padding: 12, background: colors.red + '11', border: `1px solid ${colors.red}33`, borderRadius: radii.md, color: colors.red, fontSize: 14, lineHeight: 1.5 }}>
           At least one path needs to be able to spend right away, with no wait -- otherwise nothing can ever
           move until a timelock opens. Set one path's timing to "Right away."
         </div>
       )}
       {hasUnsetAfter && (
-        <div style={{ padding: 12, background: colors.red + '11', border: `1px solid ${colors.red}33`, borderRadius: radii.md, color: colors.red, fontSize: 12, lineHeight: 1.5 }}>
+        <div style={{ padding: 12, background: colors.red + '11', border: `1px solid ${colors.red}33`, borderRadius: radii.md, color: colors.red, fontSize: 14, lineHeight: 1.5 }}>
           A path set to "After a fixed date" still needs that date picked -- pick a preset, a calendar
           date, or a block count for every path timed this way before continuing.
         </div>
       )}
       {hasShortAfter && (
-        <div style={{ padding: 12, background: colors.red + '11', border: `1px solid ${colors.red}33`, borderRadius: radii.md, color: colors.red, fontSize: 12, lineHeight: 1.5 }}>
+        <div style={{ padding: 12, background: colors.red + '11', border: `1px solid ${colors.red}33`, borderRadius: radii.md, color: colors.red, fontSize: 14, lineHeight: 1.5 }}>
           A path set to "After a fixed date" is timed too soon -- fixed-date paths need at least
           ~6 months ({MIN_RECOVERY_BLOCKS.toLocaleString()} blocks) so recovery/inheritance can't be
           triggered near-instantly. See the warning under the field below for which path.
@@ -1738,12 +1738,12 @@ function CollapsibleRow({
         }}
       >
         <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: colors.gold, letterSpacing: '0.06em' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: colors.gold, letterSpacing: '0.06em' }}>
             {number != null ? `${number}. ` : ''}{label.toUpperCase()}
           </div>
-          <div style={{ fontSize: 13, fontWeight: 450, color: colors.text, marginTop: 2 }}>{tagline}</div>
+          <div style={{ fontSize: 15, fontWeight: 450, color: colors.text, marginTop: 2 }}>{tagline}</div>
         </div>
-        <span style={{ color: colors.muted, fontSize: 13, flexShrink: 0 }}>{open ? '^' : 'v'}</span>
+        <span style={{ color: colors.muted, fontSize: 15, flexShrink: 0 }}>{open ? '^' : 'v'}</span>
       </button>
       {open && (
         <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -1768,10 +1768,10 @@ function VaultLayersAccordion({ onJumpToBuilder }: { onJumpToBuilder: () => void
   const [openId, setOpenId] = useState<string | null>(null);
   return (
     <Card>
-      <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+      <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
         How does a vault work?
       </div>
-      <p style={{ fontSize: 12, color: colors.sub, marginTop: 0, marginBottom: 14, lineHeight: 1.5 }}>
+      <p style={{ fontSize: 14, color: colors.sub, marginTop: 0, marginBottom: 14, lineHeight: 1.5 }}>
         Every vault is built from a few pieces you choose. Tap any one to learn it, then build below --
         nothing forces you through all four first.
       </p>
@@ -1806,15 +1806,15 @@ function VaultLayerAccordionRow({
         {layer.explanation}
       </p>
       <div>
-        <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 8 }}>The trade-offs</div>
+        <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 8 }}>The trade-offs</div>
         <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
           {layer.tradeoffs.map((t, i) => (
-            <li key={i} style={{ fontSize: 14, fontWeight: 450, color: colors.text, lineHeight: 1.5 }}>{t}</li>
+            <li key={i} style={{ fontSize: 15, fontWeight: 450, color: colors.text, lineHeight: 1.5 }}>{t}</li>
           ))}
         </ul>
       </div>
       <div>
-        <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 8 }}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 8 }}>
           {layer.illustration.title}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -1822,7 +1822,7 @@ function VaultLayerAccordionRow({
             <div
               key={i}
               style={{
-                fontSize: 14, fontWeight: 450, color: colors.text, lineHeight: 1.5,
+                fontSize: 15, fontWeight: 450, color: colors.text, lineHeight: 1.5,
                 padding: '8px 10px', background: colors.input, borderRadius: radii.sm,
               }}
             >
@@ -1835,7 +1835,7 @@ function VaultLayerAccordionRow({
         <div
           style={{
             background: colors.input, border: `1px solid ${colors.gold}33`, borderRadius: radii.sm,
-            padding: '10px 12px', fontSize: 13, color: colors.sub, lineHeight: 1.5,
+            padding: '10px 12px', fontSize: 15, color: colors.sub, lineHeight: 1.5,
           }}
         >
           {layer.howToCraft}
@@ -1867,11 +1867,11 @@ function ShapeStoryCard({
         background: active ? colors.gold + '11' : colors.inset,
       }}
     >
-      <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 6 }}>
+      <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 6 }}>
         {tab.title}
         {active && <span style={{ color: colors.gold, fontWeight: 450 }}> -- this is what you have</span>}
       </div>
-      <p style={{ fontSize: 13, color: colors.sub, lineHeight: 1.6, margin: '0 0 12px' }}>{tab.why}</p>
+      <p style={{ fontSize: 15, color: colors.sub, lineHeight: 1.6, margin: '0 0 12px' }}>{tab.why}</p>
       <Button size="sm" variant={active ? 'ghost' : 'primary'} onClick={onBuild}>
         {active ? 'Rebuild it' : 'Build it'}
       </Button>
@@ -1897,7 +1897,7 @@ function LeafCard({
       {removable && (
         <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', marginBottom: leaf.enabled ? 14 : 0 }}>
           <input type="checkbox" checked={leaf.enabled} onChange={e => onChange(l => ({ ...l, enabled: e.target.checked }))} />
-          <span style={{ fontSize: 13, color: colors.sub }}>Turn on this path</span>
+          <span style={{ fontSize: 15, color: colors.sub }}>Turn on this path</span>
         </label>
       )}
       {(leaf.enabled || !removable) && (
@@ -1961,7 +1961,7 @@ function LeafCard({
                   checked={leaf.decayEnabled}
                   onChange={e => onChange(l => ({ ...l, decayEnabled: e.target.checked, decayFloorQ: Math.min(l.decayFloorQ, l.quorum) || 1 }))}
                 />
-                <span style={{ fontSize: 13, color: colors.sub }}>
+                <span style={{ fontSize: 15, color: colors.sub }}>
                   Need one fewer signer every so often, the longer it waits
                 </span>
               </label>
@@ -2071,7 +2071,7 @@ function TimelockField({ label, value, onChange, max, minBlocks }: { label: stri
           onChange={e => pickDateTime(dateStr, e.target.value)}
           style={{ width: 118 }}
         />
-        <span style={{ fontSize: 13, color: colors.sub }}>a specific date -- your local time</span>
+        <span style={{ fontSize: 15, color: colors.sub }}>a specific date -- your local time</span>
       </div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <Input
@@ -2082,12 +2082,12 @@ function TimelockField({ label, value, onChange, max, minBlocks }: { label: stri
           value={rawBlocks}
           onChange={e => commitRawBlocks(e.target.value)}
         />
-        <span style={{ fontSize: 13, color: colors.sub }}>
+        <span style={{ fontSize: 15, color: colors.sub }}>
           blocks ({blocksToHuman(value)}, unlocks around {target.toLocaleDateString()})
         </span>
       </div>
       {minBlocks !== undefined && value > 0 && value < minBlocks && (
-        <p style={{ color: colors.red, fontSize: 12, lineHeight: 1.5, marginTop: 6 }}>
+        <p style={{ color: colors.red, fontSize: 14, lineHeight: 1.5, marginTop: 6 }}>
           A "fixed date" path needs a real waiting period -- at least {blocksToHuman(minBlocks)}
           {' '}({minBlocks.toLocaleString()} blocks). {value.toLocaleString()} blocks is too short and
           will be rejected when this vault compiles. Pick a preset above, a later date, or a bigger
@@ -2170,9 +2170,9 @@ function KeysStep({
   ) {
     return (
       <Card key={key}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>{label}</div>
+        <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 4 }}>{label}</div>
         {description && (
-          <p style={{ fontSize: 12, color: colors.muted, marginTop: 0, marginBottom: 10 }}>
+          <p style={{ fontSize: 14, color: colors.muted, marginTop: 0, marginBottom: 10 }}>
             {description}
           </p>
         )}
@@ -2209,10 +2209,10 @@ function KeysStep({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <Card>
-        <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 4 }}>Network</div>
+        <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 4 }}>Network</div>
         {claimed.size === 0 ? (
           <>
-            <p style={{ fontSize: 12, color: colors.muted, marginTop: 0, marginBottom: 10 }}>
+            <p style={{ fontSize: 14, color: colors.muted, marginTop: 0, marginBottom: 10 }}>
               Every key you add below -- generated, imported, or linked from Tapit -- will be tagged
               for this network. Change it now if it's wrong; once a key is added it locks.
             </p>
@@ -2231,7 +2231,7 @@ function KeysStep({
             </div>
           </>
         ) : (
-          <p style={{ fontSize: 12, color: colors.muted, margin: 0 }}>
+          <p style={{ fontSize: 14, color: colors.muted, margin: 0 }}>
             This vault is on <strong style={{ color: colors.text }}>{network}</strong>. Locked because
             keys are already added -- remove every key below first if you need to change it.
           </p>
@@ -2402,7 +2402,7 @@ function InlineKeyCreate({
       {tab === 'generate' ? (
         <>
           <PasswordProtectFields state={pw} onChange={next => { setPw(next); setPwErr(null); }} />
-          {pwErr && <div style={{ fontSize: 12, color: colors.red }}>{pwErr}</div>}
+          {pwErr && <div style={{ fontSize: 14, color: colors.red }}>{pwErr}</div>}
           <Button
             size="sm"
             onClick={() => {
@@ -2416,7 +2416,7 @@ function InlineKeyCreate({
         </>
       ) : tab === 'tapit' ? (
         <>
-          <div style={{ fontSize: 11, color: colors.muted }}>
+          <div style={{ fontSize: 13, color: colors.muted }}>
             Open Tapit, go to Settings, tap "Your public key," and copy or scan it -- then paste it here. A
             direct handoff between the two apps is coming later; paste works today.
           </div>
@@ -2426,7 +2426,7 @@ function InlineKeyCreate({
             value={tapitPubkey}
             onChange={e => { setTapitPubkey(e.target.value); setTapitErr(null); }}
           />
-          {tapitErr && <div style={{ fontSize: 11, color: colors.red }}>{tapitErr}</div>}
+          {tapitErr && <div style={{ fontSize: 13, color: colors.red }}>{tapitErr}</div>}
           <Button
             size="sm"
             disabled={!tapitPubkey.trim()}
@@ -2455,10 +2455,10 @@ function InlineKeyCreate({
             </Button>
           </div>
           <input ref={exportFileRef} type="file" accept=".json,.txt" style={{ display: 'none' }} onChange={handleExportFile} />
-          <div style={{ fontSize: 11, color: colors.muted }}>
+          <div style={{ fontSize: 13, color: colors.muted }}>
             Scan a QR from your signing device, or import its export file -- no typing needed. Or paste manually below.
           </div>
-          {fileErr && <div style={{ fontSize: 11, color: colors.red }}>{fileErr}</div>}
+          {fileErr && <div style={{ fontSize: 13, color: colors.red }}>{fileErr}</div>}
           <Input placeholder="xpub / tpub from a hardware signer" value={xpub} onChange={e => { setXpub(e.target.value); setFileName(null); }} />
           <Input placeholder="Derivation path" value={path} onChange={e => setPath(e.target.value)} />
           <Input
@@ -2466,7 +2466,7 @@ function InlineKeyCreate({
             value={masterFingerprint}
             onChange={e => setMasterFingerprint(e.target.value)}
           />
-          <div style={{ fontSize: 11, color: colors.muted }}>
+          <div style={{ fontSize: 13, color: colors.muted }}>
             Filled in automatically from a scan or file import. Without it, this key
             won't be recognized by a hardware wallet at spend time.
           </div>
@@ -2530,13 +2530,13 @@ function BackupStep({
     <Card>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>Back up your vault</div>
-        <p style={{ fontSize: 13, color: colors.muted, lineHeight: 1.5 }}>
+        <p style={{ fontSize: 15, color: colors.muted, lineHeight: 1.5 }}>
           This file lets you or your family rebuild this exact vault with any compatible wallet, even if this app disappears. Store it somewhere durable -- ideally on metal, alongside your key backups.
         </p>
         {vault.address && <CopyField label="Address" value={vault.address} />}
         {vault.descriptor && (
           <details>
-            <summary style={{ fontSize: 12, color: colors.muted, cursor: 'pointer' }}>Show descriptor + QR</summary>
+            <summary style={{ fontSize: 14, color: colors.muted, cursor: 'pointer' }}>Show descriptor + QR</summary>
             <div style={{ marginTop: 10 }}>
               <CopyField label="Descriptor" value={vault.descriptor} multiline />
               <div style={{ marginTop: 10 }}>
@@ -2550,7 +2550,7 @@ function BackupStep({
         </Button>
         <label style={{ display: 'flex', gap: 10, alignItems: 'center', cursor: 'pointer', padding: 12, background: colors.raised, borderRadius: radii.md }}>
           <input type="checkbox" checked={metalBackedUp} onChange={e => setMetalBackedUp(e.target.checked)} />
-          <span style={{ fontSize: 13, color: colors.sub }}>I have a durable (metal) backup for every signing key in this vault.</span>
+          <span style={{ fontSize: 15, color: colors.sub }}>I have a durable (metal) backup for every signing key in this vault.</span>
         </label>
         <Button disabled={!downloaded || !metalBackedUp} onClick={onContinue}>
           Continue to funding

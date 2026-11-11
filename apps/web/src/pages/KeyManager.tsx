@@ -137,7 +137,7 @@ function GenerateKeyModal({ onDone, onClose }: { onClose: () => void; onDone: (k
 
   return (
     <Modal title="New key" onClose={onClose}>
-      <p style={{ fontSize: 13, color: colors.muted, marginBottom: 20, lineHeight: 1.5 }}>
+      <p style={{ fontSize: 15, color: colors.muted, marginBottom: 20, lineHeight: 1.5 }}>
         {pw.enabled
           ? "Mnemonic encrypted with your password. Use for real funds."
           : "No password. Mnemonic stored in plain text in this browser."}
@@ -162,7 +162,7 @@ function GenerateKeyModal({ onDone, onClose }: { onClose: () => void; onDone: (k
           </select>
         </div>
         <PasswordProtectFields state={pw} onChange={setPw} />
-        {err && <p style={{ color: colors.red, fontSize: 13, margin: 0 }}>{err}</p>}
+        {err && <p style={{ color: colors.red, fontSize: 15, margin: 0 }}>{err}</p>}
         <div style={{ display: "flex", gap: 10 }}>
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
@@ -233,11 +233,11 @@ function RestoreKeyModal({ onDone, onClose }: { onClose: () => void; onDone: (ke
 
   return (
     <Modal title="Restore a key from its words" onClose={onClose}>
-      <p style={{ fontSize: 14, color: colors.sub, marginBottom: 12, lineHeight: 1.55 }}>
+      <p style={{ fontSize: 15, color: colors.sub, marginBottom: 12, lineHeight: 1.55 }}>
         Type the recovery words you wrote down when this key was made. The same words always bring back the
         same key, on any phone or computer.
       </p>
-      <p style={{ fontSize: 13, color: colors.orange, marginBottom: 18, lineHeight: 1.55 }}>
+      <p style={{ fontSize: 15, color: colors.orange, marginBottom: 18, lineHeight: 1.55 }}>
         Only for a key that was made in this app. Never type a hardware wallet's words into a phone or
         computer.
       </p>
@@ -253,7 +253,7 @@ function RestoreKeyModal({ onDone, onClose }: { onClose: () => void; onDone: (ke
             <option value="signet">Test coins (signet)</option>
             <option value="testnet">Test coins (testnet)</option>
           </select>
-          <p style={{ fontSize: 12, color: colors.muted, margin: "6px 0 0", lineHeight: 1.5 }}>
+          <p style={{ fontSize: 14, color: colors.muted, margin: "6px 0 0", lineHeight: 1.5 }}>
             Not sure? If this key is already listed here without its words, it is matched for you whichever
             you pick.
           </p>
@@ -272,11 +272,11 @@ function RestoreKeyModal({ onDone, onClose }: { onClose: () => void; onDone: (ke
             spellCheck={false}
             required
           />
-          <p style={{ fontSize: 13, color: progress.color, margin: "6px 0 0", lineHeight: 1.5 }}>{progress.text}</p>
+          <p style={{ fontSize: 15, color: progress.color, margin: "6px 0 0", lineHeight: 1.5 }}>{progress.text}</p>
         </div>
         {real ? (
           <>
-            <p style={{ fontSize: 13, color: colors.sub, margin: 0, lineHeight: 1.5 }}>
+            <p style={{ fontSize: 15, color: colors.sub, margin: 0, lineHeight: 1.5 }}>
               Choose a password to lock this key on this device. It can be a new one -- it does not have to
               match the password you used before.
             </p>
@@ -299,7 +299,7 @@ function RestoreKeyModal({ onDone, onClose }: { onClose: () => void; onDone: (ke
         ) : (
           <PasswordProtectFields state={pw} onChange={setPw} label="Password-protect this key on this device" />
         )}
-        {err && <p style={{ color: colors.red, fontSize: 13, margin: 0, lineHeight: 1.5 }}>{err}</p>}
+        {err && <p style={{ color: colors.red, fontSize: 15, margin: 0, lineHeight: 1.5 }}>{err}</p>}
         <div style={{ display: "flex", gap: 10 }}>
           <Button type="button" variant="ghost" style={{ minHeight: 44 }} onClick={onClose}>
             Cancel
@@ -374,7 +374,7 @@ function RevealModal({
     <Modal title="Recovery phrase" onClose={onClose} wide>
       {!mnemonic && !isTest ? (
         <form onSubmit={unlock} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <p style={{ fontSize: 13, color: colors.muted }}>
+          <p style={{ fontSize: 15, color: colors.muted }}>
             {isPasskey ? "Unlock with your passkey to see the recovery phrase for " : "Enter password for "}
             <strong style={{ color: colors.text }}>{keyData.label}</strong>.
           </p>
@@ -384,7 +384,7 @@ function RevealModal({
               <Input type="password" value={pw} onChange={e => setPw(e.target.value)} required autoFocus />
             </div>
           )}
-          {err && <p style={{ color: colors.red, fontSize: 13 }}>{err}</p>}
+          {err && <p style={{ color: colors.red, fontSize: 15 }}>{err}</p>}
           <div style={{ display: "flex", gap: 10 }}>
             <Button type="button" variant="ghost" onClick={onClose}>
               Cancel
@@ -398,13 +398,13 @@ function RevealModal({
         <>
           {isTest || passwordRemoved ? (
             <div style={{ padding: "10px 14px", background: colors.successBg, border: `1px solid ${colors.green}44`, borderRadius: radii.md, marginBottom: 14 }}>
-              <p style={{ fontSize: 12, color: colors.green, margin: 0 }}>
+              <p style={{ fontSize: 14, color: colors.green, margin: 0 }}>
                 {passwordRemoved ? "Password removed - no password needed for this key anymore." : "Test key - no password needed."}
               </p>
             </div>
           ) : (
             <div style={{ padding: "10px 14px", background: colors.dangerBg, border: `1px solid ${colors.borderDanger}`, borderRadius: radii.md, marginBottom: 14 }}>
-              <p style={{ fontSize: 12, color: colors.red, margin: 0 }}>Keep this private. Close when done.</p>
+              <p style={{ fontSize: 14, color: colors.red, margin: 0 }}>Keep this private. Close when done.</p>
             </div>
           )}
           <WordGrid words={mnemonic!.split(" ")} />
@@ -459,10 +459,10 @@ function SecureUpgradeModal({ keyData, onDone, onClose }: { keyData: LocalKey; o
 
   return (
     <Modal title="Add password to key" onClose={onClose}>
-      <p style={{ fontSize: 13, color: colors.muted, marginBottom: 18, lineHeight: 1.5 }}>
+      <p style={{ fontSize: 15, color: colors.muted, marginBottom: 18, lineHeight: 1.5 }}>
         Encrypt <strong style={{ color: colors.text }}>{keyData.label}</strong> with a password. The plaintext mnemonic will be deleted from storage.
       </p>
-      <p style={{ fontSize: 13, color: colors.red, marginBottom: 18, lineHeight: 1.5 }}>
+      <p style={{ fontSize: 15, color: colors.red, marginBottom: 18, lineHeight: 1.5 }}>
         This does not undo any exposure that already happened -- the recovery
         phrase has been sitting unencrypted on this device the whole time this
         was a test key. If this device might have been compromised, or the
@@ -479,7 +479,7 @@ function SecureUpgradeModal({ keyData, onDone, onClose }: { keyData: LocalKey; o
           <Label>Confirm</Label>
           <Input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} required />
         </div>
-        {err && <p style={{ color: colors.red, fontSize: 13 }}>{err}</p>}
+        {err && <p style={{ color: colors.red, fontSize: 15 }}>{err}</p>}
         <div style={{ display: "flex", gap: 10 }}>
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
@@ -515,7 +515,7 @@ function RemovePasswordModal({ keyData, onDone, onClose }: { keyData: LocalKey; 
 
   return (
     <Modal title="Remove password" onClose={onClose}>
-      <p style={{ fontSize: 13, color: colors.muted, marginBottom: 20, lineHeight: 1.5 }}>
+      <p style={{ fontSize: 15, color: colors.muted, marginBottom: 20, lineHeight: 1.5 }}>
         Enter the current password for <strong style={{ color: colors.text }}>{keyData.label}</strong> to
         confirm. Afterward the recovery phrase is stored unencrypted in this browser and no password
         will be asked for when signing with this key.
@@ -525,7 +525,7 @@ function RemovePasswordModal({ keyData, onDone, onClose }: { keyData: LocalKey; 
           <Label>Current password</Label>
           <Input type="password" value={pw} onChange={e => setPw(e.target.value)} required autoFocus />
         </div>
-        {err && <p style={{ color: colors.red, fontSize: 13 }}>{err}</p>}
+        {err && <p style={{ color: colors.red, fontSize: 15 }}>{err}</p>}
         <div style={{ display: "flex", gap: 10 }}>
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
@@ -570,7 +570,7 @@ function ChangePasswordModal({ keyData, onDone, onClose }: { keyData: LocalKey; 
 
   return (
     <Modal title="Change password" onClose={onClose}>
-      <p style={{ fontSize: 13, color: colors.muted, marginBottom: 20, lineHeight: 1.5 }}>
+      <p style={{ fontSize: 15, color: colors.muted, marginBottom: 20, lineHeight: 1.5 }}>
         Change the password for <strong style={{ color: colors.text }}>{keyData.label}</strong>.
       </p>
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -586,7 +586,7 @@ function ChangePasswordModal({ keyData, onDone, onClose }: { keyData: LocalKey; 
           <Label>Confirm new password</Label>
           <Input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} required />
         </div>
-        {err && <p style={{ color: colors.red, fontSize: 13 }}>{err}</p>}
+        {err && <p style={{ color: colors.red, fontSize: 15 }}>{err}</p>}
         <div style={{ display: "flex", gap: 10 }}>
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
@@ -706,7 +706,7 @@ function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => v
                 </Button>
               </div>
               <input ref={exportFileRef} type="file" accept=".json,.txt" style={{ display: "none" }} onChange={handleExportFile} />
-              <div style={{ fontSize: 11, color: colors.muted, marginTop: 5, textAlign: "center" }}>
+              <div style={{ fontSize: 13, color: colors.muted, marginTop: 5, textAlign: "center" }}>
                 Scan a QR from your signing device, or import its export file. Or paste manually below.
               </div>
             </div>
@@ -726,13 +726,13 @@ function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => v
                 onChange={e => setMasterFingerprint(e.target.value)}
                 placeholder="e.g. c8fe8d4e -- from the signer's export"
               />
-              <div style={{ fontSize: 11, color: colors.muted, marginTop: 5 }}>
+              <div style={{ fontSize: 13, color: colors.muted, marginTop: 5 }}>
                 Filled in automatically from a scan or file import. Without it, this key
                 won't be recognized by a hardware wallet at spend time -- a bare xpub
                 alone can't supply it, so type it in if you pasted the xpub manually.
               </div>
             </div>
-            {err && <p style={{ color: colors.red, fontSize: 13 }}>{err}</p>}
+            {err && <p style={{ color: colors.red, fontSize: 15 }}>{err}</p>}
             <div style={{ display: "flex", gap: 10 }}>
               <Button type="button" variant="ghost" onClick={onClose}>
                 Cancel
@@ -840,10 +840,10 @@ function DetailModal({
               borderBottom: `1px solid ${colors.border}`,
             }}
           >
-            <span style={{ fontSize: 12, color: colors.muted }}>{rowLabel}</span>
+            <span style={{ fontSize: 14, color: colors.muted }}>{rowLabel}</span>
             <span
               style={{
-                fontSize: 13,
+                fontSize: 15,
                 color: colors.text,
                 fontFamily: ["Fingerprint", "Path"].includes(rowLabel) ? fonts.mono : "inherit",
               }}
@@ -855,7 +855,7 @@ function DetailModal({
       </div>
       {k.origin === "tapit" ? (
         <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 12, color: colors.muted, marginBottom: 8 }}>
+          <div style={{ fontSize: 14, color: colors.muted, marginBottom: 8 }}>
             This key has no xpub -- Tapit's identity key isn't a BIP32 wallet, it's a single fixed
             public key. Manage or back up the underlying key from inside Tapit itself; this is a
             read-only copy of the public key you imported.
@@ -864,11 +864,11 @@ function DetailModal({
             <>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
                 <Label>Tapit public key (as reported, 32 bytes)</Label>
-                <Button variant="ghost" size="sm" style={{ padding: "3px 9px", fontSize: 11 }} onClick={() => copy(k.tapitXOnlyPubkey!, "tapit")}>
+                <Button variant="ghost" size="sm" style={{ padding: "3px 9px", fontSize: 13 }} onClick={() => copy(k.tapitXOnlyPubkey!, "tapit")}>
                   {copied === "tapit" ? "Copied" : "Copy"}
                 </Button>
               </div>
-              <div style={{ background: colors.inset, borderRadius: radii.md, padding: "10px 12px", fontFamily: fonts.mono, fontSize: 11, color: colors.sub, wordBreak: "break-all" }}>
+              <div style={{ background: colors.inset, borderRadius: radii.md, padding: "10px 12px", fontFamily: fonts.mono, fontSize: 13, color: colors.sub, wordBreak: "break-all" }}>
                 {k.tapitXOnlyPubkey}
               </div>
             </>
@@ -882,7 +882,7 @@ function DetailModal({
               <Button
                 variant="ghost"
                 size="sm"
-                style={{ padding: "3px 9px", fontSize: 11 }}
+                style={{ padding: "3px 9px", fontSize: 13 }}
                 onClick={() => setShowQr(v => !v)}
               >
                 {showQr ? "Hide QR" : "Show QR"}
@@ -890,7 +890,7 @@ function DetailModal({
               <Button
                 variant="ghost"
                 size="sm"
-                style={{ padding: "3px 9px", fontSize: 11 }}
+                style={{ padding: "3px 9px", fontSize: 13 }}
                 onClick={() => copy(k.xpub, "xpub")}
               >
                 {copied === "xpub" ? "Copied" : "Copy"}
@@ -917,12 +917,12 @@ function DetailModal({
                   path: k.derivationPath,
                 })}
               />
-              <div style={{ fontSize: 11, color: colors.muted, textAlign: "center" }}>
+              <div style={{ fontSize: 13, color: colors.muted, textAlign: "center" }}>
                 Scan into another wallet or another DynastyTrust browser to import this xpub.
               </div>
             </div>
           )}
-          <div style={{ background: colors.inset, borderRadius: radii.md, padding: "10px 12px", fontFamily: fonts.mono, fontSize: 11, color: colors.sub, wordBreak: "break-all", lineHeight: 1.6 }}>
+          <div style={{ background: colors.inset, borderRadius: radii.md, padding: "10px 12px", fontFamily: fonts.mono, fontSize: 13, color: colors.sub, wordBreak: "break-all", lineHeight: 1.6 }}>
             {k.xpub}
           </div>
         </div>
@@ -931,28 +931,28 @@ function DetailModal({
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
             <Label>Public key (hex)</Label>
-            <Button variant="ghost" size="sm" style={{ padding: "3px 9px", fontSize: 11 }} onClick={() => copy(k.pubkey, "pub")}>
+            <Button variant="ghost" size="sm" style={{ padding: "3px 9px", fontSize: 13 }} onClick={() => copy(k.pubkey, "pub")}>
               {copied === "pub" ? "Copied" : "Copy"}
             </Button>
           </div>
-          <div style={{ background: colors.inset, borderRadius: radii.md, padding: "10px 12px", fontFamily: fonts.mono, fontSize: 11, color: colors.sub, wordBreak: "break-all" }}>
+          <div style={{ background: colors.inset, borderRadius: radii.md, padding: "10px 12px", fontFamily: fonts.mono, fontSize: 13, color: colors.sub, wordBreak: "break-all" }}>
             {k.pubkey}
           </div>
         </div>
       )}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <Button variant="ghost" style={{ fontSize: 13 }} onClick={onEdit}>
+        <Button variant="ghost" style={{ fontSize: 15 }} onClick={onEdit}>
           Edit
         </Button>
         {k.origin === "software" && (
-          <Button variant="ghost" style={{ fontSize: 13 }} onClick={onReveal}>
+          <Button variant="ghost" style={{ fontSize: 15 }} onClick={onReveal}>
             {k.testMnemonic ? "View recovery phrase" : "View / backup"}
           </Button>
         )}
         {k.testMnemonic && (
           <Button
             variant="ghost"
-            style={{ fontSize: 13, color: colors.gold, borderColor: colors.goldDim }}
+            style={{ fontSize: 15, color: colors.gold, borderColor: colors.goldDim }}
             onClick={onSecure}
           >
             Add password
@@ -960,11 +960,11 @@ function DetailModal({
         )}
         {k.origin === "software" && k.encryptedMnemonic && (
           <>
-            <Button variant="ghost" style={{ fontSize: 13 }} onClick={onChangePassword}>
+            <Button variant="ghost" style={{ fontSize: 15 }} onClick={onChangePassword}>
               Change password
             </Button>
             {k.network !== "mainnet" && (
-              <Button variant="ghost" style={{ fontSize: 13 }} onClick={onRemovePassword}>
+              <Button variant="ghost" style={{ fontSize: 15 }} onClick={onRemovePassword}>
                 Remove password
               </Button>
             )}
@@ -972,14 +972,14 @@ function DetailModal({
         )}
         <PasskeyProtect k={k} onChanged={onClose} />
         {k.status === "active" && (
-          <Button variant="ghost" style={{ fontSize: 13 }} onClick={onArchive}>
+          <Button variant="ghost" style={{ fontSize: 15 }} onClick={onArchive}>
             Archive
           </Button>
         )}
         {k.status === "archived" && (
           <Button
             variant="ghost"
-            style={{ fontSize: 13 }}
+            style={{ fontSize: 15 }}
             onClick={() => {
               updateKeyStatus(k.keyId, "active");
               onClose();
@@ -988,7 +988,7 @@ function DetailModal({
             Restore
           </Button>
         )}
-        <Button variant="danger" style={{ fontSize: 13, marginLeft: "auto" }} onClick={onDelete}>
+        <Button variant="danger" style={{ fontSize: 15, marginLeft: "auto" }} onClick={onDelete}>
           Delete
         </Button>
       </div>
@@ -1126,13 +1126,13 @@ export default function KeyManager() {
       <div style={{ marginBottom: 16 }}>
         <Link
           to="/recover-descriptor"
-          style={{ color: colors.muted, fontSize: 13, textDecoration: "underline" }}
+          style={{ color: colors.muted, fontSize: 15, textDecoration: "underline" }}
         >
           Found a key but not sure which vault it belongs to? Check for a hidden recovery share
         </Link>
       </div>
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-        <Button style={{ background: colors.green, fontSize: 14 }} onClick={() => setModal({ type: "generate" })}>
+        <Button style={{ background: colors.green, fontSize: 15 }} onClick={() => setModal({ type: "generate" })}>
           + New key
         </Button>
         <Button variant="ghost" onClick={() => setModal({ type: "restore" })}>
@@ -1151,7 +1151,7 @@ export default function KeyManager() {
           <input ref={fileRef} type="file" accept=".json" style={{ display: "none" }} onChange={doImport} />
         </div>
       </div>
-      <p style={{ fontSize: 13, color: colors.sub, lineHeight: 1.55, margin: "0 0 16px" }}>
+      <p style={{ fontSize: 15, color: colors.sub, lineHeight: 1.55, margin: "0 0 16px" }}>
         Your keys live only in this browser, on this device. If you clear the browser's data or change phones,
         each key comes back only from the words you wrote down for it (Restore from words). Export JSON saves
         public keys only -- it is not a backup of your words.
@@ -1173,7 +1173,7 @@ export default function KeyManager() {
               onClick={() => setFilter(f)}
               style={{
                 padding: "6px 12px",
-                fontSize: 12,
+                fontSize: 14,
                 borderColor: filter === f ? colors.gold : colors.border,
                 color: filter === f ? colors.gold : colors.sub,
               }}
@@ -1197,7 +1197,7 @@ export default function KeyManager() {
                 onClick={() => setPersonaFilter(p)}
                 style={{
                   padding: "4px 11px",
-                  fontSize: 12,
+                  fontSize: 14,
                   borderColor: active ? accent : colors.border,
                   color: active ? accent : colors.sub,
                 }}
@@ -1225,7 +1225,7 @@ export default function KeyManager() {
           <p
             style={{
               color: colors.muted,
-              fontSize: 14,
+              fontSize: 15,
               maxWidth: 380,
               margin: "0 auto 24px",
               lineHeight: 1.55,
@@ -1251,10 +1251,10 @@ export default function KeyManager() {
       {Array.from(new Set(visible.map(k => k.persona))).map(persona => (
         <div key={persona} style={{ marginBottom: 22 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: personaColors[persona] ?? colors.gold }}>
+            <span style={{ fontSize: 15, fontWeight: 600, color: personaColors[persona] ?? colors.gold }}>
               {persona}
             </span>
-            <span style={{ fontSize: 11, color: colors.muted }}>
+            <span style={{ fontSize: 13, color: colors.muted }}>
               {visible.filter(k => k.persona === persona).length} key(s)
             </span>
           </div>
@@ -1295,41 +1295,41 @@ export default function KeyManager() {
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>{key.label}</span>
                       {key.origin === "tapit" && (
-                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: colors.gold + "22", color: colors.gold }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: colors.gold + "22", color: colors.gold }}>
                           TAPIT
                         </span>
                       )}
                       {key.testMnemonic && (
-                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: colors.green + "22", color: colors.green }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: colors.green + "22", color: colors.green }}>
                           TEST
                         </span>
                       )}
                       {key.status === "archived" && (
-                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: colors.muted + "22", color: colors.muted }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: colors.muted + "22", color: colors.muted }}>
                           ARCHIVED
                         </span>
                       )}
                       {!key.backedUp && key.origin === "software" && (
-                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: colors.orange + "22", color: colors.orange }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: colors.orange + "22", color: colors.orange }}>
                           NOT BACKED UP
                         </span>
                       )}
                     </div>
                     <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 11, fontFamily: fonts.mono, color: colors.muted }}>
+                      <span style={{ fontSize: 13, fontFamily: fonts.mono, color: colors.muted }}>
                         {key.fingerprint}
                       </span>
-                      <span style={{ fontSize: 11, color: key.network === "mainnet" ? colors.gold : colors.green }}>
+                      <span style={{ fontSize: 13, color: key.network === "mainnet" ? colors.gold : colors.green }}>
                         {key.network.toUpperCase()}
                       </span>
-                      <span style={{ fontSize: 11, color: colors.muted }}>{key.derivationPath}</span>
+                      <span style={{ fontSize: 13, color: colors.muted }}>{key.derivationPath}</span>
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: 8, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
                     <Button
                       variant="ghost"
                       size="sm"
-                      style={{ fontSize: 12, padding: "5px 10px" }}
+                      style={{ fontSize: 14, padding: "5px 10px" }}
                       onClick={() => setModal({ type: "edit", key })}
                     >
                       Edit
@@ -1338,7 +1338,7 @@ export default function KeyManager() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        style={{ fontSize: 12, padding: "5px 10px" }}
+                        style={{ fontSize: 14, padding: "5px 10px" }}
                         onClick={() => setModal({ type: "reveal", key })}
                       >
                         {key.testMnemonic ? "Phrase" : "Backup"}
@@ -1347,7 +1347,7 @@ export default function KeyManager() {
                     <Button
                       variant="danger"
                       size="sm"
-                      style={{ fontSize: 12, padding: "5px 10px" }}
+                      style={{ fontSize: 14, padding: "5px 10px" }}
                       onClick={() => handleDelete(key.keyId)}
                     >
                       Delete

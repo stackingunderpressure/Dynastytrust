@@ -70,7 +70,7 @@ export function DescriptorQr({ descriptor, size = 260, label }: DescriptorQrProp
       {label && (
         <div
           style={{
-            fontSize: 11,
+            fontSize: 13,
             fontWeight: 700,
             letterSpacing: '0.1em',
             color: colors.gold,
@@ -81,7 +81,7 @@ export function DescriptorQr({ descriptor, size = 260, label }: DescriptorQrProp
         </div>
       )}
 
-      {err && <p style={{ color: colors.red, fontSize: 12 }}>{err}</p>}
+      {err && <p style={{ color: colors.red, fontSize: 14 }}>{err}</p>}
 
       {src ? (
         <div style={{ background: '#FFFFFF', padding: 10, borderRadius: 6, lineHeight: 0 }}>
@@ -97,7 +97,7 @@ export function DescriptorQr({ descriptor, size = 260, label }: DescriptorQrProp
         <div style={{ width: size, height: size, background: colors.surface, borderRadius: 6 }} />
       )}
 
-      <div style={{ fontSize: 11, color: colors.muted, textAlign: 'center', lineHeight: 1.5, fontFamily: fonts.sans }}>
+      <div style={{ fontSize: 13, color: colors.muted, textAlign: 'center', lineHeight: 1.5, fontFamily: fonts.sans }}>
         A standard output descriptor. Any wallet that supports miniscript can scan this to
         watch or recover the vault, even if DynastyTrust is unreachable.
       </div>

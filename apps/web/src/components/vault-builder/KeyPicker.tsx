@@ -66,12 +66,12 @@ export function KeyPicker({
         >
           <span style={{ fontSize: 16 }}>{role.charAt(0).toUpperCase()}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 500, color: colors.text, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ fontSize: 15, fontWeight: 500, color: colors.text, display: 'flex', alignItems: 'center', gap: 6 }}>
               {k.label}
               {k.origin === 'tapit' && (
                 <span
                   style={{
-                    fontSize: 9,
+                    fontSize: 12,
                     fontWeight: 700,
                     letterSpacing: '0.06em',
                     color: colors.gold,
@@ -84,7 +84,7 @@ export function KeyPicker({
                 </span>
               )}
             </div>
-            <div style={{ fontSize: 11, color: colors.muted }}>
+            <div style={{ fontSize: 13, color: colors.muted }}>
               <span style={{ color: accentColor }}>{k.persona}</span>
               {' . '}
               {k.origin === 'tapit' ? 'no local key material' : k.fingerprint}
@@ -94,7 +94,7 @@ export function KeyPicker({
             {!backedUp && (
               <Link
                 to="/keys"
-                style={{ fontSize: 11, color: colors.orange, textDecoration: 'none' }}
+                style={{ fontSize: 13, color: colors.orange, textDecoration: 'none' }}
               >
                 Not backed up yet -- back up in Key Manager
               </Link>
@@ -132,7 +132,7 @@ export function KeyPicker({
         </select>
       )}
       {!available.length && !selected.length && (
-        <p style={{ fontSize: 13, color: colors.muted }}>
+        <p style={{ fontSize: 15, color: colors.muted }}>
           No active keys available yet -- generate or import one below.
         </p>
       )}

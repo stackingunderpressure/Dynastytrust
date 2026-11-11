@@ -68,7 +68,7 @@ export function WordGrid({ words }: { words: string[] }) {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
-        <Button variant="ghost" size="sm" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => setVis(v => !v)}>
+        <Button variant="ghost" size="sm" style={{ fontSize: 14, padding: '4px 10px' }} onClick={() => setVis(v => !v)}>
           {vis ? 'Hide' : 'Reveal words'}
         </Button>
       </div>
@@ -86,10 +86,10 @@ export function WordGrid({ words }: { words: string[] }) {
               alignItems: 'center',
             }}
           >
-            <span style={{ fontSize: 10, color: colors.muted, minWidth: 16, flexShrink: 0 }}>{i + 1}</span>
+            <span style={{ fontSize: 12, color: colors.muted, minWidth: 16, flexShrink: 0 }}>{i + 1}</span>
             <span
               style={{
-                fontSize: 12,
+                fontSize: 14,
                 fontFamily: fonts.mono,
                 color: vis ? colors.text : 'transparent',
                 textShadow: vis ? 'none' : `0 0 8px ${colors.muted}`,
@@ -105,7 +105,7 @@ export function WordGrid({ words }: { words: string[] }) {
         <Button
           variant="ghost"
           size="sm"
-          style={{ width: '100%', marginTop: 10, fontSize: 12 }}
+          style={{ width: '100%', marginTop: 10, fontSize: 14 }}
           onClick={() => navigator.clipboard.writeText(words.join(' '))}
         >
           Copy all 24 words
@@ -134,7 +134,7 @@ function StepIndicator({ current }: { current: 1 | 2 }) {
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: 11,
+                fontSize: 13,
                 fontWeight: 700,
                 background: active || done ? colors.gold : colors.raised,
                 color: active || done ? colors.bg : colors.muted,
@@ -142,7 +142,7 @@ function StepIndicator({ current }: { current: 1 | 2 }) {
             >
               {n}
             </span>
-            <span style={{ fontSize: 12, color: active ? colors.text : colors.muted }}>
+            <span style={{ fontSize: 14, color: active ? colors.text : colors.muted }}>
               {label}
             </span>
             {i === 0 && <span style={{ color: colors.muted, margin: '0 2px' }}>-</span>}
@@ -176,13 +176,13 @@ export function KeyCreatedPrompt({
   return (
     <BackupModal title="Key created" onClose={onBackupLater} wide>
       <div style={{ padding: '10px 14px', background: colors.successBg, border: `1px solid ${colors.green}44`, borderRadius: radii.md, marginBottom: 16 }}>
-        <p style={{ fontSize: 13, color: colors.green, margin: 0 }}>
+        <p style={{ fontSize: 15, color: colors.green, margin: 0 }}>
           <strong>{keyData.label}</strong> is ready to use in the vault. Its recovery phrase is below -- tap "Reveal
           words" to see it.
         </p>
       </div>
       <WordGrid words={mnemonic.split(' ')} />
-      <p style={{ fontSize: 12, color: colors.muted, marginTop: 12, marginBottom: 0 }}>
+      <p style={{ fontSize: 14, color: colors.muted, marginTop: 12, marginBottom: 0 }}>
         Backing it up now means writing all 24 words down and confirming a few of them. You can also do this later --
         the key works in the vault either way, and it'll be flagged "not backed up" until you do. This key lives
         only in this browser on this device: if the browser's data is cleared or you change phones, these words
@@ -238,7 +238,7 @@ export function BackupFlow({ keyData, mnemonic, onDone }: { keyData: LocalKey; m
       <BackupModal title="Write down your recovery phrase" onClose={() => {}} wide>
         <StepIndicator current={1} />
         <div style={{ padding: '10px 14px', background: colors.dangerBg, border: `1px solid ${colors.borderDanger}`, borderRadius: radii.md, marginBottom: 16 }}>
-          <p style={{ fontSize: 13, color: colors.red, margin: 0 }}>
+          <p style={{ fontSize: 15, color: colors.red, margin: 0 }}>
             Write all 24 words on paper in order. Never store digitally or share.
           </p>
         </div>
@@ -256,7 +256,7 @@ export function BackupFlow({ keyData, mnemonic, onDone }: { keyData: LocalKey; m
           }}
         >
           <input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />
-          <span style={{ fontSize: 13, color: colors.sub }}>I have written all 24 words in order.</span>
+          <span style={{ fontSize: 15, color: colors.sub }}>I have written all 24 words in order.</span>
         </label>
         <Button
           style={{ width: '100%', marginTop: 12 }}
@@ -271,7 +271,7 @@ export function BackupFlow({ keyData, mnemonic, onDone }: { keyData: LocalKey; m
   return (
     <BackupModal title="Verify backup" onClose={() => {}}>
       <StepIndicator current={2} />
-      <p style={{ fontSize: 13, color: colors.muted, marginBottom: 20 }}>
+      <p style={{ fontSize: 15, color: colors.muted, marginBottom: 20 }}>
         Enter the words at the positions below to confirm you wrote them down.
       </p>
       {positions.map(pos => (
@@ -286,7 +286,7 @@ export function BackupFlow({ keyData, mnemonic, onDone }: { keyData: LocalKey; m
           />
         </div>
       ))}
-      {err && <p style={{ color: colors.red, fontSize: 13 }}>{err}</p>}
+      {err && <p style={{ color: colors.red, fontSize: 15 }}>{err}</p>}
       <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
         <Button variant="ghost" onClick={() => { setErr(null); setStep('show'); }}>
           Back to phrase
