@@ -548,7 +548,7 @@ export default function ProposalDetail() {
           <div style={{ fontSize: 13, color: colors.muted, textAlign: "center", padding: "10px 0", lineHeight: 1.5 }}>
             {iSigned
               ? `You've signed. Waiting on ${remaining} more signature${remaining === 1 ? "" : "s"} to reach the ${required}-of quorum.`
-              : "None of your local keys are signers on this vault. If you should be able to sign, import that seed on this device from the Key Manager."}
+              : "None of your local keys are signers on this vault. If you should be able to sign, open Keys and tap Restore from words to bring your key onto this device."}
           </div>
         );
       })()}

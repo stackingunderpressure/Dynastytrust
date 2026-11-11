@@ -106,6 +106,47 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Restore a key from its written words -- BUILT 2026-11-11, on the
+  branch.** Found by walking the whole family journey screen by screen
+  (see `docs/security-backlog.md`, "Journey gaps"): the app made people
+  write 24 words, verified they had, and then had NO place to type them
+  back in. "Restore" in the Key Manager only un-archived a key; "Import
+  JSON" carries public keys only; ProposalDetail told a signer to
+  "import that seed on this device" when no such thing existed. A
+  cleared browser or a new phone lost the signer from the app for good,
+  for a founder and, years later, for an heir.
+  `keystore.ts`: `restoreKeyFromWords` runs the phrase through the same
+  derivation a new key uses and stores it the same two ways (password-
+  encrypted; plain text on test coins only -- mainnet without a password
+  is refused). A public-only row for the same key (the new-phone state
+  after Import JSON) is upgraded in place with its name kept, matched on
+  either kind of coin so a forgotten network is not a trap. One set of
+  words is kept in a browser once: the first test run showed the same
+  words could otherwise sit in plain text under a test entry beside
+  their real-money twin, and that is now refused by design.
+  `inspectRecoveryWords` drives the form: a word count and the first
+  word that is not a recovery word, as the person types; a pasted
+  numbered list reads the same as plain words. Key Manager: "Restore
+  from words", a standing note that keys live only in this browser and
+  that Export JSON is not a backup of the words, and the same sentence
+  on the key-created prompt.
+  `scripts/test-keystore-restore.mjs` (7 cases, in `npm test`): a
+  mainnet key lost and restored is the same xpub, signing pubkey and
+  both fingerprints; the standard BIP39 test phrase restores to its
+  published master fingerprint 73c5da0a; misspelt, missing and swapped
+  words, no password on mainnet, and repeats are refused with nothing
+  stored. WALKED at 375px in a production build with fabricated
+  services: live feedback, restore, the row and its fingerprint, the
+  refused repeat; no horizontal overflow. NOT SEEN: on a real phone,
+  or a restored key signing a real spend (the signer derives from the
+  same stored words, and reveal re-checks them against the xpub).
+  NOT in this slice: BIP39 passphrases; restore inside the invite or
+  wizard flows; telling the person which vault the restored key signs.
+  Measured: npm test exit 0, 21 suites; lint 0 errors / 11 warnings;
+  typecheck 10 = baseline; build green.
+  DEPLOY NOTE: the sealed record screen went to main as b4ed42d;
+  `verify:live` PASS against that commit.
+
 - **Sealed record screen (15d) -- BUILT 2026-11-11, on the branch.**
   Until this there was no way for anyone, the operator included, to
   LOOK at the ledger: the tables are readable only through

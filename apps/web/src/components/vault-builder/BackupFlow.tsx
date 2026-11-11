@@ -184,7 +184,9 @@ export function KeyCreatedPrompt({
       <WordGrid words={mnemonic.split(' ')} />
       <p style={{ fontSize: 12, color: colors.muted, marginTop: 12, marginBottom: 0 }}>
         Backing it up now means writing all 24 words down and confirming a few of them. You can also do this later --
-        the key works in the vault either way, and it'll be flagged "not backed up" until you do.
+        the key works in the vault either way, and it'll be flagged "not backed up" until you do. This key lives
+        only in this browser on this device: if the browser's data is cleared or you change phones, these words
+        are the only way to bring it back.
       </p>
       <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
         <Button variant="ghost" style={{ flex: 1 }} onClick={onBackupLater}>

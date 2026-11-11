@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import {
   listAllKeys, generateTestKey, generateSoftwareKey, importXpub,
   updateKeyStatus, deleteKeyVerified, keyNeedsPassword, revealMnemonic, secureTestKey, removeKeyPassword, changeKeyPassword,
-  exportKeyring, importKeyringJson, renameKey, parseXpubText,
+  exportKeyring, importKeyringJson, renameKey, parseXpubText, restoreKeyFromWords, inspectRecoveryWords,
   type LocalKey, type Network,
 } from "../lib/keystore";
 import { downloadFile } from "../lib/download-file";
@@ -169,6 +169,143 @@ function GenerateKeyModal({ onDone, onClose }: { onClose: () => void; onDone: (k
           </Button>
           <Button type="submit" disabled={busy}>
             {busy ? "Generating..." : "Generate"}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// Bring a key back from the words written down when it was made. Until
+// 2026-11-11 the app asked people to write 24 words and then had nowhere
+// to type them: a cleared browser or a new phone lost the signer for
+// good. The work is in keystore.ts (restoreKeyFromWords); this form's job
+// is to make typing 24 words on a phone forgiving -- it says how many
+// words it has, and names the first one that is not a recovery word, as
+// the person types.
+function RestoreKeyModal({ onDone, onClose }: { onClose: () => void; onDone: (key: LocalKey, upgraded: boolean) => void }) {
+  const [label, setLabel] = useState("");
+  const [network, setNetwork] = useState<Network>("mainnet");
+  const [words, setWords] = useState("");
+  const [pw, setPw] = useState<PasswordProtectState>(DEFAULT_PASSWORD_PROTECT_STATE);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const real = network === "mainnet";
+  const seen = inspectRecoveryWords(words);
+  const firstBad = seen.unknown[0];
+  // A word still being typed is not "wrong" yet: only flag the last word
+  // once the person has moved past it.
+  const stillTyping = !!firstBad && firstBad.position === seen.words.length && !/[^a-zA-Z]$/.test(words);
+  let progress: { text: string; color: string };
+  if (seen.words.length === 0) progress = { text: "Type or paste the words in order, separated by spaces.", color: colors.muted };
+  else if (firstBad && !stillTyping) progress = { text: `Word ${firstBad.position} ("${firstBad.word}") is not a recovery word. Check the spelling.`, color: colors.red };
+  else if (seen.valid) progress = { text: `${seen.words.length} words. The phrase checks out.`, color: colors.green };
+  else if (seen.lengthOk) progress = { text: `${seen.words.length} words, but together they are not a valid phrase. One word is wrong, or two are in the wrong order.`, color: colors.red };
+  else progress = { text: `${seen.words.length} ${seen.words.length === 1 ? "word" : "words"} so far.`, color: colors.sub };
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const pwState = real ? { ...pw, enabled: true } : pw;
+    const validationError = validatePasswordProtection(pwState);
+    if (validationError) {
+      setErr(validationError);
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      const finalLabel = label.trim();
+      const { key, upgraded } = await restoreKeyFromWords({
+        label: finalLabel,
+        persona: finalLabel,
+        network,
+        words,
+        password: pwState.enabled ? pwState.password : undefined,
+      });
+      onDone(key, upgraded);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title="Restore a key from its words" onClose={onClose}>
+      <p style={{ fontSize: 14, color: colors.sub, marginBottom: 12, lineHeight: 1.55 }}>
+        Type the recovery words you wrote down when this key was made. The same words always bring back the
+        same key, on any phone or computer.
+      </p>
+      <p style={{ fontSize: 13, color: colors.orange, marginBottom: 18, lineHeight: 1.55 }}>
+        Only for a key that was made in this app. Never type a hardware wallet's words into a phone or
+        computer.
+      </p>
+      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div>
+          <Label>Name for this key</Label>
+          <Input value={label} onChange={e => setLabel(e.target.value)} placeholder="e.g. My key" required />
+        </div>
+        <div>
+          <Label>What it holds</Label>
+          <select style={selectStyle} value={network} onChange={e => setNetwork(e.target.value as Network)}>
+            <option value="mainnet">Real bitcoin (mainnet)</option>
+            <option value="signet">Test coins (signet)</option>
+            <option value="testnet">Test coins (testnet)</option>
+          </select>
+          <p style={{ fontSize: 12, color: colors.muted, margin: "6px 0 0", lineHeight: 1.5 }}>
+            Not sure? If this key is already listed here without its words, it is matched for you whichever
+            you pick.
+          </p>
+        </div>
+        <div>
+          <Label>Recovery words</Label>
+          <Textarea
+            mono
+            rows={5}
+            value={words}
+            onChange={e => setWords(e.target.value)}
+            placeholder="word1 word2 word3 ..."
+            autoCapitalize="none"
+            autoCorrect="off"
+            autoComplete="off"
+            spellCheck={false}
+            required
+          />
+          <p style={{ fontSize: 13, color: progress.color, margin: "6px 0 0", lineHeight: 1.5 }}>{progress.text}</p>
+        </div>
+        {real ? (
+          <>
+            <p style={{ fontSize: 13, color: colors.sub, margin: 0, lineHeight: 1.5 }}>
+              Choose a password to lock this key on this device. It can be a new one -- it does not have to
+              match the password you used before.
+            </p>
+            <div>
+              <Label>Password</Label>
+              <Input
+                type="password"
+                value={pw.password}
+                onChange={e => setPw({ ...pw, password: e.target.value })}
+                required
+                minLength={8}
+                placeholder="Min 8 characters"
+              />
+            </div>
+            <div>
+              <Label>Confirm password</Label>
+              <Input type="password" value={pw.confirm} onChange={e => setPw({ ...pw, confirm: e.target.value })} required />
+            </div>
+          </>
+        ) : (
+          <PasswordProtectFields state={pw} onChange={setPw} label="Password-protect this key on this device" />
+        )}
+        {err && <p style={{ color: colors.red, fontSize: 13, margin: 0, lineHeight: 1.5 }}>{err}</p>}
+        <div style={{ display: "flex", gap: 10 }}>
+          <Button type="button" variant="ghost" style={{ minHeight: 44 }} onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" style={{ minHeight: 44 }} disabled={busy || !seen.valid}>
+            {busy ? "Restoring..." : "Restore key"}
           </Button>
         </div>
       </form>
@@ -861,6 +998,7 @@ function DetailModal({
 
 type ModalState =
   | { type: "generate" }
+  | { type: "restore" }
   | { type: "import" }
   | { type: "created"; key: LocalKey; mnemonic: string }
   | { type: "backup"; key: LocalKey; mnemonic: string }
@@ -997,6 +1135,9 @@ export default function KeyManager() {
         <Button style={{ background: colors.green, fontSize: 14 }} onClick={() => setModal({ type: "generate" })}>
           + New key
         </Button>
+        <Button variant="ghost" onClick={() => setModal({ type: "restore" })}>
+          Restore from words
+        </Button>
         <Button variant="ghost" onClick={() => setModal({ type: "import" })}>
           Import xpub
         </Button>
@@ -1010,6 +1151,11 @@ export default function KeyManager() {
           <input ref={fileRef} type="file" accept=".json" style={{ display: "none" }} onChange={doImport} />
         </div>
       </div>
+      <p style={{ fontSize: 13, color: colors.sub, lineHeight: 1.55, margin: "0 0 16px" }}>
+        Your keys live only in this browser, on this device. If you clear the browser's data or change phones,
+        each key comes back only from the words you wrote down for it (Restore from words). Export JSON saves
+        public keys only -- it is not a backup of your words.
+      </p>
 
       <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
         <Input
@@ -1093,6 +1239,9 @@ export default function KeyManager() {
             <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
               <Button style={{ background: colors.green }} onClick={() => setModal({ type: "generate" })}>
                 Generate a key
+              </Button>
+              <Button variant="ghost" onClick={() => setModal({ type: "restore" })}>
+                I have my recovery words
               </Button>
             </div>
           )}
@@ -1216,6 +1365,20 @@ export default function KeyManager() {
           onDone={(key, mnemonic) => {
             reload();
             setModal({ type: "created", key, mnemonic });
+          }}
+        />
+      )}
+      {modal?.type === "restore" && (
+        <RestoreKeyModal
+          onClose={() => setModal(null)}
+          onDone={(key, upgraded) => {
+            reload();
+            setModal(null);
+            toast.success(
+              upgraded
+                ? `The words for "${key.label}" are back on this device. It can sign here again.`
+                : `"${key.label}" restored. Its fingerprint is ${key.masterFingerprint ?? key.fingerprint}.`,
+            );
           }}
         />
       )}

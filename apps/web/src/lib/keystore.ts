@@ -427,6 +427,139 @@ export async function generateSoftwareKey(opts: {
   return { key, mnemonic };
 }
 
+// -- Restoring a key from its written words --------------------------------
+//
+// Until 2026-11-11 there was NO way to bring a key back: the app told
+// people to write 24 words down, verified they had, and then had no box
+// to type them into. A cleared browser or a new phone meant the signer
+// was gone from the app for good -- for a founder and, years later, for
+// an heir. These two functions close that.
+
+const PHRASE_LENGTHS = [12, 15, 18, 21, 24];
+
+/** What someone has typed so far, for feedback as they go. Pure.
+ *  Anything that is not a letter separates words, so a pasted numbered
+ *  list ("1. apple 2. ...") reads the same as plain words. */
+export function inspectRecoveryWords(text: string): {
+  words: string[];
+  unknown: { position: number; word: string }[];
+  lengthOk: boolean;
+  valid: boolean;
+} {
+  const words = text.toLowerCase().split(/[^a-z]+/).filter(Boolean);
+  const unknown = words
+    .map((word, i) => ({ position: i + 1, word }))
+    .filter(w => !wordlist.includes(w.word));
+  const lengthOk = PHRASE_LENGTHS.includes(words.length);
+  const valid = lengthOk && unknown.length === 0 && validateMnemonic(words.join(' '), wordlist);
+  return { words, unknown, lengthOk, valid };
+}
+
+const sameCoins = (a: Network, b: Network): boolean => (a === 'mainnet') === (b === 'mainnet');
+const holdsSeed = (k: LocalKey): boolean => !!(k.testMnemonic || k.encryptedMnemonic || k.passkeyMnemonic);
+
+/**
+ * Bring a key back from its written recovery phrase.
+ *
+ * The same words always give the same key, so nothing here is new
+ * cryptography: the phrase is validated, run through the SAME derivation
+ * a freshly generated key uses, and stored the same two ways (password-
+ * encrypted, or plain text on test networks only).
+ *
+ * If this browser already lists that key WITHOUT its seed -- the usual
+ * state on a new phone after "Import JSON", which carries public keys
+ * only -- that entry is upgraded in place, keeping its name, so the
+ * person does not end up with two rows for one key. This match is tried
+ * on both real and test coins, because the same words give a different
+ * key on each and "which network was it?" is exactly what someone has
+ * forgotten five years on; the entry's own network wins over the one
+ * picked in the form. Words that already hold a seed here, on either
+ * kind of coin, are refused: one set of words lives in a browser once.
+ *
+ * Marked backed up: the words were just typed from the written copy.
+ * BIP39 passphrases ("25th word") are not supported; this app never
+ * creates one.
+ */
+export async function restoreKeyFromWords(opts: {
+  label: string;
+  network: Network;
+  persona: string;
+  words: string;
+  password?: string;
+}): Promise<{ key: LocalKey; upgraded: boolean }> {
+  const seen = inspectRecoveryWords(opts.words);
+  if (seen.unknown.length > 0) {
+    const u = seen.unknown[0];
+    throw new Error(`Word ${u.position} ("${u.word}") is not a recovery word. Check the spelling against your written copy.`);
+  }
+  if (!seen.lengthOk) {
+    throw new Error(`A recovery phrase has 12 or 24 words. This has ${seen.words.length}.`);
+  }
+  if (!seen.valid) {
+    throw new Error('Every word is a real recovery word, but together they are not a valid phrase. One word is wrong, or two are in the wrong order.');
+  }
+  const mnemonic = seen.words.join(' ');
+  const all = loadAll();
+
+  let network = opts.network;
+  let derived = deriveAccount(mnemonic, network);
+  let existing: LocalKey | undefined;
+  for (const candidate of [opts.network, opts.network === 'mainnet' ? 'signet' : 'mainnet'] as Network[]) {
+    const d = deriveAccount(mnemonic, candidate);
+    const pubkey = toHex(d.child00.publicKey!);
+    const match = all.find(k => k.origin !== 'tapit' && k.pubkey === pubkey && sameCoins(k.network, candidate));
+    if (match) {
+      if (holdsSeed(match)) {
+        // One set of words lives here once. Allowing the same words under
+        // a second entry on the other kind of coin would let a real-money
+        // seed sit in plain text beside its test-coin twin.
+        throw new Error(sameCoins(match.network, opts.network)
+          ? `This key is already in this browser as "${match.label}". Nothing to restore.`
+          : `These words are already in this browser as "${match.label}", a ${match.network === 'mainnet' ? 'real-bitcoin' : 'test-coin'} key. The same words cannot be kept twice.`);
+      }
+      existing = match; network = match.network; derived = d;
+      break;
+    }
+  }
+
+  const password = opts.password ?? '';
+  if (!password) {
+    const blocked = testModeBlockedReason(network);
+    if (blocked) {
+      throw new Error(existing
+        ? `These words belong to your real-bitcoin key "${existing.label}". A real-bitcoin key must be protected with a password -- set one and restore again.`
+        : 'A real-bitcoin (mainnet) key must be protected with a password. Set one and restore again.');
+    }
+  } else if (password.length < 8) {
+    throw new Error('Password must be at least 8 characters');
+  }
+
+  const { account, child00, path, masterFingerprint } = derived;
+  const key: LocalKey = {
+    keyId:          existing?.keyId ?? crypto.randomUUID(),
+    label:          existing?.label ?? opts.label,
+    persona:        existing?.persona ?? opts.persona,
+    origin:         'software',
+    network,
+    fingerprint:    bip32Fingerprint(account.publicKey!),
+    masterFingerprint,
+    derivationPath: path,
+    xpub:           account.publicExtendedKey,
+    pubkey:         toHex(child00.publicKey!),
+    status:         existing?.status ?? 'active',
+    createdAt:      existing?.createdAt ?? new Date().toISOString(),
+    ...(password ? { encryptedMnemonic: await encryptText(mnemonic, password) } : { testMnemonic: mnemonic }),
+    backedUp:       true,
+  };
+
+  // Re-read: encryptText awaited, and another tab may have written.
+  const now = loadAll();
+  const at = existing ? now.findIndex(k => k.keyId === existing.keyId) : -1;
+  if (at >= 0) now[at] = key; else now.push(key);
+  saveAll(now);
+  return { key, upgraded: !!existing };
+}
+
 /**
  * Import an xpub from a hardware wallet.
  *

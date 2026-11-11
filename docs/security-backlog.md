@@ -281,3 +281,53 @@ then (c).
     removed on 2026-11-10. Production builds drop that file and are
     unaffected (the live bundle is verified); only the local dev server
     fails. Fix in tapit-attest: remove or stub the provider, rebuild dist.
+
+## Journey gaps -- found walking a family through the app (2026-11-11)
+
+Read from every screen, the worst ones confirmed in the code by hand; not
+walked on the live site as a new user. Ordered by how badly each one hurts a
+real family. The operator picks the order.
+
+J1. ~~**No way to restore a key from its words.**~~ BUILT 2026-11-11 (see
+    `HISTORY.md`); also warns that keys live only in this browser.
+J2. **The inheritance moment.** (a) VaultDetail says inheritance is
+    "Triggered only if the trustees are unreachable for the full window" --
+    false, it opens at a fixed block height whatever anyone does. (b) The
+    heir's Dashboard line turns the absolute height into a duration, so it
+    never changes and never says open (named-field vaults). (c) When the
+    path opens the heir's one prompt disappears; what remains is a card
+    with no button and no steps. (d) "Rotate" defaults to the time
+    remaining, so rotating keeps the same deadline; nothing says rotating
+    is how a founder pushes inheritance out. (e) Nothing tells a founder
+    the inheritance date is approaching.
+J3. **Family cannot join a vault built today with their own keys.** The
+    wizard fills every slot from keys in the owner's browser or a pasted
+    xpub; `compile-leaves.js` never reads invited members. Invites still
+    exist for old drafts: no email is sent, the link is a bearer token,
+    nobody confirms a fingerprint, the invite flow cannot create a key, and
+    the draft card's "Copy link" builds `/invite?token=` when the route is
+    `/invite/:token`. A leaf-list draft shows "0 of 0 members joined" with
+    a Compile button that fails. This is also 15e.
+J4. **Nobody is told when they are needed.** No email or push anywhere. A
+    second signer must know to open the app; "proposals awaiting
+    signatures" has a "Go to Send" button that opens a blank form; the
+    co-signer sees amount and destination but not fee or change; "Cancel"
+    does not cancel the proposal.
+J5. **Sign-up from the home page.** It says "we sent a confirmation link";
+    the email carries a 6-digit code and that page has no box for it. It
+    also says the email "can be a burner".
+J6. **Funding.** No receive QR (the only QR is the descriptor, easy to scan
+    by mistake), no "send a small test first", no address check.
+J7. **Builder.** Opens blank with "Path 1"; the heirs' path must be
+    invented; Sage's proposal is dropped on "build this"; network buttons
+    are raw "signet"/"bitcoin"; compile fires on one tap and the wizard
+    never says it is permanent; new-key form defaults to Testnet with the
+    password box unticked.
+J8. **If the site is gone.** The forced backup file is right, but the vault
+    page has nine equal buttons and none is marked as the one to keep; the
+    txt and the PDF disagree about Nunchuk; the long-horizon recovery setup
+    asks for txid, vout and fee rate by hand; `/recover-descriptor` says
+    "no account" but sits behind sign-in.
+J9. **Jargon with no explanation** across the journey: xpub, fingerprint,
+    derivation path, PSBT, sat/vb, UTXO, quorum, descriptor, TR_MULTILEAF,
+    blocks, founder/heir/successor/trustee used interchangeably.
