@@ -267,9 +267,18 @@ signers" as not yet verified. Item 1 above postdates it.
   invited person; a path with more than one invited person.
   NOT in this slice: emailing the link; changing people after
   finalize; Bloc and older-shape drafts (their invite flow is
-  untouched); an invited person holding keys on two paths (the owner
-  can place a confirmed key on a second path, the person is listed
-  under the first); telling people when a spend needs them.
+  untouched); one key on more than one path; telling people when a
+  spend needs them.
+  CORRECTION (2026-11-11, later): this entry and my report to the
+  operator said the owner can place an invited person's confirmed key
+  on a second path. Not true. `PathInvites` offers a member's key only
+  on the path they were invited to, and the Keys step's picker removes
+  ANY key from its list once it is used on any path
+  (`VaultWizard.tsx` `claimed`/`availableKeys`). The compiler itself
+  allows the same key on several paths (distinctness is checked per
+  leaf); the builder screen does not let you choose it. Found when the
+  operator asked whether one hardware key could sit on three of five
+  paths.
   Measured: npm test exit 0, 27 suites; lint 0 errors / 11 warnings;
   typecheck 10 = baseline; build green.
   DEPLOY NOTE: the small traps batch went to main as 5a4e7cc;
