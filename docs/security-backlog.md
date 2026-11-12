@@ -465,3 +465,16 @@ rotation uses one to publish the new descriptor. A leaked sealing key
 reveals a descriptor (privacy), never a spend. Needs a real design
 pass before anything is built: where the batch is kept, how one is
 marked used, and what the recovery side must scan for.
+
+Operator's correction, same day: the twenty-year key is MEANT to be
+held by the whole family line, in as many copies as they like. "The
+ultimate goal is that somebody is there in 20 years ... at that point,
+everyone has dropped the ball and that's the point of it." So my two
+"costs" above (the key existing in one place; a threshold of holders
+taking everything at year twenty) are the intended behaviour, not
+defects, and a widely held key can simply sign again at each rotation
+-- no digging, no Shamir, no pre-signed batch needed for that purpose.
+What remains true and worth telling an owner: from the date on, the
+first holder to act takes everything and nothing enforces sharing; and
+while the owner is alive, rotating before the date is the only thing
+that keeps that path closed.
