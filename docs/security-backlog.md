@@ -478,3 +478,27 @@ What remains true and worth telling an owner: from the date on, the
 first holder to act takes everything and nothing enforces sharing; and
 while the owner is alive, rotating before the date is the only thing
 that keeps that path closed.
+
+## Parked idea, not built: family practice with Lightning payouts (2026-11-12)
+
+Operator: wants to "inspire my family to learn how to use Dynasty
+trust", with "short-term games also so that the repetition is faster
+and not just a long inheritance", "me rewarding them by paying them",
+and asks how hard it would be to fund Lightning from the vault address
+with "everybody's cooperation to fund it and then to send it kind of
+like a big multisig", paid out to a family member's own Lightning
+wallet. Maturity: raw insight.
+
+Grounded at the time: no Lightning code in this repo; scheduled
+stipends exist (`api.stipends`, weekly/monthly/quarterly/annually);
+the app sends to any on-chain address; dated paths cannot be shorter
+than about six months, so fast repetition has to use open paths.
+
+My read given to him: the vault side (everyone co-signs) and the
+Lightning side (one person's wallet) are different custody models and
+should stay separate. Works today with no new code: a co-signed vault
+spend to the on-chain "swap-in" address a Lightning wallet shows.
+Possible later, with a real Lightning node: the vault's spend funds a
+channel directly (PSBT channel funding). A shared-custody Lightning
+balance is a federation (Fedimint-style), a product in itself -- wedge
+test says integrate or skip, not rebuild.
