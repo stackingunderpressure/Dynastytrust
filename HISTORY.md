@@ -106,6 +106,30 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **SeedSigner fork dev now at 16427f3 -- 2026-11-12. No SD image
+  built.** Operator's word, by chip: merge the Spending Path fix into
+  dev; then build the no-descriptor warning and button wording; warn
+  only, do not block signing. Two commits fast-forwarded onto dev:
+  e5391fd (Spending Path fits; must-sign shown; "Your key MUST sign")
+  and 16427f3 (with no matching descriptor loaded the screen says
+  "This device cannot see who must sign or when this path opens. Load
+  the vault's descriptor first."; self-transfer buttons read "Load
+  descriptor" and "Skip (not verified)"). Words and layout only; the
+  signing code is untouched.
+  MEASURED: the fork's own CI on GitHub passed for both commits (runs
+  22/23 and 24), which includes the five translation tests I cannot
+  run locally. Locally: 278 passed, the same 5 translation failures;
+  9 layout checks against the real 240px renderer pass. The fork's
+  `Build` workflow fires on a push to dev and reported "skipped": no
+  image was built.
+  SEEN: every changed screen rendered from the changed code and read;
+  pictures sent to the operator.
+  NOT SEEN: a physical device, its camera, a QR round trip, the
+  operator's SD card (built before these commits), other languages.
+  NOT changed: the "Verify multisig change" label on an ordinary
+  change path; the "Self-Transfer" title; signing without a descriptor
+  is still allowed.
+
 - **SeedSigner fork: Spending Path screen fixed on a branch, NOT
   merged to dev, no SD image built -- 2026-11-12.** Operator chose "fix
   both, show me first" and "say if their key is the must-sign one".
