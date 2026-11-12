@@ -106,6 +106,47 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **SeedSigner fork checked against today's vaults -- 2026-11-12.
+  Signing is correct; two screens are not obvious. Nothing changed in
+  the fork.** Operator: "Check on our seed signer fork and make sure
+  everything is correct and the screens are obvious to what they are
+  signing." Fork `stackingunderpressure/seedsigner`, branch `dev` at
+  a254292, 24 commits on top of upstream 1fb2956 (branch
+  `claude/seed-signer-repo-setup-5idhj3` is dev plus a commit and its
+  own revert: no net difference).
+  MEASURED: the fork's suite, 270 passed, 5 failed -- all five are
+  translation tests and the translations submodule was not fetched in
+  my shallow clone (environment, not the fork).
+  PROVEN with seven real transactions from today's compiler (plain
+  2-of-3, dated 1-of-2, must-sign open, must-sign dated, a relaxing
+  path's two steps), each through the fork's real parser and signer:
+  the exported descriptor parses and derives OUR address; amounts, fee
+  and change are read correctly; change is verified against the
+  registered descriptor; the right path is found (leaf 1/2/3 of 3);
+  the device adds exactly its own signature; our server accepts that
+  signature; its trimmed reply merges; and device + app signatures
+  finalize through our real finalizer in all seven, must-sign
+  included. The 8-character check code on the device equals the one
+  our app shows, all seven. No fork change logs or sends key material.
+  SCREENS RENDERED and read (fork's own screenshot tool, 240x240):
+  (1) DEFECT: on a dated path with a registered descriptor the
+  "Spending Path" screen has four lines and the last, "Your Keys: 1 of
+  your keys is eligible", is cut off under the Continue button. The
+  screen does not scroll. (2) GAP: on a must-sign path the screen
+  shows "Leaf 1 of 3" and "1 of your keys is eligible" with no
+  "Requires" line at all -- `_parse_leaf_quorum` only understands a
+  key group optionally wrapped in a timelock, and returns nothing for
+  `and_v(v:pk(A),multi_a(...))`. Not wrong, but the holder of the
+  must-sign key is not told that theirs is the key every spend needs.
+  (3) BY DESIGN, worth knowing: with no descriptor registered the
+  screen says only "Tapscript leaf / 1 of your keys is eligible" -- no
+  quorum, no timelock -- and change shows "Verify multisig addr / Skip
+  verification". (4) Wording: "Leaf 2 of 3" is a position, not a
+  name; change is titled "Self-Transfer, receive address #0", true
+  because a vault has one address.
+  NOT SEEN: the physical device, its camera, a QR round trip, or which
+  commit the operator's SD card image was built from.
+
 - **Must-sign keys SHIPPED 2026-11-12 01:01 UTC (main 8168739), and a
   guard added the same hour for a gap I opened by shipping.** Site
   verified byte-identical to 8168739; compiler deploy run 33 succeeded
