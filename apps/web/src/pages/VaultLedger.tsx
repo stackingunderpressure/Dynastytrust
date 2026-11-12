@@ -213,7 +213,8 @@ export default function VaultLedger() {
             {data.anchors.length === 0 && (
               <p style={{ color: colors.text, lineHeight: 1.6 }}>
                 Nothing from this record has been sent for stamping yet. The big moments -- the vault being
-                created or finalized, a spend going out, a member joining or leaving -- are sent at once.
+                created or finalized, a spend going out, a member joining or leaving, a duress alarm, a
+                change to what a hardware wallet is told about a key -- are sent at once.
                 Everything else is sent once a day.
               </p>
             )}

@@ -17,7 +17,18 @@ import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 import { recordEvent } from "./_ledger.js";
 import { canMutate } from "./_authz.js";
-import { verifySignedPsbt } from "./_psbt-verify.js";
+import { verifySignedPsbt, signersOnEveryInput } from "./_psbt-verify.js";
+import { findSpendingPath, signerCapacity } from "./_vault-shape.js";
+
+// The vault fields getSpendingPaths reads (same list as psbt-merge.js).
+const VAULT_SHAPE_FIELDS =
+  "id, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, backup_quorum, backup_keys, second_heir_quorum, second_heir_keys, second_inheritance_after, leaves, founder_keys, heir_keys, consent_keys, consent_quorum";
+
+// Roles signer_sessions.signer_role accepted before
+// 20261112230000_signer_role_real.sql. Used only if the database still
+// holds the old constraint (the code reaching production before the
+// migration), so a signature is never lost over its label.
+const legacySignerRole = (role) => (role === "heir" ? "heir" : "founder");
 
 const FIELDS =
   "id, created_at, proposal_id, signer_index, signer_role, label, signed, signed_at, fingerprint, member_id, psbt_partial_hex";
@@ -72,7 +83,7 @@ export async function handler(event) {
 
     const { data: proposal, error: pErr } = await supabase
       .from("proposals")
-      .select("vault_id, psbt_hex")
+      .select("vault_id, psbt_hex, path")
       .eq("id", proposal_id)
       .maybeSingle();
     if (pErr) return json(500, { error: pErr.message });
@@ -107,10 +118,23 @@ export async function handler(event) {
     // client-chosen fingerprint let a signer record their partial
     // signature under another member's fingerprint, making a proposal
     // look signed by a co-signer who never signed.
+    // In what capacity each key that signed did so on this path: a key
+    // every spend needs, one of the consent group, or an ordinary signer.
+    // Read from the vault's own policy and the keys whose signatures
+    // verified above -- never from anything the request says.
+    let signedAs = [];
+    try {
+      const { data: vault } = await supabase.from("vaults").select(VAULT_SHAPE_FIELDS).eq("id", proposal.vault_id).maybeSingle();
+      const path = vault && proposal.path ? findSpendingPath(vault, proposal.path) : null;
+      signedAs = signersOnEveryInput(psbt_partial_hex).map((key) => ({ key, as: signerCapacity(path, key) }));
+    } catch (e) {
+      console.error(`[signer-sessions] could not work out signer capacity: ${e?.message || e}`);
+    }
+
     const row = {
       proposal_id,
       member_id: member.id,
-      signer_role: member.role === "heir" ? "heir" : "founder",
+      signer_role: member.role,
       label: label ?? member.label ?? null,
       fingerprint: member.fingerprint ?? null,
       psbt_partial_hex,
@@ -118,37 +142,34 @@ export async function handler(event) {
       signed_at: new Date().toISOString(),
     };
 
-    let data;
-    if (existing) {
-      const { data: updated, error } = await supabase
-        .from("signer_sessions")
-        .update(row)
-        .eq("id", existing.id)
-        .select(FIELDS)
-        .single();
-      if (error) return json(500, { error: error.message });
-      data = updated;
-    } else {
-      // signer_index is not-null in the existing schema -- use the
-      // current count as a stable per-proposal index.
+    // signer_index is not-null in the existing schema -- use the
+    // current count as a stable per-proposal index.
+    let signerIndex = null;
+    if (!existing) {
       const { count } = await supabase
         .from("signer_sessions")
         .select("*", { count: "exact", head: true })
         .eq("proposal_id", proposal_id);
-      const { data: inserted, error } = await supabase
-        .from("signer_sessions")
-        .insert({ ...row, signer_index: count ?? 0 })
-        .select(FIELDS)
-        .single();
-      if (error) return json(500, { error: error.message });
-      data = inserted;
+      signerIndex = count ?? 0;
     }
+    const save = (r) => existing
+      ? supabase.from("signer_sessions").update(r).eq("id", existing.id).select(FIELDS).single()
+      : supabase.from("signer_sessions").insert({ ...r, signer_index: signerIndex }).select(FIELDS).single();
+
+    let { data, error } = await save(row);
+    if (error && error.code === "23514" && /signer_role/.test(error.message || "")) {
+      // The old two-role constraint is still in place. Keep the signature;
+      // the sealed entry below still names the real role.
+      console.error(`[signer-sessions] signer_role '${row.signer_role}' refused by the old constraint; saved as '${legacySignerRole(member.role)}'`);
+      ({ data, error } = await save({ ...row, signer_role: legacySignerRole(member.role) }));
+    }
+    if (error) return json(500, { error: error.message });
 
     await recordEvent(supabase, {
       vault_id: proposal.vault_id,
       user_id: u.userId,
       event_type: "signed",
-      metadata: { proposal_id, member_id: member.id, fingerprint: row.fingerprint },
+      metadata: { proposal_id, member_id: member.id, fingerprint: row.fingerprint, role: member.role, path: proposal.path ?? null, signed_as: signedAs },
     });
 
     return json(200, { ok: true, session: data });

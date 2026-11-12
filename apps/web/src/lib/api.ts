@@ -398,7 +398,8 @@ export interface ProposalComment {
 export interface ProposalSignerSession {
   id: string;
   signer_index: number;
-  signer_role: 'founder' | 'heir' | string;
+  /** The member's role when they signed. Rows before 2026-11-12 hold only founder or heir. */
+  signer_role: 'owner' | 'founder' | 'heir' | 'protector' | 'beneficiary' | string;
   label: string | null;
   signed: boolean;
   signed_at: string | null;
@@ -1272,7 +1273,7 @@ export const api = {
           created_at: string;
           proposal_id: string;
           signer_index: number;
-          signer_role: 'founder' | 'heir';
+          signer_role: 'owner' | 'founder' | 'heir' | 'protector' | 'beneficiary';
           label: string | null;
           signed: boolean;
           signed_at: string | null;
@@ -1318,7 +1319,7 @@ export const api = {
         signer_sessions?: {
           id: string;
           signer_index: number;
-          signer_role: 'founder' | 'heir';
+          signer_role: 'owner' | 'founder' | 'heir' | 'protector' | 'beneficiary';
           label: string | null;
           signed: boolean;
           signed_at: string | null;

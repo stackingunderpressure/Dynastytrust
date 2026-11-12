@@ -38,6 +38,7 @@ import { requireUser, json } from './_auth.js';
 import { isNewerProof } from './_authz.js';
 import { getSupabaseAdmin } from './_supabase.js';
 import { verifyLivenessSignalForStorage, loadVaultLivenessConfig } from './_liveness.js';
+import { recordEvent } from './_ledger.js';
 
 /** Active member/owner check (owners are auto-seeded as active members). */
 async function isActiveMember(supabase, vaultId, userId) {
@@ -172,6 +173,19 @@ export async function handler(event) {
 
     if (insErr) return json(500, { error: insErr.message });
 
+    // A duress alarm is sealed with who raised it, and the signed signal
+    // itself, so the record proves it on its own (operator, 2026-11-12:
+    // "Name who raised it"). Routine proof-of-life heartbeats are not
+    // sealed: each replaces the last.
+    if (kind === 'duress-flag') {
+      await recordEvent(supabase, {
+        vault_id,
+        user_id: u.userId,
+        event_type: 'duress_raised',
+        metadata: { signal_id: inserted.id, subject_key: subject, raised_by_key: raisedBy, signal },
+      });
+    }
+
     return json(201, { ok: true, signal: inserted });
   }
 
@@ -196,13 +210,23 @@ export async function handler(event) {
       return json(403, { error: 'Only the vault owner can clear a duress flag' });
     }
 
-    const { error } = await supabase
+    const { data: cleared, error } = await supabase
       .from('liveness_signals')
       .delete()
       .eq('vault_id', vault_id)
       .eq('subject', subject)
-      .eq('kind', 'duress-flag');
+      .eq('kind', 'duress-flag')
+      .select('id, raised_by');
     if (error) return json(500, { error: error.message });
+
+    if ((cleared ?? []).length > 0) {
+      await recordEvent(supabase, {
+        vault_id,
+        user_id: u.userId,
+        event_type: 'duress_cleared',
+        metadata: { subject_key: subject, cleared: cleared.map((r) => ({ signal_id: r.id, raised_by_key: r.raised_by })) },
+      });
+    }
 
     return json(200, { ok: true });
   }

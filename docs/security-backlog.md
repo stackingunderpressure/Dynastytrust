@@ -200,6 +200,12 @@ then (c).
     before the day this ships; if a ledger write fails the action still
     completes and the gap is only visible in the function logs; real-world
     identity (who is holding the phone) is out of scope by design.
+    - 15f Every action sealed (BUILT 2026-11-12, on the branch): invite
+      revoke, membership grants, duress raise/clear, rename, archive, halt,
+      trust document edits, key relabels and hardware key repair now reach
+      the sealed record; a signature records the signer's real role, path
+      and whether they signed as must-sign, consent or ordinary signer.
+      Database change 20261112230000_signer_role_real.sql not yet applied.
 
 9. **Compiler in the browser (WASM), Fly as cross-check.** Compile-first
    migration of `protocol/` to WASM so the descriptor, address and PSBT are

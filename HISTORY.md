@@ -106,6 +106,54 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Every vault and membership action sealed; a signature carries the
+  signer's real role -- BUILT 2026-11-12, on the branch, NOT on main, the
+  database change NOT applied.** Operator asked for the gaps in "the roles
+  of each person who joins the vault, the labeling and the logging of their
+  actions and their path into the vaults", then chose by chip: seal the
+  gaps and fix the roles; name who raised a duress alarm; pin duress and
+  hardware key changes to Bitcoin at once. What was found by reading the
+  handlers: revoking an invite, every membership grant (offered, accepted,
+  declined, left), raising and clearing a duress alarm, renaming,
+  archiving, the halt hold, trust document edits, key relabels and
+  hardware key-origin repairs all changed the vault with no sealed entry;
+  and `signer_sessions.signer_role` was limited to founder|heir, so an
+  owner, protector or beneficiary signing was recorded as a founder.
+  What changed: `invites.js`, `vault-membership-grants.js`, `liveness.js`,
+  `vaults.js` and `signer-sessions.js` now call `recordEvent`, each only
+  when something actually changed (a repeat edit, a draft's autosaves and
+  routine proof-of-life heartbeats are not sealed). Never sealed: an
+  invite's email or link, a grant's messaging private key
+  (`reply_privkey`), a trust document's text (sealed as a SHA-256 of its
+  canonical JSON). A duress alarm is sealed with the raiser's key and the
+  signed signal; clearing names the owner. `_anchor.js` milestones gained
+  duress_raised, duress_cleared, key_origins_repaired. A signature now
+  stores `member.role` and seals the path and, per verified signing key,
+  whether it signed as must_sign, consent or an ordinary signer
+  (`_vault-shape.js` `signerCapacity`, from the vault's own policy, never
+  from the request). Migration
+  `supabase/migrations/20261112230000_signer_role_real.sql` widens the
+  role check to owner|founder|heir|protector|beneficiary; until it is
+  applied, a refused role is retried under the old label so no signature
+  is lost, and the sealed entry still names the real role. Words for every
+  new event on the Activity tab and the Sealed record page; the "sent at
+  once" sentence on the Sealed record page names the two new milestones.
+  Proven: `scripts/test-sealed-actions.mjs` (7 checks, real handlers,
+  in-memory database) -- two seals deliberately removed made it fail,
+  restored it passes. Walked at 375px with a stand-in backend: the
+  Activity tab reads e.g. "Dad (owner) signed with a must-sign key",
+  "Gran (beneficiary) signed as a consenting key", "Anna raised the duress
+  alarm"; the Sealed record page re-checked a 20-entry chain built by the
+  real `nextLedgerEntry` and showed "Record intact"; no page errors, no
+  sideways scroll. Measured: `npm test` 34 suites green, lint 0 errors /
+  11 warnings (same set as before), typecheck 10 errors (same set as
+  before, none new), build green. Deliberately left: failing an action
+  when its seal fails (the seal is still best-effort); signatures and
+  history from before today keep their old labels; the audit PDF still
+  prints raw event names; the Sealed record page shows "Spend signed"
+  without the role (the Activity tab shows it). NOT seen: any of this on
+  the real backend or a real phone.
+
 - **SeedSigner fork dev now at 16427f3 -- 2026-11-12. No SD image
   built.** Operator's word, by chip: merge the Spending Path fix into
   dev; then build the no-descriptor warning and button wording; warn

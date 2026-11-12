@@ -1,7 +1,12 @@
 import { draftViewForMember } from "./_invite-rules.js";
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
-import { recordEvent } from "./_ledger.js";
+import { recordEvent, canonicalJson } from "./_ledger.js";
+import { createHash } from "node:crypto";
+
+// A trust document is sealed by its fingerprint, not its text: the record
+// proves which version was in force without repeating it.
+const docFingerprint = (doc) => createHash("sha256").update(canonicalJson(doc ?? {}), "utf8").digest("hex");
 import { assertNotPrivateExtendedKey } from "./_xpub.js";
 
 const COMPILER_URL    = process.env.COMPILER_URL;
@@ -393,6 +398,7 @@ export async function handler(event) {
       if (existing.user_id !== u.userId) return json(403, { error: "Only the owner can label keys" });
 
       const current = Array.isArray(existing.key_labels) ? existing.key_labels : [];
+      const previousLabel = current.find((entry) => normalizeKeyIdentifier(entry?.pubkey ?? "") === cleanPubkey)?.label ?? null;
       const withoutThisKey = current.filter((entry) => normalizeKeyIdentifier(entry?.pubkey ?? "") !== cleanPubkey);
       const nextLabels = cleanLabel
         ? [...withoutThisKey, { pubkey: cleanPubkey, label: cleanLabel }]
@@ -406,6 +412,14 @@ export async function handler(event) {
         .select(VAULT_FIELDS)
         .single();
       if (error) return json(500, { error: error.message });
+      if ((previousLabel ?? "") !== cleanLabel) {
+        await recordEvent(supabase, {
+          vault_id: id,
+          user_id: u.userId,
+          event_type: "key_label_changed",
+          metadata: { key: cleanPubkey, from: previousLabel, to: cleanLabel || null },
+        });
+      }
       return json(200, { ok: true, vault: data });
     }
 
@@ -445,7 +459,7 @@ export async function handler(event) {
 
       const { data: existing, error: fetchErr } = await supabase
         .from("vaults")
-        .select("leaves, user_id")
+        .select("leaves, user_id, key_origins")
         .eq("id", id)
         .maybeSingle();
       if (fetchErr) return json(500, { error: fetchErr.message });
@@ -463,6 +477,17 @@ export async function handler(event) {
         .select(VAULT_FIELDS)
         .single();
       if (error) return json(500, { error: error.message });
+      // What a hardware wallet is told about each key changed: sealed and
+      // pinned to Bitcoin at once (a milestone, see _anchor.js). A repair
+      // that writes back what was already there is not an event.
+      if (canonicalJson(existing.key_origins ?? []) !== canonicalJson(cleanOrigins)) {
+        await recordEvent(supabase, {
+          vault_id: id,
+          user_id: u.userId,
+          event_type: "key_origins_repaired",
+          metadata: { before: existing.key_origins ?? [], after: cleanOrigins },
+        });
+      }
       return json(200, { ok: true, vault: data });
     }
 
@@ -530,6 +555,14 @@ export async function handler(event) {
       }
     }
 
+    // The values before this edit, so only a real change is sealed.
+    const { data: before } = await supabase
+      .from("vaults")
+      .select("status, name, archived, trust_doc, duress")
+      .eq("id", id)
+      .eq("user_id", u.userId)
+      .maybeSingle();
+
     const { data, error } = await supabase
       .from("vaults")
       .update(updates)
@@ -540,6 +573,24 @@ export async function handler(event) {
 
     if (error) return json(500, { error: error.message });
     if (!data) return json(404, { error: "Vault not found" });
+
+    // Seal what changed on a finished vault. A draft's edits are autosaves
+    // while it is being shaped and are not sealed one by one.
+    if (before && before.status !== "draft") {
+      const seal = (event_type, metadata) => recordEvent(supabase, { vault_id: id, user_id: u.userId, event_type, metadata });
+      if (updates.name !== undefined && updates.name !== before.name) {
+        await seal("vault_renamed", { from: before.name ?? null, to: updates.name });
+      }
+      if (updates.archived !== undefined && Boolean(updates.archived) !== Boolean(before.archived)) {
+        await seal(updates.archived ? "vault_archived" : "vault_unarchived", {});
+      }
+      if (updates.trust_doc !== undefined && docFingerprint(updates.trust_doc) !== docFingerprint(before.trust_doc)) {
+        await seal("trust_doc_updated", { fingerprint_before: docFingerprint(before.trust_doc), fingerprint_after: docFingerprint(updates.trust_doc) });
+      }
+      if (updates.duress !== undefined && Boolean(updates.duress) !== Boolean(before.duress)) {
+        await seal(updates.duress ? "halt_on" : "halt_off", {});
+      }
+    }
 
     return json(200, { ok: true, vault: data });
   }

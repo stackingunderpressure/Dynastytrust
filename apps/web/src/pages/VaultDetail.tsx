@@ -4174,7 +4174,7 @@ function eventDestination(e: VaultEvent): EventDestination {
   if (typeof meta.request_id === "string" || e.event_type.startsWith("request_")) {
     return { kind: "tab", tab: "requests" };
   }
-  if (["invite_created", "member_joined", "member_removed"].includes(e.event_type)) {
+  if (["invite_created", "invite_revoked", "member_joined", "member_removed", "key_confirmed", "grant_sent", "grant_accepted", "grant_declined", "grant_left"].includes(e.event_type)) {
     return { kind: "tab", tab: "members" };
   }
   return null;
@@ -4252,8 +4252,48 @@ function describeEvent(e: VaultEvent, actor: string): { icon: string; title: str
         title: `${actor} created a proposal${meta.amount_sats ? ` (${(Number(meta.amount_sats) / 1e8).toFixed(8).replace(/\.?0+$/, "")} BTC)` : ""}`,
         color: colors.orange,
       };
-    case "signed":
-      return { icon: "S", title: `${actor} signed the PSBT`, color: colors.gold };
+    case "signed": {
+      // Since 2026-11-12 a signature is sealed with the signer's role and
+      // the capacity their key signed in on the path.
+      const as = Array.isArray(meta.signed_as) ? (meta.signed_as as { as?: string | null }[]) : [];
+      const how = as.some(a => a.as === "must_sign") ? " with a must-sign key"
+        : as.some(a => a.as === "consent") ? " as a consenting key"
+        : "";
+      const role = typeof meta.role === "string" ? ` (${meta.role})` : "";
+      return { icon: "S", title: `${actor}${role} signed${how}`, color: colors.gold };
+    }
+    case "key_confirmed":
+      return { icon: "K", title: `${actor} confirmed a member's key`, color: colors.green };
+    case "invite_revoked":
+      return { icon: "x", title: `${actor} withdrew an invite (${String(meta.role ?? "member")})`, color: colors.muted };
+    case "grant_sent":
+      return { icon: "i", title: `${actor} offered membership to ${String(meta.recipient_label ?? "a member")}`, color: colors.blue };
+    case "grant_accepted":
+      return { icon: "@", title: `${String(meta.recipient_label ?? "A member")} accepted membership`, color: colors.green };
+    case "grant_declined":
+      return { icon: "x", title: `${String(meta.recipient_label ?? "A member")} declined membership`, color: colors.muted };
+    case "grant_left":
+      return { icon: "-", title: `${String(meta.recipient_label ?? "A member")} stepped away`, color: colors.red };
+    case "duress_raised":
+      return { icon: "!", title: `${actor} raised the duress alarm`, color: colors.red };
+    case "duress_cleared":
+      return { icon: "o", title: `${actor} cleared the duress alarm`, color: colors.orange };
+    case "halt_on":
+      return { icon: "!", title: `${actor} halted the vault -- signing paused`, color: colors.red };
+    case "halt_off":
+      return { icon: "o", title: `${actor} lifted the halt`, color: colors.green };
+    case "vault_renamed":
+      return { icon: "N", title: `${actor} renamed the vault${meta.to ? ` to "${String(meta.to)}"` : ""}`, color: colors.sub };
+    case "vault_archived":
+      return { icon: "A", title: `${actor} archived the vault`, color: colors.muted };
+    case "vault_unarchived":
+      return { icon: "A", title: `${actor} brought the vault back from the archive`, color: colors.sub };
+    case "trust_doc_updated":
+      return { icon: "T", title: `${actor} changed the trust document`, color: colors.orange };
+    case "key_label_changed":
+      return { icon: "K", title: `${actor} renamed a key${meta.to ? ` to "${String(meta.to)}"` : ""}`, color: colors.sub };
+    case "key_origins_repaired":
+      return { icon: "K", title: `${actor} changed a key's hardware wallet details`, color: colors.orange };
     case "broadcast":
       return {
         icon: "B",

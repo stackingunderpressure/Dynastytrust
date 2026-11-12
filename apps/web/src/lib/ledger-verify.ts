@@ -386,6 +386,21 @@ const EVENT_WORDS: Record<string, string> = {
   rotated_to_successor: 'Vault rotated to a successor vault',
   rotated_from_predecessor: 'Vault rotated from an earlier vault',
   deleted: 'Vault deleted',
+  invite_revoked: 'Invite withdrawn',
+  grant_sent: 'Membership offered',
+  grant_accepted: 'Membership accepted',
+  grant_declined: 'Membership declined',
+  grant_left: 'Member stepped away',
+  duress_raised: 'Duress alarm raised',
+  duress_cleared: 'Duress alarm cleared by the owner',
+  vault_renamed: 'Vault renamed',
+  vault_archived: 'Vault archived',
+  vault_unarchived: 'Vault brought back from the archive',
+  trust_doc_updated: 'Trust document changed',
+  halt_on: 'Vault halted -- signing paused',
+  halt_off: 'Halt lifted -- signing allowed again',
+  key_label_changed: 'A key was renamed',
+  key_origins_repaired: "A key's hardware wallet details were changed",
 };
 
 /** What an entry says, in the member's words; unknown kinds are shown

@@ -22,6 +22,10 @@ export const MILESTONE_EVENTS = new Set([
   "rotated_to_successor", "rotated_from_predecessor", "deleted",
   // The owner vouching for a person's key is a moment worth pinning.
   "key_confirmed",
+  // A duress alarm, and its clearing, are pinned the moment they happen;
+  // so is a change to what a hardware wallet is told about a key
+  // (operator, 2026-11-12: "Duress + hardware key repair").
+  "duress_raised", "duress_cleared", "key_origins_repaired",
 ]);
 export function isMilestone(eventType) {
   return MILESTONE_EVENTS.has(eventType);

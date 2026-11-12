@@ -132,7 +132,7 @@ export async function handler(event) {
 
     const { data: invite, error: lookupErr } = await supabase
       .from("vault_invites")
-      .select("id, vault_id, invited_by")
+      .select("id, vault_id, invited_by, invited_role, invited_label, leaf_id, claimed_at")
       .eq("id", id)
       .maybeSingle();
     if (lookupErr) return json(500, { error: lookupErr.message });
@@ -143,6 +143,19 @@ export async function handler(event) {
 
     const { error } = await supabase.from("vault_invites").delete().eq("id", id);
     if (error) return json(500, { error: error.message });
+
+    await recordEvent(supabase, {
+      vault_id: invite.vault_id,
+      user_id: u.userId,
+      event_type: "invite_revoked",
+      metadata: {
+        invite_id: invite.id,
+        role: invite.invited_role ?? null,
+        label: invite.invited_label ?? null,
+        ...(invite.leaf_id ? { leaf_id: invite.leaf_id } : {}),
+        was_claimed: Boolean(invite.claimed_at),
+      },
+    });
 
     return json(200, { ok: true });
   }

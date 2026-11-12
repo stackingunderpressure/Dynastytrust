@@ -30,6 +30,17 @@
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
+import { recordEvent } from "./_ledger.js";
+
+// What a grant contributes to the vault's sealed record. Never the reply
+// keypair: reply_privkey is a messaging private key.
+const sealedGrant = (g) => ({
+  grant_id: g.id,
+  role: g.role,
+  key_id: g.key_id,
+  recipient_label: g.recipient_label,
+  recipient_pubkey: g.recipient_pubkey,
+});
 
 async function assertOwner(supabase, vaultId, userId) {
   const { data } = await supabase
@@ -111,6 +122,7 @@ export async function handler(event) {
       .select("id, role, key_id, recipient_label, recipient_persona, recipient_pubkey, request_event_id, reply_pubkey, reply_privkey, status, responded_at, created_at, updated_at")
       .single();
     if (error) return json(500, { error: error.message });
+    await recordEvent(supabase, { vault_id, user_id: u.userId, event_type: "grant_sent", metadata: sealedGrant(data) });
     return json(201, { ok: true, grant: data });
   }
 
@@ -135,7 +147,7 @@ export async function handler(event) {
     if (body.status === "left") query = query.eq("status", "accepted");
 
     const { data, error } = await query
-      .select("id, role, key_id, recipient_label, recipient_persona, recipient_pubkey, request_event_id, reply_pubkey, reply_privkey, status, responded_at, created_at, updated_at")
+      .select("id, vault_id, role, key_id, recipient_label, recipient_persona, recipient_pubkey, request_event_id, reply_pubkey, reply_privkey, status, responded_at, created_at, updated_at")
       .maybeSingle();
     if (error) return json(500, { error: error.message });
     if (!data) {
@@ -145,7 +157,16 @@ export async function handler(event) {
           : "Grant not found",
       });
     }
-    return json(200, { ok: true, grant: data });
+    // The member's answer reaches the owner's app over Nostr and is
+    // recorded from there, so the actor here is the owner relaying it.
+    const { vault_id: grantVaultId, ...grant } = data;
+    await recordEvent(supabase, {
+      vault_id: grantVaultId,
+      user_id: u.userId,
+      event_type: `grant_${body.status}`,
+      metadata: { ...sealedGrant(grant), relayed_by_owner: true },
+    });
+    return json(200, { ok: true, grant });
   }
 
   return json(405, { error: "Method not allowed" });

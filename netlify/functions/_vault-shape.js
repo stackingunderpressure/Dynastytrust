@@ -162,6 +162,23 @@ export function pathSignatureStatus(path, signedKeys) {
   return { byName: true, satisfied: have >= need, have, need, missingRequired, poolHave, consentHave };
 }
 
+/**
+ * In what capacity does this key sign on this path? 'must_sign' (one of
+ * the keys every spend on the path needs), 'consent' (one of the
+ * consent group), 'signer' (one of the path's ordinary k-of-n keys),
+ * or null when the key is not on the path or cannot be matched (a key
+ * stored as an xpub). Server only: it labels a sealed signature.
+ */
+export function signerCapacity(path, pubkey) {
+  const mine = xOnlyHex(pubkey);
+  if (!path || !mine) return null;
+  const on = (keys) => (keys ?? []).some((k) => xOnlyHex(k) === mine);
+  if (on(path.requiredKeys)) return 'must_sign';
+  if (path.consent && on(path.consent.keys)) return 'consent';
+  if (on(path.keys)) return 'signer';
+  return null;
+}
+
 /** Look up one path by id (a leaf's own id, or a named-field path id). */
 export function findSpendingPath(vault, pathId) {
   const paths = getSpendingPaths(vault);
