@@ -374,7 +374,7 @@ physically holding the phone.
 Ships as one piece only when the whole loop walks; operator walks it on
 signet with a second account before real bitcoin.
 
-## Must-sign key on any path: slice one DONE 2026-11-12 (compiler + proof, on the branch); slice two not started
+## Must-sign key on any path: slices one and two BUILT 2026-11-12, on the branch, awaiting the operator's word to ship (see HISTORY.md)
 
 Operator: "each leaf could have the and and it could be the hardware
 signer and whatever the other part of the leaf would be." Plan given

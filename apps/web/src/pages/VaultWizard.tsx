@@ -2319,14 +2319,21 @@ function KeysStep({
           {enabledLeaves.map((leaf, i) => {
             const setLeafSelected = (fn: (p: SelectedKey[]) => SelectedKey[]) =>
               setLeafKeys(p => ({ ...p, [leaf.id]: fn(p[leaf.id] ?? []) }));
+            // With must-sign keys the path's own count is "of the others",
+            // and nobody in this group can act without the must-sign key.
+            const hasMust = leaf.plannedRequired > 0;
+            const group = hasMust ? `${leaf.quorum} of these ${leaf.plannedKeys}` : `${leaf.quorum} of ${leaf.plannedKeys}`;
+            const withKey = hasMust ? `, together with the must-sign ${leaf.plannedRequired === 1 ? 'key' : 'keys'} above,` : '';
             const description = leaf.unlockType === 'immediate'
-              ? `Can spend right away, no waiting -- needs ${leaf.quorum} of ${leaf.plannedKeys} to sign.`
+              ? (hasMust
+                ? `Can spend right away, no waiting -- needs ${group} to sign${withKey.replace(/,$/, '')}.`
+                : `Can spend right away, no waiting -- needs ${group} to sign.`)
               : leaf.unlockType === 'after'
                 ? `Locked until ${blocksToHuman(leaf.afterBlocks)} from when the vault is funded. `
-                  + `After that, ${leaf.quorum} of ${leaf.plannedKeys} can spend on their own.`
-                  + (leaf.decayEnabled ? ` One fewer is needed every ${blocksToHuman(leaf.decayStepBlocks)} after that, down to ${leaf.decayFloorQ}.` : '')
-                : `Opens if the vault sits untouched for ${blocksToHuman(leaf.olderBlocks)} -- ${leaf.quorum} of `
-                  + `${leaf.plannedKeys} can then spend. Moving the coins resets this clock.`;
+                  + (hasMust ? `After that, ${group}${withKey} can spend.` : `After that, ${group} can spend on their own.`)
+                  + (leaf.decayEnabled ? ` One fewer is needed every ${blocksToHuman(leaf.decayStepBlocks)} after that, down to ${leaf.decayFloorQ}${hasMust ? '; the must-sign requirement never relaxes' : ''}.` : '')
+                : `Opens if the vault sits untouched for ${blocksToHuman(leaf.olderBlocks)} -- ${group}${withKey} `
+                  + `can then spend. Moving the coins resets this clock.`;
             const mySelected = leafKeys[leaf.id] ?? [];
             const myMust = leafKeys[mustSlot(leaf.id)] ?? [];
             const setMustSelected = (fn: (p: SelectedKey[]) => SelectedKey[]) =>
@@ -2345,10 +2352,8 @@ function KeysStep({
                 + 'Pick a key you hold yourself; an invited person joins the group below.',
               undefined, pickable,
             ) : null;
-            const withMust = leaf.plannedRequired > 0
-              ? ` Needs ${whoSignsWords(leaf.quorum, leaf.plannedKeys, leaf.plannedRequired)} in all.` : '';
             return [mustCard, role(
-              leaf.id, leaf.plannedRequired > 0 ? `${leaf.label} -- the other keys` : `${leaf.label} keys`, leaf.plannedKeys, mySelected, setLeafSelected, i === 0 ? colors.gold : colors.blue, description + withMust,
+              leaf.id, leaf.plannedRequired > 0 ? `${leaf.label} -- the other keys` : `${leaf.label} keys`, leaf.plannedKeys, mySelected, setLeafSelected, i === 0 ? colors.gold : colors.blue, description,
               <>
               {notes.length > 0 && <div style={{ marginTop: 10 }}>{notes.map(noteBox)}</div>}
               <PathInvites

@@ -106,6 +106,84 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Must-sign keys on a path, slice two (everything a person sees) --
+  BUILT 2026-11-12, on the branch, NOT on main, awaiting the operator's
+  word to ship.** His decisions, by chip: the count is set up front
+  when shaping a path; a must-sign key that every path needs is
+  allowed with a red warning and a tick; any key may be must-sign,
+  with a warning when its seed is in the browser; one piece, shown
+  before shipping.
+  WHAT CHANGED. One shared description of a vault's paths
+  (`netlify/functions/_vault-shape.js` and its twin
+  `apps/web/src/lib/vault-spending-paths.ts`, held identical by test)
+  now carries `requiredKeys` and the consent group, and decides "is
+  this path's rule met" from WHO signed (`pathSignatureStatus`), with
+  a step of a relaxing path resolved by name ("kids_1"). Builder
+  (`VaultWizard.tsx`): a "Keys that must always sign" count on each
+  path card; two groups to fill in the key step; the risk lines
+  (`lib/path-risk.ts`) know a must-sign key is required on every step;
+  a red card and tick box when one must-sign key is needed by every
+  path. Server: `compile-leaves.js` validates and forwards
+  `required_keys`; `psbt-binary.js` forwards them and counts them in
+  the fee estimate; `psbt-merge.js` decides fully-signed by name;
+  `governance.js` counts every signature the path needs;
+  `_rotate.js` carries them; `_invite-rules.js` refuses an unconfirmed
+  key in a must-sign slot and hides them from an invited person;
+  `invites-lookup.js` tells an invited person how many keys must
+  always sign. Pages: proposal page and vault page send flow count by
+  name and say which must-sign key is missing; path cards, dashboard,
+  draft card, rotate screen and check, timelock prompts, trust
+  document, backup file, the three PDFs and the assistant's summary
+  describe the path in one shared set of words (`lib/path-words.ts`
+  and `_path-words.js`, held identical by test).
+  TWO DEFECTS FIXED ON THE WAY, both older than this feature:
+  (1) "fully signed" was a COUNT of signatures. Two phones on a
+  hardware-plus-one-phone path read as ready and then failed at the
+  last step; one signer across two coins also read as two. The
+  consent group had the same weakness. Now decided by who signed
+  every input, in browser and server. (2) The proposal page told the
+  holder of a hardware wallet "none of your local keys are signers on
+  this vault". It now says the key signs on its own device, or that
+  it has signed.
+  PROVEN. Offline harness, real compiler + signer: on real PSBTs two
+  phones = two signatures and NOT ready, naming the missing must-sign
+  key; must-sign key + one phone = ready; a relaxed step keeps its
+  must-sign key; browser and server give the same verdict. Handler
+  tests: finalize refuses an unconfirmed, doubled or unreadable
+  must-sign key. Rotate tests: must-sign keys carried; a successor
+  that lost or gained one is refused.
+  WALKED at 375px on a production build with stand-in database,
+  sign-in and compiler: (a) the count step -- words change as the
+  count goes 0 to 1, timeline reads "1 must-sign + 1 of 2", draft
+  saved with the count; (b) the key step -- hardware key picked as
+  must-sign on two paths, no longer offered among that path's other
+  keys, warnings name a 6-year wait computed from the draft, saved,
+  left, resumed with the must-sign slot restored, finalized with the
+  compiler receiving `required_keys` on the right paths; (c) the
+  finished vault's page shows "1 must-sign + 1 of 2 required" and
+  "must sign:" on the key; (d) a vault where every path needs one key:
+  red card, finalize blocked until ticked, tick clears when the keys
+  change; a browser key made must-sign gets its warning; (e) the
+  proposal page fed REAL signatures from the real compiler: two phones
+  -> "1 / 2 required" and "This path cannot be spent without
+  Coldcard"; hardware + phone -> "2 / 2 required" and Broadcast; a
+  device that knows none of the keys names the key by fingerprint.
+  No overflow, no page errors.
+  NOT SEEN: the vault page's own send flow on a must-sign vault; the
+  rotate screen on one; the PDFs rendered; the invited person's
+  screen; the assistant; any of it on a real phone, the real backend
+  or the deployed Fly compiler; a hardware wallet signing.
+  NOT in this slice: inviting a person straight into a must-sign
+  slot; adding must-sign to an existing vault; the named-field and
+  Bloc builders; `protocol/src/governance.rs` (not reached for path
+  vaults -- `governance.js` evaluates them itself); consent on a
+  path-builder vault in the builder.
+  Measured: cargo test --workspace 130 + 39 passed; npm test exit 0,
+  32 suites; lint 0 errors / 11 warnings; typecheck 10 = unchanged;
+  build green.
+  DEPLOY NOTE: reaching main redeploys the Fly compiler
+  (`deploy-compiler.yml`). Old vaults keep their addresses (pinned).
+
 - **Must-sign keys on a path, slice one (compiler only) -- BUILT
   2026-11-12, on the branch, NOT on main, nothing visible to a user.**
   Operator: "each leaf could have the and ... the hardware signer and

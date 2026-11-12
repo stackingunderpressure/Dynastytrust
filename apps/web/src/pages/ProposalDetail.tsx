@@ -576,6 +576,29 @@ export default function ProposalDetail() {
           k => pathSignerPubkeys.has(k.pubkey) && alreadySignedFingerprints.has(k.fingerprint),
         );
         const remaining = Math.max(0, required - collected);
+        // A key on this path that this device knows only by its public
+        // half (a hardware wallet, a key on another device). It CAN sign,
+        // just not here -- saying "none of your keys are signers" to the
+        // holder of the must-sign hardware wallet was simply wrong.
+        const signedNow = new Set(mergedPsbt ? signersOnEveryInput(mergedPsbt) : []);
+        const mineElsewhere = listKeys().filter(k => k.status === "active" && k.origin !== "software" && pathSignerPubkeys.has(k.pubkey));
+        const elsewhere = mineElsewhere.filter(k => !signedNow.has(k.pubkey.slice(2).toLowerCase()));
+        if (!iSigned && mineElsewhere.length > 0 && elsewhere.length === 0) {
+          return (
+            <div style={{ fontSize: 15, color: colors.muted, textAlign: "center", padding: "10px 0", lineHeight: 1.5 }}>
+              {mineElsewhere.map(k => `"${k.label}"`).join(" and ")} {mineElsewhere.length === 1 ? "has" : "have"} signed. Waiting on {remaining} more
+              signature{remaining === 1 ? "" : "s"} to reach the {required} this path needs.
+            </div>
+          );
+        }
+        if (!iSigned && elsewhere.length > 0) {
+          return (
+            <div style={{ fontSize: 15, color: colors.sub, textAlign: "center", padding: "10px 0", lineHeight: 1.5 }}>
+              {elsewhere.map(k => `"${k.label}"`).join(" and ")} {elsewhere.length === 1 ? "is a signer" : "are signers"} on this path, but {elsewhere.length === 1 ? "its seed is" : "their seeds are"} not
+              in this browser. Sign this transaction on the device that holds {elsewhere.length === 1 ? "it" : "them"}, then bring the signed copy back here.
+            </div>
+          );
+        }
         return (
           <div style={{ fontSize: 15, color: colors.muted, textAlign: "center", padding: "10px 0", lineHeight: 1.5 }}>
             {iSigned
