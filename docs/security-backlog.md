@@ -436,3 +436,32 @@ Proof it would need: the Bitcoin Core proof extended to take the
 tool's output instead of the keys it derives itself.
 
 Left out: any online version; storing anything; signing in the tool.
+
+## Parked idea, not built: keeping a buried backstop key useful across rotations (2026-11-12)
+
+Operator's design: 2-of-2 now, a third key joins at year three, dated
+inheritance layers, and a last single key that opens after twenty
+years, buried, with the descriptor recoverable on-chain by that key
+alone. Found while answering: the on-chain copy is sealed by a
+signature from that key at publish time (`legacy-recovery.ts`), so
+each rotation to a new vault needs the buried key to sign again.
+
+His idea, in his words: "Shamir splitting the fail safe seed among
+vault keys and they could always come together instead of digging
+which is a long shot hail mary". Maturity: raw insight.
+
+My note on it: it works, and the twenty-year date protects it (a
+reconstructed key spends nothing before that date). Costs: the whole
+key exists in one place whenever shares are combined; and after year
+twenty a threshold of share-holders can take everything through the
+backstop path, so the share threshold must be at least as strict as
+the strictest rule he wants those people held to.
+
+Alternative I raised, unverified against the code beyond the file
+header: the sealing key is derived from the backstop key's signature
+over a nonce, and a nonce can be chosen in advance. Before burial,
+sign a batch of nonces and keep the resulting sealing keys. Each later
+rotation uses one to publish the new descriptor. A leaked sealing key
+reveals a descriptor (privacy), never a spend. Needs a real design
+pass before anything is built: where the batch is kept, how one is
+marked used, and what the recovery side must scan for.
