@@ -1292,6 +1292,17 @@ pub struct Leaf {
     pub unlock: Unlock,
     #[serde(default)]
     pub decay: Option<DecayConfig>,
+    /// Keys that must EACH sign on this path, on top of `quorum` of
+    /// `keys` (2026-11-12, operator: "each leaf could have the and ... the
+    /// hardware signer and whatever the other part of the leaf would be").
+    /// Compiles to `and(pk(A),and(pk(B),thresh(quorum,keys...)))` -- the
+    /// same AND shape the consent gate already uses on the primary leaf,
+    /// available on any leaf. Never in `keys` as well: a signature counts
+    /// once. On a decaying leaf they stay required on every rung; only the
+    /// quorum of `keys` steps down. Empty (the default) leaves the leaf's
+    /// script, and so the vault's address, exactly as before this existed.
+    #[serde(default)]
+    pub required_keys: Vec<PublicKey>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1327,7 +1338,7 @@ pub fn find_key_reuse(leaves: &[Leaf]) -> Vec<KeyReuseNote> {
     use std::collections::BTreeMap;
     let mut by_key: BTreeMap<String, (PublicKey, Vec<String>)> = BTreeMap::new();
     for leaf in leaves {
-        for k in &leaf.keys {
+        for k in leaf.keys.iter().chain(leaf.required_keys.iter()) {
             let entry = by_key
                 .entry(k.to_string())
                 .or_insert_with(|| (*k, Vec::new()));
@@ -1366,6 +1377,7 @@ fn expand_decay(leaf: &Leaf) -> Result<Vec<Leaf>, PolicyError> {
             )
             .ok_or(PolicyError::RelativeTimelockTooLong(u32::MAX))?;
         out.push(Leaf {
+            required_keys: leaf.required_keys.clone(),
             id: format!("{}_{}", leaf.id, rung),
             label: leaf.label.clone(),
             keys: leaf.keys.clone(),
@@ -1402,14 +1414,16 @@ fn verify_leaf_policy(policy: &LeafPolicy) -> Result<(), PolicyError> {
     // keys are counted together with that leaf's.
     if policy.consent_quorum.is_some() {
         if let Some(primary) = policy.leaves.iter().find(|l| matches!(l.unlock, Unlock::Immediate)) {
-            check_distinct_xonly(&[&primary.keys, &policy.consent_keys])?;
+            check_distinct_xonly(&[&primary.keys, &primary.required_keys, &policy.consent_keys])?;
         }
     }
     for leaf in &policy.leaves {
         if leaf.quorum == 0 || leaf.quorum > leaf.keys.len() {
             return Err(PolicyError::InvalidQuorum);
         }
-        check_distinct_xonly(&[&leaf.keys])?;
+        // A must-sign key that was also in the quorum pool would let one
+        // signature be counted twice, so the two lists are checked as one.
+        check_distinct_xonly(&[&leaf.keys, &leaf.required_keys])?;
         // Validate EVERY rung the leaf expands to, not just its first.
         // The relative cap used to be checked on the base leaf only, so a
         // ladder could step past BIP 68's 16 bits -- older(65536) is 0
@@ -1524,7 +1538,13 @@ pub fn build_leaf_multileaf(policy: &LeafPolicy) -> Result<MultileafOutput, Poli
     let mut compiled: Vec<(String, String, Miniscript<PublicKey, miniscript::Tap>)> = Vec::new();
     for leaf in &flat {
         let keys: Vec<String> = leaf.keys.iter().map(|k| format!("pk({k})")).collect();
-        let thresh = format!("thresh({},{})", leaf.quorum, keys.join(","));
+        let mut thresh = format!("thresh({},{})", leaf.quorum, keys.join(","));
+        // Must-sign keys wrap the quorum, innermost last, so the policy
+        // reads in the order they were given. With none, `thresh` is
+        // untouched and the leaf compiles byte-for-byte as it always did.
+        for k in leaf.required_keys.iter().rev() {
+            thresh = format!("and(pk({k}),{thresh})");
+        }
         let is_primary = matches!(leaf.unlock, Unlock::Immediate) && !primary_seen;
         if is_primary {
             primary_seen = true;
@@ -2660,6 +2680,7 @@ mod leaf_policy_tests {
 
         let new_policy = LeafPolicy {
             leaves: vec![Leaf {
+                required_keys: vec![],
                 id: "primary".into(),
                 label: "Founders".into(),
                 keys: founders(),
@@ -2691,6 +2712,7 @@ mod leaf_policy_tests {
         let policy = LeafPolicy {
             leaves: vec![
                 Leaf {
+                    required_keys: vec![],
                     id: "primary".into(),
                     label: "Founders".into(),
                     keys: founders(),
@@ -2699,6 +2721,7 @@ mod leaf_policy_tests {
                     decay: None,
                 },
                 Leaf {
+                    required_keys: vec![],
                     id: "fallback".into(),
                     label: "Recovery".into(),
                     keys: heirs(),
@@ -2719,6 +2742,7 @@ mod leaf_policy_tests {
         let policy = LeafPolicy {
             leaves: vec![
                 Leaf {
+                    required_keys: vec![],
                     id: "primary".into(),
                     label: "Founders".into(),
                     keys: founders(),
@@ -2727,6 +2751,7 @@ mod leaf_policy_tests {
                     decay: None,
                 },
                 Leaf {
+                    required_keys: vec![],
                     id: "fallback".into(),
                     label: "Recovery".into(),
                     keys: heirs(),
@@ -2764,6 +2789,7 @@ mod leaf_policy_tests {
         let new_policy = LeafPolicy {
             leaves: vec![
                 Leaf {
+                    required_keys: vec![],
                     id: "founders_now".into(),
                     label: "Founders".into(),
                     keys: founders(),
@@ -2772,6 +2798,7 @@ mod leaf_policy_tests {
                     decay: None,
                 },
                 Leaf {
+                    required_keys: vec![],
                     id: "recovery".into(),
                     label: "Recovery".into(),
                     keys: founders(),
@@ -2780,6 +2807,7 @@ mod leaf_policy_tests {
                     decay: None,
                 },
                 Leaf {
+                    required_keys: vec![],
                     id: "inheritance".into(),
                     label: "Inheritance".into(),
                     keys: heirs(),
@@ -2817,6 +2845,7 @@ mod leaf_policy_tests {
         let policy = LeafPolicy {
             leaves: vec![
                 Leaf {
+                    required_keys: vec![],
                     id: "primary".into(),
                     label: "Founders".into(),
                     keys: founders(),
@@ -2825,6 +2854,7 @@ mod leaf_policy_tests {
                     decay: None,
                 },
                 Leaf {
+                    required_keys: vec![],
                     id: "backstop".into(),
                     label: "Backstop".into(),
                     keys: heirs(),
@@ -2850,6 +2880,7 @@ mod leaf_policy_tests {
         let policy = LeafPolicy {
             leaves: vec![
                 Leaf {
+                    required_keys: vec![],
                     id: "primary".into(),
                     label: "Founders".into(),
                     keys: founders(),
@@ -2858,6 +2889,7 @@ mod leaf_policy_tests {
                     decay: None,
                 },
                 Leaf {
+                    required_keys: vec![],
                     id: "recovery".into(),
                     label: "Recovery".into(),
                     keys: founders(),
@@ -2866,6 +2898,7 @@ mod leaf_policy_tests {
                     decay: None,
                 },
                 Leaf {
+                    required_keys: vec![],
                     id: "heirs".into(),
                     label: "Heirs".into(),
                     keys: heirs(),
@@ -2897,6 +2930,7 @@ mod leaf_policy_tests {
         let policy = LeafPolicy {
             leaves: vec![
                 Leaf {
+                    required_keys: vec![],
                     id: "primary".into(),
                     label: "Everyone".into(),
                     keys: founders(),
@@ -2905,6 +2939,7 @@ mod leaf_policy_tests {
                     decay: None,
                 },
                 Leaf {
+                    required_keys: vec![],
                     id: "refresh".into(),
                     label: "If untouched".into(),
                     keys: founders(),
@@ -2913,6 +2948,7 @@ mod leaf_policy_tests {
                     decay: None,
                 },
                 Leaf {
+                    required_keys: vec![],
                     id: "recovery".into(),
                     label: "Recovery".into(),
                     keys: founders(),
@@ -2938,6 +2974,7 @@ mod leaf_policy_tests {
         let policy = LeafPolicy {
             leaves: vec![
                 Leaf {
+                    required_keys: vec![],
                     id: "primary".into(),
                     label: "Everyone".into(),
                     keys: founders(),
@@ -2946,6 +2983,7 @@ mod leaf_policy_tests {
                     decay: None,
                 },
                 Leaf {
+                    required_keys: vec![],
                     id: "refresh".into(),
                     label: "If untouched".into(),
                     keys: founders(),
@@ -2954,6 +2992,7 @@ mod leaf_policy_tests {
                     decay: None,
                 },
                 Leaf {
+                    required_keys: vec![],
                     id: "recovery".into(),
                     label: "Recovery".into(),
                     keys: founders(),
@@ -2976,6 +3015,7 @@ mod leaf_policy_tests {
         let policy = LeafPolicy {
             leaves: vec![
                 Leaf {
+                    required_keys: vec![],
                     id: "primary".into(),
                     label: "Everyone".into(),
                     keys: founders(),
@@ -2984,6 +3024,7 @@ mod leaf_policy_tests {
                     decay: None,
                 },
                 Leaf {
+                    required_keys: vec![],
                     id: "refresh".into(),
                     label: "If untouched".into(),
                     keys: founders(),
@@ -3011,6 +3052,7 @@ mod leaf_policy_tests {
     fn a_vault_with_no_immediate_leaf_is_rejected() {
         let policy = LeafPolicy {
             leaves: vec![Leaf {
+                required_keys: vec![],
                 id: "delayed".into(),
                 label: "Later".into(),
                 keys: founders(),
@@ -3027,6 +3069,7 @@ mod leaf_policy_tests {
     #[test]
     fn expand_decay_produces_the_expected_quorum_per_height_ladder() {
         let leaf = Leaf {
+            required_keys: vec![],
             id: "heirs".into(),
             label: "Heirs".into(),
             keys: vec![
@@ -3054,6 +3097,7 @@ mod leaf_policy_tests {
     #[test]
     fn decay_on_an_immediate_leaf_is_rejected() {
         let leaf = Leaf {
+            required_keys: vec![],
             id: "x".into(),
             label: "X".into(),
             keys: founders(),
@@ -3064,11 +3108,129 @@ mod leaf_policy_tests {
         assert!(matches!(expand_decay(&leaf), Err(PolicyError::DecayRequiresTimelock)));
     }
 
+    // ---- must-sign keys (Leaf::required_keys) -------------------------
+
+    fn hw() -> PublicKey {
+        pk("03acd484e2f0c7f65309ad178a9f559abde09796974c57e714c35f110dfc27ccbe")
+    }
+    fn must_sign_policy(required: Vec<PublicKey>, decay: Option<DecayConfig>) -> LeafPolicy {
+        LeafPolicy {
+            leaves: vec![
+                Leaf {
+                    required_keys: required.clone(),
+                    id: "everyday".into(),
+                    label: "Everyday".into(),
+                    keys: founders(),
+                    quorum: 1,
+                    unlock: Unlock::Immediate,
+                    decay: None,
+                },
+                Leaf {
+                    required_keys: required,
+                    id: "later".into(),
+                    label: "Later".into(),
+                    keys: heirs(),
+                    quorum: 2,
+                    unlock: Unlock::After { blocks: 900_000 },
+                    decay,
+                },
+            ],
+            consent_keys: vec![],
+            consent_quorum: None,
+        }
+    }
+
+    #[test]
+    fn a_must_sign_key_is_anded_onto_the_quorum_of_every_leaf_that_names_it() {
+        let plain = build_leaf_multileaf(&must_sign_policy(vec![], None)).unwrap();
+        let gated = build_leaf_multileaf(&must_sign_policy(vec![hw()], None)).unwrap();
+        let f = founders();
+        assert!(gated.miniscript_policy.contains(&format!(
+            "and(pk({}),thresh(1,pk({}),pk({})))", hw(), f[0], f[1]
+        )), "{}", gated.miniscript_policy);
+        assert!(gated.miniscript_policy.contains(&format!("and(after(900000),and(pk({}),thresh(2,", hw())));
+        assert!(!plain.miniscript_policy.contains(&hw().to_string()));
+        assert_ne!(plain.spend_info.output_key(), gated.spend_info.output_key(),
+            "a must-sign key changes the vault's address");
+        // The compiled leaf really carries the key: its x-only bytes are in the script.
+        let x = XOnlyPublicKey::from(hw().inner).serialize();
+        for id in ["everyday", "later"] {
+            let script = gated.leaf_scripts.iter().find(|(i, _)| i == id).unwrap().1.as_bytes().to_vec();
+            assert!(script.windows(32).any(|w| w == x), "leaf {id} does not contain the must-sign key");
+        }
+    }
+
+    #[test]
+    fn two_must_sign_keys_are_both_required_in_the_order_given() {
+        let h = heirs();
+        let policy = LeafPolicy {
+            leaves: vec![Leaf {
+                required_keys: vec![hw(), h[0]],
+                id: "everyday".into(),
+                label: "Everyday".into(),
+                keys: founders(),
+                quorum: 2,
+                unlock: Unlock::Immediate,
+                decay: None,
+            }],
+            consent_keys: vec![],
+            consent_quorum: None,
+        };
+        let out = build_leaf_multileaf(&policy).unwrap();
+        assert!(out.miniscript_policy.starts_with(&format!("and(pk({}),and(pk({}),thresh(2,", hw(), h[0])),
+            "{}", out.miniscript_policy);
+    }
+
+    #[test]
+    fn a_key_cannot_be_both_must_sign_and_in_the_quorum_pool() {
+        let f = founders();
+        let mut policy = must_sign_policy(vec![f[0]], None);
+        assert!(matches!(build_leaf_multileaf(&policy), Err(PolicyError::DuplicateXOnlyKey)));
+        // ...nor listed as must-sign twice, nor as its other-parity twin.
+        policy.leaves[0].required_keys = vec![hw(), hw()];
+        policy.leaves[1].required_keys = vec![];
+        assert!(matches!(build_leaf_multileaf(&policy), Err(PolicyError::DuplicateXOnlyKey)));
+        let mut twin = hw().to_bytes();
+        twin[0] ^= 1;
+        policy.leaves[0].required_keys = vec![hw(), PublicKey::from_slice(&twin).unwrap()];
+        assert!(matches!(build_leaf_multileaf(&policy), Err(PolicyError::DuplicateXOnlyKey)));
+    }
+
+    #[test]
+    fn a_must_sign_key_stays_required_on_every_rung_of_a_decaying_leaf() {
+        let policy = must_sign_policy(vec![hw()], Some(DecayConfig { step_blocks: 30_000, floor_quorum: 1 }));
+        let rungs = expand_decay(&policy.leaves[1]).unwrap();
+        assert_eq!(rungs.len(), 2);
+        for r in &rungs {
+            assert_eq!(r.required_keys, vec![hw()]);
+        }
+        let out = build_leaf_multileaf(&policy).unwrap();
+        assert!(out.miniscript_policy.contains(&format!("and(after(900000),and(pk({}),thresh(2,", hw())));
+        assert!(out.miniscript_policy.contains(&format!("and(after(930000),and(pk({}),thresh(1,", hw())));
+    }
+
+    #[test]
+    fn a_must_sign_key_on_two_leaves_is_reported_as_reused() {
+        let notes = find_key_reuse(&must_sign_policy(vec![hw()], None).leaves);
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].pubkey, hw());
+        assert_eq!(notes[0].leaf_ids, vec!["everyday".to_string(), "later".to_string()]);
+    }
+
+    #[test]
+    fn a_must_sign_key_must_be_distinct_from_the_consent_group_on_the_primary_leaf() {
+        let mut policy = must_sign_policy(vec![hw()], None);
+        policy.consent_keys = vec![hw()];
+        policy.consent_quorum = Some(1);
+        assert!(matches!(build_leaf_multileaf(&policy), Err(PolicyError::DuplicateXOnlyKey)));
+    }
+
     #[test]
     fn find_key_reuse_detects_a_key_in_two_leaves_and_ignores_a_key_in_one() {
         let shared = founders()[0];
         let leaves = vec![
             Leaf {
+                required_keys: vec![],
                 id: "primary".into(),
                 label: "Founders".into(),
                 keys: founders(),
@@ -3077,6 +3239,7 @@ mod leaf_policy_tests {
                 decay: None,
             },
             Leaf {
+                required_keys: vec![],
                 id: "protector".into(),
                 label: "Protector".into(),
                 keys: vec![shared],
@@ -3097,6 +3260,7 @@ mod leaf_policy_tests {
     fn find_key_reuse_is_empty_when_every_leaf_has_distinct_keys() {
         let policy_leaves = vec![
             Leaf {
+                required_keys: vec![],
                 id: "primary".into(),
                 label: "Founders".into(),
                 keys: founders(),
@@ -3105,6 +3269,7 @@ mod leaf_policy_tests {
                 decay: None,
             },
             Leaf {
+                required_keys: vec![],
                 id: "inheritance".into(),
                 label: "Inheritance".into(),
                 keys: heirs(),
@@ -3122,6 +3287,7 @@ mod leaf_policy_tests {
         let policy = LeafPolicy {
             leaves: vec![
                 Leaf {
+                    required_keys: vec![],
                     id: "primary".into(),
                     label: "Founders".into(),
                     keys: founders(),
@@ -3130,6 +3296,7 @@ mod leaf_policy_tests {
                     decay: None,
                 },
                 Leaf {
+                    required_keys: vec![],
                     id: "recovery".into(),
                     label: "Recovery".into(),
                     keys: founders(),
@@ -3191,6 +3358,7 @@ mod leaf_policy_tests {
         let new_policy = LeafPolicy {
             leaves: vec![
                 Leaf {
+                    required_keys: vec![],
                     id: "primary".into(),
                     label: "Founders".into(),
                     keys: founders(),
@@ -3199,6 +3367,7 @@ mod leaf_policy_tests {
                     decay: None,
                 },
                 Leaf {
+                    required_keys: vec![],
                     id: "backup".into(),
                     label: "Backup".into(),
                     keys: backups(),
@@ -3245,6 +3414,7 @@ mod leaf_policy_tests {
         let new_policy = LeafPolicy {
             leaves: vec![
                 Leaf {
+                    required_keys: vec![],
                     id: "primary".into(),
                     label: "Founders".into(),
                     keys: founders(),
@@ -3253,6 +3423,7 @@ mod leaf_policy_tests {
                     decay: None,
                 },
                 Leaf {
+                    required_keys: vec![],
                     id: "inheritance".into(),
                     label: "Inheritance".into(),
                     keys: heirs(),
@@ -3298,6 +3469,7 @@ mod leaf_policy_tests {
         let new_policy = LeafPolicy {
             leaves: vec![
                 Leaf {
+                    required_keys: vec![],
                     id: "primary".into(),
                     label: "Founders".into(),
                     keys: founders(),
@@ -3306,6 +3478,7 @@ mod leaf_policy_tests {
                     decay: None,
                 },
                 Leaf {
+                    required_keys: vec![],
                     id: "inheritance".into(),
                     label: "Inheritance".into(),
                     keys: heirs(),
@@ -3314,6 +3487,7 @@ mod leaf_policy_tests {
                     decay: None,
                 },
                 Leaf {
+                    required_keys: vec![],
                     id: "second_inheritance".into(),
                     label: "Second inheritance".into(),
                     keys: second_heirs(),
@@ -3365,6 +3539,7 @@ mod leaf_policy_tests {
         let new_policy = LeafPolicy {
             leaves: vec![
                 Leaf {
+                    required_keys: vec![],
                     id: "primary".into(),
                     label: "Founders".into(),
                     keys: founders(),
@@ -3373,6 +3548,7 @@ mod leaf_policy_tests {
                     decay: None,
                 },
                 Leaf {
+                    required_keys: vec![],
                     id: "recovery".into(),
                     label: "Recovery".into(),
                     keys: founders(),
@@ -3381,6 +3557,7 @@ mod leaf_policy_tests {
                     decay: None,
                 },
                 Leaf {
+                    required_keys: vec![],
                     id: "inheritance".into(),
                     label: "Inheritance".into(),
                     keys: heirs(),
@@ -3389,6 +3566,7 @@ mod leaf_policy_tests {
                     decay: None,
                 },
                 Leaf {
+                    required_keys: vec![],
                     id: "second_inheritance".into(),
                     label: "Second inheritance".into(),
                     keys: second_heirs(),

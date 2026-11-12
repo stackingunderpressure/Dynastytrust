@@ -210,6 +210,9 @@ struct LeafSpecWire {
     unlock: LeafUnlockWire,
     #[serde(default)]
     decay: Option<LeafDecayWire>,
+    /// Must-sign keys for this path -- see protocol::Leaf::required_keys.
+    #[serde(default)]
+    required_keys: Vec<String>,
 }
 
 fn parse_leaf_policy(
@@ -232,6 +235,7 @@ fn parse_leaf_policy(
                 other => return Err(anyhow!("leaf '{}': unknown unlock type '{other}'", w.id)),
             };
             Ok(dynastytrust_protocol::Leaf {
+                required_keys: parse_pubkeys(&w.required_keys)?,
                 id: w.id.clone(),
                 label: w.label.clone(),
                 keys,
@@ -2163,6 +2167,7 @@ mod psbt_binary_tests {
     fn sample_leaves() -> Vec<LeafSpecWire> {
         vec![
             LeafSpecWire {
+                required_keys: vec![],
                 id: "primary".into(),
                 label: "Founders".into(),
                 keys: vec![FOUNDER_A.into(), FOUNDER_B.into()],
@@ -2171,6 +2176,7 @@ mod psbt_binary_tests {
                 decay: None,
             },
             LeafSpecWire {
+                required_keys: vec![],
                 id: "refresh".into(),
                 label: "If untouched".into(),
                 keys: vec![FOUNDER_A.into(), FOUNDER_B.into()],
@@ -2179,6 +2185,7 @@ mod psbt_binary_tests {
                 decay: None,
             },
             LeafSpecWire {
+                required_keys: vec![],
                 id: "recovery".into(),
                 label: "Recovery".into(),
                 keys: vec![FOUNDER_A.into(), FOUNDER_B.into()],
@@ -2282,6 +2289,7 @@ mod compile_leaves_tests {
     fn wire_leaves() -> Vec<LeafSpecWire> {
         vec![
             LeafSpecWire {
+                required_keys: vec![],
                 id: "primary".into(),
                 label: "Founders".into(),
                 keys: vec![
@@ -2293,6 +2301,7 @@ mod compile_leaves_tests {
                 decay: None,
             },
             LeafSpecWire {
+                required_keys: vec![],
                 id: "inheritance".into(),
                 label: "Inheritance".into(),
                 keys: vec!["03defdea4cdb677750a420fee807eacf21eb9898ae79b9768766e4faa04a2d4a34".into()],

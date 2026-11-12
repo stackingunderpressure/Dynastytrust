@@ -106,6 +106,52 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Must-sign keys on a path, slice one (compiler only) -- BUILT
+  2026-11-12, on the branch, NOT on main, nothing visible to a user.**
+  Operator: "each leaf could have the and ... the hardware signer and
+  whatever the other part of the leaf would be"; decisions by chip: one
+  or more must-sign keys per path, and they stay required at every
+  step of a relaxing path. `protocol::Leaf` gains `required_keys`
+  (default empty); a leaf compiles to
+  `and(pk(A),and(pk(B),thresh(quorum,keys...)))`, wrapped by the
+  timelock and, on the primary leaf, the consent group as before.
+  A key may not be both must-sign and in the quorum pool, nor listed
+  twice, nor be its own other-parity twin, nor collide with the consent
+  group (one `check_distinct_xonly` over the lists). `expand_decay`
+  carries the must-sign keys onto every rung. `find_key_reuse` counts
+  them. The compiler service accepts `required_keys` per leaf.
+  PROVEN: (1) five existing vault shapes (shared key, decay, relaxing
+  "if untouched", consent, single path) compile to the exact address
+  recorded from the compiler BEFORE the change, with the field absent
+  and with it empty -- pinned in `scripts/offline-vault-harness.mjs`.
+  (2) Same harness, real compiler + browser signer + finalizer: 6
+  must-sign spends finalize with the right lock_time (two paths
+  sharing one must-sign key; a relaxed rung; two must-sign keys on
+  one path) and 7 are refused (all the others without the must-sign
+  key, on an open path, a dated path and a relaxed rung; the must-sign
+  key alone; a must-sign key from another path; one of two must-sign
+  keys; both must-sign keys with no quorum); the compiler refuses 3
+  malformed policies. (3) 6 new Rust unit tests. (4) Bitcoin Core
+  32.1, private chain, 14th check of `scripts/bitcoin-core-proof.mjs`:
+  Core derives our exact output script for a must-sign vault, cannot
+  complete without the must-sign key or with it alone, and the
+  must-sign key plus one other is mined.
+  Measured: cargo test --workspace 130 + 39 passed; npm test exit 0,
+  31 suites; lint 0 errors / 11 warnings; typecheck 10 = unchanged;
+  build green.
+  SAFE TO SIT UNUSED: `netlify/functions/compile-leaves.js` forwards an
+  explicit list of leaf fields (id, label, keys, quorum, unlock, decay)
+  to the compiler, so a must-sign list cannot reach the compiler from
+  the app until slice two adds it on purpose.
+  NOT SEEN: a hardware wallet reading the descriptor; signet/mainnet.
+  FOUND FOR SLICE TWO: `protocol/src/governance.rs` counts a leaf's
+  required signatures as `leaf.quorum` (lines 654-690); with must-sign
+  keys the true number is quorum + must-sign count, and WHICH keys
+  signed matters, not just how many. The server's signature counting
+  and fee estimate have the same assumption.
+  DEPLOY NOTE: `.github/workflows/deploy-compiler.yml` redeploys the
+  Fly compiler when compiler paths reach main. Not pushed to main.
+
 - **A vault spent on a PUBLIC test network with signatures made by
   Bitcoin Core alone -- SEEN 2026-11-11.** Operator asked for a signet
   test. `scripts/signet-core-spend.mjs`: throwaway keys (kept outside

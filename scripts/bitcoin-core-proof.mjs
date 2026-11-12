@@ -229,5 +229,32 @@ const confirmed = (txid) => cli(null, 'getrawtransaction', txid, 1).confirmation
   pass('the written steps: listunspent, createpsbt with the locktime, two people sign in separate wallets, combinepsbt, finalizepsbt, sendrawtransaction -- mined');
 }
 
+// 5. Must-sign keys (compiler slice, 2026-11-12): and(pk(A), thresh(q, others)).
+// Does Core read that descriptor, agree on the address, and enforce it?
+{
+  const ms = { leaves: [
+    leaf({ id: 'everyday', required_keys: keys(0), keys: keys(1, 2), quorum: 1, unlock: { type: 'immediate' } }),
+    leaf({ id: 'later', required_keys: keys(0), keys: keys(3, 4), quorum: 1, unlock: { type: 'after', blocks: 26_500 } }),
+  ] };
+  const c = await post('/compile-leaves', { ...ms, network: NET });
+  const spk = toHex(btc.OutScript.encode(btc.Address(btc.TEST_NETWORK).decode(c.address)));
+  const form = (f) => S.reduce((d, s) => d.split(s.pubkey).join(f(s)).split(s.pubkey.slice(2)).join(f(s)), c.descriptor.split('#')[0]);
+  const pub = withSum(form(s => s.pub));
+  assert.equal(spkOf(pub), spk);
+  const addr = cli(null, 'deriveaddresses', pub)[0];
+  const mk = (name, holders) => { cli(null, 'createwallet', name, false, true); assert.equal(cli(name, 'importdescriptors', [{ desc: withSum(form(s => (holders.includes(s.n) ? s.prv : s.pub))), timestamp: 'now' }])[0].success, true); };
+  mk('ms-with', [0, 1]); mk('ms-without', [1, 2]); mk('ms-alone', [0]);
+  const txid0 = cli('miner', 'sendtoaddress', addr, 1); mine(1);
+  const vout = cli('miner', 'gettransaction', txid0, true, true).decoded.vout.findIndex(o => o.scriptPubKey.hex === spk);
+  const go = (w) => cli(null, 'finalizepsbt', cli(w, 'walletprocesspsbt', cli(null, 'createpsbt', [{ txid: txid0, vout, sequence: 0xfffffffe }], [{ [dest]: 0.999 }], 0)).psbt);
+  assert.equal(go('ms-without').complete, false);
+  assert.equal(go('ms-alone').complete, false);
+  const f = go('ms-with');
+  assert.equal(f.complete, true);
+  const txid = cli(null, 'sendrawtransaction', f.hex); mine(1);
+  assert.ok(confirmed(txid));
+  pass('must-sign vault: Core derives our exact output script; both others without the must-sign key cannot complete, the must-sign key alone cannot, the must-sign key + one other is mined');
+}
+
 console.log(`\nbitcoin-core-proof OK (${n} checks) against ${version}`);
 process.exit(0);

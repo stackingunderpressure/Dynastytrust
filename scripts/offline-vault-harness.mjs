@@ -453,5 +453,81 @@ const rejected = (msg) => console.log(`  [ok] REJECTED as it should be: ${msg}`)
   await expectFail(spendLeaves, { label: 'shared key / shared key on a path it is not on', path: 'friends', signers: who(0,6) }); rejected('the shared key counts for nothing on a path it is not on');
 }
 
+// ── Must-sign keys on a path (2026-11-12, slice one: compiler only) ─────────
+// A path may name keys that must EACH sign, on top of a quorum of its other
+// keys: and(pk(A), thresh(q, others)). Proven here against the real
+// compiler, signer and finalizer. Nothing in the app offers this yet.
+{
+  const leaf = (o) => ({ label: o.id, decay: null, ...o });
+  const spendWith = (policy) => ({ label, path, signers }) => cycle({
+    label, compileEp: '/compile-leaves', compileBody: { ...policy, network: NET },
+    psbtEp: '/psbt-binary', psbtBody: { ...policy, path }, signers,
+  });
+  console.log('must-sign keys');
+
+  // FIRST: a vault with no must-sign keys keeps the address it had before
+  // the compiler learned about them. These five were recorded from the
+  // compiler as it stood on 2026-11-12, before the change.
+  const BEFORE = {
+    shared: [{ leaves: [leaf({ id: 'everyday', keys: keys(0,1,2), quorum: 3, unlock: { type: 'immediate' } }), leaf({ id: 'backup', keys: keys(0,3), quorum: 2, unlock: { type: 'after', blocks: 900000 } }), leaf({ id: 'kids', keys: keys(0,4,5), quorum: 2, unlock: { type: 'after', blocks: 950000 } }), leaf({ id: 'friends', keys: keys(6,7), quorum: 2, unlock: { type: 'after', blocks: 1000000 } }), leaf({ id: 'last', keys: keys(8), quorum: 1, unlock: { type: 'after', blocks: 1100000 } })] },
+      'tb1prm6dhh6fhj8lj7zqxwxjc9tfkp2sw9qu9w4stjn0ekh5nsnwpw2smtdf72'],
+    decay: [{ leaves: [leaf({ id: 'main', keys: keys(0,1), quorum: 2, unlock: { type: 'immediate' } }), leaf({ id: 'family', keys: keys(2,3,4), quorum: 3, unlock: { type: 'after', blocks: 900000 }, decay: { step_blocks: 52560, floor_quorum: 1 } })] },
+      'tb1pqdqtxc3kxjfu74yy5y9nvykqkdqvr7034ds0vwfytvtwxffcn5dqwx4l55'],
+    relax: [{ leaves: [leaf({ id: 'main', keys: keys(0,1), quorum: 2, unlock: { type: 'immediate' } }), leaf({ id: 'heirs', keys: keys(3), quorum: 1, unlock: { type: 'after', blocks: 1200000 } }), leaf({ id: 'relax', keys: keys(5,6,7), quorum: 3, unlock: { type: 'older', blocks: 30000 }, decay: { step_blocks: 10000, floor_quorum: 1 } })] },
+      'tb1pka7xtt3k292jzem4nep8gcwlsk3zntju0p2zsmz3e6sckgcdvzgsfwn8n8'],
+    consent: [{ leaves: [leaf({ id: 'main', keys: keys(0,1), quorum: 2, unlock: { type: 'immediate' } }), leaf({ id: 'heirs', keys: keys(3,4), quorum: 1, unlock: { type: 'after', blocks: 950000 } })], consent_keys: keys(5,6), consent_quorum: 1 },
+      'tb1pheuvsm59c2fvhydwtsjqwluw5n7ylel2yzgtwfusxt739uyq3h2qz5k643'],
+    single: [{ leaves: [leaf({ id: 'only', keys: keys(0,1,2), quorum: 2, unlock: { type: 'immediate' } })] },
+      'tb1pf0wfcrw0wuk9652p0zl06y843j5ep00wvv4vz46sm2xkrm9d6qsq7500xe'],
+  };
+  for (const [name, [policy, address]] of Object.entries(BEFORE)) {
+    assert.equal((await post('/compile-leaves', { ...policy, network: NET })).address, address, `must-sign / "${name}" vault changed address`);
+    const explicit = { ...policy, leaves: policy.leaves.map(l => ({ ...l, required_keys: [] })) };
+    assert.equal((await post('/compile-leaves', { ...explicit, network: NET })).address, address, `must-sign / "${name}" with an empty must-sign list changed address`);
+  }
+  console.log('  [ok] must-sign / five existing vault shapes keep the exact address they had before the change, with the field absent or empty');
+
+  // One must-sign key (signer 0, "the hardware wallet") on two paths, a
+  // different one (signer 8) on a path that relaxes over time.
+  const policy = { leaves: [
+    leaf({ id: 'everyday', required_keys: keys(0), keys: keys(1,2), quorum: 1, unlock: { type: 'immediate' } }),
+    leaf({ id: 'backup', required_keys: keys(0), keys: keys(3,4), quorum: 1, unlock: { type: 'after', blocks: 900_000 } }),
+    leaf({ id: 'kids', required_keys: keys(8), keys: keys(5,6,7), quorum: 3, unlock: { type: 'after', blocks: 950_000 }, decay: { step_blocks: 52_560, floor_quorum: 2 } }),
+  ] };
+  const spend = spendWith(policy);
+  assert.notEqual((await post('/compile-leaves', { ...policy, network: NET })).address,
+    (await post('/compile-leaves', { leaves: policy.leaves.map(l => ({ ...l, required_keys: [] })), network: NET })).address);
+  await ok(spend, { label: 'must-sign / everyday: the must-sign key + one of the two others', path: 'everyday', signers: who(0,1) }, 0);
+  await ok(spend, { label: 'must-sign / everyday: the must-sign key + the other one', path: 'everyday', signers: who(0,2) }, 0);
+  await expectFail(spend, { label: 'must-sign / everyday: BOTH others, without the must-sign key', path: 'everyday', signers: who(1,2) }); rejected('both other signers together cannot spend without the must-sign key');
+  await expectFail(spend, { label: 'must-sign / everyday: the must-sign key alone', path: 'everyday', signers: who(0) }); rejected('the must-sign key alone cannot spend; the quorum of the others is still needed');
+  await ok(spend, { label: 'must-sign / backup: the must-sign key + one other, at its height', path: 'backup', signers: who(0,3) }, 900_000);
+  await expectFail(spend, { label: 'must-sign / backup: both others without the must-sign key', path: 'backup', signers: who(3,4) }); rejected('the dated path does not open without its must-sign key either');
+  await ok(spend, { label: 'must-sign / kids, first step: must-sign key + all three kids', path: 'kids_0', signers: who(8,5,6,7) }, 950_000);
+  await ok(spend, { label: 'must-sign / kids, relaxed step: must-sign key + two kids', path: 'kids_1', signers: who(8,5,6) }, 950_000 + 52_560);
+  await expectFail(spend, { label: 'must-sign / kids, relaxed step: all three kids, no must-sign key', path: 'kids_1', signers: who(5,6,7) }); rejected('a must-sign key stays required after the path relaxes');
+  await expectFail(spend, { label: 'must-sign / a must-sign key from another path', path: 'everyday', signers: who(8,1) }); rejected('a must-sign key from one path counts for nothing on another');
+
+  // Two must-sign keys on one path.
+  const two = { leaves: [leaf({ id: 'only', required_keys: keys(0,1), keys: keys(2,3), quorum: 1, unlock: { type: 'immediate' } })] };
+  const spend2 = spendWith(two);
+  await ok(spend2, { label: 'must-sign / two must-sign keys + one other', path: 'only', signers: who(0,1,2) }, 0);
+  await expectFail(spend2, { label: 'must-sign / only one of two must-sign keys', path: 'only', signers: who(0,2,3) }); rejected('with two must-sign keys, one of them plus everyone else is not enough');
+  await expectFail(spend2, { label: 'must-sign / both must-sign keys, no other', path: 'only', signers: who(0,1) }); rejected('both must-sign keys without the quorum of the others is not enough');
+
+  // What the compiler refuses.
+  const twin = (pk) => (pk.startsWith('02') ? '03' : '02') + pk.slice(2); // same x-only key, other parity
+  const refuse = async (label, body, needle) => {
+    let msg = null;
+    try { await post('/compile-leaves', { ...body, network: NET }); } catch (e) { msg = e.message; }
+    assert.ok(msg, `${label}: the compiler ACCEPTED it`);
+    assert.ok(msg.includes(needle), `${label}: refused for the wrong reason: ${msg}`);
+    rejected(label);
+  };
+  await refuse('must-sign / a key that is both must-sign and in the quorum pool', { leaves: [leaf({ id: 'x', required_keys: keys(0), keys: keys(0,1), quorum: 1, unlock: { type: 'immediate' } })] }, 'same Taproot key');
+  await refuse('must-sign / the same key listed must-sign twice', { leaves: [leaf({ id: 'x', required_keys: keys(0,0), keys: keys(1), quorum: 1, unlock: { type: 'immediate' } })] }, 'same Taproot key');
+  await refuse('must-sign / a must-sign key and its twin', { leaves: [leaf({ id: 'x', required_keys: [S[0].pubkey, twin(S[0].pubkey)], keys: keys(1), quorum: 1, unlock: { type: 'immediate' } })] }, 'same Taproot key');
+}
+
 console.log('\noffline-vault-harness OK -- every door of every shape proven end to end');
 console.log('(real Rust compiler + real browser signer + real rust-miniscript finalizer; timelocks baked in, quorum/consent/cohort gates enforced)');
