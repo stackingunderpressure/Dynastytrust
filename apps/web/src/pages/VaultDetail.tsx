@@ -21,7 +21,8 @@ import {
 import { supabase } from "../lib/supabase";
 import { keyNeedsPassword, listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
 import { keyNetworkMatches } from "../lib/network";
-import { signPsbtWithMnemonic, countSignatures, mergePsbts, verifyPsbtMatchesRequest } from "../lib/psbt-signer";
+import { signPsbtWithMnemonic, countSignatures, mergePsbts, verifyPsbtMatchesRequest, signersOnEveryInput } from "../lib/psbt-signer";
+import { whoSignsShort, mustSignMeaning } from "../lib/path-words";
 import { fetchTapitDisplayNames } from "../lib/tapit-profile-lookup";
 import { assembleLivenessGateInput } from "../lib/liveness-gate";
 import { evaluateSigningGate, ceremonyFromProposal } from "@dynastytrust/policy-engine";
@@ -42,7 +43,7 @@ import { QrImage } from "../components/QrImage";
 import { RotatePathVault } from "../components/RotatePathVault";
 import { PathDraftCard } from "../components/PathDraftCard";
 import { pubkeyFromXpub, fingerprintFromXpub } from "../lib/xpub";
-import { isLeafListVault } from "../lib/vault-spending-paths";
+import { isLeafListVault, findSpendingPath, pathSignatureStatus, signaturesNeeded } from "../lib/vault-spending-paths";
 import { buildPsbtKeyOrigins } from "../lib/descriptor-keys";
 import { sha256 } from "@noble/hashes/sha256";
 import { blocDecayLadder } from "../lib/blocks";
@@ -1473,6 +1474,20 @@ function SendTab({ vault, balance, onDone, prefill }: {
     return prefill?.path && available[prefill.path] ? prefill.path : "founders_now";
   });
 
+  // How far a signed PSBT has got toward THIS path's rule. On a
+  // path-builder vault that is decided by who signed (a must-sign key
+  // counts once and nothing stands in for it; the others count only up to
+  // their quorum), so it reaches the required number exactly when the
+  // spend can really be finished. Other vault shapes keep the plain count.
+  function signaturesTowardPath(psbtHex: string): number {
+    if (isLeafList) {
+      const summary = findSpendingPath(vault, standardPath);
+      const st = summary ? pathSignatureStatus(summary, signersOnEveryInput(psbtHex)) : null;
+      if (st?.byName) return st.have;
+    }
+    return countSignatures(psbtHex);
+  }
+
   const confirmedSats = balance?.confirmed_sats ?? 0;
   const amountSats = Math.round(parseFloat(amountBtc || "0") * 1e8);
   const rules = vault.trust_doc?.rules ?? [];
@@ -1691,9 +1706,12 @@ function SendTab({ vault, balance, onDone, prefill }: {
         // is a real leaf id (see its useState initializer above), so
         // this is just "find the leaf the picker chose."
         const leaf = vault.leaves!.find(l => l.id === standardPath);
-        if (leaf) {
-          leaf.keys.forEach(addKey);
-          requiredSignatures = leaf.quorum;
+        const summary = findSpendingPath(vault, standardPath);
+        if (leaf && summary) {
+          // Must-sign keys (and the consent group, where a vault has one)
+          // sign on top of the quorum of the others.
+          [...summary.requiredKeys, ...summary.keys, ...(summary.consent?.keys ?? [])].forEach(addKey);
+          requiredSignatures = signaturesNeeded(summary);
         } else {
           requiredSignatures = 0;
         }
@@ -1964,7 +1982,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
 
       const allPsbts = [result.psbt_hex, ...signedByOthers];
       const mergedHex = allPsbts.length > 1 ? mergePsbts(allPsbts) : result.psbt_hex;
-      const totalSigs = countSignatures(mergedHex);
+      const totalSigs = signaturesTowardPath(mergedHex);
 
       // Persist this signer's partial PSBT so other members see progress.
       // Fire-and-forget; a failure here doesn't block the UI because the
@@ -2011,7 +2029,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
   function externalImport(importedHex: string, label: string = "Hardware wallet") {
     if (!signing) return;
     const merged = mergePsbts([signing.psbt_hex, importedHex]);
-    const totalSigs = countSignatures(merged);
+    const totalSigs = signaturesTowardPath(merged);
     if (signing.proposal_id) {
       api.signerSessions
         .submit({
@@ -2599,7 +2617,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
           >
             {vault.leaves!.map(leaf => (
               <option key={leaf.id} value={leaf.id}>
-                {leaf.label} ({leaf.quorum} of {leaf.keys.length})
+                {leaf.label} ({whoSignsShort(leaf.quorum, leaf.keys.length, leaf.required_keys?.length ?? 0)})
                 {leaf.unlock.type === "immediate"
                   ? " -- no waiting"
                   : leaf.unlock.type === "after"
@@ -5301,7 +5319,7 @@ function rolePhaseHint(
     const lines: string[] = [];
     lines.push(
       available.length > 0
-        ? `Currently spendable: ${available.map(l => `"${l.label}" (${l.quorum} of ${l.keyPubkeys.length})`).join(", ")}.`
+        ? `Currently spendable: ${available.map(l => `"${l.label}" (${leafWho(l)})`).join(", ")}.`
         : "No spending path is open right now -- every path on this vault is still waiting on its own condition.",
     );
     if (locked.length > 0 && tip != null) {
@@ -5408,13 +5426,13 @@ function computePhase(vault: Vault, tip: number | null): VaultPhase {
       ? colors.green
       : colors.gold;
     const description = available.length > 0
-      ? `${available.map(l => `${l.quorum} of ${l.keyPubkeys.length} "${l.label}"`).join(" or ")} can spend right now.`
+      ? `${available.map(l => `${leafWho(l)} "${l.label}"`).join(" or ")} can spend right now.`
       : `No path is open right now -- this vault has ${leaves.length} spending path${leaves.length === 1 ? "" : "s"}, each waiting on its own condition.`;
     const paths = leaves.map(l => {
       if (l.status === "locked" && l.absHeight != null) {
-        return `${l.label} - locked until block ${l.absHeight.toLocaleString()} (${l.quorum} of ${l.keyPubkeys.length})`;
+        return `${l.label} - locked until block ${l.absHeight.toLocaleString()} (${leafWho(l)})`;
       }
-      return `${l.label} - ${l.quorum} of ${l.keyPubkeys.length}${l.status === "unlocked" ? " - OPEN" : ""}`;
+      return `${l.label} - ${leafWho(l)}${l.status === "unlocked" ? " - OPEN" : ""}`;
     });
 
     return { label, description, accent, paths };
@@ -5586,11 +5604,17 @@ interface VaultLeaf {
   label: string;
   color: string;
   quorum: number;
+  /** Every key on the path, must-sign keys FIRST (the first `mustSign`). */
   keyPubkeys: string[];
+  /** How many of keyPubkeys must each sign, on top of `quorum` of the rest. */
+  mustSign?: number;
   absHeight: number | null;
   status: VaultLeafStatus;
   note?: string;
 }
+
+// "2 of 3" -- or "1 must-sign + 1 of 2" on a path with must-sign keys.
+const leafWho = (l: VaultLeaf) => whoSignsShort(l.quorum, l.keyPubkeys.length - (l.mustSign ?? 0), l.mustSign ?? 0);
 
 function vaultLeafStatus(absHeight: number | null, tip: number | null): VaultLeafStatus {
   if (!absHeight || absHeight <= 0) return "active";
@@ -5622,10 +5646,11 @@ function buildVaultLeaves(vault: Vault, tip: number | null): VaultLeaf[] {
         label: leaf.label,
         color: palette[i % palette.length],
         quorum: leaf.quorum,
-        keyPubkeys: leaf.keys,
+        keyPubkeys: [...(leaf.required_keys ?? []), ...leaf.keys],
+        mustSign: (leaf.required_keys ?? []).length,
         absHeight,
         status,
-        note,
+        note: [mustSignMeaning((leaf.required_keys ?? []).length), note].filter(Boolean).join(" ") || undefined,
       };
     });
   }
@@ -5922,7 +5947,7 @@ function VaultStructureTree({ vault }: { vault: Vault }) {
                 <VaultLeafStatusPill status={leaf.status} absHeight={leaf.absHeight} tip={tip} />
               </div>
               <div style={{ fontSize: 14, color: colors.sub, marginTop: 4 }}>
-                {leaf.quorum} of {leaf.keyPubkeys.length} required
+                {leafWho(leaf)} required
                 {leaf.absHeight ? ` -- unlocks at block ${leaf.absHeight.toLocaleString()}` : ""}
               </div>
               <div style={{ fontSize: 13, color: colors.muted, marginTop: 6, display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -5985,7 +6010,7 @@ function VaultStructureTree({ vault }: { vault: Vault }) {
                         cursor: isOwner ? "pointer" : "default",
                       }}
                     >
-                      {keyLabel(pk)}
+                      {idx < (leaf.mustSign ?? 0) ? "must sign: " : ""}{keyLabel(pk)}
                     </span>
                   ),
                 )}

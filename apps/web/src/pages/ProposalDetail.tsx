@@ -13,13 +13,14 @@ import { broadcastTxUrl, explorerTxUrl } from "../config";
 import { keyNeedsPassword, listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
 import {
   countSignatures,
+  signersOnEveryInput,
   mergePsbts,
   signPsbtWithMnemonic,
   verifyPsbtMatchesRequest,
 } from "../lib/psbt-signer";
 import { getTapitCircleMembers } from "../lib/tapit-circle-members";
 import { pubkeyFromXpub } from "../lib/xpub";
-import { findSpendingPath, isLeafListVault } from "../lib/vault-spending-paths";
+import { findSpendingPath, isLeafListVault, pathSignatureStatus, signaturesNeeded, type SpendingPathSummary } from "../lib/vault-spending-paths";
 import { LoadingScreen } from "../components/LoadingScreen";
 import { useToast } from "../components/toast";
 import { useConfirm, usePrompt } from "../components/dialog";
@@ -54,7 +55,7 @@ function satsToBtc(sats: number): string {
 function resolvePathSigners(
   vault: Vault,
   path: Proposal["path"],
-): { keyArray: string[]; required: number } {
+): { keyArray: string[]; required: number; summary?: SpendingPathSummary } {
   const bp = vault.bloc_policy;
   if (bp) {
     switch (path) {
@@ -86,17 +87,26 @@ function resolvePathSigners(
   // recognized as a signer for it (2026-08-25 fix).
   if (isLeafListVault(vault)) {
     const leaf = findSpendingPath(vault, path);
-    return leaf ? { keyArray: leaf.keys, required: leaf.quorum } : { keyArray: [], required: 0 };
+    // Everyone who may sign on this path: its must-sign keys, its other
+    // keys, and the consent group where there is one. `summary` lets the
+    // caller decide "enough" by WHO signed, not by a count.
+    return leaf
+      ? { keyArray: [...leaf.requiredKeys, ...leaf.keys, ...(leaf.consent?.keys ?? [])], required: signaturesNeeded(leaf), summary: leaf }
+      : { keyArray: [], required: 0 };
   }
+  // Named-field vault: the same by-name check where the path's keys are
+  // plain public keys; an xpub cannot be matched and falls back to a count.
+  const named = path === "tranche_claim" ? undefined : findSpendingPath(vault, path || "founders_now");
+  const withSummary = (r: { keyArray: string[]; required: number }) => ({ ...r, summary: named });
   switch (path) {
     case "recovery":
-      return { keyArray: vault.founder_keys, required: vault.recovery_quorum ?? vault.founder_quorum };
+      return withSummary({ keyArray: vault.founder_keys, required: vault.recovery_quorum ?? vault.founder_quorum });
     case "inheritance":
-      return { keyArray: vault.heir_keys, required: vault.heir_quorum };
+      return withSummary({ keyArray: vault.heir_keys, required: vault.heir_quorum });
     case "backup":
-      return { keyArray: vault.backup_keys, required: vault.backup_quorum ?? 0 };
+      return withSummary({ keyArray: vault.backup_keys, required: vault.backup_quorum ?? 0 });
     case "second_inheritance":
-      return { keyArray: vault.second_heir_keys, required: vault.second_heir_quorum ?? 0 };
+      return withSummary({ keyArray: vault.second_heir_keys, required: vault.second_heir_quorum ?? 0 });
     case "tranche_claim":
       // Distribution-wallet claims aren't governed by the vault's own
       // leaves -- TrancheClaimModal (VaultDetail.tsx) is the only signing
@@ -110,7 +120,7 @@ function resolvePathSigners(
         keyArray.push(...vault.consent_keys);
         required += vault.consent_quorum;
       }
-      return { keyArray, required };
+      return withSummary({ keyArray, required });
     }
   }
 }
@@ -241,7 +251,7 @@ export default function ProposalDetail() {
           }
         })()
       : mergeChain[0] ?? "";
-  const collected = mergedPsbt ? countSignatures(mergedPsbt) : 0;
+  const counted = mergedPsbt ? countSignatures(mergedPsbt) : 0;
   // A co-signer signs a PSBT that came out of the database, not one they
   // built. Re-derive from its bytes that it pays what the proposal row
   // says, spends only this vault's own coins, and returns change here --
@@ -269,7 +279,22 @@ export default function ProposalDetail() {
   const signablePsbt = psbtMismatch ? "" : mergedPsbt;
   const pathSigners = resolvePathSigners(vault, proposal.path);
   const required = pathSigners.required;
-  const quorumMet = collected >= required;
+  // "Enough signatures" is decided by WHO has signed, on every input,
+  // against this path's own rule. A count called two phones "2 of 2" on
+  // a path that needs the hardware wallet and one phone; the final step
+  // would then refuse it. The count is kept only where the path is
+  // unknown (a Bloc vault) or its keys cannot be matched by name.
+  const sigStatus = pathSigners.summary && mergedPsbt
+    ? pathSignatureStatus(pathSigners.summary, signersOnEveryInput(mergedPsbt))
+    : null;
+  const collected = sigStatus?.byName ? sigStatus.have : counted;
+  const quorumMet = sigStatus ? sigStatus.satisfied : counted >= required;
+  // Must-sign keys still missing, named the way the owner knows them.
+  const mustSignMissing = (sigStatus?.byName ? sigStatus.missingRequired : []).map(pk => {
+    const local = listKeys().find(k => k.pubkey && k.pubkey.slice(2).toLowerCase() === pk.slice(-64).toLowerCase());
+    const origin = (vault.key_origins ?? []).find(o => o.pubkey.slice(-64).toLowerCase() === pk.slice(-64).toLowerCase());
+    return local ? `"${local.label}"` : origin ? `the key with fingerprint ${origin.fingerprint}` : "a must-sign key";
+  });
   const terminal = proposal.status === "broadcast" || proposal.status === "cancelled";
   // Tranche claims are signed and broadcast entirely inside
   // TrancheClaimModal (VaultDetail.tsx), which has the real per-claim
@@ -538,6 +563,13 @@ export default function ProposalDetail() {
         </Button>
       )}
 
+      {!terminal && !isTrancheClaim && !quorumMet && mustSignMissing.length > 0 && (
+        <div style={{ fontSize: 15, color: colors.orange, textAlign: "center", padding: "10px 0", lineHeight: 1.5 }}>
+          This path cannot be spent without {mustSignMissing.join(" and ")}. {mustSignMissing.length === 1 ? "It has" : "They have"} not
+          signed yet, and no number of other signatures can stand in for {mustSignMissing.length === 1 ? "it" : "them"}.
+        </div>
+      )}
+
       {!terminal && !isTrancheClaim && !quorumMet && signableKeys.length === 0 && (() => {
         // Tell the user *why* they can't sign: already signed, or no key.
         const iSigned = localKeys.some(
@@ -547,7 +579,7 @@ export default function ProposalDetail() {
         return (
           <div style={{ fontSize: 15, color: colors.muted, textAlign: "center", padding: "10px 0", lineHeight: 1.5 }}>
             {iSigned
-              ? `You've signed. Waiting on ${remaining} more signature${remaining === 1 ? "" : "s"} to reach the ${required}-of quorum.`
+              ? `You've signed. Waiting on ${remaining} more signature${remaining === 1 ? "" : "s"} to reach the ${required} this path needs.`
               : "None of your local keys are signers on this vault. If you should be able to sign, open Keys and tap Restore from words to bring your key onto this device."}
           </div>
         );
