@@ -106,6 +106,34 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **SeedSigner fork: Spending Path screen fixed on a branch, NOT
+  merged to dev, no SD image built -- 2026-11-12.** Operator chose "fix
+  both, show me first" and "say if their key is the must-sign one".
+  Fork branch `claude/dynasty-trust-last-work-clryy9`, commit e5391fd,
+  on top of dev a254292. (1) The screen no longer draws anything under
+  the Continue button: first line has no label, last is one plain
+  line. (2) `PSBTParser._parse_leaf_requirement` reads a must-sign
+  leaf from the registered descriptor's parsed miniscript
+  (`and_v(v:pk(H),multi_a(...))`, dated or not, and a one-key group
+  compiled as `thresh(1,pk(B))`); the screen says "1 must-sign + 1 of
+  2" and "Your key MUST sign" or "Yours: one of the others". An OR or
+  two groups is still not described. (3) "Leaf N of M" reads "Path N
+  of M"; "Tapscript leaf" reads "Path not identified". Signing code
+  untouched.
+  MEASURED in the fork: 277 passed, 5 failed (the same five
+  translation tests; the translations submodule is not in my clone).
+  New: 6 parser tests; 8 layout tests against the real 240px renderer,
+  run in their own process because the suite mocks the renderer. The
+  layout test FAILS against the old screen ("IconTextLine at y=185
+  h=40 runs under the button at y=200"). The seven real transactions
+  from today's compiler re-run through the changed fork: same paths,
+  same signatures, change verified, must-sign counted correctly from
+  both the hardware seed's side and a co-signer's side.
+  SEEN: eight screens rendered and read; before and after sheets sent
+  to the operator.
+  NOT SEEN: a physical device; the Spanish and other translations of
+  the new lines (they will show in English until translated).
+
 - **SeedSigner fork checked against today's vaults -- 2026-11-12.
   Signing is correct; two screens are not obvious. Nothing changed in
   the fork.** Operator: "Check on our seed signer fork and make sure
