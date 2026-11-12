@@ -741,7 +741,7 @@ function VaultPreviewBlock({
               key={p.id}
               label={p.label}
               value={
-                `${p.quorum} of ${p.keyCount}` +
+                `${(p.requiredKeys ?? []).length > 0 ? `${p.requiredKeys.length} must-sign + ` : ''}${p.quorum} of ${p.keyCount}` +
                 (p.unlockType === 'immediate'
                   ? ' -- no waiting'
                   : p.unlockType === 'after'

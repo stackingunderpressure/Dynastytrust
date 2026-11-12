@@ -140,6 +140,28 @@ as(OWNER, 'dad@example.com');
 r = await call('compile-leaves', 'POST', { body: { vault_id: 'v1' } });
 assert.equal(r.status, 400); assert.match(r.error, /Anna's key on "The kids" has not been confirmed/);
 assert.equal(vault.status, 'draft');
+// ...and the same rule holds for a must-sign slot: an unconfirmed key
+// cannot slip into the vault by being listed as must-sign instead.
+{
+  const keep = structuredClone(vault.leaves);
+  const k1 = mk(11, TEST, "m/48'/1'/0'/2'").pubkey, k2 = mk(12, TEST, "m/48'/1'/0'/2'").pubkey;
+  vault.leaves[0].keys = [k1]; vault.leaves[1].keys = [k2];
+  vault.leaves[0].required_keys = [annaKey.pubkey];
+  r = await call('compile-leaves', 'POST', { body: { vault_id: 'v1' } });
+  assert.equal(r.status, 400); assert.match(r.error, /Anna's key on ".*" has not been confirmed/);
+  // a must-sign key that is also one of the path's other keys (as its 02/03 twin)
+  vault.leaves[0].required_keys = [(k1.startsWith('02') ? '03' : '02') + k1.slice(2)];
+  r = await call('compile-leaves', 'POST', { body: { vault_id: 'v1' } });
+  assert.equal(r.status, 400); assert.match(r.error, /listed twice\. A must-sign key cannot also be one of the other keys/);
+  vault.leaves[0].required_keys = [k2, k2];
+  r = await call('compile-leaves', 'POST', { body: { vault_id: 'v1' } });
+  assert.equal(r.status, 400); assert.match(r.error, /listed twice/);
+  vault.leaves[0].required_keys = ['tpubNotAPlainKey'];
+  r = await call('compile-leaves', 'POST', { body: { vault_id: 'v1' } });
+  assert.equal(r.status, 400); assert.match(r.error, /must-sign keys on ".*" are not readable public keys/);
+  assert.equal(vault.status, 'draft');
+  vault.leaves = keep;
+}
 as('u-anna', 'anna@example.com');
 r = await call('members', 'PATCH', { query: { id: anna.id }, body: { confirm_key: true, fingerprint: annaKey.fingerprint } });
 assert.equal(r.status, 403, 'a member cannot confirm their own key');
@@ -151,7 +173,7 @@ r = await call('members', 'PATCH', { query: { id: anna.id }, body: { confirm_key
 assert.equal(r.status, 200, JSON.stringify(r));
 assert.ok(anna.key_confirmed_at); assert.equal(anna.key_confirmed_by, OWNER);
 assert.deepEqual([tables.events.at(-1).event_type, tables.events.at(-1).metadata.fingerprint, tables.events.at(-1).metadata.leaf_id], ['key_confirmed', annaKey.fingerprint, 'kids']);
-pass('finalizing is refused while her key is unconfirmed; only the owner can confirm, and only against the fingerprint on record');
+pass('finalizing is refused while her key is unconfirmed, in an ordinary slot or a must-sign one; a doubled or unreadable must-sign key is refused; only the owner can confirm, against the fingerprint on record');
 
 // 6. What was confirmed cannot be swapped afterwards.
 as('u-anna', 'anna@example.com');

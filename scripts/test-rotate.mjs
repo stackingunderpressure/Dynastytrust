@@ -88,6 +88,23 @@ assert.match(bad(v => { v.leaves.pop(); }), /has 3 paths, the old one has 4/);
 assert.match(bad(v => { v.leaves.push({ id: 'x', label: 'Extra', keys: [K('f')], quorum: 1, unlock: { type: 'immediate' }, decay: null }); }), /has 5 paths/);
 assert.match(bad(v => { v.leaves[0].label = 'Someone else'; }), /path 1 is "Someone else", not "Everyday signers"/);
 assert.match(bad(v => { v.address = 'bc1pold'; }), /same address as the old one/);
+
+// 4b. Must-sign keys travel with their path, and a successor that lost
+// one is refused: it would be a weaker vault than the one rotated from.
+{
+  const withMust = { ...old, leaves: old.leaves.map((l, i) => (i === 0 ? { ...l, keys: [K('b')], quorum: 1, required_keys: [K('a')] } : l)) };
+  const moved = rotatedLeaves(withMust.leaves, plan.offsets);
+  assert.deepEqual(moved[0].required_keys, [K('a')]);
+  assert.notEqual(moved[0].required_keys, withMust.leaves[0].required_keys, 'copied, not shared');
+  assert.equal('required_keys' in moved[1], false, 'a path with none keeps its old shape');
+  const next = (f = (x) => x) => f({ network: 'bitcoin', address: 'bc1pnew', consent_keys: [], consent_quorum: null,
+    leaves: moved.map(l => (l.unlock.type === 'after' ? { ...l, unlock: { type: 'after', blocks: relativeToAbsolute(l.unlock.blocks, TIP + 2) } } : structuredClone(l))) });
+  assert.deepEqual(web.checkRotatedVault(withMust, next()), []);
+  assert.match(web.checkRotatedVault(withMust, next(v => { delete v.leaves[0].required_keys; return v; })).join(' | '), /"Everyday signers" does not have the same must-sign keys/);
+  assert.match(web.checkRotatedVault(withMust, next(v => { v.leaves[0].required_keys = [K('f')]; return v; })).join(' | '), /does not have the same must-sign keys/);
+  assert.match(web.checkRotatedVault(old, next(v => { v.leaves[0].keys = [K('a'), K('b')]; v.leaves[0].quorum = 2; return v; })).join(' | '), /does not have the same must-sign keys/, 'a successor that GAINED one is refused too');
+  pass('rotate carries must-sign keys with their path, and a successor that lost or gained one is refused');
+}
 assert.match(bad(v => { v.address = null; }), /no address/);
 assert.match(bad(v => { v.network = 'signet'; }), /on signet, not bitcoin/);
 assert.match(bad(v => { v.consent_keys = [K('f')]; v.consent_quorum = 1; }), /consent rule is not the same/);

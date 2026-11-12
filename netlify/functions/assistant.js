@@ -568,7 +568,7 @@ export async function handler(event) {
         // ahead of that surface being wired up.
         const pathLines = isLeafListVault(vault)
           ? getSpendingPaths(vault)
-              .map(p => `${p.label}: ${p.quorum} of ${p.keyCount}, ${
+              .map(p => `${p.label}: ${p.requiredKeys.length > 0 ? `${p.requiredKeys.length} must-sign key(s) that every spend on this path needs, plus ` : ''}${p.quorum} of ${p.keyCount}${p.requiredKeys.length > 0 ? ' others' : ''}, ${
                 p.unlockType === 'immediate' ? 'no waiting' :
                 p.unlockType === 'after' ? `unlocks at block ${p.unlockBlocks}` :
                 `relative timelock of ${p.unlockBlocks} blocks`

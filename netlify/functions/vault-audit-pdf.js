@@ -12,6 +12,7 @@
  * reservation and resumes on a fresh page with the same header.
  */
 
+import { whoSignsShort } from "./_path-words.js";
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { requireUser } from './_auth.js';
 import { isVaultOwner, redactMember, redactInvite } from './_authz.js';
@@ -211,7 +212,7 @@ async function buildAuditPdf(data) {
         : unlock.type === 'after' ? `after block ${(unlock.blocks || 0).toLocaleString()}`
         : unlock.type === 'older' ? `if untouched for ${(unlock.blocks || 0).toLocaleString()} blocks`
         : '-';
-      keyValue(`${name} quorum`, `${leaf.quorum} of ${(leaf.keys || []).length} -- ${timing}`);
+      keyValue(`${name} quorum`, `${whoSignsShort(leaf.quorum, (leaf.keys || []).length, (leaf.required_keys || []).length)} -- ${timing}`);
     }
   } else {
     keyValue('Founder quorum', `${vault.founder_quorum} of ${(vault.founder_keys || []).length}`);

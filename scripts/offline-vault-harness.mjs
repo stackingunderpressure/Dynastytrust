@@ -28,7 +28,10 @@ import { HDKey } from '@scure/bip32';
 import { mnemonicToSeedSync } from '@scure/bip39';
 import * as btc from '@scure/btc-signer';
 import { signPsbtWithMnemonic, mergePsbts, verifyPsbtMatchesRequest } from '../apps/web/src/lib/psbt-signer.ts';
-import { verifySignedPsbt } from '../netlify/functions/_psbt-verify.js';
+import { verifySignedPsbt, signersOnEveryInput as serverSigners } from '../netlify/functions/_psbt-verify.js';
+import { signersOnEveryInput as browserSigners } from '../apps/web/src/lib/psbt-signer.ts';
+import { findSpendingPath as serverPath, pathSignatureStatus as serverStatus } from '../netlify/functions/_vault-shape.js';
+import { findSpendingPath as browserPath, pathSignatureStatus as browserStatus } from '../apps/web/src/lib/vault-spending-paths.ts';
 
 const COMPILER = process.env.COMPILER_URL || 'http://127.0.0.1:8899';
 const SECRET = process.env.COMPILER_SECRET || 'testsecret';
@@ -507,6 +510,43 @@ const rejected = (msg) => console.log(`  [ok] REJECTED as it should be: ${msg}`)
   await ok(spend, { label: 'must-sign / kids, relaxed step: must-sign key + two kids', path: 'kids_1', signers: who(8,5,6) }, 950_000 + 52_560);
   await expectFail(spend, { label: 'must-sign / kids, relaxed step: all three kids, no must-sign key', path: 'kids_1', signers: who(5,6,7) }); rejected('a must-sign key stays required after the path relaxes');
   await expectFail(spend, { label: 'must-sign / a must-sign key from another path', path: 'everyday', signers: who(8,1) }); rejected('a must-sign key from one path counts for nothing on another');
+
+  // "Fully signed" is decided by WHO signed. On real PSBTs from the real
+  // compiler and signer: two phones are two signatures, and the screen and
+  // the server must both say the spend is NOT ready; the must-sign key and
+  // one phone must read as ready. Browser and server have to agree.
+  {
+    const compiled = await post('/compile-leaves', { ...policy, network: NET });
+    const utxos = [0, 1].map(v => ({ txid: '00'.repeat(32), vout: v, value_sats: 1_000_000, script_pubkey: scriptPubKeyHex(compiled.address) }));
+    const build = async (path, inputs) => (await post('/psbt-binary', { ...policy, path, ...SPEND, inputs, change_address: compiled.address, network: NET })).psbt_hex;
+    const signedBy = async (psbt, signers) => { const parts = []; for (const s of signers) parts.push((await signPsbtWithMnemonic(psbt, MNEMONIC, s.path, 'testnet')).psbt_hex); return parts.length > 1 ? mergePsbts(parts) : parts[0]; };
+    const vault = { leaves: policy.leaves };
+    const verdict = (path, psbt) => {
+      const a = serverStatus(serverPath(vault, path), serverSigners(psbt));
+      const b = browserStatus(browserPath(vault, path), browserSigners(psbt));
+      assert.deepEqual(a, b, `must-sign / browser and server disagree on ${path}`);
+      return a;
+    };
+    const one = await build('everyday', [utxos[0]]);
+    const phones = verdict('everyday', await signedBy(one, who(1,2)));
+    assert.equal(phones.satisfied, false); assert.equal(phones.have, 1); assert.equal(phones.need, 2);
+    assert.deepEqual(phones.missingRequired, keys(0));
+    const good = verdict('everyday', await signedBy(one, who(0,2)));
+    assert.equal(good.satisfied, true); assert.deepEqual(good.missingRequired, []);
+    assert.equal(verdict('everyday', await signedBy(one, who(0))).satisfied, false);
+    console.log('  [ok] must-sign / two phones = 2 signatures but NOT ready, naming the missing must-sign key; must-sign key + one phone = ready; browser and server agree');
+    // Two coins: a signer who signed only one of them has not signed the spend.
+    const two = await build('everyday', utxos);
+    const full = await signedBy(two, who(0,1));
+    assert.equal(verdict('everyday', full).satisfied, true);
+    const half = mergePsbts([(await signPsbtWithMnemonic(two, MNEMONIC, S[1].path, 'testnet')).psbt_hex, (await signPsbtWithMnemonic(one, MNEMONIC, S[0].path, 'testnet')).psbt_hex].slice(0, 1));
+    assert.equal(verdict('everyday', half).satisfied, false);
+    // A relaxed step keeps its must-sign key.
+    const rung = await build('kids_1', [utxos[0]]);
+    assert.equal(verdict('kids_1', await signedBy(rung, who(5,6,7))).satisfied, false);
+    assert.equal(verdict('kids_1', await signedBy(rung, who(8,5,6))).satisfied, true);
+    console.log('  [ok] must-sign / two-coin spend and a relaxed step are judged by who signed every coin');
+  }
 
   // Two must-sign keys on one path.
   const two = { leaves: [leaf({ id: 'only', required_keys: keys(0,1), keys: keys(2,3), quorum: 1, unlock: { type: 'immediate' } })] };

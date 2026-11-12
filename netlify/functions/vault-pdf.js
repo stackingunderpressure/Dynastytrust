@@ -7,6 +7,7 @@
  * Requires: pdf-lib (add to package.json dependencies)
  */
 
+import { whoSignsWords, whoSignsShort, mustSignMeaning } from "./_path-words.js";
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import QRCode from 'qrcode';
 import { createHash } from 'node:crypto';
@@ -153,7 +154,9 @@ function leafPathCards(leaves) {
     return {
       title: `PATH ${i + 1} -- ${leaf.label || leaf.id} (${when})`,
       color: colorFor(leaf.unlock),
-      body: `${leaf.quorum} of ${(leaf.keys || []).length} signature${leaf.quorum === 1 ? '' : 's'} required.${decayNote}`,
+      body: (leaf.required_keys || []).length > 0
+        ? `${whoSignsWords(leaf.quorum, (leaf.keys || []).length, leaf.required_keys.length)} must sign. ${mustSignMeaning(leaf.required_keys.length)}${decayNote}`
+        : `${leaf.quorum} of ${(leaf.keys || []).length} signature${leaf.quorum === 1 ? '' : 's'} required.${decayNote}`,
     };
   });
 }
@@ -323,7 +326,7 @@ async function buildVaultPDF(vault) {
         const name = leaf.label || leaf.id;
         return [
           [`${name} Keys`, `${(leaf.keys || []).length} keys`],
-          [`${name} Quorum`, `${leaf.quorum} of ${(leaf.keys || []).length} required`],
+          [`${name} Quorum`, `${whoSignsShort(leaf.quorum, (leaf.keys || []).length, (leaf.required_keys || []).length)} required`],
           [`${name} Timing`, leafTiming(leaf.unlock).detail],
         ];
       }).concat([
@@ -415,10 +418,13 @@ async function buildVaultPDF(vault) {
       const name = leaf.label || leaf.id;
       p2.drawText(`${name.toUpperCase()} PUBLIC KEYS`, { x: M, y, size: 8, font: bold, color: GOLD });
       y -= 16;
-      for (let i = 0; i < (leaf.keys || []).length; i++) {
+      // Must-sign keys first, named as such, then the path's other keys.
+      const mustCount = (leaf.required_keys || []).length;
+      const listed = [...(leaf.required_keys || []), ...(leaf.keys || [])];
+      for (let i = 0; i < listed.length; i++) {
         if (y < 60) break; // don't draw off the bottom of the page
-        const k = leaf.keys[i];
-        p2.drawText(`${name} ${i + 1}`, { x: M, y, size: 8, font: bold, color: TEXT_DIM });
+        const k = listed[i];
+        p2.drawText(i < mustCount ? `${name} MUST SIGN ${i + 1}` : `${name} ${i - mustCount + 1}`, { x: M, y, size: 8, font: bold, color: TEXT_DIM });
         drawRect(p2, M, y - 18, W - M * 2, 22, SURFACE);
         p2.drawText(k || '—', { x: M + 8, y: y - 12, size: 7.5, font: mono, color: TEXT, maxWidth: W - M * 2 - 16 });
         y -= 32;
@@ -474,7 +480,7 @@ async function buildVaultPDF(vault) {
       if (!isLeafShape) return `This vault requires ${vault.founder_quorum || 2} of ${(vault.founder_keys || []).length} founder signatures. Each signer signs the PSBT with walletprocesspsbt.`;
       const immediate = vault.leaves.find(l => l.unlock?.type === 'immediate');
       return immediate
-        ? `This vault's "${immediate.label || immediate.id}" path requires ${immediate.quorum} of ${(immediate.keys || []).length} signatures for everyday spending. Each signer signs the PSBT with walletprocesspsbt.`
+        ? `This vault's "${immediate.label || immediate.id}" path requires ${whoSignsWords(immediate.quorum, (immediate.keys || []).length, (immediate.required_keys || []).length)} to sign for everyday spending. Each signer signs the PSBT with walletprocesspsbt.`
         : 'Check which path this spend uses on the Trust tab, then gather the required signers for that path -- each signs the PSBT with walletprocesspsbt.';
     })()],
     ['5. Broadcast', 'combinepsbt, finalizepsbt (must say complete: true), sendrawtransaction. We have not seen Sparrow or Nunchuk load this kind of vault; do not count on them.'],
