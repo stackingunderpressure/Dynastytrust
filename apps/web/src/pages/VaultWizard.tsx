@@ -16,6 +16,7 @@ import { isLeafListVault } from '../lib/vault-spending-paths';
 import { downloadVault } from '../lib/descriptor-backup';
 import { keyNetworkMatches } from '../lib/network';
 import { whoSignsShort, whoSignsWords, mustSignMeaning } from '../lib/path-words';
+import { mustSignPathsNotInScripts } from '../lib/must-sign-check';
 import { keyKind, mustSignKeysEveryPathNeeds, pathNotes, vaultNote, type RiskNote, type RiskPath } from '../lib/path-risk';
 import { blocksToHuman, TIMELOCK_PRESETS, MIN_RECOVERY_BLOCKS } from '../lib/blocks';
 import { approxWallclockDate, blocksUntilDate, verifiedTipHeight } from '../lib/chain';
@@ -845,6 +846,13 @@ export default function VaultWizard() {
         const allLeafKeys = enabled.flatMap(l => [...(leafKeys[mustSlot(l.id)] ?? []), ...(leafKeys[l.id] ?? [])])
           .filter((k, i, all) => all.findIndex(o => o.keyId === k.keyId) === i);
         const res = await api.vaults.compileLeaves(draftVault.id, buildPsbtKeyOrigins(allLeafKeys));
+        // Checked here as well as on the server: every must-sign key has
+        // to be in its own path's compiled script. If it is not, the
+        // address is for a weaker vault than the one on screen.
+        const notInScripts = mustSignPathsNotInScripts(leavesWithKeys, res.vault.leaf_scripts);
+        if (notInScripts.length > 0) {
+          throw new TimelockMismatch(`This vault was NOT accepted: the address that came back does not require the must-sign ${notInScripts.length === 1 ? 'key' : 'keys'} on "${notInScripts.join('", "')}". Do not send bitcoin to it. Try again in a few minutes.`);
+        }
         await assertTimelocks(draftVault.network, enabled
           .filter(l => l.unlockType !== 'immediate')
           .map(l => {

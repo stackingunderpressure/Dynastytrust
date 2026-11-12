@@ -1,4 +1,5 @@
 import { whoSignsShort } from '../lib/path-words';
+import { mustSignPathsNotInScripts } from '../lib/must-sign-check';
 import { useEffect, useMemo, useState } from 'react';
 import { api, type Vault } from '../lib/api';
 import { verifiedTipHeight } from '../lib/chain';
@@ -111,7 +112,10 @@ export function RotatePathVault({
         checkTip,
         vault.network,
       );
-      const problems = [...dates.problems, ...checkRotatedVault(vault, res.vault)];
+      // The new address has to really require this vault's must-sign keys.
+      const weak = mustSignPathsNotInScripts(res.vault.leaves, res.vault.leaf_scripts)
+        .map(name => `the new address does not require the must-sign key on "${name}"`);
+      const problems = [...dates.problems, ...checkRotatedVault(vault, res.vault), ...weak];
       if (problems.length > 0) {
         // A refused vault must not stay linked as this vault's successor:
         // the old vault's "Sweep to successor" button would point at it.

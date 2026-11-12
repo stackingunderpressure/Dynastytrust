@@ -106,6 +106,38 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Must-sign keys SHIPPED 2026-11-12 01:01 UTC (main 8168739), and a
+  guard added the same hour for a gap I opened by shipping.** Site
+  verified byte-identical to 8168739; compiler deploy run 33 succeeded
+  at 01:03 UTC.
+  THE GAP: the site and the compiler deploy separately. Between the
+  site going live and the compiler finishing (about two minutes), and
+  for as long as any future compiler deploy fails, the OLD compiler
+  would be asked to finalize a must-sign vault. It does not know the
+  field, ignores it, and returns a valid address for the SAME vault
+  WITHOUT the must-sign keys -- weaker than what the owner was shown,
+  with nothing to say so. I should have built the guard before
+  shipping, not after. I cannot see the database from here, so I
+  cannot prove no must-sign vault was finalized in that window; the
+  operator was the only person who knew the feature existed.
+  THE GUARD: `netlify/functions/_must-sign-check.js` and its twin
+  `apps/web/src/lib/must-sign-check.ts` check, from the compiled
+  scripts, that every must-sign key is in ITS OWN path's script, on
+  every step of a relaxing path (a key that merely appears on another
+  path does not count). `compile-leaves.js` refuses and saves nothing;
+  the builder and the rotate screen check again in the browser and
+  refuse ("Do not send bitcoin to it"). Missing scripts fail closed.
+  PROVEN: harness, real compiler -- the real scripts pass; the vault an
+  older compiler would return (same policy, must-sign lists dropped)
+  is caught on all three paths. `scripts/test-must-sign-check.mjs`, 4
+  cases, twins identical. WALKED: a stand-in old compiler answers ->
+  "The vault builder service did not include the must-sign keys for
+  Everyday, Backup. Nothing was saved and no address was made." ->
+  the draft is still a draft with no address -> Try again with the
+  right answer -> finalized.
+  Measured: npm test exit 0, 33 suites; lint 0 errors / 11 warnings;
+  typecheck 10 = unchanged; build green.
+
 - **Must-sign keys on a path, slice two (everything a person sees) --
   BUILT 2026-11-12, on the branch, NOT on main, awaiting the operator's
   word to ship.** His decisions, by chip: the count is set up front

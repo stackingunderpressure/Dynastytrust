@@ -32,6 +32,7 @@ import { verifySignedPsbt, signersOnEveryInput as serverSigners } from '../netli
 import { signersOnEveryInput as browserSigners } from '../apps/web/src/lib/psbt-signer.ts';
 import { findSpendingPath as serverPath, pathSignatureStatus as serverStatus } from '../netlify/functions/_vault-shape.js';
 import { findSpendingPath as browserPath, pathSignatureStatus as browserStatus } from '../apps/web/src/lib/vault-spending-paths.ts';
+import { mustSignPathsNotInScripts } from '../netlify/functions/_must-sign-check.js';
 
 const COMPILER = process.env.COMPILER_URL || 'http://127.0.0.1:8899';
 const SECRET = process.env.COMPILER_SECRET || 'testsecret';
@@ -500,6 +501,16 @@ const rejected = (msg) => console.log(`  [ok] REJECTED as it should be: ${msg}`)
   const spend = spendWith(policy);
   assert.notEqual((await post('/compile-leaves', { ...policy, network: NET })).address,
     (await post('/compile-leaves', { leaves: policy.leaves.map(l => ({ ...l, required_keys: [] })), network: NET })).address);
+  // The finalize guard, against the REAL compiler's scripts: this vault
+  // passes; the vault an older compiler would have returned (the same
+  // policy with the must-sign lists ignored) is caught on every path.
+  {
+    const real = await post('/compile-leaves', { ...policy, network: NET });
+    assert.deepEqual(mustSignPathsNotInScripts(policy.leaves, real.leaf_scripts), []);
+    const ignored = await post('/compile-leaves', { leaves: policy.leaves.map(({ required_keys, ...l }) => l), network: NET });
+    assert.deepEqual(mustSignPathsNotInScripts(policy.leaves, ignored.leaf_scripts), ['everyday', 'backup', 'kids']);
+    console.log('  [ok] must-sign / the finalize guard passes the real compiled scripts and catches a compiler that ignored the must-sign keys');
+  }
   await ok(spend, { label: 'must-sign / everyday: the must-sign key + one of the two others', path: 'everyday', signers: who(0,1) }, 0);
   await ok(spend, { label: 'must-sign / everyday: the must-sign key + the other one', path: 'everyday', signers: who(0,2) }, 0);
   await expectFail(spend, { label: 'must-sign / everyday: BOTH others, without the must-sign key', path: 'everyday', signers: who(1,2) }); rejected('both other signers together cannot spend without the must-sign key');

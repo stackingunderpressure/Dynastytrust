@@ -29,6 +29,7 @@
  *   5. log 'draft_compiled' event
  */
 
+import { mustSignPathsNotInScripts } from "./_must-sign-check.js";
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 import { recordEvent } from "./_ledger.js";
@@ -225,6 +226,13 @@ export async function handler(event) {
     }
     if (!res.ok || !data.ok) {
       return json(400, { error: data.error || "Compiler returned an error" });
+    }
+    // Fail closed if the compiler did not honour the must-sign keys. A
+    // compiler build from before they existed ignores the list and
+    // returns a valid, WEAKER vault; nothing is saved in that case.
+    const missing = mustSignPathsNotInScripts(wireLeaves, data.leaf_scripts);
+    if (missing.length > 0) {
+      return json(502, { error: `The vault builder service did not include the must-sign ${missing.length === 1 ? 'key' : 'keys'} for "${missing.join('", "')}". Nothing was saved and no address was made. Try again in a few minutes.` });
     }
     compiled = data;
   } catch (err) {
