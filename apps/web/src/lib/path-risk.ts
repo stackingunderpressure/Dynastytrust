@@ -37,6 +37,9 @@ export interface RiskPath {
   slots: number;
   quorum: number;
   keys: RiskKey[];
+  /** Keys that must EACH sign on this path, on top of `quorum` of `keys`
+   *  (protocol::Leaf::required_keys). Never also in `keys`. */
+  required?: RiskKey[];
   unlock: 'immediate' | 'after' | 'older';
   /** For 'after': blocks from when the vault is made. For 'older':
    *  blocks the coins must sit untouched. 0 for 'immediate'. */
@@ -54,14 +57,21 @@ function listWords(names: string[]): string {
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }
 
+const must = (p: RiskPath): RiskKey[] => p.required ?? [];
+const isMust = (p: RiskPath, keyId: string) => must(p).some(k => k.keyId === keyId);
+const onPath = (p: RiskPath, keyId: string) => isMust(p, keyId) || p.keys.some(k => k.keyId === keyId);
+
 /** True when this path cannot open unless this key signs. */
 export function keyRequiredOn(path: RiskPath, keyId: string): boolean {
+  if (isMust(path, keyId)) return true;
   return path.keys.some(k => k.keyId === keyId) && path.slots - 1 < path.quorum;
 }
 
 /** Blocks until this path can be used WITHOUT the given key, or null if
  *  it never can. A path the key is not on is simply its own wait. */
 export function waitWithout(path: RiskPath, keyId: string): number | null {
+  // A must-sign key stays required on every step of a relaxing path.
+  if (isMust(path, keyId)) return null;
   if (!path.keys.some(k => k.keyId === keyId)) return path.blocks;
   const others = path.slots - 1;
   if (others <= 0) return null;
@@ -98,36 +108,63 @@ function waitWords(path: RiskPath, blocks: number): string {
     : `${durationWords(blocks)} after the vault is made`;
 }
 
-/** The one sentence set for a key that sits on more than one path. */
-export function sharedKeyNote(paths: RiskPath[], key: RiskKey, here: RiskPath): RiskNote | null {
-  const on = paths.filter(p => p.keys.some(k => k.keyId === key.keyId));
-  if (on.length < 2) return null;
-  const others = on.filter(p => p.id !== here.id).map(p => q(p.label));
+// What losing this key costs, computed from every path.
+function lossSentence(paths: RiskPath[], key: RiskKey): { level: RiskLevel; text: string } {
+  const on = paths.filter(p => onPath(p, key.keyId));
   const dead = on.filter(p => waitWithout(p, key.keyId) == null).map(p => q(p.label));
   const out = lossOutcome(paths, key.keyId);
-
-  let lost: string;
-  let level: RiskLevel;
   const stops = dead.length ? `${listWords(dead)} ${dead.length === 1 ? 'stops' : 'stop'} working for good, and ` : '';
   if (out.kind === 'never') {
-    level = 'danger';
-    lost = 'If it is lost, this bitcoin can never be moved: every path needs this key.';
-  } else if (out.kind === 'now') {
-    level = dead.length ? 'warn' : 'info';
-    lost = `If it is lost, ${stops}you can still spend right away through ${q(out.path.label)}.`;
-  } else {
-    level = 'warn';
-    lost = `If it is lost, ${stops}nothing can move until ${q(out.path.label)} opens without it: ${waitWords(out.path, out.blocks)}.`;
+    return { level: 'danger', text: 'If it is lost, this bitcoin can never be moved: every path needs this key.' };
   }
+  if (out.kind === 'now') {
+    return { level: dead.length ? 'warn' : 'info', text: `If it is lost, ${stops}you can still spend right away through ${q(out.path.label)}.` };
+  }
+  return { level: 'warn', text: `If it is lost, ${stops}nothing can move until ${q(out.path.label)} opens without it: ${waitWords(out.path, out.blocks)}.` };
+}
+
+/** The one sentence set for a key that sits on more than one path. */
+export function sharedKeyNote(paths: RiskPath[], key: RiskKey, here: RiskPath): RiskNote | null {
+  const on = paths.filter(p => onPath(p, key.keyId));
+  if (on.length < 2) return null;
+  const others = on.filter(p => p.id !== here.id).map(p => q(p.label));
+  const lost = lossSentence(paths, key);
   const stolen = `If it is stolen, the thief holds one of the signatures needed on ${on.length === 2 ? 'both' : `all ${on.length}`} of these paths.`;
-  return { level, text: `${q(key.label)} is also on ${listWords(others)}. ${lost} ${stolen}` };
+  const lead = isMust(here, key.keyId) ? `${q(key.label)} must sign every spend on this path, and is also on ${listWords(others)}.` : `${q(key.label)} is also on ${listWords(others)}.`;
+  return { level: lost.level, text: `${lead} ${lost.text} ${stolen}` };
+}
+
+/** For a must-sign key that is on this path only: what requiring it means. */
+export function mustSignNote(paths: RiskPath[], key: RiskKey, here: RiskPath): RiskNote | null {
+  if (!isMust(here, key.keyId)) return null;
+  if (paths.filter(p => onPath(p, key.keyId)).length >= 2) return null; // sharedKeyNote says it
+  const lost = lossSentence(paths, key);
+  return { level: lost.level, text: `${q(key.label)} must sign every spend on this path. ${lost.text}` };
+}
+
+/** A must-sign key whose seed sits in this browser protects like a phone. */
+export function browserMustSignNote(here: RiskPath): RiskNote | null {
+  const hot = must(here).filter(k => k.kind === 'browser');
+  if (!hot.length) return null;
+  return {
+    level: 'warn',
+    text: `${listWords(hot.map(k => q(k.label)))} ${hot.length === 1 ? 'is' : 'are'} kept in this browser. Making ${hot.length === 1 ? 'it' : 'them'} must-sign gives this path a phone's protection, not a hardware wallet's.`,
+  };
+}
+
+/** Must-sign keys that EVERY path needs: lose one and nothing can ever
+ *  move. The builder asks for an explicit tick before finalizing. */
+export function mustSignKeysEveryPathNeeds(paths: RiskPath[]): RiskKey[] {
+  const seen = new Map<string, RiskKey>();
+  for (const p of paths) for (const k of must(p)) if (!seen.has(k.keyId)) seen.set(k.keyId, k);
+  return [...seen.values()].filter(k => lossOutcome(paths, k.keyId).kind === 'never');
 }
 
 /** Does the vault mix separate-device keys with browser keys at all?
  *  Only then is "is the separate-device key actually required" a
  *  question worth raising. */
 function mixesKinds(paths: RiskPath[]): boolean {
-  const all = paths.flatMap(p => p.keys);
+  const all = paths.flatMap(p => [...must(p), ...p.keys]);
   return all.some(k => k.kind === 'outside') && all.some(k => k.kind === 'browser');
 }
 
@@ -135,12 +172,13 @@ function mixesKinds(paths: RiskPath[]): boolean {
  *  the slots that could be anything but a known separate-device key, so
  *  an empty slot is not assumed to be a hardware wallet. */
 export function opensWithoutOutsideKey(path: RiskPath): boolean {
+  if (must(path).some(k => k.kind === 'outside')) return false;
   const outside = path.keys.filter(k => k.kind === 'outside').length;
   return path.slots - outside >= path.quorum;
 }
 
 function outsideNote(path: RiskPath): RiskNote | null {
-  if (path.keys.length === 0) return null;
+  if (path.keys.length === 0 && must(path).length === 0) return null;
   const outside = path.keys.filter(k => k.kind === 'outside');
   if (!opensWithoutOutsideKey(path)) {
     return { level: 'good', text: 'This path cannot open without a separate-device key signing. A stolen phone or browser is not enough here.' };
@@ -154,7 +192,7 @@ function outsideNote(path: RiskPath): RiskNote | null {
     : '';
   const others = path.slots - outside.length;
   const fix = outside.length
-    ? ` To make it required, set how many must agree to more than ${others}, the number of other keys on this path.`
+    ? ` To make it required, give this path a must-sign key when you shape the vault, or set how many must agree to more than ${others}, the number of other keys on this path.`
     : ' A hardware wallet guards a path only when the path cannot open without it.';
   return { level: 'warn', text: lead + named + fix };
 }
@@ -164,10 +202,12 @@ export function pathNotes(paths: RiskPath[], pathId: string): RiskNote[] {
   const here = paths.find(p => p.id === pathId);
   if (!here) return [];
   const notes: RiskNote[] = [];
-  for (const k of here.keys) {
-    const n = sharedKeyNote(paths, k, here);
+  for (const k of [...must(here), ...here.keys]) {
+    const n = sharedKeyNote(paths, k, here) ?? mustSignNote(paths, k, here);
     if (n) notes.push(n);
   }
+  const hot = browserMustSignNote(here);
+  if (hot) notes.push(hot);
   if (mixesKinds(paths)) {
     const n = outsideNote(here);
     if (n) notes.push(n);
@@ -180,7 +220,7 @@ export function pathNotes(paths: RiskPath[], pathId: string): RiskNote[] {
  *  both a separate-device key and a browser key. */
 export function vaultNote(paths: RiskPath[]): RiskNote | null {
   if (!mixesKinds(paths)) return null;
-  const filled = paths.filter(p => p.keys.length > 0);
+  const filled = paths.filter(p => p.keys.length > 0 || must(p).length > 0);
   const open = filled.filter(opensWithoutOutsideKey);
   if (open.length === 0) {
     return { level: 'good', text: 'Every path here needs a separate-device key to sign. That is the strongest set-up: nothing in this vault can be spent from a phone or browser alone.' };

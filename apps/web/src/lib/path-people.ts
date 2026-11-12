@@ -51,6 +51,11 @@ function localToSelected(k: LocalKey): SelectedKey {
  * member whose confirmation is gone) is left out and reported, so the
  * owner sees an empty slot instead of a key they cannot account for.
  */
+/** Where the builder keeps a path's must-sign keys, beside its other
+ *  keys: the same record, under the path's id plus this suffix. A path id
+ *  never contains '#', so the two cannot collide. */
+export const mustSlot = (leafId: string) => `${leafId}#must`;
+
 export function hydrateSlots(
   leaves: readonly LeafSpec[],
   localKeys: readonly LocalKey[],
@@ -66,16 +71,20 @@ export function hydrateSlots(
   );
   const slots: Record<string, SelectedKey[]> = {};
   let dropped = 0;
-  for (const leaf of leaves) {
+  const resolve = (pks: readonly string[]): SelectedKey[] => {
     const out: SelectedKey[] = [];
-    for (const pk of leaf.keys ?? []) {
+    for (const pk of pks) {
       const k = local.get(xOnly(pk));
       const m = invited.get(xOnly(pk));
       const sk = k ? localToSelected(k) : m ? memberToSelected(m, network) : null;
       if (sk && !out.some(x => x.keyId === sk.keyId)) out.push(sk);
       else if (!sk) dropped++;
     }
-    slots[leaf.id] = out;
+    return out;
+  };
+  for (const leaf of leaves) {
+    slots[leaf.id] = resolve(leaf.keys ?? []);
+    if ((leaf.required_keys ?? []).length > 0) slots[mustSlot(leaf.id)] = resolve(leaf.required_keys ?? []);
   }
   return { slots, dropped };
 }

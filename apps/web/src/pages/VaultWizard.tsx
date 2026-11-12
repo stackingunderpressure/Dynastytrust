@@ -9,13 +9,14 @@ import {
   type SelectedKey,
 } from '../lib/descriptor-keys';
 import { api, type Vault, type VaultProposal, type BlocPolicy, type TrustDoc, type VaultInvite, type VaultMember } from '../lib/api';
-import { hydrateSlots } from '../lib/path-people';
+import { hydrateSlots, mustSlot } from '../lib/path-people';
 import { PathInvites } from '../components/vault-builder/PathInvites';
 import { KeySafety } from '../components/KeySafety';
 import { isLeafListVault } from '../lib/vault-spending-paths';
 import { downloadVault } from '../lib/descriptor-backup';
 import { keyNetworkMatches } from '../lib/network';
-import { keyKind, pathNotes, vaultNote, type RiskNote, type RiskPath } from '../lib/path-risk';
+import { whoSignsShort, whoSignsWords, mustSignMeaning } from '../lib/path-words';
+import { keyKind, mustSignKeysEveryPathNeeds, pathNotes, vaultNote, type RiskNote, type RiskPath } from '../lib/path-risk';
 import { blocksToHuman, TIMELOCK_PRESETS, MIN_RECOVERY_BLOCKS } from '../lib/blocks';
 import { approxWallclockDate, blocksUntilDate, verifiedTipHeight } from '../lib/chain';
 import { checkAbsoluteTimelocks, type TimelockPair } from '../lib/timelock-check';
@@ -73,6 +74,9 @@ interface LeafDraft {
   label: string;
   plannedKeys: number;
   quorum: number;
+  /** How many keys must ALWAYS sign on this path, on top of `quorum` of
+   *  the `plannedKeys` others (protocol::Leaf::required_keys). 0 = none. */
+  plannedRequired: number;
   unlockType: 'immediate' | 'after' | 'older';
   afterBlocks: number;
   olderBlocks: number;
@@ -101,7 +105,7 @@ function newLeafId(prefix: string): string {
 // operator: "No prefilled mess anywhere... User does all the setting.").
 function defaultPrimaryLeaf(): LeafDraft {
   return {
-    id: 'primary', label: 'Everyday signers', plannedKeys: 1, quorum: 1,
+    id: 'primary', label: 'Everyday signers', plannedKeys: 1, quorum: 1, plannedRequired: 0,
     unlockType: 'immediate', afterBlocks: 0, olderBlocks: 0,
     decayEnabled: false, decayStepBlocks: 26_280, decayFloorQ: 1,
     enabled: true,
@@ -110,7 +114,7 @@ function defaultPrimaryLeaf(): LeafDraft {
 
 function defaultSecondaryLeaf(label = 'New path'): LeafDraft {
   return {
-    id: newLeafId('path'), label, plannedKeys: 1, quorum: 1,
+    id: newLeafId('path'), label, plannedKeys: 1, quorum: 1, plannedRequired: 0,
     // afterBlocks starts at 0, not a "~6 months" guess -- an unset
     // timelock is flagged (see hasUnsetAfter in LeavesConfigureFields)
     // rather than silently defaulted to a number the user never chose.
@@ -151,8 +155,11 @@ function leafShapeIssues(leafDrafts: LeafDraft[]): { hasImmediate: boolean; hasU
   };
 }
 
-function leafDraftToSpec(l: LeafDraft, keys: string[]): LeafSpec {
+function leafDraftToSpec(l: LeafDraft, keys: string[], requiredKeys: string[] = []): LeafSpec {
   return {
+    // Must-sign keys: only written for a path that has them, so every
+    // other path is saved in exactly the shape it always was.
+    ...(l.plannedRequired > 0 ? { planned_required: l.plannedRequired, required_keys: requiredKeys } : {}),
     // planned_keys is a draft-only note of how many key slots the path
     // has. Without it a resumed draft fell back to "as many slots as
     // signatures needed", silently dropping the spare slots of a 2-of-3
@@ -185,6 +192,7 @@ function leafDraftFromSpec(spec: LeafSpec): LeafDraft {
     id: spec.id,
     label: spec.label,
     plannedKeys: Math.max(spec.planned_keys ?? 0, spec.keys.length, spec.quorum, 1),
+    plannedRequired: Math.max(spec.planned_required ?? 0, (spec.required_keys ?? []).length),
     quorum: spec.quorum,
     decayEnabled: spec.decay != null,
     decayStepBlocks: spec.decay?.step_blocks ?? 26_280,
@@ -723,7 +731,11 @@ export default function VaultWizard() {
   // and come back while family members join over several days.
   const slotsToSaveJson = useMemo(
     () => JSON.stringify(leafDrafts.filter(l => l.enabled).map(l =>
-      leafDraftToSpec(l, (leafKeys[l.id] ?? []).filter(k => k.pubkey?.length === 66).map(k => k.pubkey)))),
+      leafDraftToSpec(
+        l,
+        (leafKeys[l.id] ?? []).filter(k => k.pubkey?.length === 66).map(k => k.pubkey),
+        (leafKeys[mustSlot(l.id)] ?? []).filter(k => k.pubkey?.length === 66).map(k => k.pubkey),
+      ))),
     [leafDrafts, leafKeys],
   );
   useEffect(() => {
@@ -749,7 +761,8 @@ export default function VaultWizard() {
       return foundersReady && heirsReady && consentersReady && backupsReady && secondHeirsReady;
     }
     if (shape === 'leaves') {
-      return leafDrafts.filter(l => l.enabled).every(l => (leafKeys[l.id]?.length ?? 0) >= l.plannedKeys);
+      return leafDrafts.filter(l => l.enabled).every(l =>
+        (leafKeys[l.id]?.length ?? 0) >= l.plannedKeys && (leafKeys[mustSlot(l.id)]?.length ?? 0) >= l.plannedRequired);
     }
     const c = blocConfig;
     return parentKeys.length >= c.plannedParents && kidKeys.length >= c.plannedKids;
@@ -825,10 +838,11 @@ export default function VaultWizard() {
         }));
       } else if (shape === 'leaves') {
         const enabled = leafDrafts.filter(l => l.enabled);
-        const leavesWithKeys = enabled.map(l => leafDraftToSpec(l, (leafKeys[l.id] ?? []).map(toPubkeyHex)));
+        const leavesWithKeys = enabled.map(l => leafDraftToSpec(
+          l, (leafKeys[l.id] ?? []).map(toPubkeyHex), (leafKeys[mustSlot(l.id)] ?? []).map(toPubkeyHex)));
         await api.vaults.updateLeaves(draftVault.id, leavesWithKeys);
         // One key may be on several paths; its origin is sent once.
-        const allLeafKeys = enabled.flatMap(l => leafKeys[l.id] ?? [])
+        const allLeafKeys = enabled.flatMap(l => [...(leafKeys[mustSlot(l.id)] ?? []), ...(leafKeys[l.id] ?? [])])
           .filter((k, i, all) => all.findIndex(o => o.keyId === k.keyId) === i);
         const res = await api.vaults.compileLeaves(draftVault.id, buildPsbtKeyOrigins(allLeafKeys));
         await assertTimelocks(draftVault.network, enabled
@@ -850,7 +864,7 @@ export default function VaultWizard() {
         void saveGeneratedTrustDoc(res.vault.id, buildLeavesTrustDoc({
           vaultName: name,
           leaves: enabled.map(l => ({
-            label: l.label, plannedKeys: l.plannedKeys, quorum: l.quorum, unlockType: l.unlockType,
+            label: l.label, plannedKeys: l.plannedKeys, quorum: l.quorum, plannedRequired: l.plannedRequired, unlockType: l.unlockType,
             afterBlocks: l.afterBlocks, olderBlocks: l.olderBlocks,
             decayEnabled: l.decayEnabled, decayFloorQ: l.decayFloorQ,
           })),
@@ -918,8 +932,8 @@ export default function VaultWizard() {
       if (!l.enabled) continue;
       if (l.unlockType === 'immediate') {
         legs.push({
-          label: l.label, who: `${l.quorum} of ${l.plannedKeys}`, afterBlocks: 0,
-          requiredSigners: l.quorum, meaning: 'Any normal spend, right away.',
+          label: l.label, who: whoSignsShort(l.quorum, l.plannedKeys, l.plannedRequired), afterBlocks: 0,
+          requiredSigners: l.quorum + l.plannedRequired, meaning: 'Any normal spend, right away.',
         });
         continue;
       }
@@ -931,16 +945,16 @@ export default function VaultWizard() {
         const base = isOlder ? l.olderBlocks : l.afterBlocks;
         const height = base + (l.decayEnabled ? i * l.decayStepBlocks : 0);
         legs.push({
-          label: rungs.length > 1 ? `${l.label} (${q} of ${l.plannedKeys})` : l.label,
-          who: `${q} of ${l.plannedKeys}`,
+          label: rungs.length > 1 ? `${l.label} (${whoSignsShort(q, l.plannedKeys, l.plannedRequired)})` : l.label,
+          who: whoSignsShort(q, l.plannedKeys, l.plannedRequired),
           afterBlocks: height,
-          requiredSigners: q,
+          requiredSigners: q + l.plannedRequired,
           meaning: isOlder
             ? `Opens if the vault sits untouched for ${blocksToHuman(height)} -- moving the coins resets this clock back to full strength.`
             : rungs.length > 1
-              ? `From ${blocksToHuman(height)} after funding, any ${q} can spend together.`
+              ? `From ${blocksToHuman(height)} after funding, any ${q} ${l.plannedRequired > 0 ? 'of the others, with the must-sign key, ' : ''}can spend together.`
               : `From ${blocksToHuman(height)} after funding, on its own.`,
-          weak: l.decayEnabled && q === 1,
+          weak: l.decayEnabled && q === 1 && l.plannedRequired === 0,
         });
       }
     }
@@ -1919,6 +1933,22 @@ function LeafCard({
           <p style={{ fontSize: 16, fontWeight: 450, color: colors.text, marginTop: -6 }}>
             {keyLossLine(leaf.quorum, leaf.plannedKeys)}
           </p>
+          <Field label="Keys that must always sign">
+            <CountStepper
+              value={leaf.plannedRequired} min={0} max={5} label="must-sign" color={colors.orange}
+              onChange={n => onChange(l => ({ ...l, plannedRequired: n }))}
+            />
+            <p style={{ fontSize: 15, color: colors.sub, lineHeight: 1.55, margin: '8px 0 0' }}>
+              {leaf.plannedRequired === 0
+                ? 'None. Leave this at 0 unless one particular key -- a hardware wallet, say -- should have to sign every spend on this path, no matter who else agrees.'
+                : `Every spend on this path needs ${whoSignsWords(leaf.quorum, leaf.plannedKeys, leaf.plannedRequired)}. The people counted above are "the others".`}
+            </p>
+            {leaf.plannedRequired > 0 && (
+              <p style={{ fontSize: 16, fontWeight: 450, color: colors.orange, lineHeight: 1.5, margin: '8px 0 0' }}>
+                {mustSignMeaning(leaf.plannedRequired)}
+              </p>
+            )}
+          </Field>
           <Field label="When does this open?">
             <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
               <Button size="sm" variant={leaf.unlockType === 'immediate' ? 'primary' : 'ghost'} onClick={() => onChange(l => ({ ...l, unlockType: 'immediate', decayEnabled: false }))}>
@@ -2143,7 +2173,7 @@ function KeysStep({
   const enabledLeaves = leafDrafts.filter(l => l.enabled);
   const claimed = new Set([
     ...founderKeys, ...heirKeys, ...consentKeys, ...backupKeys, ...secondHeirKeys, ...parentKeys, ...kidKeys,
-    ...enabledLeaves.flatMap(l => leafKeys[l.id] ?? []),
+    ...enabledLeaves.flatMap(l => [...(leafKeys[l.id] ?? []), ...(leafKeys[mustSlot(l.id)] ?? [])]),
   ].map(k => k.keyId));
   const availableKeys = allKeys.filter(k => !claimed.has(k.keyId) && keyNetworkMatches(k.network, network));
 
@@ -2159,11 +2189,19 @@ function KeysStep({
     slots: l.plannedKeys,
     quorum: l.quorum,
     keys: (leafKeys[l.id] ?? []).map(k => ({ keyId: k.keyId, label: k.label, kind: keyKind(k.origin) })),
+    required: (leafKeys[mustSlot(l.id)] ?? []).map(k => ({ keyId: k.keyId, label: k.label, kind: keyKind(k.origin) })),
     unlock: l.unlockType,
     blocks: l.unlockType === 'after' ? l.afterBlocks : l.unlockType === 'older' ? l.olderBlocks : 0,
     decay: l.decayEnabled ? { stepBlocks: l.decayStepBlocks, floorQuorum: l.decayFloorQ } : null,
   }));
   const wholeVaultNote = shape === 'leaves' ? vaultNote(riskPaths) : null;
+  // A must-sign key that EVERY path needs: lose it and nothing can ever
+  // move. Allowed (operator, 2026-11-12), but only after the owner ticks
+  // that they understand; the tick clears itself if the keys change.
+  const everyPathKeys = shape === 'leaves' ? mustSignKeysEveryPathNeeds(riskPaths) : [];
+  const everyPathSig = everyPathKeys.map(k => k.keyId).sort().join(',');
+  const [ackFor, setAckFor] = useState('');
+  const needsAck = everyPathKeys.length > 0 && ackFor !== everyPathSig;
   const noteColor = { danger: colors.red, warn: colors.orange, info: colors.sub, good: colors.green } as const;
   const noteBox = (n: RiskNote, i: number) => (
     <div
@@ -2290,13 +2328,27 @@ function KeysStep({
                 : `Opens if the vault sits untouched for ${blocksToHuman(leaf.olderBlocks)} -- ${leaf.quorum} of `
                   + `${leaf.plannedKeys} can then spend. Moving the coins resets this clock.`;
             const mySelected = leafKeys[leaf.id] ?? [];
-            // Any key not already on THIS path; a key on another path
-            // stays pickable, and the notes below say what that costs.
+            const myMust = leafKeys[mustSlot(leaf.id)] ?? [];
+            const setMustSelected = (fn: (p: SelectedKey[]) => SelectedKey[]) =>
+              setLeafKeys(p => ({ ...p, [mustSlot(leaf.id)]: fn(p[mustSlot(leaf.id)] ?? []) }));
+            // Any key not already on THIS path (in either group); a key
+            // on another path stays pickable, and the notes say what
+            // that costs.
             const pickable = allKeys.filter(k =>
-              !mySelected.some(sk => sk.keyId === k.keyId) && keyNetworkMatches(k.network, network));
+              !mySelected.some(sk => sk.keyId === k.keyId) && !myMust.some(sk => sk.keyId === k.keyId)
+              && keyNetworkMatches(k.network, network));
             const notes = pathNotes(riskPaths, leaf.id);
-            return role(
-              leaf.id, `${leaf.label} keys`, leaf.plannedKeys, mySelected, setLeafSelected, i === 0 ? colors.gold : colors.blue, description,
+            const mustCard = leaf.plannedRequired > 0 ? role(
+              mustSlot(leaf.id), `${leaf.label} -- must-sign ${leaf.plannedRequired === 1 ? 'key' : 'keys'}`, leaf.plannedRequired, myMust, setMustSelected, colors.orange,
+              `${leaf.plannedRequired === 1 ? 'This key has' : 'Each of these keys has'} to sign every spend on "${leaf.label}", on top of `
+                + `${leaf.quorum} of the ${leaf.plannedKeys} other ${leaf.plannedKeys === 1 ? 'key' : 'keys'} below. A hardware wallet belongs here. `
+                + 'Pick a key you hold yourself; an invited person joins the group below.',
+              undefined, pickable,
+            ) : null;
+            const withMust = leaf.plannedRequired > 0
+              ? ` Needs ${whoSignsWords(leaf.quorum, leaf.plannedKeys, leaf.plannedRequired)} in all.` : '';
+            return [mustCard, role(
+              leaf.id, leaf.plannedRequired > 0 ? `${leaf.label} -- the other keys` : `${leaf.label} keys`, leaf.plannedKeys, mySelected, setLeafSelected, i === 0 ? colors.gold : colors.blue, description + withMust,
               <>
               {notes.length > 0 && <div style={{ marginTop: 10 }}>{notes.map(noteBox)}</div>}
               <PathInvites
@@ -2312,7 +2364,7 @@ function KeysStep({
               />
               </>,
               pickable,
-            );
+            )];
           })}
         </>
       )}
@@ -2373,10 +2425,34 @@ function KeysStep({
         </>
       ))}
 
+      {everyPathKeys.length > 0 && (
+        <Card>
+          <div style={{ fontSize: 16, fontWeight: 600, color: colors.red, marginBottom: 6 }}>
+            One lost key would lock this vault for good
+          </div>
+          <p style={{ fontSize: 15, color: colors.text, lineHeight: 1.55, margin: 0 }}>
+            {everyPathKeys.map(k => `"${k.label}"`).join(' and ')} {everyPathKeys.length === 1 ? 'is a must-sign key' : 'are must-sign keys'} that
+            every path in this vault needs. If {everyPathKeys.length === 1 ? 'it is' : 'any one of them is'} lost or destroyed, the bitcoin in this vault can never
+            be moved by anyone, ever. To avoid that, give the vault one later path that does not use {everyPathKeys.length === 1 ? 'it' : 'them'}.
+          </p>
+          <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer', marginTop: 12, minHeight: 44 }}>
+            <input
+              type="checkbox"
+              checked={!needsAck}
+              onChange={e => setAckFor(e.target.checked ? everyPathSig : '')}
+              style={{ width: 22, height: 22, marginTop: 2, flexShrink: 0 }}
+            />
+            <span style={{ fontSize: 15, color: colors.text, lineHeight: 1.5 }}>
+              I understand. I want this vault to depend on {everyPathKeys.length === 1 ? 'that one key' : 'those keys'}.
+            </span>
+          </label>
+        </Card>
+      )}
+
       <div style={{ display: 'flex', gap: 10 }}>
         <Button variant="ghost" onClick={onSaveForLater}>Save and finish later</Button>
-        <Button disabled={!slotsReady} onClick={onContinue}>
-          {slotsReady ? 'All slots filled -- compile' : 'Fill every slot to continue'}
+        <Button disabled={!slotsReady || needsAck} onClick={onContinue}>
+          {!slotsReady ? 'Fill every slot to continue' : needsAck ? 'Tick the box above to continue' : 'All slots filled -- compile'}
         </Button>
       </div>
     </div>

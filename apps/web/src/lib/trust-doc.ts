@@ -13,6 +13,7 @@
 // beneficiaries actually are, any custom financial policy -- are left
 // for the owner to fill in from here.
 
+import { whoSignsWords } from './path-words';
 import type { TrustDoc } from './api';
 import type { StandardConfig, BlocConfig } from './vault-templates';
 import { blocksToHuman } from './blocks';
@@ -174,6 +175,8 @@ export interface LeafDocInput {
   label: string;
   plannedKeys: number;
   quorum: number;
+  /** Keys that must always sign on this path, on top of the quorum. */
+  plannedRequired?: number;
   unlockType: 'immediate' | 'after' | 'older';
   afterBlocks: number;
   olderBlocks: number;
@@ -189,19 +192,20 @@ export function buildLeavesTrustDoc(opts: {
   const immediate = leaves.filter(l => l.unlockType === 'immediate');
 
   const purpose = immediate.length > 0
-    ? `${vaultName} is a custom-built Bitcoin vault with ${leaves.length} spending path${leaves.length === 1 ? '' : 's'}. Day to day, ${immediate.map(l => `${l.quorum} of ${l.plannedKeys} "${l.label}" key${l.plannedKeys === 1 ? '' : 's'}`).join(' or ')} can spend at any time, no waiting.`
+    ? `${vaultName} is a custom-built Bitcoin vault with ${leaves.length} spending path${leaves.length === 1 ? '' : 's'}. Day to day, ${immediate.map(l => `${whoSignsWords(l.quorum, l.plannedKeys, l.plannedRequired ?? 0)} on "${l.label}"`).join(' or ')} can spend at any time, no waiting.`
     : `${vaultName} is a custom-built Bitcoin vault with ${leaves.length} spending path${leaves.length === 1 ? '' : 's'}, each opening only under a specific condition -- see below. No path here can spend without waiting first; confirm that is actually intended.`;
 
   const rules: string[] = leaves.map(l => {
     if (l.unlockType === 'immediate') {
-      return `"${l.label}": ${l.quorum} of ${l.plannedKeys} key${l.plannedKeys === 1 ? '' : 's'} can spend at any time, no waiting.`;
+      return `"${l.label}": ${whoSignsWords(l.quorum, l.plannedKeys, l.plannedRequired ?? 0)} can spend at any time, no waiting.`;
     }
     if (l.unlockType === 'after') {
-      const decay = l.decayEnabled ? ` The number of signers required steps down the longer it waits, down to a floor of ${l.decayFloorQ}.` : '';
-      return `"${l.label}": ${l.quorum} of ${l.plannedKeys} key${l.plannedKeys === 1 ? '' : 's'} can spend after ${when(l.afterBlocks)} -- a fixed calendar date that does not move regardless of activity.${decay}`;
+      const mustStays = (l.plannedRequired ?? 0) > 0 ? ' among the other keys; the must-sign requirement never relaxes' : '';
+    const decay = l.decayEnabled ? ` The number of signers required steps down the longer it waits, down to a floor of ${l.decayFloorQ}${mustStays}.` : '';
+      return `"${l.label}": ${whoSignsWords(l.quorum, l.plannedKeys, l.plannedRequired ?? 0)} can spend after ${when(l.afterBlocks)} -- a fixed calendar date that does not move regardless of activity.${decay}`;
     }
     const decay = l.decayEnabled ? ` The number of signers required steps down the longer it stays untouched, down to a floor of ${l.decayFloorQ}.` : '';
-    return `"${l.label}": ${l.quorum} of ${l.plannedKeys} key${l.plannedKeys === 1 ? '' : 's'} can spend if the vault sits completely untouched for about ${blocksToHuman(l.olderBlocks)} -- any normal spend from any path resets this clock back to the start.${decay}`;
+    return `"${l.label}": ${whoSignsWords(l.quorum, l.plannedKeys, l.plannedRequired ?? 0)} can spend if the vault sits completely untouched for about ${blocksToHuman(l.olderBlocks)} -- any normal spend from any path resets this clock back to the start.${decay}`;
   });
   rules.push(
     'Add any real financial policy below -- spending caps, required approvals, what the funds are actually for -- as free text or as enforced per-proposal rules.',

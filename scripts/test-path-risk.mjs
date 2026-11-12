@@ -92,7 +92,7 @@ assert.equal(r.opensWithoutOutsideKey(mixed[0]), true);
 const notes = r.pathNotes(mixed, 'Everyday');
 const o = notes.find(x => x.text.startsWith('This path can be opened by keys kept in this browser alone.'));
 assert.ok(o); assert.equal(o.level, 'warn');
-assert.match(o.text, /"Coldcard" is on it but not required\. To make it required, set how many must agree to more than 2, the number of other keys on this path\./);
+assert.match(o.text, /"Coldcard" is on it but not required\. To make it required, give this path a must-sign key when you shape the vault, or set how many must agree to more than 2, the number of other keys on this path\./);
 assert.match(r.pathNotes(mixed, 'Backup').at(-1).text, /A hardware wallet guards a path only when the path cannot open without it\./);
 assert.equal(r.vaultNote(mixed).level, 'warn');
 assert.match(r.vaultNote(mixed).text, /required on every spend\. Right now "Everyday" and "Backup" can open without one\./);
@@ -111,5 +111,61 @@ assert.deepEqual(r.pathNotes(six, 'nope'), []);
 const order = r.pathNotes([path('Everyday', [hw, b('A')], 2), path('Later', [hw, b('A')], 2, 'after', YEAR)], 'Everyday').map(x => x.level);
 assert.deepEqual(order, ['danger', 'danger', 'good']);
 pass('no advice where there is no mix of key kinds; the most serious line comes first');
+
+// 11. Must-sign keys (2026-11-12): required by definition, on every step.
+const ms = (id, required, keys, quorum, unlock = 'immediate', blocks = 0, extra = {}) => ({ ...path(id, keys, quorum, unlock, blocks, extra), required });
+const phone = { keyId: 'p0', label: 'Old phone', kind: 'browser' };
+{
+  // The hardware wallet must sign on Everyday and Backup; the heirs do not need it.
+  const v = [ms('Everyday', [hw], [b('A'), b('B')], 1), ms('Backup', [hw], [b('C')], 1, 'after', YEAR), path('Heirs', [m('Anna'), m('Ben')], 2, 'after', 6 * YEAR)];
+  assert.equal(r.keyRequiredOn(v[0], 'hw'), true);
+  assert.equal(r.waitWithout(v[0], 'hw'), null);
+  assert.deepEqual(r.lossOutcome(v, 'hw'), { kind: 'wait', path: v[2], blocks: 6 * YEAR });
+  assert.equal(r.sharedKeyNote(v, hw, v[0]).text, '"Coldcard" must sign every spend on this path, and is also on "Backup". If it is lost, "Everyday" and "Backup" stop working for good, and nothing can move until "Heirs" opens without it: about 6 years after the vault is made. If it is stolen, the thief holds one of the signatures needed on both of these paths.');
+  // It guards the paths it must sign on, and the vault line says which path it does not guard.
+  assert.equal(r.opensWithoutOutsideKey(v[0]), false);
+  assert.equal(r.pathNotes(v, 'Everyday').at(-1).level, 'good');
+  assert.match(r.vaultNote(v).text, /Right now "Heirs" can open without one\./);
+  assert.deepEqual(r.mustSignKeysEveryPathNeeds(v), []);
+  // A relaxing path keeps its must-sign key on every step: no wait ever frees it.
+  const relaxing = ms('Family', [hw], [b('X'), b('Y')], 2, 'after', YEAR, { decay: { stepBlocks: YEAR, floorQuorum: 1 } });
+  assert.equal(r.waitWithout(relaxing, 'hw'), null);
+  assert.equal(r.waitWithout(relaxing, 'X'), 2 * YEAR);
+}
+pass('a must-sign key is required on its paths at every step, and the wait to the first path without it is named');
+{
+  // On one path only: its own note, with the same computed consequence.
+  const v = [ms('Everyday', [hw], [b('A')], 1), path('Later', [b('B'), b('C')], 2, 'after', 2 * YEAR)];
+  const n = r.mustSignNote(v, hw, v[0]);
+  assert.equal(n.text, '"Coldcard" must sign every spend on this path. If it is lost, "Everyday" stops working for good, and nothing can move until "Later" opens without it: about 2 years after the vault is made.');
+  assert.equal(r.mustSignNote(v, b('A'), v[0]), null);
+  assert.deepEqual(r.pathNotes(v, 'Everyday').map(x => x.level), ['warn', 'good']);
+}
+pass('a must-sign key on a single path says what losing it costs');
+{
+  // Must-sign on EVERY path: red, and listed for the tick.
+  const v = [ms('Everyday', [hw], [b('A')], 1), ms('Later', [hw], [b('B')], 1, 'after', YEAR)];
+  const n = r.pathNotes(v, 'Everyday')[0];
+  assert.equal(n.level, 'danger');
+  assert.match(n.text, /must sign every spend on this path, and is also on "Later"\. If it is lost, this bitcoin can never be moved: every path needs this key\./);
+  assert.deepEqual(r.mustSignKeysEveryPathNeeds(v), [hw]);
+  // One path that does not need it is enough to clear the tick.
+  assert.deepEqual(r.mustSignKeysEveryPathNeeds([...v, path('Last', [b('Z')], 1, 'after', 9 * YEAR)]), []);
+  // A single-path vault with a must-sign key: the tick applies there too.
+  assert.deepEqual(r.mustSignKeysEveryPathNeeds([ms('Only', [hw], [b('A')], 1)]), [hw]);
+  // An all-must-sign-by-count key (2 of 2) is not a "must-sign key": no tick from it.
+  assert.deepEqual(r.mustSignKeysEveryPathNeeds([path('Only', [hw, b('A')], 2)]), []);
+}
+pass('a must-sign key every path needs is red and is listed for the owner to acknowledge');
+{
+  // A browser key made must-sign: allowed, and called what it is.
+  const v = [ms('Everyday', [phone], [b('A'), b('B')], 1), path('Later', [hw, b('C')], 2, 'after', YEAR)];
+  const hot = r.browserMustSignNote(v[0]);
+  assert.equal(hot.text, '"Old phone" is kept in this browser. Making it must-sign gives this path a phone\'s protection, not a hardware wallet\'s.');
+  assert.ok(r.pathNotes(v, 'Everyday').some(x => x.text === hot.text));
+  assert.equal(r.browserMustSignNote(ms('E', [hw], [b('A')], 1)), null);
+  assert.equal(r.opensWithoutOutsideKey(v[0]), true);
+}
+pass('a browser key made must-sign is allowed and described as a phone\'s protection');
 
 console.log(`path-risk tests passed (${n} cases)`);

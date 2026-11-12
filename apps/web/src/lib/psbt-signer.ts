@@ -146,12 +146,10 @@ export function countSignatures(psbtHex: string): number {
 export function signersOnEveryInput(psbtHex: string): string[] {
   try {
     const parsed = parsePsbt(psbtHex);
-    let common: Set<string> | null = null;
-    for (let i = 0; i < parsed.inputs.length; i++) {
-      const here = new Set(validSigs(parsed, i, parsed.inputs[i].tapScriptSigs ?? []).map(s => toHex(s.pubkey)));
-      common = common === null ? here : new Set([...common].filter(k => here.has(k)));
-    }
-    return common === null ? [] : [...common];
+    const perInput: string[][] = parsed.inputs.map((inp, i) =>
+      validSigs(parsed, i, inp.tapScriptSigs ?? []).map(sig => toHex(sig.pubkey)));
+    if (perInput.length === 0) return [];
+    return [...new Set(perInput[0])].filter(k => perInput.every(keys => keys.includes(k)));
   } catch {
     return [];
   }

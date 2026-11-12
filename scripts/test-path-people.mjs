@@ -56,4 +56,16 @@ assert.equal(pp.openSlots(1, slots.kids, people), 0);
 assert.equal(pp.openSlots(1, [], [{ kind: 'confirmed', member: anna, inSlot: false }]), 0);
 pass('open slots count what is filled plus what is promised, so a path is never over-invited');
 
+// Must-sign keys come back into their own slot group, beside the others.
+{
+  const withMust = [{ id: 'everyday', label: 'Everyday', required_keys: [K('a')], keys: [K('b')], quorum: 1, unlock: { type: 'immediate' }, decay: null }, leaves[1]];
+  const { slots, dropped } = pp.hydrateSlots(withMust, [local('k1', 'a'), local('k2', 'b')], [anna, ben], OWNER, 'signet');
+  assert.deepEqual(slots[pp.mustSlot('everyday')].map(k => k.keyId), ['k1']);
+  assert.deepEqual(slots.everyday.map(k => k.keyId), ['k2']);
+  assert.equal(slots[pp.mustSlot('kids')], undefined, 'a path with no must-sign keys gets no must-sign group');
+  assert.equal(pp.mustSlot('everyday'), 'everyday#must');
+  assert.ok(dropped >= 0);
+  pass('a saved draft restores must-sign keys into their own group, and other keys into theirs');
+}
+
 console.log(`path-people tests passed (${n} cases)`);
