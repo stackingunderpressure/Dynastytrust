@@ -128,6 +128,25 @@ export async function handler(event) {
       const err = checkTimelockFloor(leaf.unlock.blocks, `Leaf '${leaf.id}' unlock.blocks`);
       if (err) return json(400, { error: err });
     }
+    // Must-sign keys (protocol::Leaf::required_keys): each must sign on
+    // top of the quorum of `keys`. Plain public keys only, never also in
+    // `keys` -- the Rust compiler refuses that too (one signature would
+    // count twice); checked here so the owner gets a sentence, not a
+    // compiler error.
+    if (leaf.required_keys !== undefined) {
+      if (!Array.isArray(leaf.required_keys) || leaf.required_keys.some((k) => typeof k !== "string" || !/^0[23][0-9a-fA-F]{64}$/.test(k))) {
+        return json(400, { error: `The must-sign keys on "${leaf.label || leaf.id}" are not readable public keys.` });
+      }
+      const x = (k) => k.slice(2).toLowerCase();
+      const pool = new Set(leaf.keys.filter((k) => typeof k === "string").map(x));
+      const seen = new Set();
+      for (const k of leaf.required_keys) {
+        if (pool.has(x(k)) || seen.has(x(k))) {
+          return json(400, { error: `A key on "${leaf.label || leaf.id}" is listed twice. A must-sign key cannot also be one of the other keys on the same path.` });
+        }
+        seen.add(x(k));
+      }
+    }
   }
   for (const k of vault.consent_keys ?? []) {
     try {
@@ -179,6 +198,9 @@ export async function handler(event) {
       quorum: leaf.quorum,
       unlock,
       decay: leaf.decay ?? null,
+      // Only present on a path that has them, so every other vault's
+      // stored paths keep the exact shape they always had.
+      ...(Array.isArray(leaf.required_keys) && leaf.required_keys.length > 0 ? { required_keys: leaf.required_keys } : {}),
     };
   });
 

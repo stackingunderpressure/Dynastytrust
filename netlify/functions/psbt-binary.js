@@ -87,7 +87,9 @@ function leafListSignerCounts(vault, path) {
     leaf = leaves.find((l) => l.id === base);
   }
   if (!leaf) return { quorum: 0, total: 0 };
-  return { quorum: leaf.quorum, total: (leaf.keys || []).length };
+  // Must-sign keys each add one signature and one key to the script.
+  const must = (leaf.required_keys || []).length;
+  return { quorum: leaf.quorum + must, total: (leaf.keys || []).length + must };
 }
 
 function leafListCountForTree(vault) {
@@ -202,6 +204,10 @@ export async function handler(event) {
         quorum: leaf.quorum,
         unlock: leaf.unlock,
         decay: leaf.decay ?? null,
+        // Must be forwarded or the compiler rebuilds a DIFFERENT tree
+        // (one without the must-sign keys) and refuses the vault's own
+        // address as change.
+        ...((leaf.required_keys || []).length > 0 ? { required_keys: leaf.required_keys.map(toPubkeyHex) } : {}),
       }));
       founderPubkeys = heirPubkeys = backupPubkeys = secondHeirPubkeys = [];
       consentPubkeys = (vault.consent_keys || []).map(toPubkeyHex);

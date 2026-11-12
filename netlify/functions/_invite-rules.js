@@ -98,7 +98,7 @@ export function unconfirmedMemberKeys(leaves, members, ownerUserId) {
   }
   const out = [];
   for (const leaf of leaves ?? []) {
-    for (const k of leaf?.keys ?? []) {
+    for (const k of [...(leaf?.keys ?? []), ...(leaf?.required_keys ?? [])]) {
       const m = byKey.get(xOnly(k));
       if (m && !m.key_confirmed_at) out.push({ member: m.label || "a member", path: leaf.label || leaf.id });
     }
@@ -116,7 +116,7 @@ export function unconfirmedMemberKeys(leaves, members, ownerUserId) {
 export function draftViewForMember(vault, membership, callerUserId) {
   const isPathDraft = vault?.status === "draft" && Array.isArray(vault.leaves) && vault.leaves.length > 0;
   if (!isPathDraft || vault.user_id === callerUserId) return vault;
-  const mine = vault.leaves.filter((l) => l && l.id === membership?.leaf_id).map((l) => ({ ...l, keys: [] }));
+  const mine = vault.leaves.filter((l) => l && l.id === membership?.leaf_id).map((l) => ({ ...l, keys: [], ...(l.required_keys !== undefined ? { required_keys: [] } : {}) }));
   return { ...vault, leaves: mine, consent_keys: [], key_labels: [], key_origins: null, trust_doc: {} };
 }
 

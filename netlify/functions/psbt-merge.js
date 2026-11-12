@@ -18,7 +18,8 @@ import { requireUser, json } from './_auth.js';
 import { recordEvent } from './_ledger.js';
 import { canMutate, isTerminalProposalStatus } from './_authz.js';
 import { getSupabaseAdmin } from './_supabase.js';
-import { findSpendingPath } from './_vault-shape.js';
+import { findSpendingPath, pathSignatureStatus } from './_vault-shape.js';
+import { signersOnEveryInput } from './_psbt-verify.js';
 
 const COMPILER_URL    = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -43,7 +44,7 @@ export async function handler(event) {
   const supabase = getSupabaseAdmin();
   const { data: vault } = await supabase
     .from('vaults')
-    .select('id, name, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, backup_quorum, backup_keys, second_heir_quorum, second_heir_keys, second_inheritance_after, leaves')
+    .select('id, name, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, backup_quorum, backup_keys, second_heir_quorum, second_heir_keys, second_inheritance_after, leaves, founder_keys, heir_keys, consent_keys, consent_quorum')
     .eq('id', vault_id)
     .maybeSingle();
 
@@ -62,6 +63,7 @@ export async function handler(event) {
   // founder_quorum when no proposal_id is given (nothing to look up) or
   // the path can't be resolved, matching the previous fallback.
   let requiredQuorum = vault.founder_quorum;
+  let resolvedPath = null;
   let proposalStatus;
   if (proposal_id) {
     const { data: proposalForQuorum } = await supabase
@@ -73,7 +75,7 @@ export async function handler(event) {
     proposalStatus = proposalForQuorum ? proposalForQuorum.status : null;
     if (proposalForQuorum?.path) {
       const resolved = findSpendingPath(vault, proposalForQuorum.path);
-      if (resolved) requiredQuorum = resolved.quorum;
+      if (resolved) { requiredQuorum = resolved.quorum; resolvedPath = resolved; }
     }
   }
 
@@ -119,8 +121,15 @@ export async function handler(event) {
     // by vault_id (already membership-checked above), not user_id --
     // any active member merging signatures may update the shared
     // proposal record, not only whoever originally created it.
+    // "Fully signed" is decided by WHO signed, on every input, checked
+    // against this path's own rule (must-sign keys, quorum of the
+    // others, consent) -- not by the compiler's count of signatures.
+    // The count said "fully signed" for two phones on a path that needs
+    // the hardware wallet, and for one signer across two inputs. The
+    // count is kept only for a path that cannot be resolved.
+    const status = resolvedPath ? pathSignatureStatus(resolvedPath, signersOnEveryInput(data.psbt_hex)) : null;
+    const isFullySigned = status ? status.satisfied : data.signature_count >= requiredQuorum;
     if (proposal_id) {
-      const isFullySigned = data.signature_count >= requiredQuorum;
       await supabase
         .from('proposals')
         .update({
@@ -145,7 +154,8 @@ export async function handler(event) {
       psbt_b64:        data.psbt_b64,
       input_count:     data.input_count,
       signature_count: data.signature_count,
-      fully_signed:    data.signature_count >= requiredQuorum,
+      fully_signed:    isFullySigned,
+      ...(status ? { signatures_have: status.have, signatures_need: status.need, must_sign_missing: status.missingRequired.length } : {}),
     });
 
   } catch (err) {

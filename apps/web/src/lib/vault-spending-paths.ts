@@ -71,6 +71,7 @@ export interface VaultShapeLike {
     quorum: number;
     unlock: { type: 'immediate' } | { type: 'after'; blocks: number } | { type: 'older'; blocks: number };
     required_keys?: string[];
+    decay?: { step_blocks: number; floor_quorum: number } | null;
   }[] | null;
   consent_keys?: string[] | null;
   consent_quorum?: number | null;
@@ -255,5 +256,18 @@ export function pathSignatureStatus(path: SpendingPathSummary, signedKeys: strin
  *  the shape most single-path call sites (ProposalDetail's signer
  *  discovery, psbt-merge's quorum check, RotateVaultModal's prefill) need. */
 export function findSpendingPath(vault: VaultShapeLike, pathId: string): SpendingPathSummary | undefined {
-  return getSpendingPaths(vault).find((p) => p.id === pathId);
+  const paths = getSpendingPaths(vault);
+  const exact = paths.find((p) => p.id === pathId);
+  if (exact || !isLeafListVault(vault)) return exact;
+  // A relaxing path is spent by naming one of its steps ("kids_1"): the
+  // same keys, one fewer needed per step, down to its floor. Must-sign
+  // keys stay required on every step (protocol::expand_decay).
+  const m = /^(.*)_(\d+)$/.exec(pathId);
+  if (!m) return undefined;
+  const leaf = vault.leaves!.find((l) => l.id === m[1]);
+  const base = paths.find((p) => p.id === m[1]);
+  if (!leaf || !base || !leaf.decay || leaf.unlock.type === 'immediate') return undefined;
+  const step = Number(m[2]);
+  if (step > leaf.quorum - leaf.decay.floor_quorum) return undefined;
+  return { ...base, id: pathId, quorum: leaf.quorum - step, unlockBlocks: leaf.unlock.blocks + step * leaf.decay.step_blocks };
 }

@@ -137,6 +137,26 @@ export function countSignatures(psbtHex: string): number {
   }
 }
 
+/**
+ * The public keys (x-only hex) with a real signature on EVERY input of
+ * this PSBT. Twin of netlify/functions/_psbt-verify.js's function of
+ * the same name: "fully signed" is decided from WHO signed
+ * (vault-spending-paths.ts, pathSignatureStatus), never from a count.
+ */
+export function signersOnEveryInput(psbtHex: string): string[] {
+  try {
+    const parsed = parsePsbt(psbtHex);
+    let common: Set<string> | null = null;
+    for (let i = 0; i < parsed.inputs.length; i++) {
+      const here = new Set(validSigs(parsed, i, parsed.inputs[i].tapScriptSigs ?? []).map(s => toHex(s.pubkey)));
+      common = common === null ? here : new Set([...common].filter(k => here.has(k)));
+    }
+    return common === null ? [] : [...common];
+  } catch {
+    return [];
+  }
+}
+
 type TapSig = { pubkey: Uint8Array; leafHash: Uint8Array; sig: Uint8Array };
 
 /**

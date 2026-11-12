@@ -40,6 +40,30 @@ function sameUnsignedTx(a, b) {
 }
 
 /**
+ * The public keys (x-only hex) that have a REAL signature on EVERY input
+ * of this PSBT -- each one verified against a leaf the coin commits to.
+ * A key that signed one input of two has not signed the spend. This is
+ * what "fully signed" must be decided from: a path with must-sign keys
+ * or a consent group is not satisfied by a COUNT of signatures.
+ * Unreadable PSBT -> no signers.
+ */
+export function signersOnEveryInput(psbtHex) {
+  let p;
+  try { p = parsePsbt(psbtHex); } catch { return []; }
+  let common = null;
+  for (let i = 0; i < p.inputs.length; i++) {
+    const spk = p.inputs[i].witnessUtxo?.scriptPubkey;
+    const leaves = spk ? (p.inputs[i].tapLeafScript ?? []).filter((l) => leafCommitsToOutput(l, spk)) : [];
+    const here = new Set();
+    for (const s of p.inputs[i].tapScriptSigs ?? []) {
+      if (verifyTapScriptSig(p, i, s, leaves)) here.add(toHex(s.pubkey));
+    }
+    common = common === null ? here : new Set([...common].filter((k) => here.has(k)));
+  }
+  return common === null ? [] : [...common];
+}
+
+/**
  * @param {{ psbtHex: string, proposalPsbtHex?: string | null }} args
  * @returns {{ ok: true, validSignatures: number } | { ok: false, error: string }}
  *

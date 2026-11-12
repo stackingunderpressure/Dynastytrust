@@ -58,6 +58,10 @@ export function rotatedLeaves(srcLeaves, offsets) {
       quorum: leaf.quorum,
       unlock,
       decay: leaf.decay ? { step_blocks: leaf.decay.step_blocks, floor_quorum: leaf.decay.floor_quorum } : null,
+      // Must-sign keys carry over with the path. Dropping them would
+      // hand the owner a successor that is WEAKER than the vault they
+      // rotated from, without a word.
+      ...(Array.isArray(leaf.required_keys) && leaf.required_keys.length > 0 ? { required_keys: [...leaf.required_keys] } : {}),
     };
   });
 }

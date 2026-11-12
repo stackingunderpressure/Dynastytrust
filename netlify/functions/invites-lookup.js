@@ -89,7 +89,14 @@ export async function handler(event) {
       // many it will have, which is the "of N" the invited person needs.
       vault: vault ? {
         id: vault.id, name: vault.name, network: vault.network, status: vault.status, is_leaf_list: true,
-        paths: path ? [{ ...path, keyCount: (vault.leaves ?? []).find((l) => l.id === invite.leaf_id)?.planned_keys ?? path.keyCount }] : [],
+        paths: path ? [{
+          ...path,
+          keyCount: (vault.leaves ?? []).find((l) => l.id === invite.leaf_id)?.planned_keys ?? path.keyCount,
+          // How many keys must ALWAYS sign on this path besides the group
+          // the invited person joins -- a number, never the keys themselves.
+          requiredKeys: [],
+          mustSignCount: (vault.leaves ?? []).find((l) => l.id === invite.leaf_id)?.planned_required ?? path.requiredKeys.length,
+        }] : [],
       } : null,
       members: [],
     });

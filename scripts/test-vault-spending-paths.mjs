@@ -166,4 +166,25 @@ for (const { name, vault } of FIXTURES) {
   ran += 1;
 }
 
+// A step of a relaxing path, named the way a spend names it.
+{
+  const K = (c) => '02' + c.repeat(64);
+  const vault = { leaves: [
+    { id: 'main', label: 'Main', keys: [K('a')], quorum: 1, unlock: { type: 'immediate' }, decay: null },
+    { id: 'kids', label: 'Kids', required_keys: [K('9')], keys: [K('b'), K('c'), K('d')], quorum: 3, unlock: { type: 'after', blocks: 950000 }, decay: { step_blocks: 52560, floor_quorum: 2 } },
+  ] };
+  for (const m of [web, fn]) {
+    const rung = m.findSpendingPath(vault, 'kids_1');
+    assert.strictEqual(rung.quorum, 2); assert.strictEqual(rung.unlockBlocks, 1002560);
+    assert.deepStrictEqual(rung.requiredKeys, [K('9')]);
+    assert.strictEqual(m.pathSignatureStatus(rung, [K('b'), K('c'), K('d')]).satisfied, false, 'the kids alone, without the must-sign key');
+    assert.strictEqual(m.pathSignatureStatus(rung, [K('9'), K('b'), K('c')]).satisfied, true);
+    assert.strictEqual(m.findSpendingPath(vault, 'kids_0').quorum, 3);
+    assert.strictEqual(m.findSpendingPath(vault, 'kids_2'), undefined, 'below the floor');
+    assert.strictEqual(m.findSpendingPath(vault, 'main_1'), undefined, 'not a relaxing path');
+  }
+  assert.deepStrictEqual(web.findSpendingPath(vault, 'kids_1'), fn.findSpendingPath(vault, 'kids_1'));
+  ran += 1;
+}
+
 console.log(`vault-spending-paths tests passed (${ran} fixtures, web/functions byte-identical)`);

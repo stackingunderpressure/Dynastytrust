@@ -16,7 +16,7 @@
 import { requireUser, json } from './_auth.js';
 import { getSupabaseAdmin } from './_supabase.js';
 import { checkNumberBounds } from './_numeric.js';
-import { isLeafListVault, getSpendingPaths, findSpendingPath } from './_vault-shape.js';
+import { isLeafListVault, getSpendingPaths, findSpendingPath, signaturesNeeded } from './_vault-shape.js';
 
 const COMPILER_URL    = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -331,6 +331,7 @@ export function jsGovernanceStatusLeafList(vault, utxo_age_blocks) {
       : false;
     return {
       id: p.id, label: p.label, quorum: p.quorum, key_count: p.keyCount,
+      must_sign_count: p.requiredKeys.length, signatures_needed: signaturesNeeded(p),
       unlock_type: p.unlockType, unlock_blocks: p.unlockBlocks, unlocked,
       blocks_until_unlock: p.unlockType === 'after' && !unlocked ? p.unlockBlocks - utxo_age_blocks : null,
     };
@@ -365,7 +366,13 @@ export function jsGovernanceAuditLeafList(vault, { path, amount_sats, destinatio
     : resolved.unlockType === 'after' ? utxo_age_blocks >= resolved.unlockBlocks
     : false; // 'older' -- see jsGovernanceStatusLeafList's note above.
 
-  const required = resolved ? resolved.quorum : 0;
+  // Every signature the path needs: its must-sign keys, the quorum of
+  // its other keys, and the consent group where there is one. This audit
+  // is told HOW MANY have signed, not who, so it can say a spend is short
+  // but not which must-sign key is missing -- psbt-merge.js decides
+  // "fully signed" by name.
+  const required = resolved ? signaturesNeeded(resolved) : 0;
+  const mustSign = resolved ? resolved.requiredKeys.length : 0;
   const signed = signers.filter((s) => s.signed).length;
   const quorum_ok = !!resolved && signed >= required;
 
@@ -381,7 +388,7 @@ export function jsGovernanceAuditLeafList(vault, { path, amount_sats, destinatio
   }
   if (resolved && !quorum_ok) {
     violations.push({ rule: { id: 'GOV-002', description: 'Quorum not satisfied', severity: 'hard' },
-      detail: `Need ${required} signatures, have ${signed}.` });
+      detail: `Need ${required} signatures, have ${signed}.${mustSign > 0 ? ` ${mustSign} of them must come from this path's must-sign ${mustSign === 1 ? 'key' : 'keys'}.` : ''}` });
   }
   if (amount_sats < 546) {
     violations.push({ rule: { id: 'GOV-003', description: 'Output below dust limit', severity: 'hard' },
