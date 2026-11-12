@@ -391,7 +391,7 @@ export default function Dashboard() {
                   // real spending rules live in v.leaves instead.
                   v.leaves.map(leaf => (
                     <span key={leaf.id} style={{ fontSize: 13, color: colors.muted }}>
-                      {leaf.label}: {leaf.quorum}/{leaf.keys.length}
+                      {leaf.label}: {(leaf.required_keys ?? []).length > 0 ? `${(leaf.required_keys ?? []).length} must-sign + ` : ''}{leaf.quorum}/{leaf.keys.length}
                       {leaf.unlock.type === "after" ? opensSuffix(leaf.unlock.blocks, tips[v.network] ?? null) : ""}
                     </span>
                   ))

@@ -35,7 +35,9 @@ export interface PathInviteVault {
   id: string;
   name: string;
   network: 'testnet' | 'signet' | 'bitcoin';
-  paths: SpendingPathSummary[];
+  /** mustSignCount: how many keys must always sign on this path besides
+   *  the group the invited person joins (invites-lookup.js). */
+  paths: (SpendingPathSummary & { mustSignCount?: number })[];
 }
 
 function whenWords(p: SpendingPathSummary): string {
@@ -95,7 +97,10 @@ export default function InviteClaimPath({
       </p>
       {path && (
         <p style={{ ...sub, marginTop: space[2] }}>
-          {path.quorum} of the {path.keyCount} keys on that path must sign together to move the coins. {whenWords(path)}
+          {path.quorum} of the {path.keyCount} keys on that path must sign together to move the coins
+          {(path.mustSignCount ?? 0) > 0
+            ? `, and every spend also needs ${path.mustSignCount === 1 ? 'one key' : `${path.mustSignCount} keys`} the owner holds, which must always sign`
+            : ''}. {whenWords(path)}
         </p>
       )}
       <p style={{ ...sub, marginTop: space[2] }}>

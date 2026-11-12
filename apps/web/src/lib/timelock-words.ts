@@ -17,6 +17,8 @@
  * so ("around").
  */
 
+import { whoSignsWords } from './path-words';
+
 export const BLOCKS_PER_DAY = 144;
 export const BLOCKS_PER_YEAR = 52_560;
 
@@ -107,6 +109,8 @@ export interface PathLike {
   label: string;
   keys: string[];
   quorum: number;
+  /** Keys that must each sign on this path, on top of the quorum. */
+  required_keys?: string[];
   unlock: { type: 'immediate' } | { type: 'after'; blocks: number } | { type: 'older'; blocks: number };
 }
 
@@ -150,17 +154,22 @@ export function pathMoments(
     if (p.unlock.type !== 'after' || !(p.unlock.blocks > 0)) continue;
     const left = Math.max(0, p.unlock.blocks - tip);
     const n = p.keys.length;
+    const must = p.required_keys ?? [];
+    // Unchanged wording for a path with no must-sign keys.
+    const who = (whose: string) => (must.length > 0
+      ? `${whoSignsWords(p.quorum, n, must.length)} on ${whose} path`
+      : `${p.quorum} of ${n} of ${whose} path's keys`);
     if (left === 0) {
-      const held = p.keys.filter(k => mine.has(xOnly(k))).length;
+      const held = [...must, ...p.keys].filter(k => mine.has(xOnly(k))).length;
       if (held === 0) continue;
       out.push({
         kind: 'open', pathId: p.id, label: `"${p.label}" is open`,
-        detail: `${p.quorum} of ${n} of this path's keys can now move the coins. ${held === 1 ? 'One of them is' : `${held} of them are`} on this device. Open Send, choose "${p.label}", enter an address you control, and sign.`,
+        detail: `${who('this')} can now move the coins. ${held === 1 ? 'One of them is' : `${held} of them are`} on this device. Open Send, choose "${p.label}", enter an address you control, and sign.`,
       });
     } else if (left <= headsUpBlocks) {
       out.push({
         kind: 'approaching', pathId: p.id, label: `"${p.label}" opens in ${durationWords(left)}`,
-        detail: `The date is fixed (around ${dateWords(estimatedDate(p.unlock.blocks, tip, now), left)}): from then on ${p.quorum} of ${n} of that path's keys can spend, whatever else happens. To push it out, build a new vault with a later date and move the coins to it before then.`,
+        detail: `The date is fixed (around ${dateWords(estimatedDate(p.unlock.blocks, tip, now), left)}): from then on ${who('that')} can spend, whatever else happens. To push it out, build a new vault with a later date and move the coins to it before then.`,
       });
     }
   }

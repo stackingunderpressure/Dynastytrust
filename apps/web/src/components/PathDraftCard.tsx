@@ -1,3 +1,4 @@
+import { whoSignsWords } from '../lib/path-words';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, type Vault, type VaultInvite, type VaultMember } from '../lib/api';
@@ -55,7 +56,7 @@ export function PathDraftCard({ vault }: { vault: Vault }) {
         </p>
         {path && (
           <p style={sub}>
-            Your path is "{path.label}": {path.quorum} of its {path.planned_keys ?? Math.max(path.keys.length, path.quorum)} keys
+            Your path is "{path.label}": {whoSignsWords(path.quorum, path.planned_keys ?? Math.max(path.keys.length, path.quorum), path.planned_required ?? 0)}{' '}
             must sign together.{' '}
             {path.unlock.type === 'immediate'
               ? 'It can be used right away.'
@@ -86,8 +87,8 @@ export function PathDraftCard({ vault }: { vault: Vault }) {
   }
 
   const now = Date.now();
-  const total = leaves.reduce((n, l) => n + (l.planned_keys ?? Math.max(l.keys.length, l.quorum)), 0);
-  const filled = leaves.reduce((n, l) => n + l.keys.length, 0);
+  const total = leaves.reduce((n, l) => n + (l.planned_keys ?? Math.max(l.keys.length, l.quorum)) + (l.planned_required ?? 0), 0);
+  const filled = leaves.reduce((n, l) => n + l.keys.length + (l.required_keys ?? []).length, 0);
   const invited = members.filter(m => m.user_id !== vault.user_id && m.status === 'active' && m.leaf_id);
   const toConfirm = invited.filter(m => m.fingerprint && !m.key_confirmed_at);
   const waiting = invites.filter(i => i.leaf_id && !i.claimed_at && new Date(i.expires_at).getTime() > now);

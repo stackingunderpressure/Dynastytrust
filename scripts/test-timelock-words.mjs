@@ -87,4 +87,14 @@ assert.match(w.pathMoments(paths, TIP + 6 * YEAR, [K('c'), K('d')], NOW)[0].deta
 assert.deepEqual(w.pathMoments(paths, TIP + 5 * YEAR, [K('a'), K('b')], NOW), []);
 pass('a path-builder vault raises a dated path when it nears, and says it is open only to a device holding one of its keys');
 
+// A must-sign key's holder is told when their path opens, in must-sign words.
+{
+  const K = (c) => '02' + c.repeat(64);
+  const paths = [{ id: 'later', label: 'Later', required_keys: [K('a')], keys: [K('b'), K('c')], quorum: 1, unlock: { type: 'after', blocks: 1000 } }];
+  const m = w.pathMoments(paths, 2000, [K('a')], new Date('2026-11-12T00:00:00Z'));
+  assert.equal(m.length, 1);
+  assert.match(m[0].detail, /^1 must-sign key plus 1 of the 2 other keys on this path can now move the coins\. One of them is on this device\./);
+  pass('the holder of a must-sign key is prompted when its path opens, in must-sign words');
+}
+
 console.log(`timelock-words tests passed (${n} cases)`);

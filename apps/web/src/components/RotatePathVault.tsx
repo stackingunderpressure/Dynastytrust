@@ -1,3 +1,4 @@
+import { whoSignsShort } from '../lib/path-words';
 import { useEffect, useMemo, useState } from 'react';
 import { api, type Vault } from '../lib/api';
 import { verifiedTipHeight } from '../lib/chain';
@@ -248,11 +249,11 @@ export function RotatePathVault({
         {paths.map(path => (
           <div key={path.id} style={{ marginBottom: space[2] }}>
             <div style={{ fontSize: 15, color: colors.text }}>
-              {path.label} <span style={{ color: colors.muted }}>-- {path.quorum} of {path.keys.length} must sign</span>
+              {path.label} <span style={{ color: colors.muted }}>-- {whoSignsShort(path.quorum, path.keys.length, (path.required_keys ?? []).length)} must sign</span>
             </div>
-            {path.keys.map(k => (
+            {[...(path.required_keys ?? []), ...path.keys].map((k, idx) => (
               <div key={k} style={{ fontSize: 15, color: colors.sub, lineHeight: 1.6, paddingLeft: space[3] }}>
-                {names.get(xOnly(k)) ?? 'Unnamed key'}{' '}
+                {idx < (path.required_keys ?? []).length ? 'must sign: ' : ''}{names.get(xOnly(k)) ?? 'Unnamed key'}{' '}
                 <span style={{ fontFamily: fonts.mono, color: colors.muted }}>
                   {prints.get(xOnly(k)) ?? `...${k.slice(-8)}`}
                 </span>

@@ -22,6 +22,7 @@
  * family holding several of these files needs to tell them apart.
  */
 
+import { whoSignsWords } from './path-words';
 import type { Vault, DistributionWallet, LeafSpec } from './api';
 import { downloadTextFile } from './download-file';
 import { formatDescriptorFingerprint } from './descriptor-fingerprint';
@@ -90,7 +91,7 @@ export function vaultBackupText(v: VaultBackupLike): string {
     secondHeirKeys.length > 0 && v.second_heir_quorum != null && v.second_inheritance_after != null;
 
   const spendingRulesLines = isLeafShape
-    ? leaves.map(leaf => `${leaf.label}: ${leaf.quorum} of ${leaf.keys.length} -- ${leafTimingText(leaf)}`)
+    ? leaves.map(leaf => `${leaf.label}: ${whoSignsWords(leaf.quorum, leaf.keys.length, (leaf.required_keys ?? []).length)} -- ${leafTimingText(leaf)}`)
     : [
         `Founders:       ${v.founder_quorum} of ${v.founder_keys.length} -- no waiting`,
         ...(hasConsent ? [`  + beneficiary consent: ${v.consent_quorum} of ${consentKeys.length} (required on every founders spend)`] : []),
@@ -105,7 +106,10 @@ export function vaultBackupText(v: VaultBackupLike): string {
       ];
 
   const keyListingLines = isLeafShape
-    ? leaves.flatMap(leaf => [``, `# ${leaf.label} xpubs`, ...leaf.keys])
+    ? leaves.flatMap(leaf => [
+        ...((leaf.required_keys ?? []).length > 0 ? [``, `# ${leaf.label} MUST-SIGN keys (each one has to sign every spend on this path)`, ...(leaf.required_keys ?? [])] : []),
+        ``, `# ${leaf.label} xpubs`, ...leaf.keys,
+      ])
     : [
         ``, `# Founder xpubs`, ...v.founder_keys,
         ``, `# Heir xpubs`, ...v.heir_keys,

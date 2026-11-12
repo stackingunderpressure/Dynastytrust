@@ -94,6 +94,9 @@ export function checkRotatedVault(old: VaultShape, next: VaultShape): string[] {
     const o = a[i], n = b[i], name = `"${o.label}"`;
     if (n.id !== o.id || n.label !== o.label) { problems.push(`path ${i + 1} is ${JSON.stringify(n.label)}, not ${name}`); continue; }
     if (!same(n.keys, o.keys)) problems.push(`${name} does not have the same keys`);
+    // A successor that lost a must-sign key would be a weaker vault than
+    // the one being rotated: refused, like any other difference.
+    if (!same(n.required_keys ?? [], o.required_keys ?? [])) problems.push(`${name} does not have the same must-sign keys`);
     if (n.quorum !== o.quorum) problems.push(`${name} needs ${n.quorum} signatures, not ${o.quorum}`);
     if (!same(n.decay ?? null, o.decay ?? null)) problems.push(`${name} does not have the same step-down rule`);
     if (n.unlock.type !== o.unlock.type) problems.push(`${name} opens by a different kind of rule`);
