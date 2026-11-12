@@ -179,6 +179,12 @@ export interface LeafSpec {
   /** Draft only: how many key slots this path has (see VaultWizard's
    *  leafDraftToSpec). Absent on a compiled vault. */
   planned_keys?: number;
+  /** Keys that must EACH sign on this path, on top of `quorum` of `keys`
+   *  (protocol::Leaf::required_keys). Never also in `keys`. Absent or
+   *  empty on a path with none. */
+  required_keys?: string[];
+  /** Draft only: how many must-sign slots this path has. */
+  planned_required?: number;
 }
 
 /** The whole Bloc policy the compiler needs to rebuild the exact tree

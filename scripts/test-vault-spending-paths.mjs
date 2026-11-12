@@ -125,4 +125,45 @@ for (const { name, vault } of FIXTURES) {
   assert.deepStrictEqual(recovery, fn.findSpendingPath(namedVault, 'recovery'));
 }
 
+// Must-sign keys and the consent group: both twins describe them the
+// same way, and "fully signed" is decided by WHO signed, not how many.
+{
+  const K = (c) => '02' + c.repeat(64);
+  const vault = {
+    leaves: [
+      { id: 'everyday', label: 'Everyday', required_keys: [K('a')], keys: [K('b'), K('c')], quorum: 1, unlock: { type: 'immediate' } },
+      { id: 'later', label: 'Later', keys: [K('d'), K('e')], quorum: 2, unlock: { type: 'after', blocks: 900000 } },
+      { id: 'second', label: 'Second open path', keys: [K('f')], quorum: 1, unlock: { type: 'immediate' } },
+    ],
+    consent_keys: [K('1'), K('2')], consent_quorum: 1,
+  };
+  assert.deepStrictEqual(web.getSpendingPaths(vault), fn.getSpendingPaths(vault));
+  const [everyday, later, second] = fn.getSpendingPaths(vault);
+  assert.deepStrictEqual(everyday.requiredKeys, [K('a')]);
+  assert.deepStrictEqual(everyday.consent, { keys: [K('1'), K('2')], quorum: 1 });
+  assert.strictEqual(later.consent, null); assert.strictEqual(second.consent, null);
+  assert.deepStrictEqual(later.requiredKeys, []);
+  for (const m of [web, fn]) {
+    assert.strictEqual(m.signaturesNeeded(everyday), 3);
+    assert.strictEqual(m.signaturesNeeded(later), 2);
+    // Two phones and a consenter: three signatures, the must-sign key is not among them.
+    const wrong = m.pathSignatureStatus(everyday, [K('b'), K('c'), K('1')]);
+    assert.deepStrictEqual(wrong, { byName: true, satisfied: false, have: 2, need: 3, missingRequired: [K('a')], poolHave: 1, consentHave: 1 });
+    // The must-sign key and a phone, no consent yet.
+    assert.strictEqual(m.pathSignatureStatus(everyday, [K('a'), K('b')]).satisfied, false);
+    // x-only form, other parity, upper case: still the same keys.
+    const right = m.pathSignatureStatus(everyday, ['a'.repeat(64), '03' + 'B'.repeat(64), K('2')]);
+    assert.deepStrictEqual(right, { byName: true, satisfied: true, have: 3, need: 3, missingRequired: [], poolHave: 1, consentHave: 1 });
+    // A stranger's key and a key from another path count for nothing.
+    assert.strictEqual(m.pathSignatureStatus(later, [K('d'), K('a'), K('9')]).have, 1);
+    assert.strictEqual(m.pathSignatureStatus(later, [K('d'), K('e')]).satisfied, true);
+    // An xpub on the path cannot be matched by name: fall back to the count, and say so.
+    const named = m.getSpendingPaths({ leaves: null, founder_quorum: 2, founder_keys: ['tpubA', 'tpubB'], heir_keys: [], consent_keys: ['tpubC'], consent_quorum: 1 })[0];
+    assert.deepStrictEqual(named.consent, { keys: ['tpubC'], quorum: 1 });
+    assert.strictEqual(m.signaturesNeeded(named), 3);
+    assert.deepStrictEqual(m.pathSignatureStatus(named, [K('x'.replace('x', '7')), K('8')]), { byName: false, satisfied: false, have: 2, need: 3, missingRequired: [], poolHave: 0, consentHave: 0 });
+  }
+  ran += 1;
+}
+
 console.log(`vault-spending-paths tests passed (${ran} fixtures, web/functions byte-identical)`);

@@ -24,16 +24,25 @@ export function isLeafListVault(vault) {
 
 /**
  * @param {object} vault
- * @returns {{id: string, label: string, quorum: number, keyCount: number, keys: string[], unlockType: 'immediate'|'after'|'older', unlockBlocks: number}[]}
+ * @returns {{id: string, label: string, quorum: number, keyCount: number, keys: string[], requiredKeys: string[], consent: {keys: string[], quorum: number}|null, unlockType: 'immediate'|'after'|'older', unlockBlocks: number}[]}
  */
 export function getSpendingPaths(vault) {
+  const consent = (vault.consent_keys ?? []).length > 0 && vault.consent_quorum != null
+    ? { keys: vault.consent_keys, quorum: vault.consent_quorum }
+    : null;
+
   if (isLeafListVault(vault)) {
-    return vault.leaves.map((leaf) => ({
+    // The consent group gates the FIRST immediate leaf only -- the same
+    // rule protocol::build_leaf_multileaf applies.
+    const primary = vault.leaves.findIndex((leaf) => leaf.unlock.type === 'immediate');
+    return vault.leaves.map((leaf, i) => ({
       id: leaf.id,
       label: leaf.label || leaf.id,
       quorum: leaf.quorum,
       keyCount: leaf.keys.length,
       keys: leaf.keys,
+      requiredKeys: leaf.required_keys ?? [],
+      consent: i === primary ? consent : null,
       unlockType: leaf.unlock.type,
       unlockBlocks: leaf.unlock.type === 'immediate' ? 0 : leaf.unlock.blocks,
     }));
@@ -108,7 +117,49 @@ export function getSpendingPaths(vault) {
     });
   }
 
-  return paths;
+  // Named-field vaults have no must-sign keys; consent gates founders-now.
+  return paths.map((p) => ({ ...p, requiredKeys: [], consent: p.id === 'founders_now' ? consent : null }));
+}
+
+/** How many signatures a spend on this path needs in all. */
+export function signaturesNeeded(path) {
+  return path.requiredKeys.length + path.quorum + (path.consent ? path.consent.quorum : 0);
+}
+
+// A stored key as the 32-byte x-only hex a tapscript signature is filed
+// under, or null when it is not a plain public key (an xpub).
+function xOnlyHex(k) {
+  if (typeof k !== 'string') return null;
+  const h = k.toLowerCase();
+  if (/^0[23][0-9a-f]{64}$/.test(h)) return h.slice(2);
+  if (/^[0-9a-f]{64}$/.test(h)) return h;
+  return null;
+}
+
+/**
+ * Is this path's rule met by THESE signers? Counting signatures is not
+ * enough once a path has must-sign keys or a consent group: on "the
+ * hardware wallet and 1 of 2 phones", two phones are two signatures and
+ * still cannot spend. `signedKeys` are the public keys (hex, x-only or
+ * compressed) whose signatures have been verified.
+ *
+ * byName is false when a key on the path is stored as an xpub and cannot
+ * be matched; the answer then falls back to the count.
+ */
+export function pathSignatureStatus(path, signedKeys) {
+  const signed = new Set(signedKeys.map(xOnlyHex).filter(Boolean));
+  const need = signaturesNeeded(path);
+  const groups = [path.requiredKeys, path.keys, path.consent ? path.consent.keys : []];
+  const byName = groups.every((g) => g.every((k) => xOnlyHex(k) !== null));
+  if (!byName) {
+    return { byName: false, satisfied: signed.size >= need, have: Math.min(signed.size, need), need, missingRequired: [], poolHave: 0, consentHave: 0 };
+  }
+  const has = (k) => signed.has(xOnlyHex(k));
+  const missingRequired = path.requiredKeys.filter((k) => !has(k));
+  const poolHave = Math.min(path.keys.filter(has).length, path.quorum);
+  const consentHave = path.consent ? Math.min(path.consent.keys.filter(has).length, path.consent.quorum) : 0;
+  const have = path.requiredKeys.length - missingRequired.length + poolHave + consentHave;
+  return { byName: true, satisfied: have >= need, have, need, missingRequired, poolHave, consentHave };
 }
 
 /** Look up one path by id (a leaf's own id, or a named-field path id). */
