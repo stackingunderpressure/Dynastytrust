@@ -502,3 +502,53 @@ Possible later, with a real Lightning node: the vault's spend funds a
 channel directly (PSBT channel funding). A shared-custody Lightning
 balance is a federation (Fedimint-style), a product in itself -- wedge
 test says integrate or skip, not rebuild.
+
+## SeedSigner fork is 123 commits behind stock SeedSigner's dev (found 2026-11-12, nothing changed)
+
+Operator: "Is our seed signer updated to latest security fixes on the
+main seed signer repo. And is ours compatible to make same upgrades?"
+
+Measured: fork `stackingunderpressure/seedsigner` dev (16427f3)
+branched from upstream `SeedSigner/seedsigner` dev at 1fb2956
+(2026-07-22). Upstream dev is now 995ce5c (2026-11-06), 123 commits
+ahead. Latest upstream tag seen: 0.8.7; upstream `main` last moved
+2024-09-20, so this work is on upstream's dev, not in a release I
+could confirm.
+
+What upstream added, by its own commit titles (PSBT hardening, mostly
+`models/psbt_parser.py`, +1,743/-... lines there): verify input
+amounts and discard unverifiable transactions (the segwit-v0 fee-lying
+attack; upstream's own comment says Taproot is not affected, BIP-341
+commits every input amount); reject PSBTs that falsely claim this
+seed's ownership; verify change outputs actually pay this seed; hold
+multisig output claims to their script; verify input scripts against
+the scriptPubKey they commit to; refuse claims at too-short derivation
+paths; reject outputs exceeding inputs; parse OP_RETURN pushes
+properly; high-fee warning; Bytewords CRC fix; image-entropy fixes;
+hash-locked dev requirements; Swahili.
+
+Trial merge (throwaway branch, aborted): NOT clean. 20 conflict blocks
+in 4 files -- psbt_parser.py (10), psbt_views.py (6),
+screenshot_generator/generator.py (2), test_psbt_parser.py (2).
+
+Design conflict, read from upstream's parser: stock SeedSigner now
+REFUSES a spend that can only be signed through a Taproot script path
+(`PSBTUnsupportedScriptPathError`: "Script path spends are not yet
+supported"), and its `trim()` still keeps only a final witness. Every
+DynastyTrust vault spend is a script-path spend. So a plain upgrade to
+stock would stop the device signing our vaults; the fork's purpose has
+to be carried across onto upstream's new parser, with upstream's new
+checks extended to script-path inputs.
+
+Also found in the fork: when deciding a key is eligible on a leaf it
+reads the PSBT's own `taproot_scripts` without checking the control
+block commits that script to the coin's scriptPubKey (our app's
+verifier does this check). A signature over a made-up leaf cannot
+spend the real coin, and the registered-descriptor screen matches leaf
+hashes against the real tree, so this is a display-honesty gap, not a
+theft path. Close it in the port.
+
+What this means today: for DynastyTrust vault spends the fork's
+checks are the ones proven on 2026-11-12. For any OTHER wallet used on
+the same device (single-sig segwit, legacy multisig), the fork lacks
+upstream's newer protections.
