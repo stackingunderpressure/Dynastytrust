@@ -205,7 +205,11 @@ then (c).
       trust document edits, key relabels and hardware key repair now reach
       the sealed record; a signature records the signer's real role, path
       and whether they signed as must-sign, consent or ordinary signer.
-      Database change 20261112230000_signer_role_real.sql not yet applied.
+      Database change 20261112230000_signer_role_real.sql applied 2026-11-12.
+    - 15g Must-sign invites (BUILT 2026-11-12, on the branch): a person
+      can be invited into a path's must-sign slot and join with their own
+      key; the invite page and the builder recommend a hardware wallet.
+      Database change 20261113000000_must_sign_invites.sql not yet applied.
 
 9. **Compiler in the browser (WASM), Fly as cross-check.** Compile-first
    migration of `protocol/` to WASM so the descriptor, address and PSBT are

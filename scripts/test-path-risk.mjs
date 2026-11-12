@@ -167,5 +167,17 @@ pass('a must-sign key every path needs is red and is listed for the owner to ack
   assert.equal(r.opensWithoutOutsideKey(v[0]), true);
 }
 pass('a browser key made must-sign is allowed and described as a phone\'s protection');
+{
+  // A must-sign key held by an invited person: the owner is told the app
+  // cannot see their device, and to ask for a hardware wallet.
+  const v = [ms('Everyday', [m('Gran')], [b('A'), b('B')], 1), path('Later', [hw, b('C')], 2, 'after', YEAR)];
+  const theirs = r.memberMustSignNote(v[0]);
+  assert.equal(theirs.level, 'warn');
+  assert.equal(theirs.text, '"Gran" holds a must-sign key on their own device. This app cannot see what kind of device that is, and nothing on this path moves without it. Ask them to use a hardware wallet.');
+  assert.ok(r.pathNotes(v, 'Everyday').some(x => x.text === theirs.text));
+  assert.match(r.memberMustSignNote(ms('E', [m('Gran'), m('Pop')], [b('A')], 1)).text, /^"Gran" and "Pop" hold must-sign keys on their own devices\. .* Ask each of them/);
+  assert.equal(r.memberMustSignNote(ms('E', [hw], [m('Anna')], 1)), null, 'an invited person in the ordinary group gets no such note');
+}
+pass('a must-sign key held by an invited person is flagged: the app cannot see their device, so ask for a hardware wallet');
 
 console.log(`path-risk tests passed (${n} cases)`);

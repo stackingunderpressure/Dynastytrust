@@ -152,6 +152,19 @@ export function browserMustSignNote(here: RiskPath): RiskNote | null {
   };
 }
 
+/** A must-sign key held by an invited person: nothing on the path moves
+ *  without it, and this app cannot see what device they keep it on
+ *  (operator, 2026-11-12: "Warn both, recommend hardware"). */
+export function memberMustSignNote(here: RiskPath): RiskNote | null {
+  const theirs = must(here).filter(k => k.kind === 'member');
+  if (!theirs.length) return null;
+  const one = theirs.length === 1;
+  return {
+    level: 'warn',
+    text: `${listWords(theirs.map(k => q(k.label)))} ${one ? 'holds a must-sign key' : 'hold must-sign keys'} on ${one ? 'their own device' : 'their own devices'}. This app cannot see what kind of device that is, and nothing on this path moves without ${one ? 'it' : 'them'}. Ask ${one ? 'them' : 'each of them'} to use a hardware wallet.`,
+  };
+}
+
 /** Must-sign keys that EVERY path needs: lose one and nothing can ever
  *  move. The builder asks for an explicit tick before finalizing. */
 export function mustSignKeysEveryPathNeeds(paths: RiskPath[]): RiskKey[] {
@@ -208,6 +221,8 @@ export function pathNotes(paths: RiskPath[], pathId: string): RiskNote[] {
   }
   const hot = browserMustSignNote(here);
   if (hot) notes.push(hot);
+  const theirs = memberMustSignNote(here);
+  if (theirs) notes.push(theirs);
   if (mixesKinds(paths)) {
     const n = outsideNote(here);
     if (n) notes.push(n);

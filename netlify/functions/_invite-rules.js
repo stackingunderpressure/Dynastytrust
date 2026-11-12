@@ -27,19 +27,40 @@ export function roleForPath(leaf) {
   return leaf?.unlock?.type === "immediate" ? "founder" : "heir";
 }
 
+/** How many must-sign slots a draft path has: what the owner planned,
+ *  or the must-sign keys already placed if that is more. */
+export function mustSignSlots(leaf) {
+  const planned = Number.isInteger(leaf?.planned_required) ? leaf.planned_required : 0;
+  return Math.max(planned, (leaf?.required_keys ?? []).length);
+}
+
 /**
- * Validate a new path invite. Returns { role, label, email } or throws
- * with a plain message. `vault` needs { status, leaves }.
+ * Validate a new path invite. Returns { role, label, email, mustSign }
+ * or throws with a plain message. `vault` needs { status, leaves }.
+ *
+ * `must_sign` asks for the path's must-sign group (keys every spend on
+ * it needs). `mustSignTaken` is how many of that path's must-sign slots
+ * are already promised -- open must-sign invites plus members who joined
+ * into one -- so a path is never offered to more people than it has
+ * must-sign slots.
  */
-export function checkPathInvite(vault, { leaf_id, invited_label, invited_email }) {
+export function checkPathInvite(vault, { leaf_id, invited_label, invited_email, must_sign }, mustSignTaken = 0) {
   if (vault?.status !== "draft") throw new Error("People can only be invited while the vault is still being set up.");
   const leaf = (vault.leaves ?? []).find((l) => l && l.id === leaf_id);
   if (!leaf) throw new Error("That path is not part of this vault.");
+  const mustSign = must_sign === true;
+  if (mustSign) {
+    const slots = mustSignSlots(leaf);
+    if (slots === 0) throw new Error("That path has no keys that must always sign. Add one to the path first.");
+    if (mustSignTaken >= slots) {
+      throw new Error(`Every must-sign slot on "${leaf.label || leaf.id}" is already taken or promised to someone.`);
+    }
+  }
   const label = typeof invited_label === "string" ? invited_label.trim() : "";
   if (!label || label.length > 80) throw new Error("Give the person's name (up to 80 characters).");
   const email = typeof invited_email === "string" ? invited_email.trim().toLowerCase() : "";
   if (!EMAIL.test(email)) throw new Error("Give the email address this person signs in with.");
-  return { role: roleForPath(leaf), label, email };
+  return { role: roleForPath(leaf), label, email, mustSign };
 }
 
 /** The signed-in account must BE the invited address. */

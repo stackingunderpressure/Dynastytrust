@@ -17,6 +17,10 @@ import { useToast } from '../toast';
 // The server refuses to finalize a vault holding an unconfirmed member
 // key (compile-leaves.js), so this screen is the convenient path, not
 // the guard.
+//
+// Since 2026-11-12 it also serves a path's must-sign group (`mustSign`):
+// the same invite, join and confirm, for a key every spend on the path
+// needs. `leaf.plannedKeys` is then the number of must-sign slots.
 
 export function PathInvites({
   vaultId,
@@ -28,6 +32,7 @@ export function PathInvites({
   invites,
   members,
   reload,
+  mustSign = false,
 }: {
   vaultId: string;
   network: string;
@@ -38,6 +43,8 @@ export function PathInvites({
   invites: VaultInvite[];
   members: VaultMember[];
   reload: () => Promise<void>;
+  /** This panel is for the path's must-sign group, not its k-of-n group. */
+  mustSign?: boolean;
 }) {
   const toast = useToast();
   const [formOpen, setFormOpen] = useState(false);
@@ -47,7 +54,7 @@ export function PathInvites({
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
-  const people = peopleOnPath(leaf.id, invites, members, ownerUserId, selected, new Date());
+  const people = peopleOnPath(leaf.id, invites, members, ownerUserId, selected, new Date(), mustSign);
   const free = openSlots(leaf.plannedKeys, selected, people);
   const linkFor = (i: VaultInvite) => `${window.location.origin}/invite/${i.token}`;
 
@@ -66,7 +73,10 @@ export function PathInvites({
     setBusy(true);
     setErr(null);
     try {
-      await api.invites.create({ vault_id: vaultId, leaf_id: leaf.id, invited_label: name.trim(), invited_email: email.trim() });
+      await api.invites.create({
+        vault_id: vaultId, leaf_id: leaf.id, invited_label: name.trim(), invited_email: email.trim(),
+        ...(mustSign ? { must_sign: true } : {}),
+      });
       setName('');
       setEmail('');
       setFormOpen(false);
@@ -103,7 +113,9 @@ export function PathInvites({
       const res = await api.members.confirmKey(m.id, m.fingerprint);
       await reload();
       addMemberKey(res.member);
-      toast.success(`${m.label ?? 'Their'} key is confirmed and added to "${leaf.label}".`);
+      toast.success(mustSign
+        ? `${m.label ?? 'Their'} key is confirmed and must now sign every spend on "${leaf.label}".`
+        : `${m.label ?? 'Their'} key is confirmed and added to "${leaf.label}".`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not confirm the key');
     } finally {
@@ -138,7 +150,9 @@ export function PathInvites({
     <div style={{ marginTop: space[3], borderTop: `1px solid ${colors.divider}`, paddingTop: space[3] }}>
       {free > 0 && (
         <div style={{ fontSize: 15, color: colors.sub, lineHeight: 1.55 }}>
-          Should someone else hold a key on this path? They make it on their own phone, so it never touches yours.
+          {mustSign
+            ? 'Should someone else hold a must-sign key on this path? They make it on their own device, so it never touches yours. Nothing on this path moves without them, so a hardware wallet belongs here; the app cannot see what device they use.'
+            : 'Should someone else hold a key on this path? They make it on their own phone, so it never touches yours.'}
         </div>
       )}
 
@@ -190,11 +204,11 @@ export function PathInvites({
           <div key={m.id} style={row}>
             <strong>{m.label}</strong> -- key confirmed <span style={fp}>{m.fingerprint}</span>
             {p.inSlot ? (
-              <div style={sub}>Their key fills a slot on this path.</div>
+              <div style={sub}>{mustSign ? 'Their key must sign every spend on this path.' : 'Their key fills a slot on this path.'}</div>
             ) : (
               <div style={{ marginTop: space[2] }}>
                 <Button size="sm" style={{ minHeight: 40 }} disabled={selected.length >= leaf.plannedKeys} onClick={() => addMemberKey(m)}>
-                  Add their key to this path
+                  {mustSign ? 'Make their key a must-sign key' : 'Add their key to this path'}
                 </Button>
               </div>
             )}
@@ -204,7 +218,7 @@ export function PathInvites({
 
       {free > 0 && !formOpen && (
         <Button size="sm" variant="ghost" style={{ minHeight: 40, marginTop: space[2] }} onClick={() => setFormOpen(true)}>
-          + Invite someone to hold a key
+          {mustSign ? '+ Invite someone to hold a must-sign key' : '+ Invite someone to hold a key'}
         </Button>
       )}
 
@@ -229,6 +243,7 @@ export function PathInvites({
           <div style={{ fontSize: 15, color: colors.sub, lineHeight: 1.55 }}>
             You get a link to send them. Only that email address can use it, and their key goes into the vault
             only after you confirm it with them.
+            {mustSign ? ' Their invite page tells them nothing on this path can move without them, and recommends a hardware wallet.' : ''}
           </div>
           {err && <div style={{ fontSize: 15, color: colors.red }}>{err}</div>}
           <div style={{ display: 'flex', gap: space[2] }}>

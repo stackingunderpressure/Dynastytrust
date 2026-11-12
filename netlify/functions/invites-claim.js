@@ -41,7 +41,7 @@ export async function handler(event) {
 
   const { data: invite, error: lookupErr } = await supabase
     .from("vault_invites")
-    .select("id, vault_id, invited_role, invited_label, invited_email, leaf_id, expires_at, claimed_at")
+    .select("id, vault_id, invited_role, invited_label, invited_email, leaf_id, must_sign, expires_at, claimed_at")
     .eq("token", token)
     .maybeSingle();
   if (lookupErr) return json(500, { error: lookupErr.message });
@@ -137,7 +137,7 @@ export async function handler(event) {
       pubkey: claimedKey ? claimedKey.pubkey : body.pubkey || null,
       derivation_path: claimedKey ? claimedKey.derivation_path : body.derivation_path || null,
       key_label: body.key_label || null,
-      ...(invite.leaf_id ? { leaf_id: invite.leaf_id } : {}),
+      ...(invite.leaf_id ? { leaf_id: invite.leaf_id, must_sign: Boolean(invite.must_sign) } : {}),
       status: "active",
     })
     .select("id")
@@ -157,7 +157,7 @@ export async function handler(event) {
     vault_id: invite.vault_id,
     user_id: u.userId,
     event_type: "member_joined",
-    metadata: { member_id: memberId, role: invite.invited_role, via_invite: invite.id, ...(claimedKey ? { leaf_id: invite.leaf_id, fingerprint: claimedKey.fingerprint } : {}) },
+    metadata: { member_id: memberId, role: invite.invited_role, via_invite: invite.id, ...(claimedKey ? { leaf_id: invite.leaf_id, must_sign: Boolean(invite.must_sign), fingerprint: claimedKey.fingerprint } : {}) },
   });
 
   return json(200, { ok: true, member_id: memberId, vault_id: invite.vault_id });

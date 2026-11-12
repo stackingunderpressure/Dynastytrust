@@ -106,6 +106,53 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Must-sign invites -- BUILT 2026-11-12, on the branch, NOT on main,
+  the database change NOT applied.** Operator chose "must-sign invites"
+  (inviting a person into a must-sign slot so a family member holds the
+  key every spend needs on their own device), then by chip: warn both,
+  recommend a hardware wallet. Before this, a path's must-sign group took
+  only a key the owner picked ("Pick a key you hold yourself; an invited
+  person joins the group below"). What changed: migration
+  `supabase/migrations/20261113000000_must_sign_invites.sql` adds
+  `must_sign boolean not null default false` to `vault_invites` and
+  `vault_members`. `_invite-rules.js` `checkPathInvite` accepts
+  `must_sign: true` only on a path with must-sign slots (`mustSignSlots`:
+  planned_required, or keys already placed if more) and refuses once
+  every slot is promised (open must-sign invites plus non-removed
+  must-sign members, counted in `invites.js`). The flag is stored on the
+  invite, carried onto the member at join (`invites-claim.js`), told to
+  the invite page (`invites-lookup.js`), and sealed on invite_created,
+  invite_revoked and member_joined. `PathInvites.tsx` takes `mustSign`
+  and now also sits on the builder's must-sign card; `peopleOnPath`
+  lists each group's own people. The join page, for a must-sign invite,
+  says the key must sign every spend and shows an orange card: nothing
+  on the path moves without them, losing it closes the path, a hardware
+  wallet belongs here (Keys page, Import xpub). The ordinary join text
+  no longer says must-sign keys are ones "the owner holds". New builder
+  note (`path-risk.ts` `memberMustSignNote`): an invited person's
+  must-sign key is on a device this app cannot see; ask for a hardware
+  wallet. Unchanged and relied on: compile-leaves already refused an
+  unconfirmed member key in `required_keys`; the compiled vault is the
+  same as if the owner had picked the key. Proven: test-invite-rules
+  (+1 case), test-invite-handlers (+1 case: invite, slot limit, lookup,
+  join, finalize refused unconfirmed, removal reopens the slot),
+  test-path-people (+1), test-path-risk (+1); test-sealed-actions
+  expectation updated for the new field. Walked at 375px against the
+  real handlers with a stand-in database: owner invites Gran into the
+  must-sign slot, the must-sign invite button disappears once the slot
+  is promised, Gran's page shows the must-sign wording and hardware
+  advice, she makes and backs up a key and joins, the owner sees the same
+  fingerprint, confirms, and the card reads "Their key must sign every
+  spend on this path" with the new note; no page errors, no sideways
+  scroll. Measured: `npm test` 34 suites green, lint 0 errors / 11
+  warnings (same set), typecheck 10 errors (same set), build green.
+  Deliberately left: invites into the beneficiary-consent group; the
+  older builders; adding a must-sign person to a finalized vault
+  (rotation); any proof of the device a person used. Deploy order: if
+  the site build lands before the migration, invite reads and writes
+  fail until it applies (the DB deploy has taken about 1 second, the
+  site build minutes). NOT seen: on the real backend or a real phone.
+
 - **Every vault and membership action sealed; a signature carries the
   signer's real role -- BUILT 2026-11-12, on the branch, NOT on main, the
   database change NOT applied.** Operator asked for the gaps in "the roles

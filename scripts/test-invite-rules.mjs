@@ -27,7 +27,7 @@ const draft = { status: 'draft', leaves: [
   { id: 'everyday', label: 'Everyday signers', keys: [], quorum: 2, unlock: { type: 'immediate' } },
   { id: 'kids', label: 'The kids', keys: [], quorum: 2, unlock: { type: 'after', blocks: 262800 } },
   { id: 'stale', label: 'If untouched', keys: [], quorum: 1, unlock: { type: 'older', blocks: 30000 } } ] };
-assert.deepEqual(r.checkPathInvite(draft, { leaf_id: 'kids', invited_label: '  Anna ', invited_email: ' Anna@Example.com ' }), { role: 'heir', label: 'Anna', email: 'anna@example.com' });
+assert.deepEqual(r.checkPathInvite(draft, { leaf_id: 'kids', invited_label: '  Anna ', invited_email: ' Anna@Example.com ' }), { role: 'heir', label: 'Anna', email: 'anna@example.com', mustSign: false });
 assert.equal(r.checkPathInvite(draft, { leaf_id: 'everyday', invited_label: 'Mum', invited_email: 'mum@example.com' }).role, 'founder');
 assert.equal(r.checkPathInvite(draft, { leaf_id: 'stale', invited_label: 'Mum', invited_email: 'mum@example.com' }).role, 'heir');
 const inv = (o, v = draft) => () => r.checkPathInvite(v, { leaf_id: 'kids', invited_label: 'Anna', invited_email: 'anna@example.com', ...o });
@@ -37,6 +37,24 @@ assert.throws(inv({ invited_label: 'x'.repeat(81) }), /person's name/);
 for (const bad of ['', 'anna', 'anna@', '@x.com', 'a b@x.com', 'anna@x', undefined, 7]) assert.throws(inv({ invited_email: bad }), /email address/, String(bad));
 assert.throws(inv({}, { ...draft, status: 'compiled' }), /only be invited while the vault is still being set up/);
 pass('a path invite needs a real path, a name and an email, on a vault still being set up; the role follows the path');
+
+// 1b. An invite into a path's must-sign group.
+{
+  const withMust = { status: 'draft', leaves: [
+    { id: 'everyday', label: 'Everyday signers', keys: [], quorum: 1, planned_required: 2, required_keys: [], unlock: { type: 'immediate' } },
+    { id: 'kids', label: 'The kids', keys: [], quorum: 2, unlock: { type: 'after', blocks: 262800 } } ] };
+  const must = (o = {}, taken = 0, v = withMust) => r.checkPathInvite(v, { leaf_id: 'everyday', invited_label: 'Gran', invited_email: 'gran@example.com', must_sign: true, ...o }, taken);
+  assert.equal(must().mustSign, true);
+  assert.equal(must({}, 1).mustSign, true, 'one of two must-sign slots promised: one left');
+  assert.throws(() => must({}, 2), /Every must-sign slot on "Everyday signers" is already taken or promised/);
+  assert.throws(() => must({ leaf_id: 'kids' }), /no keys that must always sign/);
+  assert.equal(must({ must_sign: 'yes' }).mustSign, false, 'only a real true asks for a must-sign slot');
+  // slots come from the plan, or from must-sign keys already placed if that is more
+  assert.equal(r.mustSignSlots({ planned_required: 1, required_keys: ['a', 'b'] }), 2);
+  assert.equal(r.mustSignSlots({ keys: ['a'] }), 0);
+  assert.equal(r.mustSignSlots(undefined), 0);
+}
+pass('a must-sign invite needs a path that has must-sign slots, and never more invites than it has slots');
 
 // 2. The link is for one address.
 assert.equal(r.emailMatches('Anna@Example.com ', 'anna@example.com'), true);

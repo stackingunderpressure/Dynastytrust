@@ -191,6 +191,55 @@ r = await call('members', 'PATCH', { query: { id: anna.id }, body: other });
 assert.equal(r.status, 200); assert.equal(anna.pubkey, other.pubkey);
 pass('a confirmed key cannot be changed; an unconfirmed one can, with the same checks as at joining');
 
+// 6b. Gran is invited to hold the everyday path's must-sign key.
+{
+  as(OWNER, 'dad@example.com');
+  vault.leaves[0].planned_required = 1; vault.leaves[0].required_keys = [];
+  r = await call('invites', 'POST', { body: { vault_id: 'v1', leaf_id: 'kids', must_sign: true, invited_label: 'Gran', invited_email: 'gran@example.com' } });
+  assert.equal(r.status, 400); assert.match(r.error, /no keys that must always sign/);
+  r = await call('invites', 'POST', { body: { vault_id: 'v1', leaf_id: 'everyday', must_sign: true, invited_label: 'Gran', invited_email: 'gran@example.com' } });
+  assert.equal(r.status, 201, JSON.stringify(r));
+  const granInvite = tables.vault_invites.find(i => i.invited_label === 'Gran');
+  assert.equal(granInvite.must_sign, true);
+  assert.deepEqual([tables.events.at(-1).event_type, tables.events.at(-1).metadata.must_sign], ['invite_created', true]);
+  r = await call('invites', 'POST', { body: { vault_id: 'v1', leaf_id: 'everyday', must_sign: true, invited_label: 'Uncle', invited_email: 'uncle@example.com' } });
+  assert.equal(r.status, 400, 'the one must-sign slot is already promised to Gran'); assert.match(r.error, /already taken or promised/);
+  // ...an ordinary invite to the same path is not affected
+  r = await call('invites', 'POST', { body: { vault_id: 'v1', leaf_id: 'everyday', invited_label: 'Uncle', invited_email: 'uncle@example.com' } });
+  assert.equal(r.status, 201); assert.equal(tables.vault_invites.at(-1).must_sign, false);
+  // what her invite page is told
+  as(null);
+  r = await call('invites-lookup', 'GET', { query: { token: granInvite.token } });
+  assert.equal(r.invite.must_sign, true);
+  assert.equal(r.vault.paths[0].mustSignCount, 1);
+  // she joins; the member is in the must-sign group, and the record says so
+  const granKey = mk(21, TEST, "m/48'/1'/0'/2'");
+  as('u-gran', 'gran@example.com');
+  r = await claim(granKey, granInvite.token);
+  assert.equal(r.status, 200, JSON.stringify(r));
+  const gran = tables.vault_members.find(m => m.user_id === 'u-gran');
+  assert.deepEqual([gran.leaf_id, gran.must_sign, gran.key_confirmed_at ?? null], ['everyday', true, null]);
+  assert.deepEqual([tables.events.at(-1).event_type, tables.events.at(-1).metadata.must_sign], ['member_joined', true]);
+  // while her slot is filled by her (unconfirmed) join, the slot cannot be offered again
+  as(OWNER, 'dad@example.com');
+  r = await call('invites', 'POST', { body: { vault_id: 'v1', leaf_id: 'everyday', must_sign: true, invited_label: 'Uncle', invited_email: 'uncle2@example.com' } });
+  assert.equal(r.status, 400);
+  // her key cannot be finalized as a must-sign key until the owner confirms it
+  const keep = structuredClone(vault.leaves); const keepStatus = vault.status;
+  vault.status = 'draft';
+  vault.leaves[0].keys = [mk(22, TEST, "m/48'/1'/0'/2'").pubkey]; vault.leaves[0].required_keys = [granKey.pubkey];
+  vault.leaves[1].keys = [mk(23, TEST, "m/48'/1'/0'/2'").pubkey];
+  r = await call('compile-leaves', 'POST', { body: { vault_id: 'v1' } });
+  assert.equal(r.status, 400); assert.match(r.error, /Gran's key on "Everyday signers" has not been confirmed/);
+  vault.leaves = keep; vault.status = keepStatus;
+  // if she is removed, her must-sign slot opens again
+  r = await call('members', 'DELETE', { query: { id: gran.id } });
+  assert.equal(r.status, 200, JSON.stringify(r));
+  r = await call('invites', 'POST', { body: { vault_id: 'v1', leaf_id: 'everyday', must_sign: true, invited_label: 'Uncle', invited_email: 'uncle3@example.com' } });
+  assert.equal(r.status, 201, 'a removed member no longer holds the slot');
+}
+pass("a person can be invited into a path's must-sign slot (never more than it has), is told so, joins into that group, and cannot be finalized there unconfirmed");
+
 // 7. Nobody new can join once the vault is finalized.
 tables.vault_invites.push({ id: 'i-late', vault_id: 'v1', invited_role: 'heir', invited_label: 'Late', invited_email: 'late@example.com', leaf_id: 'kids', token: 'tok-late', expires_at: new Date(Date.now() + 1e9).toISOString(), claimed_at: null });
 vault.status = 'compiled';

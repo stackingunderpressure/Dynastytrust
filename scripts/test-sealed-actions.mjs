@@ -121,7 +121,7 @@ as(OWNER);
 r = await call('invites', 'DELETE', { query: { id: 'inv-1' } });
 assert.equal(r.status, 200);
 assert.deepEqual([last().event_type, last().vault_id, last().user_id], ['invite_revoked', 'v1', OWNER]);
-assert.deepEqual(last().metadata, { invite_id: 'inv-1', role: 'heir', label: 'Cousin', leaf_id: 'later', was_claimed: false });
+assert.deepEqual(last().metadata, { invite_id: 'inv-1', role: 'heir', label: 'Cousin', leaf_id: 'later', must_sign: false, was_claimed: false });
 assert.ok(!JSON.stringify(sealed).includes('cousin@example.com') && !JSON.stringify(sealed).includes('t'.repeat(48)), 'neither the email nor the invite link is sealed');
 pass('withdrawing an invite is sealed by the owner who did it, with the path and role but no email or link');
 

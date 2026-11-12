@@ -29,6 +29,9 @@ export interface PathInviteInfo {
   id: string;
   invited_label: string | null;
   leaf_id?: string;
+  /** The slot is one of the path's must-sign keys: every spend on the
+   *  path needs this person's key (invites-lookup.js). */
+  must_sign?: boolean;
   email_hint?: string | null;
 }
 export interface PathInviteVault {
@@ -95,13 +98,33 @@ export default function InviteClaimPath({
         <strong>{path ? `"${path.label}"` : 'a path'}</strong> in the Bitcoin vault <strong>{vault.name}</strong>
         {real ? '' : ' (test coins, not real bitcoin)'}.
       </p>
-      {path && (
+      {path && !invite.must_sign && (
         <p style={{ ...sub, marginTop: space[2] }}>
           {path.quorum} of the {path.keyCount} keys on that path must sign together to move the coins
           {(path.mustSignCount ?? 0) > 0
-            ? `, and every spend also needs ${path.mustSignCount === 1 ? 'one key' : `${path.mustSignCount} keys`} the owner holds, which must always sign`
+            ? `, and every spend also needs ${path.mustSignCount === 1 ? 'one more key' : `${path.mustSignCount} more keys`}, which must always sign`
             : ''}. {whenWords(path)}
         </p>
+      )}
+      {path && invite.must_sign && (
+        <>
+          <p style={{ ...sub, marginTop: space[2] }}>
+            Your key will be one that <strong style={{ color: colors.text }}>must sign every spend</strong> on that path,
+            on top of {path.quorum} of the {path.keyCount} other {path.keyCount === 1 ? 'key' : 'keys'} on it. {whenWords(path)}
+          </p>
+          <div style={{ marginTop: space[3], padding: space[3], borderRadius: radii.md, background: colors.inset, border: `1px solid ${colors.orange}` }}>
+            <p style={{ ...p, color: colors.orange, fontWeight: 600 }}>Nothing on this path can move without you.</p>
+            <p style={{ ...sub, marginTop: space[1] }}>
+              If you lose this key, or will not sign, this path can never be used. Keep its words written down
+              somewhere safe, and keep the key itself somewhere a thief cannot reach.
+            </p>
+            <p style={{ ...sub, marginTop: space[1] }}>
+              A hardware wallet belongs in this slot. To use one, add it on the{' '}
+              <Link to="/keys" style={{ color: colors.gold }}>Keys page</Link> (Import xpub), then open this link again
+              and choose it below. A key kept in this browser protects this path only as well as this phone is protected.
+            </p>
+          </div>
+        </>
       )}
       <p style={{ ...sub, marginTop: space[2] }}>
         Your key is made on this device and stays on it. Nobody else ever sees it -- not the person who invited

@@ -94,8 +94,10 @@ export type PersonState =
   | { kind: 'joined'; member: VaultMember }                  // joined with a key, owner has not confirmed
   | { kind: 'confirmed'; member: VaultMember; inSlot: boolean };
 
-/** Everyone invited to one path, in the state the owner needs to act on.
- *  `now` decides which unclaimed invites have expired (left out). */
+/** Everyone invited to one group of one path, in the state the owner
+ *  needs to act on. `mustSign` picks the group: the path's must-sign keys
+ *  (true) or its ordinary k-of-n keys (false, the default). `now` decides
+ *  which unclaimed invites have expired (left out). */
 export function peopleOnPath(
   leafId: string,
   invites: readonly VaultInvite[],
@@ -103,15 +105,17 @@ export function peopleOnPath(
   ownerUserId: string,
   selected: readonly SelectedKey[],
   now: Date,
+  mustSign = false,
 ): PersonState[] {
   const out: PersonState[] = [];
+  const inGroup = (flag: boolean | undefined) => Boolean(flag) === mustSign;
   for (const m of members) {
-    if (m.leaf_id !== leafId || m.status !== 'active' || m.user_id === ownerUserId) continue;
+    if (m.leaf_id !== leafId || m.status !== 'active' || m.user_id === ownerUserId || !inGroup(m.must_sign)) continue;
     if (m.key_confirmed_at) out.push({ kind: 'confirmed', member: m, inSlot: selected.some(s => s.keyId === memberKeyId(m.id)) });
     else out.push({ kind: 'joined', member: m });
   }
   for (const i of invites) {
-    if (i.leaf_id !== leafId || i.claimed_at || new Date(i.expires_at).getTime() < now.getTime()) continue;
+    if (i.leaf_id !== leafId || !inGroup(i.must_sign) || i.claimed_at || new Date(i.expires_at).getTime() < now.getTime()) continue;
     out.push({ kind: 'invited', invite: i });
   }
   return out;

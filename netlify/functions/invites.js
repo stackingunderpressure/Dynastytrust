@@ -20,7 +20,7 @@ import { randomBytes } from "node:crypto";
 import { checkPathInvite } from "./_invite-rules.js";
 
 const INVITE_FIELDS =
-  "id, created_at, vault_id, invited_by, invited_role, invited_label, invited_email, leaf_id, token, expires_at, claimed_at, claimed_by";
+  "id, created_at, vault_id, invited_by, invited_role, invited_label, invited_email, leaf_id, must_sign, token, expires_at, claimed_at, claimed_by";
 
 function newToken() {
   // 32 url-safe bytes -> 43 chars. Unlikely to collide in the token column.
@@ -89,8 +89,20 @@ export async function handler(event) {
       const { data: vault, error: vErr } = await supabase
         .from("vaults").select("id, status, leaves").eq("id", vault_id).maybeSingle();
       if (vErr) return json(500, { error: vErr.message });
+      // Must-sign slots already promised on this path: open invites for
+      // one, and people who joined into one and are still in the vault.
+      let mustSignTaken = 0;
+      if (body.must_sign === true) {
+        const now = Date.now();
+        const { data: openInvites } = await supabase
+          .from("vault_invites").select("id, expires_at, claimed_at").eq("vault_id", vault_id).eq("leaf_id", body.leaf_id).eq("must_sign", true);
+        const { data: joined } = await supabase
+          .from("vault_members").select("id, status").eq("vault_id", vault_id).eq("leaf_id", body.leaf_id).eq("must_sign", true);
+        mustSignTaken = (openInvites ?? []).filter((i) => !i.claimed_at && (!i.expires_at || new Date(i.expires_at).getTime() > now)).length
+          + (joined ?? []).filter((m) => m.status !== "removed").length;
+      }
       try {
-        pathInvite = checkPathInvite(vault, body);
+        pathInvite = checkPathInvite(vault, body, mustSignTaken);
       } catch (e) {
         return json(400, { error: e.message });
       }
@@ -103,7 +115,7 @@ export async function handler(event) {
       invited_role,
       invited_label: pathInvite ? pathInvite.label : body.invited_label || null,
       invited_email: pathInvite ? pathInvite.email : body.invited_email || null,
-      ...(pathInvite ? { leaf_id: body.leaf_id } : {}),
+      ...(pathInvite ? { leaf_id: body.leaf_id, must_sign: pathInvite.mustSign } : {}),
       token: newToken(),
     };
 
@@ -119,7 +131,7 @@ export async function handler(event) {
       user_id: u.userId,
       event_type: "invite_created",
       // The email address is deliberately not sealed into the record.
-      metadata: { invite_id: data.id, role: invited_role, ...(pathInvite ? { leaf_id: body.leaf_id, label: pathInvite.label } : {}) },
+      metadata: { invite_id: data.id, role: invited_role, ...(pathInvite ? { leaf_id: body.leaf_id, label: pathInvite.label, must_sign: pathInvite.mustSign } : {}) },
     });
 
     return json(201, { ok: true, invite: data });
@@ -132,7 +144,7 @@ export async function handler(event) {
 
     const { data: invite, error: lookupErr } = await supabase
       .from("vault_invites")
-      .select("id, vault_id, invited_by, invited_role, invited_label, leaf_id, claimed_at")
+      .select("id, vault_id, invited_by, invited_role, invited_label, leaf_id, must_sign, claimed_at")
       .eq("id", id)
       .maybeSingle();
     if (lookupErr) return json(500, { error: lookupErr.message });
@@ -152,7 +164,7 @@ export async function handler(event) {
         invite_id: invite.id,
         role: invite.invited_role ?? null,
         label: invite.invited_label ?? null,
-        ...(invite.leaf_id ? { leaf_id: invite.leaf_id } : {}),
+        ...(invite.leaf_id ? { leaf_id: invite.leaf_id, must_sign: Boolean(invite.must_sign) } : {}),
         was_claimed: Boolean(invite.claimed_at),
       },
     });

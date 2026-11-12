@@ -2357,8 +2357,20 @@ function KeysStep({
               mustSlot(leaf.id), `${leaf.label} -- must-sign ${leaf.plannedRequired === 1 ? 'key' : 'keys'}`, leaf.plannedRequired, myMust, setMustSelected, colors.orange,
               `${leaf.plannedRequired === 1 ? 'This key has' : 'Each of these keys has'} to sign every spend on "${leaf.label}", on top of `
                 + `${leaf.quorum} of the ${leaf.plannedKeys} other ${leaf.plannedKeys === 1 ? 'key' : 'keys'} below. A hardware wallet belongs here. `
-                + 'Pick a key you hold yourself; an invited person joins the group below.',
-              undefined, pickable,
+                + 'Pick a key you hold, or invite the person who should hold it.',
+              <PathInvites
+                vaultId={vaultId}
+                network={network}
+                ownerUserId={ownerUserId}
+                leaf={{ id: leaf.id, label: leaf.label, plannedKeys: leaf.plannedRequired }}
+                selected={myMust}
+                setSelected={setMustSelected}
+                invites={people.invites}
+                members={people.members}
+                reload={reloadPeople}
+                mustSign
+              />,
+              pickable,
             ) : null;
             return [mustCard, role(
               leaf.id, leaf.plannedRequired > 0 ? `${leaf.label} -- the other keys` : `${leaf.label} keys`, leaf.plannedKeys, mySelected, setLeafSelected, i === 0 ? colors.gold : colors.blue, description,

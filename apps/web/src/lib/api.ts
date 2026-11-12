@@ -493,6 +493,9 @@ export interface VaultMember {
    *  key on, and when the owner confirmed that key by its fingerprint.
    *  Only a confirmed key can be compiled into a vault. */
   leaf_id?: string | null;
+  /** True when this person was invited to hold one of leaf_id's
+   *  must-sign keys (a key every spend on that path needs). */
+  must_sign?: boolean;
   key_confirmed_at?: string | null;
   key_confirmed_by?: string | null;
 }
@@ -543,6 +546,8 @@ export interface VaultInvite {
   invited_email: string | null;
   /** Path-builder vaults: the path this invite fills a key slot on. */
   leaf_id?: string | null;
+  /** True when the slot is one of the path's must-sign keys. */
+  must_sign?: boolean;
   token: string;
   expires_at: string;
   claimed_at: string | null;
@@ -1368,6 +1373,8 @@ export const api = {
       /** Path-builder vaults: invite one named person, by email, to hold
        *  one key on this path. Requires invited_label and invited_email. */
       leaf_id?: string;
+      /** With leaf_id: the slot is one of the path's must-sign keys. */
+      must_sign?: boolean;
     }) =>
       req<{ ok: true; invite: VaultInvite }>(`/invites`, {
         method: 'POST',
@@ -1392,6 +1399,7 @@ export const api = {
             invited_label: string | null;
             expires_at: string;
             leaf_id?: string;
+            must_sign?: boolean;
             email_hint?: string | null;
           } | null;
           vault?: {

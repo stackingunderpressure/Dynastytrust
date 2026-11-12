@@ -25,7 +25,7 @@ export async function handler(event) {
 
   const { data: invite, error } = await supabase
     .from("vault_invites")
-    .select("id, vault_id, invited_role, invited_label, invited_email, leaf_id, expires_at, claimed_at")
+    .select("id, vault_id, invited_role, invited_label, invited_email, leaf_id, must_sign, expires_at, claimed_at")
     .eq("token", token)
     .maybeSingle();
   if (error) return json(500, { error: error.message });
@@ -83,6 +83,9 @@ export async function handler(event) {
         invited_label: invite.invited_label,
         expires_at: invite.expires_at,
         leaf_id: invite.leaf_id,
+        // The invited person's key will be one that EVERY spend on this
+        // path needs (a must-sign slot), not one of the k-of-n group.
+        must_sign: Boolean(invite.must_sign),
         email_hint: local && domain ? `${local.slice(0, 1)}***@${domain}` : null,
       },
       // On a draft the path's keys are not all in yet; planned_keys is how

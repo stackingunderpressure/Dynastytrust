@@ -68,4 +68,18 @@ pass('open slots count what is filled plus what is promised, so a path is never 
   pass('a saved draft restores must-sign keys into their own group, and other keys into theirs');
 }
 
+// Must-sign invites: each group of a path lists only its own people.
+{
+  const mustInv = inv('Gran', { leaf_id: 'kids', must_sign: true });
+  const mustMember = member('Pop', 'u-pop', 'f', { leaf_id: 'kids', must_sign: true });
+  const both = [inv('Zoe'), mustInv];
+  const ordinary = pp.peopleOnPath('kids', both, [anna, ben, mustMember], OWNER, slots.kids, NOW);
+  assert.deepEqual(ordinary.map(p => p.kind === 'invited' ? p.invite.id : p.member.id), ['Anna', 'Ben', 'Zoe'], 'the ordinary group does not list must-sign people');
+  const mustGroup = pp.peopleOnPath('kids', both, [anna, ben, mustMember], OWNER, [], NOW, true);
+  assert.deepEqual(mustGroup.map(p => [p.kind, p.kind === 'invited' ? p.invite.id : p.member.id]), [['joined', 'Pop'], ['invited', 'Gran']]);
+  assert.equal(pp.openSlots(2, [], mustGroup), 0, 'two must-sign slots, both promised');
+  assert.equal(pp.openSlots(3, [], mustGroup), 1);
+  pass('a path\'s must-sign group and its ordinary group each list and count only their own invited people');
+}
+
 console.log(`path-people tests passed (${n} cases)`);
