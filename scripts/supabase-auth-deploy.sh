@@ -45,6 +45,22 @@ for required in magic_link confirmation recovery; do
   fi
 done
 
+# Email proof (threat model, 2026-11-13; operator chose "require the email
+# code"): the live project auto-confirmed every email sign-up, so anyone could
+# make an account at an address they do not own. Confirmation is turned ON
+# here -- but ONLY when the project has its own mail sender. With Supabase's
+# built-in sender (2 emails an hour, team addresses only) every new sign-up
+# would wait for a code that never comes, so without one this leaves the
+# setting exactly as it is and says so.
+smtp_host=$(curl -sS --fail "$API" --header "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" | jq -r '.smtp_host // ""')
+if [ -n "$smtp_host" ]; then
+  autoconfirm_patch='{"mailer_autoconfirm": false}'
+  echo "Own mail sender found (${smtp_host}): email sign-ups will need the emailed code."
+else
+  autoconfirm_patch='{}'
+  echo "::warning::No mail sender of its own on this project -- email confirmation left UNCHANGED. Set up custom SMTP first (docs/mail-sender-setup.md)."
+fi
+
 payload=$(jq -n \
   --rawfile magic_link "${TEMPLATES_DIR}/magic_link.html" \
   --rawfile confirmation "${TEMPLATES_DIR}/confirmation.html" \
@@ -52,6 +68,7 @@ payload=$(jq -n \
   --arg magic_link_subject "${MAGIC_LINK_SUBJECT:-Your sign-in code}" \
   --arg confirmation_subject "${CONFIRMATION_SUBJECT:-Confirm your account}" \
   --arg recovery_subject "${RECOVERY_SUBJECT:-Your password reset code}" \
+  --argjson autoconfirm "$autoconfirm_patch" \
   '{
     mailer_templates_magic_link_content: $magic_link,
     mailer_subjects_magic_link: $magic_link_subject,
@@ -60,7 +77,7 @@ payload=$(jq -n \
     mailer_templates_recovery_content: $recovery,
     mailer_subjects_recovery: $recovery_subject,
     password_min_length: 12
-  }')
+  } + $autoconfirm')
 
 echo "Pushing login-code email templates to project ${SUPABASE_PROJECT_REF}..."
 response=$(curl -sS -w '\n%{http_code}' \
@@ -77,4 +94,4 @@ if [ "$http_status" -lt 200 ] || [ "$http_status" -ge 300 ]; then
   exit 1
 fi
 
-echo "Done. Auth email templates and the 12-character password minimum updated."
+echo "Done. Auth email templates, the 12-character password minimum and (only with a mail sender) email confirmation updated."
