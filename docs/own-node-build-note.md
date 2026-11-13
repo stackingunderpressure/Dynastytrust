@@ -1,5 +1,11 @@
 # Build Note -- your own Bitcoin node instead of mempool.space (sovereign slice 2)
 
+**PARKED 2026-11-13.** The operator clarified the sovereign goal is a
+download that runs with no server of ours, not the website; see
+`docs/download-and-run-build-note.md`. Kept for families who stay on the
+website. Decisions already given: Esplora API over HTTPS; stop and ask
+when the node does not answer.
+
 Written 2026-11-13, before any code, from the code as it is on
 `claude/dynasty-unify-2026-11`. Closes threat model item K
 (docs/threat-model-2026-11-13.md) as far as a web page can.
