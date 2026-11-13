@@ -25,7 +25,7 @@ mempool.space, alongside what they ask about:
   (`legacy-onchain-recovery.ts`, `LegacyRecoverySetup.tsx`);
 - block Merkle roots when the vault's activity record is checked against
   Bitcoin (`ledger-verify.ts`, from mempool.space AND blockstream.info);
-- "View on mempool.space" links (13 places via `config.ts`).
+- "View on mempool.space" links and the explorer settings (25 references to `config.ts`'s explorer helpers outside that file).
 
 **From our server** -- these reach mempool.space from Netlify's address,
 not the family's:
@@ -89,7 +89,7 @@ not the family's:
 ## Blast radius -- everything downstream, read from the code
 
 - `apps/web/src/config.ts` (`EXPLORER`, `broadcastTxUrl`, `explorerTxUrl`,
-  `SECOND_TIP_SOURCE`) and their 13 callers; `lib/chain.ts`;
+  `SECOND_TIP_SOURCE`) and their 25 references; `lib/chain.ts`;
   `lib/onchain-publish.ts`; `lib/legacy-onchain-recovery.ts`;
   `lib/ledger-verify.ts`; `pages/LegacyRecoverySetup.tsx`,
   `ProposalDetail.tsx`, `VaultDetail.tsx`, `Dashboard.tsx` (wording); the
