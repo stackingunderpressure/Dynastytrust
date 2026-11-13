@@ -1,18 +1,15 @@
-# One-off live check for email-free sign-in (docs/key-signin-build-note.md,
-# slice 1, operator 2026-11-13: "Automate"). Creates a throwaway account
-# with a never-mailed placeholder address, logs into it through the same
-# one-time token path the key sign-in uses, and deletes it. Runs when this
-# file or its script is pushed to the working branch, or by hand. Reads
-# the existing SUPABASE_ACCESS_TOKEN secret; the admin key it fetches is
-# masked and never leaves the runner.
+# Live check for email-free accounts (docs/key-signin-build-note.md):
+# throwaway accounts at never-mailed addresses, logged into by one-time
+# token and by password, then deleted. Reads the SUPABASE_ACCESS_TOKEN
+# secret; the admin key it fetches is masked and never leaves the runner.
+#
+# HAND-RUN ONLY since 2026-11-13 (threat model item D,
+# docs/threat-model-2026-11-13.md): it used to run on every push to the
+# working branch, which let anything able to push there run code holding the
+# database master token. Start it from the Actions tab when it is needed.
 name: Key sign-in placeholder test
 
 on:
-  push:
-    branches: [claude/dynasty-unify-2026-11]
-    paths:
-      - .github/workflows/key-signin-placeholder-test.yml
-      - scripts/key-signin-placeholder-test.mjs
   workflow_dispatch: {}
 
 jobs:
