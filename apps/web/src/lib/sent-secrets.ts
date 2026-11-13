@@ -8,7 +8,7 @@
  * and the decrypted fields never leave the caller's browser.
  */
 
-import { encryptText, decryptBlob, type EncryptedBlob } from './keystore';
+import { encryptText, decryptBlobAnyRounds, type EncryptedBlob } from './keystore';
 
 /** Encrypt an arbitrary set of secret fields (e.g. { normalPhrase,
  *  duressPhrase }) under a password the owner sets. The server only
@@ -27,7 +27,7 @@ export async function unwrapSentSecret(
   blob: EncryptedBlob,
   password: string,
 ): Promise<Record<string, string>> {
-  const json = await decryptBlob(blob, password);
+  const json = await decryptBlobAnyRounds(blob, password);
   const parsed: unknown = JSON.parse(json);
   if (!parsed || typeof parsed !== 'object') throw new Error('Corrupt secret record');
   return parsed as Record<string, string>;

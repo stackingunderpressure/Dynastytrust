@@ -4,7 +4,9 @@ import { unwrapSentSecret } from '../lib/sent-secrets';
 import {
   isFaceGateSupported, hasFaceGateCredential, registerFaceGate, verifyFaceGate,
   getCachedSecretPassword, setCachedSecretPassword, clearCachedSecretPassword,
+  hasFaceIdSecretPassword, saveFaceIdSecretPassword, openFaceIdSecretPassword, clearFaceIdSecretPassword,
 } from '../lib/face-gate';
+import { passkeysAvailable } from '../lib/passkey';
 import { colors, radii, space } from '../theme';
 import { Button } from './ui';
 import { useToast } from './toast';
@@ -32,6 +34,9 @@ export function SentSecretsPanel({ vaultId }: { vaultId: string }) {
   const [loading, setLoading] = useState(true);
   const [revealed, setRevealed] = useState<Map<string, Record<string, string>>>(new Map());
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Passwords typed (or read from an old plain copy) on this visit, kept
+  // in memory only, so "Use Face ID next time" can lock them on a fresh tap.
+  const [justOpened, setJustOpened] = useState<Map<string, string>>(new Map());
 
   const load = useCallback(async () => {
     try {
@@ -50,20 +55,24 @@ export function SentSecretsPanel({ vaultId }: { vaultId: string }) {
 
   if (!loading && secrets.length === 0) return null;
 
-  // Face ID reveal: if this secret's password is already cached on this
-  // device (set the first time it was ever typed in successfully) and a
-  // Face ID/Touch ID credential is registered, a successful biometric
-  // check hands back the cached password with no typing at all. Anything
-  // that isn't a clean Face ID pass -- no cache yet, no credential
-  // registered, declined, unsupported browser -- falls through to the
-  // password prompt exactly as before, so there's always a way in.
+  // Reveal, in order: (1) the password's Face ID copy on this device --
+  // one prompt, nothing readable stored; (2) an old plain copy behind the
+  // older Face ID gate, kept working until it is converted; (3) typing it.
+  // After a typed or old-copy reveal, a device that can do real Face ID is
+  // offered "Use Face ID next time" (its own tap: Safari only shows Face
+  // ID in answer to one), which also deletes the plain copy. A device
+  // that cannot keeps the older behaviour, so nobody is made to retype.
   async function reveal(s: SentSecret) {
     setBusyId(s.id);
     try {
       let password: string | null = null;
-      const cached = getCachedSecretPassword(s.id);
-      if (cached && hasFaceGateCredential()) {
-        password = (await verifyFaceGate()) ? cached : null;
+      let source: 'faceid' | 'old-copy' | 'typed' = 'typed';
+      if (hasFaceIdSecretPassword(s.id)) {
+        try { password = await openFaceIdSecretPassword(s.id); source = 'faceid'; } catch { password = null; }
+      }
+      if (!password) {
+        const cached = getCachedSecretPassword(s.id);
+        if (cached && hasFaceGateCredential() && (await verifyFaceGate())) { password = cached; source = 'old-copy'; }
       }
       if (!password) {
         password = await askPassword({
@@ -79,15 +88,33 @@ export function SentSecretsPanel({ vaultId }: { vaultId: string }) {
         password,
       );
       setRevealed(prev => new Map(prev).set(s.id, fields));
-      // Correct password, decrypted clean -- cache it and, the first time
-      // this happens on a device that can do Face ID, register the gate
-      // so every reveal after this one skips the typed password.
-      setCachedSecretPassword(s.id, password);
-      if (!hasFaceGateCredential() && (await isFaceGateSupported())) {
-        void registerFaceGate();
+      if (source !== 'faceid') {
+        if (passkeysAvailable()) {
+          const pw = password;
+          setJustOpened(prev => new Map(prev).set(s.id, pw));
+        } else {
+          // No real Face ID on this browser: the older cached-password gate.
+          setCachedSecretPassword(s.id, password);
+          if (!hasFaceGateCredential() && (await isFaceGateSupported())) void registerFaceGate();
+        }
       }
     } catch {
       toast.error('Wrong password, or this record is corrupt.');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function lockWithFaceIdNextTime(s: SentSecret) {
+    const pw = justOpened.get(s.id);
+    if (!pw) return;
+    setBusyId(s.id);
+    try {
+      await saveFaceIdSecretPassword(s.id, pw);
+      setJustOpened(prev => { const next = new Map(prev); next.delete(s.id); return next; });
+      toast.success(`"${s.label}" now opens with Face ID on this phone.`);
+    } catch (e) {
+      toast.error((e instanceof Error ? e.message : 'Face ID did not work') + ' Nothing was changed.');
     } finally {
       setBusyId(null);
     }
@@ -112,6 +139,7 @@ export function SentSecretsPanel({ vaultId }: { vaultId: string }) {
       await api.sentSecrets.remove(s.id);
       hide(s.id);
       clearCachedSecretPassword(s.id);
+      clearFaceIdSecretPassword(s.id);
       setSecrets(prev => prev.filter(x => x.id !== s.id));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to delete');
@@ -134,8 +162,8 @@ export function SentSecretsPanel({ vaultId }: { vaultId: string }) {
       <p style={{ fontSize: 16, color: colors.muted, marginBottom: 14 }}>
         Things you've saved a recoverable copy of, like the circle safety phrase. Encrypted with
         the password you set when you saved each one -- there is no reset, so the first Reveal on
-        a new device still needs that exact password. After that, Face ID / Touch ID unlocks it on
-        this device without retyping anything.
+        a new device still needs that exact password. After that you can lock it with Face ID on
+        this phone, so it opens without retyping and no password is kept here in readable form.
       </p>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -187,6 +215,16 @@ export function SentSecretsPanel({ vaultId }: { vaultId: string }) {
                   </Button>
                 </div>
               </div>
+              {fields && justOpened.has(s.id) && (
+                <Button
+                  size="sm"
+                  style={{ fontSize: 16, minHeight: 44, marginTop: 10, width: '100%' }}
+                  disabled={busyId === s.id}
+                  onClick={() => void lockWithFaceIdNextTime(s)}
+                >
+                  {busyId === s.id ? 'Waiting for Face ID...' : 'Use Face ID next time'}
+                </Button>
+              )}
               {fields && (
                 <div
                   style={{

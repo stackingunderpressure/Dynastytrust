@@ -106,6 +106,53 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Face ID for everything important -- 2026-11-13, on the branch, NOT
+  on main.** Operator: "Make browser keys Face ID for everything
+  important." Chips: all three secrets; keep the switch back to a
+  password. Found first: Bitcoin keys could already be passkey-locked
+  (2026-11-10) but one at a time, each with its own passkey; the
+  messaging private key sat in localStorage in the clear; saved secrets'
+  "Face ID" only guarded a plaintext copy of their password. Built in
+  three slices, all under ONE passkey per device
+  (`dt:devicePasskey:v1`, `keystore.provenPasskeySecret`: asked twice,
+  must agree; a passkey made just now that then fails is forgotten):
+  (1) keys -- `BackupFlow` offers Lock with Face ID the moment the
+  backup is checked (the words it showed are checked against the key's
+  own public key, no password asked); a Keys-page card locks every
+  backed-up password key with one password and two prompts, leaving
+  wrong-password, unchecked and test keys as they were; on-screen
+  "passkey" now says Face ID. (2) messaging key -- a locked stored shape
+  `{pub, locked}`; the public key stays readable, the private key opens
+  once per visit into memory only; the old code regenerated any stored
+  value it did not recognise, which would have silently thrown a locked
+  key away and lost every message, so a locked key is never treated as
+  missing; Send opens Face ID itself; Key settings has Lock / Stop
+  using Face ID. (3) saved secrets -- the password is kept under Face ID
+  instead of in the clear; an old plain copy is deleted only after the
+  Face ID copy is proven, because it may be the only place the password
+  still exists; browsers without the passkey PRF feature keep the old
+  behaviour. Bug found on the way and fixed: since the 600,000-round
+  change (2026-11-10) the saved-secret and messaging-key-backup rows
+  store salt/nonce/ciphertext but not the round count, so every save
+  since then opened at 210,000 rounds and failed as "wrong password"
+  with the right one; `decryptBlobAnyRounds` tries 600,000 then
+  210,000 when the count is missing (proven failing before, passing
+  after). Tests: test-keystore-passkey 11 (4 new), new
+  test-messaging-faceid 8, new test-sent-secret-faceid 4, all simulated
+  passkeys. Walked at 375px against a production build with Chromium's
+  virtual authenticator (PRF on): lock-all, backup-step lock, Face ID
+  phrase reveal, messages lock/reload/unlock/send/switch back with a
+  really encrypted message, saved secret type-once then Face ID only;
+  0px sideways, no page errors. Measured: npm test green, lint 0 errors
+  / 11 warnings, typecheck 10 errors (same set), build green. NOT seen:
+  real Face ID on an iPhone. The open risk there: Safari only shows
+  Face ID in answer to a tap, and two flows ask after other work first
+  (lock-all decrypts each key's password before its prompts; locking
+  asks twice in a row) -- if Safari refuses, the lock fails cleanly and
+  everything keeps its password. Left out: Face ID as a confirm step
+  before actions (only a server-checked passkey would be real), test
+  keys, hardware keys.
+
 - **Messaging-key backup table missing on the live database -- 2026-11-13,
   on the branch, NOT on main.** Operator, screenshot of a vault's Messages
   tab: "Could not check messaging-key backup status (Could not find the

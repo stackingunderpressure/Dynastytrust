@@ -32,7 +32,7 @@ import { hkdf } from '@noble/hashes/hkdf';
 import { sha256 } from '@noble/hashes/sha2';
 import { chacha20poly1305 } from '@noble/ciphers/chacha.js';
 import { randomBytes } from '@noble/hashes/utils';
-import { encryptText, decryptBlob, encryptWithPrfSecret, decryptWithPrfSecret, provenPasskeySecret, type EncryptedBlob, type PasskeyBlob } from './keystore';
+import { encryptText, decryptBlobAnyRounds, encryptWithPrfSecret, decryptWithPrfSecret, provenPasskeySecret, type EncryptedBlob, type PasskeyBlob } from './keystore';
 import { webauthnPrf, type PrfProvider } from './passkey';
 
 const MSG_KEY_STORE = 'dynastytrust:messaging:v1';
@@ -250,7 +250,7 @@ export async function unwrapMessagingKeyFromBackup(
   blob: EncryptedBlob,
   passphrase: string,
 ): Promise<{ priv: string; pub: string }> {
-  const priv = await decryptBlob(blob, passphrase);
+  const priv = await decryptBlobAnyRounds(blob, passphrase);
   const pub = toHex(x25519.getPublicKey(fromHex(priv)));
   return { priv, pub };
 }

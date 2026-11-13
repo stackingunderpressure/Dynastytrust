@@ -32,6 +32,9 @@
  * gates a local cache on this device.
  */
 
+import { encryptWithPrfSecret, decryptWithPrfSecret, provenPasskeySecret, type PasskeyBlob } from './keystore';
+import { webauthnPrf, type PrfProvider } from './passkey';
+
 const CREDENTIAL_ID_KEY = 'dt:faceGateCredentialId';
 const CACHED_PW_PREFIX = 'dt:sentSecretPw:';
 
@@ -125,4 +128,51 @@ export function setCachedSecretPassword(secretId: string, password: string): voi
 
 export function clearCachedSecretPassword(secretId: string): void {
   localStorage.removeItem(CACHED_PW_PREFIX + secretId);
+}
+
+// -- Real Face ID lock for a saved secret's password (2026-11-13) --------
+//
+// Operator: "Make browser keys Face ID for everything important." The
+// cache above keeps the password IN THE CLEAR and Face ID only guards the
+// door to it. Below, the password is instead encrypted under this
+// device's Face ID passkey (the same one the Bitcoin keys and the
+// messaging key use), so nothing readable is left in the browser. The
+// secret itself is untouched: it stays on the server under the password
+// the owner chose, so it still opens on any device with that password.
+//
+// Converting an old plain copy deletes it only AFTER the Face ID copy is
+// proven -- that plain copy may be the only place the password still
+// exists, and a secret with no password is gone for good.
+
+const LOCKED_PW_PREFIX = 'dt:sentSecretPwLocked:';
+
+export function hasFaceIdSecretPassword(secretId: string): boolean {
+  return !!localStorage.getItem(LOCKED_PW_PREFIX + secretId);
+}
+
+/** Lock this secret's password under Face ID and drop any plain copy.
+ *  Two Face ID prompts (three the first time on this device). Proven
+ *  before saving; any failure changes nothing. */
+export async function saveFaceIdSecretPassword(secretId: string, password: string, prf: PrfProvider = webauthnPrf): Promise<void> {
+  const { credentialIdB64, prfSaltB64, secret } = await provenPasskeySecret(prf);
+  const blob = await encryptWithPrfSecret(password, secret, credentialIdB64, prfSaltB64);
+  if ((await decryptWithPrfSecret(blob, secret)) !== password) {
+    throw new Error('Face ID protection failed its own check. Nothing was changed.');
+  }
+  localStorage.setItem(LOCKED_PW_PREFIX + secretId, JSON.stringify(blob));
+  clearCachedSecretPassword(secretId);
+}
+
+/** The password, opened with one Face ID prompt. Throws on cancel or a
+ *  passkey that cannot open it -- the caller falls back to typing. */
+export async function openFaceIdSecretPassword(secretId: string, prf: PrfProvider = webauthnPrf): Promise<string> {
+  const raw = localStorage.getItem(LOCKED_PW_PREFIX + secretId);
+  if (!raw) throw new Error('No Face ID copy of this password on this device.');
+  const blob = JSON.parse(raw) as PasskeyBlob;
+  const secret = await prf.evaluate(blob.credentialIdB64, blob.prfSaltB64);
+  return decryptWithPrfSecret(blob, secret);
+}
+
+export function clearFaceIdSecretPassword(secretId: string): void {
+  localStorage.removeItem(LOCKED_PW_PREFIX + secretId);
 }

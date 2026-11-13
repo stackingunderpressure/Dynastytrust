@@ -166,6 +166,25 @@ export async function decryptBlob(blob: EncryptedBlob, password: string): Promis
   return new TextDecoder().decode(plain);
 }
 
+/**
+ * Open a blob whose round count may have been lost on the way to the
+ * server. The saved-secret and messaging-key-backup rows store only
+ * salt, nonce and ciphertext, so a blob made since 2026-11-10 (600,000
+ * rounds) came back without its count and was opened at the legacy
+ * 210,000 -- every such save failed as "wrong password" with the right
+ * one (found 2026-11-13 walking the Face ID work). With no count, try
+ * the current count, then the legacy one. AES-GCM's tag decides; a
+ * wrong password still fails, only slower.
+ */
+export async function decryptBlobAnyRounds(blob: EncryptedBlob, password: string): Promise<string> {
+  if (blob.iterations !== undefined) return decryptBlob(blob, password);
+  try {
+    return await decryptBlob({ ...blob, iterations: PBKDF2_ITERATIONS }, password);
+  } catch {
+    return decryptBlob({ ...blob, iterations: LEGACY_PBKDF2_ITERATIONS }, password);
+  }
+}
+
 // -- Passkey-wrapped mnemonics -------------------------------------------
 //
 // The 32-byte PRF secret is stretched with HKDF-SHA256 (fixed info
