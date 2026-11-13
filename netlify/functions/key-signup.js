@@ -16,6 +16,7 @@
  */
 import { getSupabaseAdmin } from "./_supabase.js";
 import { json } from "./_auth.js";
+import { overLimit, TOO_MANY } from "./_rate-limit.js";
 import { proveKeyControl, consumeChallenge, mintSession, placeholderEmail, cleanDisplayName, issueKeySessionClaim } from "./_key-account.js";
 
 export async function handler(event) {
@@ -23,6 +24,8 @@ export async function handler(event) {
   let body;
   try { body = JSON.parse(event.body || "{}"); } catch { return json(400, { error: "Invalid JSON body" }); }
   const supabase = getSupabaseAdmin();
+  // Threat model H: account creation is limited per connection.
+  if (await overLimit(supabase, { name: "key-signup", event, max: 5, windowSeconds: 3600 })) return json(429, { error: TOO_MANY });
 
   const proof = await proveKeyControl(supabase, body);
   if (proof.error) return json(proof.status, { error: proof.error });

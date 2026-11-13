@@ -11,6 +11,7 @@
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { json } from "./_auth.js";
+import { overLimit, TOO_MANY } from "./_rate-limit.js";
 import { buildSignInChallenge } from "tapit-attest";
 
 const AUDIENCE = "dynastytrust.family";
@@ -24,6 +25,8 @@ export async function handler(event) {
   const challenge = buildSignInChallenge({ audience: AUDIENCE, ttlSeconds: TTL_SECONDS });
 
   const supabase = getSupabaseAdmin();
+  // Threat model H: limit challenge minting per connection.
+  if (await overLimit(supabase, { name: "challenge", event, max: 30, windowSeconds: 600 })) return json(429, { error: TOO_MANY });
   const { error } = await supabase.from("wallet_signin_challenges").insert({
     nonce: challenge.nonce,
     challenge,

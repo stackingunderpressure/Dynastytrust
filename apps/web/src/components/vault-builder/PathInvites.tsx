@@ -188,7 +188,8 @@ export function PathInvites({
               <div style={sub}>
                 Call them, or ask in person. Have them open Keys on their phone and read you the fingerprint of the
                 key they made. Confirm only if it is exactly this. This is how you know the key is really theirs
-                and not someone else's who got hold of the link.
+                and not someone else's who got hold of the link. Never confirm from a text, email or chat message:
+                whoever got the link can send you their own fingerprint from there. Hear it in their voice.
               </div>
               <div style={{ display: 'flex', gap: space[2], flexWrap: 'wrap' }}>
                 <Button size="sm" style={{ minHeight: 40 }} disabled={busy} onClick={() => void confirm(m)}>

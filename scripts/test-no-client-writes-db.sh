@@ -77,4 +77,15 @@ echo "$out" | grep -q "bc1p-real" && ok "the owner can still READ their vault"
 policies=$($PSQL -c "select count(*) from pg_policies where schemaname='public' and cmd <> 'SELECT'")
 [ "$policies" = "0" ] && ok "no write policy is left on any table (count $policies)"
 $PSQL -c "set role service_role; update vaults set name = 'Family vault';" >/dev/null && ok "the server role still writes"
+# Threat model H: the rate counter is atomic, server-only, and housekeeping
+# clears expired challenges.
+hits=$($PSQL -c "set role service_role; select rate_hit('t:1.2.3.4', 600); select rate_hit('t:1.2.3.4', 600); select rate_hit('t:1.2.3.4', 600);" | tail -1)
+[ "$hits" = "3" ] && ok "rate_hit counts in one window (3rd call = $hits)"
+out=$($PSQL -c "set role authenticated; select rate_hit('t:x', 600);" 2>&1 || true)
+echo "$out" | grep -qi "permission denied" && ok "the browser role cannot call rate_hit"
+out=$($PSQL -c "set role anon; select * from rate_limits;" 2>&1 || true)
+echo "$out" | grep -qi "permission denied" && ok "the browser role cannot read the counters"
+$PSQL -c "insert into wallet_signin_challenges (nonce, challenge, audience, expires_at) values ('old', '{}', 'a', now() - interval '2 hours'), ('fresh', '{}', 'a', now() + interval '5 minutes');"
+$PSQL -c "set role service_role; select rate_housekeeping();" >/dev/null
+[ "$($PSQL -c "select string_agg(nonce, ',') from wallet_signin_challenges")" = "fresh" ] && ok "housekeeping deletes expired challenges, keeps live ones"
 echo "no-client-writes db tests passed ($n checks)"

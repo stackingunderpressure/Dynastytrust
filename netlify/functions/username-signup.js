@@ -17,6 +17,7 @@
  */
 import { getSupabaseAdmin } from "./_supabase.js";
 import { json } from "./_auth.js";
+import { overLimit, TOO_MANY } from "./_rate-limit.js";
 import { cleanDisplayName } from "./_key-account.js";
 
 export const USERNAME_DOMAIN = "users.dynastytrust.family";
@@ -49,6 +50,9 @@ export async function handler(event) {
   if (pProblem) return json(400, { error: pProblem });
 
   const supabase = getSupabaseAdmin();
+  // Threat model H: account creation (and "is this name taken" probing) is
+  // limited per connection.
+  if (await overLimit(supabase, { name: "username-signup", event, max: 5, windowSeconds: 3600 })) return json(429, { error: TOO_MANY });
   const { data, error } = await supabase.auth.admin.createUser({
     email: `${username}@${USERNAME_DOMAIN}`,
     password: body.password,
