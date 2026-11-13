@@ -106,6 +106,25 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Every attestation refused since 2026-08-21 -- FIXED 2026-11-13, on
+  the branch.** Operator, phone screenshot of the Trust tab: "pubkey does
+  not match your registered vault signing key". Root cause: 90f230d
+  (2026-08-21) bound attestations to the member's registered key by
+  comparing the signer's BIP340 x-only key (64 hex, `attest.ts`) with
+  `vault_members.pubkey`, stored compressed (66 hex, 02/03 + the same
+  32 bytes), as text -- never equal, so every I'm alive, trust-doc
+  signature and death declaration by every member was refused, and the
+  Trust tab's signed check compared the same mismatched forms. Fix: both
+  compare x-only (`xOnlyHex` in `vault-attestations.js`, `xOnlyOf` in
+  `TrustTab.tsx`). Reproduced first with the real handler and the real
+  signer (403 on the right key), 201 after. New
+  `scripts/test-attestation-key.mjs`, 4 cases, in npm test: own key
+  accepted for all three types; another real, correctly signed key still
+  refused; a broken signature refused; a member with no key refused;
+  nothing refused is stored. Measured: npm test green, lint 0 errors /
+  11 warnings, typecheck 10 errors (same set), build green. NOT seen: the
+  operator tapping I'm alive on his phone after the fix.
+
 - **Face ID for everything important -- 2026-11-13, on the branch, NOT
   on main.** Operator: "Make browser keys Face ID for everything
   important." Chips: all three secrets; keep the switch back to a

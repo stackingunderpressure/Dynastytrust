@@ -216,6 +216,13 @@ function PanelShell({
   );
 }
 
+/** A member's stored key (compressed, 02/03 + x) as the x-only form an
+ *  attestation carries. Comparing the two as text never matched. */
+function xOnlyOf(stored: string): string {
+  const k = stored.toLowerCase();
+  return /^0[23][0-9a-f]{64}$/.test(k) ? k.slice(2) : k;
+}
+
 async function signWithLocalKey(opts: {
   pubkey: string | null | undefined;
   attestationType: AttestationType;
@@ -274,7 +281,7 @@ function MemberAttestList({
         // doesn't actually prove the real, known member attested.
         const ok =
           !!member?.pubkey &&
-          a.pubkey.toLowerCase() === member.pubkey.toLowerCase() &&
+          a.pubkey.toLowerCase() === xOnlyOf(member.pubkey) &&
           verifyAttestation({
             attestationType: a.attestation_type,
             targetHash: a.target_hash,

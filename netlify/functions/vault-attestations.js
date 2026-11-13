@@ -56,6 +56,14 @@ async function memberPubkey(supabase, vaultId, userId) {
   return data?.pubkey ?? null;
 }
 
+/** A stored key as BIP340 x-only hex: compressed (02/03 + x) loses its
+ *  prefix; anything else is returned lower-cased and will simply not
+ *  match. Exported for the test. */
+export function xOnlyHex(stored) {
+  const k = String(stored).toLowerCase();
+  return /^0[23][0-9a-f]{64}$/.test(k) ? k.slice(2) : k;
+}
+
 function isHex(s, expectedChars) {
   if (typeof s !== "string") return false;
   if (s.length !== expectedChars) return false;
@@ -128,7 +136,13 @@ export async function handler(event) {
         error: "You have no registered signing key on this vault yet -- provision your key before attesting",
       });
     }
-    if (pubkey.toLowerCase() !== registeredPubkey.toLowerCase()) {
+    // The signer sends the BIP340 x-only key (64 hex); members' keys are
+    // stored compressed (66 hex: 02/03 + the same 32 bytes). Compare the
+    // key itself. Until 2026-11-13 this compared the two forms as text,
+    // so every attestation by every member was refused (operator's
+    // screenshot: "pubkey does not match your registered vault signing
+    // key" on a key that was his).
+    if (pubkey.toLowerCase() !== xOnlyHex(registeredPubkey)) {
       return json(403, {
         error: "pubkey does not match your registered vault signing key",
       });
