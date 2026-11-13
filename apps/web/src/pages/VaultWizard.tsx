@@ -1103,7 +1103,7 @@ export default function VaultWizard() {
             addKeyToRole(pendingBackup.role, pendingBackup.key);
             setPendingBackup(null);
             setVerifyingBackup(false);
-          }}
+          }}          onCancel={() => setVerifyingBackup(false)}
         />
       )}
     </div>

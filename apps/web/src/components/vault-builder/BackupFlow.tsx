@@ -4,11 +4,11 @@ import { colors, fonts, radii, space } from '../../theme';
 import { Button, Input, Label } from '../ui';
 
 // Self-contained modal shell used only by BackupFlow below. Deliberately
-// NOT the shared components/ui/Modal.tsx -- this one is intentionally
-// non-dismissible (onClose is a no-op from the caller) so a user can't
-// tap-away out of the mandatory backup-and-verify gate mid-flow. Ported
-// as-is from KeyManager.tsx rather than switched to the shared Modal, to
-// keep this extraction behavior-faithful.
+// NOT the shared components/ui/Modal.tsx: a tap on the dark backdrop never
+// closes it, so nobody leaves the backup by accident. Leaving on purpose is
+// the close button, shown only when the caller says what leaving means
+// (`onClose`). Before 2026-11-13 the button was always drawn and did
+// nothing (operator, on his phone: "No exit on this screen").
 export function BackupModal({
   title,
   onClose,
@@ -16,7 +16,7 @@ export function BackupModal({
   wide,
 }: {
   title: string;
-  onClose: () => void;
+  onClose?: () => void;
   children: React.ReactNode;
   wide?: boolean;
 }) {
@@ -32,16 +32,13 @@ export function BackupModal({
         zIndex: 200,
         padding: space[4],
       }}
-      onClick={e => {
-        if (e.target === e.currentTarget) onClose();
-      }}
     >
       <div
         style={{
           background: colors.surface,
           border: `1px solid ${colors.border}`,
           borderRadius: 16,
-          padding: '28px 32px',
+          padding: 'clamp(18px, 5vw, 28px) clamp(16px, 5vw, 32px)',
           width: '100%',
           maxWidth: wide ? 660 : 520,
           maxHeight: '92vh',
@@ -49,13 +46,15 @@ export function BackupModal({
           fontFamily: fonts.sans,
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 20 }}>
           <h2 style={{ fontSize: 20, fontWeight: 600, color: colors.text, fontFamily: fonts.display, margin: 0 }}>
             {title}
           </h2>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: colors.muted, fontSize: 18, cursor: 'pointer' }}>
-            x
-          </button>
+          {onClose && (
+            <Button variant="ghost" size="sm" aria-label="Close" style={{ minWidth: 44, minHeight: 44, flexShrink: 0 }} onClick={onClose}>
+              x
+            </Button>
+          )}
         </div>
         {children}
       </div>
@@ -72,7 +71,9 @@ export function WordGrid({ words }: { words: string[] }) {
           {vis ? 'Hide' : 'Reveal words'}
         </Button>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 5 }}>
+      {/* As many columns as fit: two on a phone, four on a wide screen. A
+          fixed four ran the last column off a phone's edge. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 5 }}>
         {words.map((w, i) => (
           <div
             key={i}
@@ -205,10 +206,11 @@ export function KeyCreatedPrompt({
 // forced on first generation. Relocated out of KeyManager.tsx so both
 // standalone key management and the unified wizard's inline key-creation
 // step share one implementation instead of a second copy being born.
-// Non-dismissible by design once entered (onClose props above are no-ops)
-// -- someone who chose to back up now shouldn't be able to tap-away
-// mid-ritual and end up thinking they're covered when they're not.
-export function BackupFlow({ keyData, mnemonic, onDone }: { keyData: LocalKey; mnemonic: string; onDone: () => void }) {
+// Leaving early is allowed when the caller passes `onCancel`, and it is
+// honest: the key stays marked "not backed up" -- only finishing the
+// verify step marks it backed up -- so nobody ends up thinking they are
+// covered when they are not. A tap on the backdrop never leaves.
+export function BackupFlow({ keyData, mnemonic, onDone, onCancel }: { keyData: LocalKey; mnemonic: string; onDone: () => void; onCancel?: () => void }) {
   const words = mnemonic.split(' ');
   const [step, setStep] = useState<'show' | 'verify'>('show');
   const [confirmed, setConfirmed] = useState(false);
@@ -235,7 +237,7 @@ export function BackupFlow({ keyData, mnemonic, onDone }: { keyData: LocalKey; m
 
   if (step === 'show')
     return (
-      <BackupModal title="Write down your recovery phrase" onClose={() => {}} wide>
+      <BackupModal title="Write down your recovery phrase" onClose={onCancel} wide>
         <StepIndicator current={1} />
         <div style={{ padding: '10px 14px', background: colors.dangerBg, border: `1px solid ${colors.borderDanger}`, borderRadius: radii.md, marginBottom: 16 }}>
           <p style={{ fontSize: 15, color: colors.red, margin: 0 }}>
@@ -269,7 +271,7 @@ export function BackupFlow({ keyData, mnemonic, onDone }: { keyData: LocalKey; m
     );
 
   return (
-    <BackupModal title="Verify backup" onClose={() => {}}>
+    <BackupModal title="Verify backup" onClose={onCancel}>
       <StepIndicator current={2} />
       <p style={{ fontSize: 15, color: colors.muted, marginBottom: 20 }}>
         Enter the words at the positions below to confirm you wrote them down.

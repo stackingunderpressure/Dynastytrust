@@ -67,6 +67,9 @@ export default function InviteClaimPath({
   const [confirm, setConfirm] = useState('');
   const [made, setMade] = useState<{ key: LocalKey; mnemonic: string } | null>(null);
   const [backedUp, setBackedUp] = useState(false);
+  // The backup opens as soon as a key is made; closing it returns here
+  // with "Join" still locked until the words are written down.
+  const [backupOpen, setBackupOpen] = useState(true);
   const [existingId, setExistingId] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -221,10 +224,11 @@ export default function InviteClaimPath({
     }
   }
 
-  // Writing the words down is not optional here: BackupFlow cannot be
-  // dismissed, and only its completion unlocks "Join".
-  if (made && !backedUp) {
-    return <BackupFlow keyData={made.key} mnemonic={made.mnemonic} onDone={() => setBackedUp(true)} />;
+  // Writing the words down is not optional here: only finishing the
+  // backup unlocks "Join". Closing it early comes back to this page with
+  // Join still locked and a way to reopen it.
+  if (made && !backedUp && backupOpen) {
+    return <BackupFlow keyData={made.key} mnemonic={made.mnemonic} onDone={() => setBackedUp(true)} onCancel={() => setBackupOpen(false)} />;
   }
 
   return (
@@ -282,6 +286,15 @@ export default function InviteClaimPath({
               <KeySafety />
               <Button type="submit" style={{ minHeight: 44 }} disabled={busy}>{busy ? 'Making your key...' : 'Make my key'}</Button>
             </form>
+          )}
+
+          {choice === 'new' && made && !backedUp && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: space[2] }}>
+              <p style={{ ...p, color: colors.orange }}>
+                Your key is made, but its words are not written down yet. You cannot join until they are.
+              </p>
+              <Button style={{ minHeight: 44 }} onClick={() => setBackupOpen(true)}>Write down my words</Button>
+            </div>
           )}
 
           {choice === 'new' && made && backedUp && (

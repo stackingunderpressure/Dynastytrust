@@ -374,7 +374,7 @@ function RevealModal({
         onDone={() => {
           onBackedUp();
           onClose();
-        }}
+        }}        onCancel={onClose}
       />
     );
 
@@ -1417,6 +1417,10 @@ export default function KeyManager() {
           keyData={modal.key}
           mnemonic={modal.mnemonic}
           onDone={() => {
+            reload();
+            setModal(null);
+          }}
+          onCancel={() => {
             reload();
             setModal(null);
           }}

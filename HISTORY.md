@@ -106,6 +106,31 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Recovery-phrase screen: a real exit, and words that fit a phone --
+  FIXED 2026-11-13, on the branch, NOT on main.** Operator, with a phone
+  screenshot of "Write down your recovery phrase": "No exit on this
+  screen It's not working". Root cause, from the code: `BackupFlow`'s
+  modal drew an "x" whose handler every caller passed as `() => {}`
+  ("non-dismissible by design"), so the button looked like an exit and
+  did nothing; and `WordGrid` was a fixed `repeat(4,1fr)` grid, so at
+  phone width the fourth column ran off the edge. Measured at 375px on
+  the same walk, before: 4 columns, last cell's right edge 476px against
+  the box's 359px (118px sideways scroll), no working close. After: 2
+  columns, last cell inside the box, 0px sideways scroll, a 44px Close
+  button. Change: `BackupModal.onClose` is optional and the button is
+  drawn only when a caller passes one; a backdrop tap never closes it;
+  `BackupFlow` takes `onCancel`, wired in all four places it opens
+  (vault builder: back to the back-up-now-or-later choice; key details
+  and the Keys page list: close; the join page: back to the page with
+  Join still locked and a "Write down my words" button). Leaving early
+  never marks the key backed up -- walked: after Close the key read
+  `backedUp: false` and Join stayed locked; after reopening and verifying
+  it read `true`. Grid is `repeat(auto-fill, minmax(120px, 1fr))`; modal
+  padding shrinks on narrow screens. Measured: `npm test` 34 suites
+  green, lint 0 errors / 11 warnings (same set), typecheck 10 errors
+  (same set), build green. Left as is: the "Copy all 24 words" button.
+  NOT seen: on the operator's phone.
+
 - **Must-sign invites -- BUILT 2026-11-12, on the branch, NOT on main,
   the database change NOT applied.** Operator chose "must-sign invites"
   (inviting a person into a must-sign slot so a family member holds the
