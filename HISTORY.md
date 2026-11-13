@@ -106,6 +106,36 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **SeedSigner's animated key QR is read -- BUILT 2026-11-13, on the
+  branch, NOT on main.** Operator: "Decode next". SeedSigner's default
+  key QR ("Animated (default)") is a BC-UR crypto-account record; the
+  scanner reassembled it and then refused it. New `lib/ur-account.ts`
+  decodes crypto-account and crypto-hdkey (BCR-2020-007/015) with the
+  app's existing `cborg`, builds the xpub from key, chain code, depth,
+  parent fingerprint and the last path step, and refuses the whole QR if
+  any field is missing or malformed or if the built xpub does not read
+  back to the exact key sent. `pickVaultKey` takes the native multisig
+  (wsh) key when the export lists several, never guesses between others.
+  `XpubQrScanner` uses it, so every scanner in the app benefits (join
+  page, Keys page, vault builder, older invite page, legacy recovery).
+  The join page's SeedSigner hint now says either format works.
+  Proven against the real device's output: `scripts/fixtures-seedsigner-
+  ur.json` was produced by the fork's own `UrXpubQrEncoder` for five
+  known public test keys (multisig testnet and mainnet, single-sig
+  segwit and taproot) with the xpub/fingerprint/path the fork derives;
+  `scripts/test-ur-account.mjs` (3 cases) reassembles those frames
+  (also out of order with repeats) and matches all five exactly, and
+  refuses a flipped byte, a non-key UR and incomplete records. A
+  deliberately broken decoder (hardened bit dropped) fails it. Walked at
+  375px: SeedSigner's 15 animated frames played through Chromium's fake
+  camera on the join page were read in 1.6 seconds, filled key,
+  fingerprint and path, and joined with the right key. Test loader:
+  `scripts/ts-resolve-loader.mjs` now also retries `.js` for the
+  browser ES build of `@gandlaf21/bc-ur`. Measured: `npm test` 36
+  suites green, lint 0 errors / 11 warnings (same set), typecheck 10
+  errors (same set), build green. NOT seen: a real SeedSigner screen
+  through a real phone camera.
+
 - **Join page: bring a hardware wallet's key in by QR or paste -- BUILT
   2026-11-13, on the branch, NOT on main.** Operator, with a phone
   screenshot of the join page: "Need better way to bring in your own key.

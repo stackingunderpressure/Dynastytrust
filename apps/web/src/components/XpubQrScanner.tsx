@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { URDecoder } from '@gandlaf21/bc-ur';
 import { parseXpubText } from '../lib/keystore';
+import { keysFromUr, pickVaultKey } from '../lib/ur-account';
 import { colors, fonts, radii } from '../theme';
 import { Button } from './ui';
 import { useQrCameraLoop } from './useQrCameraLoop';
@@ -100,6 +101,20 @@ export function XpubQrScanner({ onResult, onCancel }: XpubQrScannerProps) {
       if (dec.isComplete()) {
         if (dec.isSuccess()) {
           const ur = dec.resultUR();
+          // A key export (crypto-account / crypto-hdkey -- SeedSigner's
+          // "Animated (default)" xpub QR) is read by lib/ur-account.ts,
+          // which refuses anything it cannot rebuild exactly (2026-11-13).
+          const urType = String(ur.type).toLowerCase();
+          if (['crypto-account', 'account-descriptor', 'crypto-hdkey', 'hdkey'].includes(urType)) {
+            try {
+              const key = pickVaultKey(keysFromUr(urType, new Uint8Array(ur.cbor)));
+              onResult(key.xpub, key.path, key.fingerprint);
+              return true;
+            } catch (e) {
+              setScanError(e instanceof Error ? e.message : 'This key QR could not be read.');
+              return true;
+            }
+          }
           // A structured BCR type (crypto-account, crypto-hdkey -- what
           // SeedSigner's animated "UR2 / BC-UR" xpub export format sends)
           // decodes to a nested CBOR array/map, not flat bytes -- this
@@ -120,7 +135,7 @@ export function XpubQrScanner({ onResult, onCancel }: XpubQrScannerProps) {
             /* fall through to the "doesn't parse yet" message below */
           }
           setScanError(
-            `Scanned a "${ur.type}" QR this app doesn't parse yet -- on the signer, switch the xpub export format to "Static" (a single QR, not animated) and scan again.`,
+            `Scanned a "${ur.type}" QR, which is not a key export this app reads. On the signer, export the xpub again (Static or Animated both work).`,
           );
         } else {
           setScanError('QR scan failed -- try again.');

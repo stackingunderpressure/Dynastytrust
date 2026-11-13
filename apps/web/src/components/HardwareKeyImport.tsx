@@ -118,8 +118,8 @@ export function HardwareKeyImport({
           <Button variant="ghost" style={{ minHeight: 44 }} onClick={() => { setErr(null); setMode('form'); }}>Paste it</Button>
         </div>
         <p style={{ ...sub, fontSize: 14 }}>
-          On a SeedSigner: open the seed, tap Export xpub, then Multisig and Native Segwit. When it asks
-          for the QR format, pick Static, not Animated (default) -- this app cannot read the animated one yet.
+          On a SeedSigner: open the seed, tap Export xpub, then Multisig and Native Segwit. Either QR format
+          works, Animated (default) or Static; hold the phone steady until the animated one finishes.
         </p>
       </div>
     );

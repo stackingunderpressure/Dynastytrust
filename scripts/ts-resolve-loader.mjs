@@ -11,7 +11,14 @@ export async function resolve(specifier, context, nextResolve) {
     return await nextResolve(specifier, context);
   } catch (err) {
     if (err?.code === 'ERR_MODULE_NOT_FOUND' && (specifier.startsWith('./') || specifier.startsWith('../'))) {
-      return nextResolve(`${specifier}.ts`, context);
+      try {
+        return await nextResolve(`${specifier}.ts`, context);
+      } catch {
+        // A browser-only ES build in node_modules (e.g. @gandlaf21/bc-ur's
+        // dist/lib/es6, the build Vite bundles) uses extensionless .js
+        // imports the same way.
+        return nextResolve(`${specifier}.js`, context);
+      }
     }
     throw err;
   }
