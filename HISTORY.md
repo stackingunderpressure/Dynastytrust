@@ -106,6 +106,36 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Join page: bring a hardware wallet's key in by QR or paste -- BUILT
+  2026-11-13, on the branch, NOT on main.** Operator, with a phone
+  screenshot of the join page: "Need better way to bring in your own key.
+  The qr flow and such." Before: "Use a key I already have" listed only
+  keys already on the phone and sent a hardware-wallet holder to the Keys
+  page and back. New `components/HardwareKeyImport.tsx` on the join page
+  (`InviteClaimPath.tsx`): "Scan its key QR" (the existing
+  `XpubQrScanner`) or "Paste it"; fingerprint and path are filled only
+  from what the export carries, never guessed; the network is checked
+  from the key's own prefix before any re-encoding (`lib/key-network.ts`
+  -- `normalizeXpub` alone would silently relabel a mainnet key as a test
+  key); the key is saved public-only via `keystore.importXpub`, reused if
+  already present, and selected so Join lights up. The SeedSigner hint
+  uses the fork's real menu words, checked in its source: Export xpub,
+  Multisig, Native Segwit, and Static rather than "Animated (default)",
+  which this app still cannot decode (operator's chip: static now,
+  animated next). No server change. Proven: new
+  `scripts/test-hardware-key-import.mjs` (3 cases, on a real key: a
+  `[fp/48h/1h/0h/2h]tpub` export parses to key, fingerprint and path; a
+  bare key yields neither; wrong network refused both ways; the saved
+  signing key equals the server's `pubkeyFromXpub`). Walked at 375px
+  against the real handlers: pasted a SeedSigner-style export and joined
+  (member pubkey, fingerprint and path matched the key); scanned the same
+  QR through Chromium's fake camera (form filled, Join enabled); a
+  mainnet key and a bare key were refused with plain messages; no page
+  errors, no sideways scroll. Measured: `npm test` 35 suites green, lint
+  0 errors / 11 warnings (same set), typecheck 10 errors (same set),
+  build green. NOT seen: a real SeedSigner's QR through a real phone
+  camera.
+
 - **Recovery-phrase screen: a real exit, and words that fit a phone --
   FIXED 2026-11-13, on the branch, NOT on main.** Operator, with a phone
   screenshot of "Write down your recovery phrase": "No exit on this

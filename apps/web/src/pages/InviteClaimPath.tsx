@@ -11,6 +11,7 @@ import { colors, fonts, radii, space } from '../theme';
 import { Button, Card, Input, Label } from '../components/ui';
 import { BackupFlow } from '../components/vault-builder';
 import { KeySafety } from '../components/KeySafety';
+import { HardwareKeyImport } from '../components/HardwareKeyImport';
 import { passwordHint, passwordProblem } from '../lib/password-rules';
 import Auth from './Auth';
 
@@ -77,9 +78,10 @@ export default function InviteClaimPath({
   const [joined, setJoined] = useState<LocalKey | null>(null);
   const [localKeys, setLocalKeys] = useState<LocalKey[]>([]);
 
+  const [keysVersion, setKeysVersion] = useState(0);
   useEffect(() => {
     setLocalKeys(listKeys().filter(k => k.status === 'active' && k.origin !== 'tapit' && k.pubkey?.length === 66 && keyNetworkMatches(k.network, vault.network)));
-  }, [vault.network, made]);
+  }, [vault.network, made, keysVersion]);
 
   const existing = useMemo(() => localKeys.find(k => k.keyId === existingId) ?? null, [localKeys, existingId]);
   // A phone key must have its words written down before it goes into a
@@ -306,11 +308,14 @@ export default function InviteClaimPath({
 
           {choice === 'existing' && !made && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: space[2] }}>
+              <HardwareKeyImport
+                network={vault.network}
+                onAdded={key => { setKeysVersion(v => v + 1); setExistingId(key.keyId); }}
+              />
               {localKeys.length === 0 ? (
                 <p style={sub}>
-                  There is no {real ? 'real-bitcoin' : 'test-coin'} key on this device yet. Make a new one above. To use
-                  a hardware wallet, add it on the <Link to="/keys" style={{ color: colors.gold }}>Keys page</Link>{' '}
-                  (Import xpub) and open this link again.
+                  There is no other {real ? 'real-bitcoin' : 'test-coin'} key on this device yet. Bring in a hardware
+                  wallet's key above, or make a new one.
                 </p>
               ) : (
                 <>
