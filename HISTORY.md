@@ -106,6 +106,28 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Messaging-key backup table missing on the live database -- 2026-11-13,
+  on the branch, NOT on main.** Operator, screenshot of a vault's Messages
+  tab: "Could not check messaging-key backup status (Could not find the
+  table 'public.messaging_key_backups' in the schema cache)", next to an
+  Owner message reading "(cannot decrypt -- your messaging key may have
+  changed)". Root cause: `20260811000800_messaging_key_backup.sql` was
+  added in the same commit (918c5e3, 2026-08-18) as the one-time
+  `supabase-db-bootstrap.yml`, which marks every migration file as
+  applied WITHOUT running it on the belief each had been pasted in by
+  hand. This one never was, so the deploy pipeline skipped it for three
+  months and no member could ever save a messaging-key backup. Fix:
+  `20261113010000_messaging_key_backups_repair.sql`, the original SQL
+  unchanged under a new version, plus `notify pgrst, 'reload schema'`.
+  Measured: run twice on a local Postgres 16 inside the runner's own
+  begin/insert/commit wrapper -- both runs succeed, RLS on, the three
+  owner-only policies present. The unreadable message is NOT fixable:
+  it was sealed to a messaging key this browser no longer holds, and
+  because the backup table never existed there is no copy of that key
+  anywhere but (possibly) the browser that sent it. Left out: checking
+  whether any OTHER bootstrapped migration is likewise missing live --
+  operator chose the repair-only slice.
+
 - **Type two steps larger everywhere -- 2026-11-13, on the branch, NOT
   on main.** Operator: "Type is too small everywhere". Measured first at
   375px on five screens (vault, builder, Keys, join, recovery phrase):
