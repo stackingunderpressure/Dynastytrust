@@ -35,6 +35,12 @@ hooked to the Supabase I think."
 4. Order: phone key + Face ID first.
 
 ## Status
+SUPERSEDED IN PART 2026-11-13 (operator: "I don't like signing in with key. It's too
+much garble"): the 24-word sign-in box was removed; the email-free doors are
+now a username (no reset, warned) and Sovereign sign-in with Tapit, with Face ID
+keeping a password on the phone. Hardware-wallet sign-in (slice 2) is dropped.
+See HISTORY.md. What follows is the original note.
+
 Slice 1 shipped 2026-11-13 (f226b54). Slice 3 built 2026-11-13 (see HISTORY.md).
 Slice 2 (hardware wallet sign-in) and slice 4 are open.
 

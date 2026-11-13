@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { APP_NAME, NAV_LINKS } from '../config';
 import { supabase } from '../lib/supabase';
 import { accountName } from '../lib/account-name';
+import { FaceIdSignInOffer } from './FaceIdSignIn';
 import { colors, fonts, radii } from '../theme';
 import { useReminderCount } from './RemindersBanner';
 import { VersionBadge } from './VersionBadge';
@@ -138,7 +139,7 @@ export function Layout({ activeNavId, onSignOut, children }: LayoutProps) {
           })}
         </nav>
       </header>
-      <main className="dt-page-main">{children}</main>
+      <main className="dt-page-main"><FaceIdSignInOffer />{children}</main>
     </div>
   );
 }

@@ -7,6 +7,7 @@ import { startTapitFlow, rememberSignupName, WALLET_BASE_URL } from '../lib/wall
 import { friendlyAuthError } from '../lib/auth-errors';
 import { signInAddress, usernameProblem, normalizeUsername } from '../lib/username';
 import { passwordProblem } from '../lib/password-rules';
+import { offerFaceIdFor, declineFaceIdOffer, savedFaceIdSignIn, signInWithFaceId } from '../lib/faceid-signin';
 
 // Set once we've asked Supabase to email a 6-digit code -- 'signup' for
 // account confirmation, 'recovery' for password reset. Identifies which
@@ -34,6 +35,12 @@ export default function Auth() {
   // no reset). Operator, 2026-11-13: "user name password ... or email for
   // future proof of getting locked out".
   const [withUsername, setWithUsername] = useState(false);
+  const faceSaved = savedFaceIdSignIn();
+  async function faceId() {
+    setBusy(true);
+    setError(null);
+    try { await signInWithFaceId(); } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Face ID sign-in did not work'); } finally { setBusy(false); }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -50,8 +57,11 @@ export default function Auth() {
         });
         const out = await res.json().catch(() => ({})) as { error?: string };
         if (!res.ok) { setError(out.error ?? 'Could not create the account'); return; }
+        // Staged BEFORE signing in: the signed-in screen can mount the
+        // instant Supabase reports the session, before this call returns.
+        offerFaceIdFor(signInAddress(email), normalizeUsername(email), password);
         const { error } = await supabase.auth.signInWithPassword({ email: signInAddress(email), password });
-        if (error) throw error;
+        if (error) { declineFaceIdOffer(); throw error; }
       } else if (mode === 'signup') {
         const { error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
@@ -65,8 +75,11 @@ export default function Auth() {
         if (error) throw error;
         setPending('recovery');
       } else {
+        // Face ID right after (operator's chip): offered once, on the next
+        // screen. Staged before signing in for the same reason as above.
+        offerFaceIdFor(signInAddress(email), email.trim(), password);
         const { error } = await supabase.auth.signInWithPassword({ email: signInAddress(email), password });
-        if (error) throw error;
+        if (error) { declineFaceIdOffer(); throw error; }
       }
     } catch (err: unknown) {
       setError(friendlyAuthError(err instanceof Error ? err.message : 'Authentication failed'));
@@ -247,6 +260,13 @@ export default function Auth() {
           </button>
         </div>
 
+        {mode === 'login' && faceSaved && (
+          <div style={{ marginBottom: space[4] }}>
+            <Button type="button" disabled={busy} onClick={() => void faceId()} style={{ width: '100%', padding: '14px', fontSize: 17 }}>
+              {busy ? 'Waiting for Face ID...' : `Sign in with Face ID (${faceSaved.label})`}
+            </Button>
+          </div>
+        )}
         <form onSubmit={submit} style={s.form}>
           {mode === 'signup' && (
             <div style={{ ...s.tabs, marginBottom: space[2] }}>
@@ -276,7 +296,7 @@ export default function Auth() {
             value={email}
             onChange={e => setEmail(e.target.value)}
             required
-            placeholder={mode === 'login' ? 'you@example.com or your username' : mode === 'signup' && withUsername ? 'e.g. grandpa.joe' : 'you@example.com'}
+            placeholder={mode === 'login' ? 'Email or username' : mode === 'signup' && withUsername ? 'e.g. grandpa.joe' : 'you@example.com'}
             style={{ fontSize: 17, padding: '12px 14px' }}
           />
 

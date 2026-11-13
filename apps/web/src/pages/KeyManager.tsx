@@ -16,6 +16,7 @@ import { XpubQrScanner } from "../components/XpubQrScanner";
 import { WalletLinkCard } from "../components/WalletLinkCard";
 import { TwoStepCard } from "../components/TwoStepCard";
 import { FaceIdLockAll } from "../components/FaceIdLockAll";
+import { FaceIdSignInSetting } from "../components/FaceIdSignIn";
 import { PasskeyProtect } from "../components/PasskeyProtect";
 import { KeySafety } from "../components/KeySafety";
 import { RESTORE_WARNING } from "../lib/key-education";
@@ -1132,6 +1133,7 @@ export default function KeyManager() {
     <div style={{ fontFamily: fonts.sans }}>
       <WalletLinkCard />
       <FaceIdLockAll keysVersion={keys.length + keys.filter(k => k.passkeyMnemonic).length} onChanged={reload} />
+      <FaceIdSignInSetting />
       <div style={{ marginBottom: 16 }}>
         <TwoStepCard />
       </div>

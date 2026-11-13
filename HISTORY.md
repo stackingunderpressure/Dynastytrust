@@ -106,6 +106,41 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Sign-in rethought: email, username, or sovereign Tapit; Face ID right
+  after -- 2026-11-13, on the branch.** Operator: "I don't like signing in
+  with key. It's too much garble ... the most sovereign way is run your
+  own Tapit wallet, sign in through it, not email, not enter your words in.
+  Either user name password with Face ID right after, or email for future
+  proof of getting locked out ... good warnings and education". Chips:
+  email + username + Tapit doors; Face ID keeps the password on the
+  phone; remove the 24-word box entirely. Three slices, each walked:
+  (A) 4ed819a -- the 24-word KeySignIn and its words-derived sign-in code
+  removed (key-account.ts keeps only the key-session recording); the
+  Tapit flow gains 'signup', so a Tapit key alone makes the account
+  (key-signup.js, kind 'tapit'; no change in the wallet); the sign-in page
+  gets "Sovereign sign-in with Tapit" with the plain warning that Tapit
+  and its backup ARE the account. Walked with a stand-in wallet: create as
+  Gran, sign out, Tapit sign-in to the same account, key session recorded.
+  (B) 0719ded -- username accounts: username-signup.js makes a confirmed
+  account at <username>@users.dynastytrust.family (never mailed); sign-in
+  takes "Email or username"; Create account offers "With email" (can be
+  reset) or "Username, no email" with the no-reset warning; reset of a
+  username says plainly it cannot be. Proven live (run 43450386596):
+  made, password sign-in, wrong password refused, deleted. (C) Face ID
+  right after: lib/faceid-signin.ts -- after a password sign-in a one-time
+  offer (password in memory only until answered; staged before the sign-in
+  call because the signed-in screen can mount first) locks the password
+  under the device passkey; the sign-in page then shows "Sign in with Face
+  ID (name)"; a changed password turns it off with a plain reason; the
+  Keys page can turn it off. Tests: key-account 7, invite-handlers 9,
+  username-signup 2 (browser and server rules agree), faceid-signin 5.
+  Walked at 375px with Chromium's virtual authenticator. Measured: npm
+  test green, lint 0 errors / 11 warnings, typecheck 10 errors (same set),
+  build green. NOT seen: on the operator's phone; a real Tapit wallet
+  round trip for 'signup' (the wallet passes our mode back untouched, read
+  from its source, not run). Any account made with the 24-word box this
+  morning can no longer sign in from that box (it was removed by choice).
+
 - **Email-free sign-in, slice 3: link-only invites + key sign-in counts
   for real bitcoin -- 2026-11-13, on the branch.** Operator: "Slice 3 go".
   Decisions (chips): invites by link + the owner confirming the key; "Key
