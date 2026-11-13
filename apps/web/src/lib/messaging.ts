@@ -32,7 +32,8 @@ import { hkdf } from '@noble/hashes/hkdf';
 import { sha256 } from '@noble/hashes/sha2';
 import { chacha20poly1305 } from '@noble/ciphers/chacha.js';
 import { randomBytes } from '@noble/hashes/utils';
-import { encryptText, decryptBlob, type EncryptedBlob } from './keystore';
+import { encryptText, decryptBlob, encryptWithPrfSecret, decryptWithPrfSecret, provenPasskeySecret, type EncryptedBlob, type PasskeyBlob } from './keystore';
+import { webauthnPrf, type PrfProvider } from './passkey';
 
 const MSG_KEY_STORE = 'dynastytrust:messaging:v1';
 
@@ -68,59 +69,154 @@ interface LocalMessagingKey {
   createdAt: string;
 }
 
-/**
- * Ensure a long-term messaging keypair exists in localStorage.
- * Returns { priv, pub } as hex. Idempotent; safe to call every
- * time the app opens.
- */
-export function ensureMessagingKey(): LocalMessagingKey {
+/** How the key is stored. Plain: the private key in the clear (the
+ *  shape since 2026-06). Locked: the private key encrypted under this
+ *  device's Face ID passkey (keystore.provenPasskeySecret), the public
+ *  key left readable so the app can register it and show it without a
+ *  prompt. Operator, 2026-11-13: "Make browser keys Face ID for
+ *  everything important." */
+type StoredMessagingKey =
+  | { priv: string; pub: string; createdAt: string; locked?: undefined }
+  | { pub: string; createdAt: string; locked: PasskeyBlob; priv?: undefined };
+
+// The unlocked private key of a LOCKED stored key, held in memory only
+// for this visit (until the page reloads). Never written anywhere.
+let unlockedPriv: string | null = null;
+
+const isHex64 = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{64}$/.test(v);
+
+function readStored(): StoredMessagingKey | null {
   try {
     const raw = localStorage.getItem(MSG_KEY_STORE);
-    if (raw) {
-      const parsed = JSON.parse(raw) as LocalMessagingKey;
-      if (parsed.priv && parsed.pub && parsed.priv.length === 64 && parsed.pub.length === 64) {
-        return parsed;
-      }
-    }
-  } catch { /* fall through to regenerate */ }
+    if (!raw) return null;
+    const v = JSON.parse(raw) as Record<string, unknown>;
+    if (!isHex64(v.pub)) return null;
+    const createdAt = typeof v.createdAt === 'string' ? v.createdAt : '';
+    if (v.locked && typeof v.locked === 'object') return { pub: v.pub, createdAt, locked: v.locked as PasskeyBlob };
+    if (isHex64(v.priv)) return { priv: v.priv, pub: v.pub, createdAt };
+    return null;
+  } catch {
+    return null;
+  }
+}
 
+/** Read the stored key, or make one ONLY when nothing is stored. A
+ *  locked key is never mistaken for a missing one -- regenerating it
+ *  would silently lose every past message. */
+function storedOrNew(): StoredMessagingKey {
+  const have = readStored();
+  if (have) return have;
+  // Unreadable junk is replaced, as it always was -- except anything that
+  // says it is a Face ID lock: overwriting that would lose the real key,
+  // so refuse instead.
+  if ((localStorage.getItem(MSG_KEY_STORE) ?? '').includes('"locked"')) {
+    throw new Error('This browser\'s Face ID messaging key could not be read. Restore it from your backup or regenerate it on the Messages tab.');
+  }
   const priv = x25519.utils.randomPrivateKey();
-  const pub = x25519.getPublicKey(priv);
-  const entry: LocalMessagingKey = {
-    priv: toHex(priv),
-    pub: toHex(pub),
-    createdAt: new Date().toISOString(),
-  };
+  const entry = { priv: toHex(priv), pub: toHex(x25519.getPublicKey(priv)), createdAt: new Date().toISOString() };
   localStorage.setItem(MSG_KEY_STORE, JSON.stringify(entry));
   return entry;
 }
 
+/** True while the key is locked with Face ID and not yet opened this visit. */
+export function messagingKeyLocked(): boolean {
+  const s = readStored();
+  return !!s?.locked && unlockedPriv === null;
+}
+
+/** True when the stored key is locked with Face ID (opened or not). */
+export function messagingKeyUsesFaceId(): boolean {
+  return !!readStored()?.locked;
+}
+
+/**
+ * The keypair, private half included. Makes one the very first time.
+ * Throws when the key is locked with Face ID and not opened this visit
+ * -- call unlockMessagingKey() first.
+ */
+export function ensureMessagingKey(): LocalMessagingKey {
+  const s = storedOrNew();
+  if (!s.locked) return { priv: s.priv, pub: s.pub, createdAt: s.createdAt };
+  if (unlockedPriv === null) throw new Error('Your messages are locked with Face ID. Unlock them first.');
+  return { priv: unlockedPriv, pub: s.pub, createdAt: s.createdAt };
+}
+
+/** The public key -- never needs Face ID. Makes a key the very first time. */
 export function getMessagingPubkey(): string {
-  return ensureMessagingKey().pub;
+  return storedOrNew().pub;
 }
 
 /** True when a messaging keypair already exists in this browser's
- *  localStorage, without generating one if it doesn't. Used to tell
- *  apart "first time ever, nothing to restore" from "this browser is
- *  missing a key a server backup could restore." */
+ *  localStorage (plain or locked), without generating one if it
+ *  doesn't. Used to tell apart "first time ever, nothing to restore"
+ *  from "this browser is missing a key a server backup could restore." */
 export function hasLocalMessagingKey(): boolean {
-  try {
-    const raw = localStorage.getItem(MSG_KEY_STORE);
-    if (!raw) return false;
-    const parsed = JSON.parse(raw) as LocalMessagingKey;
-    return !!(parsed.priv && parsed.pub && parsed.priv.length === 64 && parsed.pub.length === 64);
-  } catch {
-    return false;
-  }
+  return readStored() !== null;
 }
 
 /** Overwrite this browser's local messaging keypair with an existing
  *  one (hex priv/pub) -- used after a successful passphrase-based
  *  restore from a server backup. Unlike ensureMessagingKey(), this
- *  never generates; it only installs what the caller already has. */
+ *  never generates; it only installs what the caller already has.
+ *  The installed key is plain; it can be locked with Face ID again. */
 export function installMessagingKey(priv: string, pub: string): void {
   const entry: LocalMessagingKey = { priv, pub, createdAt: new Date().toISOString() };
   localStorage.setItem(MSG_KEY_STORE, JSON.stringify(entry));
+  unlockedPriv = null;
+}
+
+/** Throw away this browser's key and make a new one (the Messages tab's
+ *  "Regenerate key"). Past messages become unreadable here. */
+export function regenerateMessagingKey(): string {
+  localStorage.removeItem(MSG_KEY_STORE);
+  unlockedPriv = null;
+  return storedOrNew().pub;
+}
+
+const privMatchesPub = (priv: string, pub: string) => toHex(x25519.getPublicKey(fromHex(priv))) === pub;
+
+/**
+ * Lock the messaging key with this device's Face ID passkey. Proven
+ * before it is saved: the passkey must answer the same twice, and the
+ * locked copy must open back to a private key that matches the public
+ * key. Any failure leaves the key exactly as it was. Stays open for the
+ * rest of this visit.
+ */
+export async function lockMessagingKey(prf: PrfProvider = webauthnPrf): Promise<void> {
+  const s = storedOrNew();
+  if (s.locked) throw new Error('Your messages are already locked with Face ID.');
+  if (!privMatchesPub(s.priv, s.pub)) throw new Error('This browser\'s messaging key does not match itself. Nothing was changed.');
+  const { credentialIdB64, prfSaltB64, secret } = await provenPasskeySecret(prf);
+  const locked = await encryptWithPrfSecret(s.priv, secret, credentialIdB64, prfSaltB64);
+  const back = await decryptWithPrfSecret(locked, secret);
+  if (back !== s.priv) throw new Error('Face ID protection failed its own check. Nothing was changed.');
+  localStorage.setItem(MSG_KEY_STORE, JSON.stringify({ pub: s.pub, createdAt: s.createdAt, locked }));
+  unlockedPriv = s.priv;
+}
+
+/** Open a locked key for this visit (one Face ID prompt). */
+export async function unlockMessagingKey(prf: PrfProvider = webauthnPrf): Promise<void> {
+  const s = readStored();
+  if (!s?.locked || unlockedPriv !== null) return;
+  const secret = await prf.evaluate(s.locked.credentialIdB64, s.locked.prfSaltB64);
+  let priv: string;
+  try {
+    priv = await decryptWithPrfSecret(s.locked, secret);
+  } catch {
+    throw new Error('Face ID could not open your messages. Use the passkey they were locked with, or restore your messaging key from its backup.');
+  }
+  if (!isHex64(priv) || !privMatchesPub(priv, s.pub)) throw new Error('The messaging key opened by Face ID does not match. Nothing was changed.');
+  unlockedPriv = priv;
+}
+
+/** Go back to no Face ID for messages: open it once, store it plain. */
+export async function unlockMessagingKeyForGood(prf: PrfProvider = webauthnPrf): Promise<void> {
+  const s = readStored();
+  if (!s?.locked) return;
+  await unlockMessagingKey(prf);
+  const priv = unlockedPriv!;
+  localStorage.setItem(MSG_KEY_STORE, JSON.stringify({ priv, pub: s.pub, createdAt: s.createdAt }));
+  unlockedPriv = null;
 }
 
 /**
@@ -135,7 +231,9 @@ export function installMessagingKey(priv: string, pub: string): void {
  */
 export async function wrapMessagingKeyForBackup(
   passphrase: string,
+  prf: PrfProvider = webauthnPrf,
 ): Promise<{ pubkey: string; blob: EncryptedBlob }> {
+  if (messagingKeyLocked()) await unlockMessagingKey(prf);
   const { priv, pub } = ensureMessagingKey();
   const blob = await encryptText(priv, passphrase);
   return { pubkey: pub, blob };
@@ -240,6 +338,7 @@ export function decryptMessage(
   msg: EncryptedMessage,
   myUserId: string,
 ): string | null {
+  if (messagingKeyLocked()) return null;
   const { priv } = ensureMessagingKey();
   const myPriv = fromHex(priv);
 

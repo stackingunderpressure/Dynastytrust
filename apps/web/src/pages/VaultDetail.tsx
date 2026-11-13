@@ -60,7 +60,8 @@ function toHexBytes(bytes: Uint8Array): string {
 function psbtBindingHash(psbtHex: string): string {
   return toHexBytes(sha256(new TextEncoder().encode(psbtHex)));
 }
-import { ensureMessagingKey, encryptMessage, decryptMessage, getMessagingPubkey } from "../lib/messaging";
+import { encryptMessage, decryptMessage, getMessagingPubkey, messagingKeyLocked, messagingKeyUsesFaceId, unlockMessagingKey, lockMessagingKey, unlockMessagingKeyForGood, regenerateMessagingKey } from "../lib/messaging";
+import { passkeysAvailable } from "../lib/passkey";
 import { TrustTab } from "../components/TrustTab";
 import { RemindersBanner } from "../components/RemindersBanner";
 import { HaltVaultBar } from "../components/HaltVaultBar";
@@ -3872,10 +3873,19 @@ function MessagesTab({ vault }: { vault: Vault }) {
   const [busy, setBusy] = useState(false);
   const [showKeyReset, setShowKeyReset] = useState(false);
   const [keyBackupRefresh, setKeyBackupRefresh] = useState(0);
+  // Face ID for messages (operator, 2026-11-13: "Make browser keys Face
+  // ID for everything important"). A locked key opens once per visit,
+  // on a tap -- Safari only shows Face ID in answer to one.
+  // Read live each render; faceTick forces a redraw after a change.
+  const [, setFaceTick] = useState(0);
+  const keyLocked = messagingKeyLocked();
+  const usesFaceId = messagingKeyUsesFaceId();
+  const [faceBusy, setFaceBusy] = useState(false);
 
   useEffect(() => {
-    // Ensure local keypair exists before rendering.
-    ensureMessagingKey();
+    // Ensure local keypair exists before rendering (public half only:
+    // never needs Face ID).
+    getMessagingPubkey();
     supabase.auth.getSession().then(({ data }) =>
       setMyUserId(data.session?.user.id ?? null),
     );
@@ -3916,6 +3926,7 @@ function MessagesTab({ vault }: { vault: Vault }) {
         toast.error("No members have published a messaging key yet.");
         return;
       }
+      if (messagingKeyLocked()) { await unlockMessagingKey(); setFaceTick(n => n + 1); }
       const enc = encryptMessage(draft.trim(), recipients);
       await api.messages.send({
         vault_id: vault.id,
@@ -3935,15 +3946,46 @@ function MessagesTab({ vault }: { vault: Vault }) {
 
   async function rekey() {
     if (!(await askConfirm({ title: "Regenerate messaging key", message: "Regenerate your messaging key? You will lose access to messages sent with your current key unless you back up the new one too.", confirmLabel: "Regenerate", danger: true }))) return;
-    localStorage.removeItem("dynastytrust:messaging:v1");
-    ensureMessagingKey();
+    regenerateMessagingKey();
+    setFaceTick(n => n + 1);
     setShowKeyReset(false);
     setKeyBackupRefresh(n => n + 1);
     void load();
   }
 
+  async function faceId(action: "unlock" | "lock" | "off") {
+    setFaceBusy(true);
+    try {
+      if (action === "unlock") await unlockMessagingKey();
+      if (action === "lock") {
+        await lockMessagingKey();
+        toast.success("Your messages are now locked with Face ID.");
+      }
+      if (action === "off") {
+        if (!(await askConfirm({ title: "Stop using Face ID for messages", message: "Your messaging key will be kept in this browser without Face ID again. Anyone who can open this browser could read your messages.", confirmLabel: "Stop using Face ID" }))) return;
+        await unlockMessagingKeyForGood();
+        toast.success("Messages no longer need Face ID.");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Face ID did not work");
+    } finally {
+      setFaceTick(n => n + 1);
+      setFaceBusy(false);
+    }
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {keyLocked && (
+        <div style={{ padding: "12px 14px", background: colors.surface, border: `1px solid ${colors.gold}55`, borderRadius: radii.md, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: 17, color: colors.text, lineHeight: 1.5 }}>
+            Your messages are locked with Face ID. Unlock them to read and send on this visit.
+          </div>
+          <Button style={{ minHeight: 44 }} disabled={faceBusy} onClick={() => void faceId("unlock")}>
+            {faceBusy ? "Waiting for Face ID..." : "Unlock messages with Face ID"}
+          </Button>
+        </div>
+      )}
       <div
         style={{
           padding: "10px 12px",
@@ -3958,7 +4000,7 @@ function MessagesTab({ vault }: { vault: Vault }) {
         <strong style={{ color: colors.gold }}>End-to-end encrypted.</strong> Messages are sealed to each recipient's X25519 key before they leave your browser. The server stores ciphertext only and cannot read them.
       </div>
 
-      <MessagingKeyBackupPanel refreshToken={keyBackupRefresh} onRestored={() => void load()} />
+      <MessagingKeyBackupPanel refreshToken={keyBackupRefresh} onRestored={() => { setFaceTick(n => n + 1); void load(); }} />
 
       {pendingMembers.length > 0 && (
         <div
@@ -4045,6 +4087,21 @@ function MessagesTab({ vault }: { vault: Vault }) {
               </Button>
               <span style={{ marginLeft: 8 }}>Deletes your local private key. Past messages become unreadable.</span>
             </div>
+            {usesFaceId ? (
+              <div style={{ marginTop: 10 }}>
+                <span style={{ display: "block", marginBottom: 6 }}>Locked with Face ID: reading messages on this phone needs your face once per visit.</span>
+                <Button variant="ghost" size="sm" type="button" style={{ fontSize: 15, minHeight: 44 }} disabled={faceBusy} onClick={() => void faceId("off")}>
+                  Stop using Face ID for messages
+                </Button>
+              </div>
+            ) : passkeysAvailable() ? (
+              <div style={{ marginTop: 10 }}>
+                <span style={{ display: "block", marginBottom: 6 }}>Lock your messaging key with Face ID, so this phone needs your face before it can read your messages. Keep your passphrase backup above too: Face ID stays with this phone and your iCloud passkeys.</span>
+                <Button size="sm" type="button" style={{ fontSize: 15, minHeight: 44 }} disabled={faceBusy} onClick={() => void faceId("lock")}>
+                  {faceBusy ? "Waiting for Face ID..." : "Lock messages with Face ID"}
+                </Button>
+              </div>
+            ) : null}
           </div>
         )}
       </form>
@@ -4081,7 +4138,9 @@ function MessagesTab({ vault }: { vault: Vault }) {
               <div style={{ fontSize: 17, color: colors.text, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
                 {plaintext !== null ? plaintext : (
                   <span style={{ color: colors.muted, fontStyle: "italic" }}>
-                    {m.recipients.some(r => r.user_id === myUserId)
+                    {keyLocked && m.recipients.some((r: { user_id: string }) => r.user_id === myUserId)
+                      ? "(locked -- unlock your messages with Face ID above)"
+                      : m.recipients.some(r => r.user_id === myUserId)
                       ? "(cannot decrypt -- your messaging key may have changed)"
                       : "(not encrypted to this browser)"}
                   </span>
