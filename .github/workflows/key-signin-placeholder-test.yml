@@ -23,5 +23,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Read auth settings (read-only, no secrets printed)
+        run: node scripts/supabase-auth-settings-read.mjs
       - name: Placeholder account, one-time login, delete
         run: node scripts/key-signin-placeholder-test.mjs
