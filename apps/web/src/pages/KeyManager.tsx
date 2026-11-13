@@ -15,6 +15,7 @@ import { QrImage } from "../components/QrImage";
 import { XpubQrScanner } from "../components/XpubQrScanner";
 import { WalletLinkCard } from "../components/WalletLinkCard";
 import { TwoStepCard } from "../components/TwoStepCard";
+import { FaceIdLockAll } from "../components/FaceIdLockAll";
 import { PasskeyProtect } from "../components/PasskeyProtect";
 import { KeySafety } from "../components/KeySafety";
 import { RESTORE_WARNING } from "../lib/key-education";
@@ -383,7 +384,7 @@ function RevealModal({
       {!mnemonic && !isTest ? (
         <form onSubmit={unlock} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <p style={{ fontSize: 17, color: colors.muted }}>
-            {isPasskey ? "Unlock with your passkey to see the recovery phrase for " : "Enter password for "}
+            {isPasskey ? "Unlock with Face ID to see the recovery phrase for " : "Enter password for "}
             <strong style={{ color: colors.text }}>{keyData.label}</strong>.
           </p>
           {!isPasskey && (
@@ -398,7 +399,7 @@ function RevealModal({
               Cancel
             </Button>
             <Button type="submit" disabled={busy}>
-              {busy ? (isPasskey ? "Waiting for your device..." : "Decrypting...") : isPasskey ? "Unlock with passkey" : "Reveal"}
+              {busy ? (isPasskey ? "Waiting for Face ID..." : "Decrypting...") : isPasskey ? "Unlock with Face ID" : "Reveal"}
             </Button>
           </div>
         </form>
@@ -821,7 +822,7 @@ function DetailModal({
       : k.origin === "imported_xpub"
         ? "Imported xpub"
         : k.passkeyMnemonic
-          ? "Passkey-protected key (encrypted, no password)"
+          ? "Locked with Face ID (encrypted, no password)"
           : "Secure key (encrypted)";
 
   const rows: [string, string][] = [
@@ -1130,6 +1131,7 @@ export default function KeyManager() {
   return (
     <div style={{ fontFamily: fonts.sans }}>
       <WalletLinkCard />
+      <FaceIdLockAll keysVersion={keys.length + keys.filter(k => k.passkeyMnemonic).length} onChanged={reload} />
       <div style={{ marginBottom: 16 }}>
         <TwoStepCard />
       </div>

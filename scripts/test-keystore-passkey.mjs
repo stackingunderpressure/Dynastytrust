@@ -99,4 +99,62 @@ assert.equal(tp.testMnemonic, undefined);
 assert.equal(await ks.revealMnemonic(t.key.keyId, undefined, good), t.mnemonic);
 pass('test key upgrades directly to a passkey; plaintext removed');
 
+// 8. One passkey per device: keys 4 and 7 share it; a third key reuses it too.
+assert.equal(good.calls.create, 1, 'the device passkey is made once, not once per key');
+assert.equal(raw(t.key.keyId).passkeyMnemonic.credentialIdB64, ks.devicePasskeyId());
+const k3 = await ks.generateSoftwareKey({ label: 'k3', network: 'mainnet', password: PW, persona: 'k3' });
+ks.markBackedUp(k3.key.keyId);
+await ks.protectKeyWithPasskey(k3.key.keyId, { password: PW, prf: good });
+assert.equal(good.calls.create, 1);
+assert.notEqual(raw(k3.key.keyId).passkeyMnemonic.prfSaltB64, raw(t.key.keyId).passkeyMnemonic.prfSaltB64, 'each single lock gets its own salt');
+pass('one passkey per device, each key under its own salt');
+
+// 9. The backup screen may hand over the words it just showed -- only this key's own.
+const k4 = await ks.generateSoftwareKey({ label: 'k4', network: 'mainnet', password: PW, persona: 'k4' });
+ks.markBackedUp(k4.key.keyId);
+await assert.rejects(ks.protectKeyWithPasskey(k4.key.keyId, { mnemonic: k3.mnemonic, prf: good }), /does not belong/);
+assert.ok(raw(k4.key.keyId).encryptedMnemonic && !raw(k4.key.keyId).passkeyMnemonic);
+await ks.protectKeyWithPasskey(k4.key.keyId, { mnemonic: k4.mnemonic, prf: good });
+assert.equal(await ks.revealMnemonic(k4.key.keyId, undefined, good), k4.mnemonic);
+pass('backup-screen words accepted only when they are this key\'s own');
+
+// 10. Lock all: one password, two Face ID prompts, wrong-password / test /
+//     not-backed-up keys left exactly as they were.
+const a = await ks.generateSoftwareKey({ label: 'a', network: 'mainnet', password: PW, persona: 'a' });
+const b = await ks.generateSoftwareKey({ label: 'b', network: 'mainnet', password: PW, persona: 'b' });
+const other = await ks.generateSoftwareKey({ label: 'other', network: 'mainnet', password: 'a-different-pass-777', persona: 'o' });
+const unbacked = await ks.generateSoftwareKey({ label: 'unbacked', network: 'mainnet', password: PW, persona: 'u' });
+const test2 = ks.generateTestKey({ label: 'test2', network: 'signet', persona: 't2' });
+for (const k of [a, b, other, test2]) ks.markBackedUp(k.key.keyId);
+const plan = ks.passkeyLockPlan();
+assert.deepEqual(plan.ready.map(k => k.label).sort(), ['a', 'b', 'k', 'other'], "key k went back to a password in case 6, so it is ready again");
+assert.deepEqual(plan.notBackedUp.map(k => k.label), ['unbacked']);
+const before = good.calls.evaluate;
+const res = await ks.protectAllKeysWithPasskey(PW, good);
+assert.equal(good.calls.evaluate - before, 2, 'two Face ID prompts for the whole batch');
+assert.deepEqual(res.locked.map(k => k.label).sort(), ['a', 'b']);
+assert.deepEqual(res.wrongPassword.map(k => k.label).sort(), ['k', 'other']);
+assert.equal(await ks.revealMnemonic(a.key.keyId, undefined, good), a.mnemonic);
+assert.equal(await ks.revealMnemonic(b.key.keyId, undefined, good), b.mnemonic);
+assert.equal(await ks.revealMnemonic(other.key.keyId, 'a-different-pass-777'), other.mnemonic);
+assert.ok(raw(unbacked.key.keyId).encryptedMnemonic && !raw(unbacked.key.keyId).passkeyMnemonic);
+assert.equal(raw(test2.key.keyId).testMnemonic, test2.mnemonic, 'test keys are never touched by lock-all');
+pass('lock all: one password, two prompts, the rest left as they were');
+
+// 11. A device passkey made just now that fails is forgotten; an older one is kept.
+store.delete('dt:devicePasskey:v1');
+const c = await ks.generateSoftwareKey({ label: 'c', network: 'mainnet', password: PW, persona: 'c' });
+ks.markBackedUp(c.key.keyId);
+await assert.rejects(ks.protectKeyWithPasskey(c.key.keyId, { password: PW, prf: fakePasskey({ deterministic: false }) }), /same answer twice/);
+assert.equal(ks.devicePasskeyId(), null, 'a failed new passkey must not be remembered');
+const fresh = fakePasskey();
+await ks.protectKeyWithPasskey(c.key.keyId, { password: PW, prf: fresh });
+const kept = ks.devicePasskeyId();
+const cancelled = { ...fresh, async evaluate() { throw new Error('cancelled'); } };
+const d = await ks.generateSoftwareKey({ label: 'd', network: 'mainnet', password: PW, persona: 'd' });
+ks.markBackedUp(d.key.keyId);
+await assert.rejects(ks.protectKeyWithPasskey(d.key.keyId, { password: PW, prf: cancelled }), /cancelled/);
+assert.equal(ks.devicePasskeyId(), kept, 'a cancelled prompt must not forget a passkey already in use');
+pass('failed new passkey forgotten; cancelled prompt keeps the old one');
+
 console.log(`keystore-passkey tests passed (${n} cases)`);

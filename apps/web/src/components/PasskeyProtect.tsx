@@ -24,11 +24,11 @@ export function PasskeyProtect({ k, onChanged }: { k: LocalKey; onChanged: () =>
 
   async function toPasskey() {
     const ok = await confirm({
-      title: 'Protect this key with a passkey',
+      title: 'Lock this key with Face ID',
       message:
-        'Your device will ask for Face ID, fingerprint or your security key three times in a row: once to create the passkey and twice to prove it works. ' +
-        'After that the password is gone. The only ways to this key will be this passkey and the recovery phrase you wrote down. ' +
-        'If you lose the passkey and the written phrase, this key is lost.',
+        'Your phone will ask for Face ID (or your fingerprint) two times to prove it works, three the very first time on this device. ' +
+        'After that the password is gone. The only ways to this key will be Face ID on this device and the recovery phrase you wrote down. ' +
+        'If you lose both, this key is lost.',
       confirmLabel: 'Continue',
     });
     if (!ok) return;
@@ -46,10 +46,10 @@ export function PasskeyProtect({ k, onChanged }: { k: LocalKey; onChanged: () =>
     setBusy(true);
     try {
       await protectKeyWithPasskey(k.keyId, { password });
-      toast.success('This key is now protected by your passkey.');
+      toast.success('This key is now locked with Face ID.');
       onChanged();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not set up the passkey');
+      toast.error(e instanceof Error ? e.message : 'Face ID could not lock this key');
     } finally {
       setBusy(false);
     }
@@ -58,7 +58,7 @@ export function PasskeyProtect({ k, onChanged }: { k: LocalKey; onChanged: () =>
   async function toPassword() {
     const pw = await prompt({
       title: 'Use a password instead',
-      message: `Choose a new password for "${k.label}". Your passkey will be asked once to unlock it.`,
+      message: `Choose a new password for "${k.label}". Face ID will be asked once to unlock it.`,
       password: true,
       confirmLabel: 'Set password',
     });
@@ -85,7 +85,7 @@ export function PasskeyProtect({ k, onChanged }: { k: LocalKey; onChanged: () =>
   if (!passkeysAvailable()) return null;
   return (
     <Button variant="ghost" style={{ fontSize: 17 }} disabled={busy} onClick={() => void toPasskey()}>
-      {busy ? 'Waiting for your device...' : 'Use a passkey instead'}
+      {busy ? 'Waiting for Face ID...' : 'Lock with Face ID'}
     </Button>
   );
 }

@@ -981,7 +981,7 @@ export function removeKeyPassword(keyId: string, mnemonic: string): LocalKey {
  */
 export async function protectKeyWithPasskey(
   keyId: string,
-  opts: { password?: string; prf?: PrfProvider } = {},
+  opts: { password?: string; mnemonic?: string; prf?: PrfProvider } = {},
 ): Promise<LocalKey> {
   const prf = opts.prf ?? webauthnPrf;
   const key = getKey(keyId);
@@ -994,29 +994,140 @@ export async function protectKeyWithPasskey(
 
   // Read the seed with the key's CURRENT protection. A plaintext test
   // key is read directly (same as secureTestKey) so a mainnet test key
-  // can still be upgraded.
-  const mnemonic = key.testMnemonic ?? await revealMnemonic(keyId, opts.password, prf);
+  // can still be upgraded. The backup screen, which already holds the
+  // words it just showed, may hand them in instead of a password -- they
+  // are checked against this key's own public key before they are used.
+  let mnemonic: string;
+  if (opts.mnemonic !== undefined) {
+    if (!validateMnemonic(opts.mnemonic, wordlist)) throw new Error('Stored recovery phrase is not valid');
+    assertSeedMatchesKey(key, opts.mnemonic);
+    mnemonic = opts.mnemonic;
+  } else {
+    mnemonic = key.testMnemonic ?? await revealMnemonic(keyId, opts.password, prf);
+  }
   if (!validateMnemonic(mnemonic, wordlist)) throw new Error('Stored recovery phrase is not valid');
 
-  const { credentialIdB64 } = await prf.create(key.label);
-  const prfSaltB64 = b64(crypto.getRandomValues(new Uint8Array(32)));
-  const secretA = await prf.evaluate(credentialIdB64, prfSaltB64);
-  const secretB = await prf.evaluate(credentialIdB64, prfSaltB64);
-  if (secretA.length !== 32 || toHex(secretA) !== toHex(secretB)) {
-    throw new Error('This passkey did not give the same answer twice, so it cannot protect a key. The key keeps its current protection.');
-  }
+  const [locked] = await lockWithDevicePasskey([{ keyId, mnemonic }], prf);
+  return locked;
+}
 
-  const blob = await encryptWithPrfSecret(mnemonic, secretA, credentialIdB64, prfSaltB64);
-  if ((await decryptWithPrfSecret(blob, secretB)) !== mnemonic) {
-    throw new Error('Passkey protection failed its own check. The key keeps its current protection.');
-  }
+// -- One passkey per device --------------------------------------------------
+//
+// Operator, 2026-11-13: "Make browser keys Face ID for everything
+// important." Until then every key made its own passkey, so a phone held
+// one passkey per key and locking five keys meant fifteen Face ID prompts.
+// Now one passkey per device; each key still has its own random PRF salt
+// (or, in a batch, shares one salt with a fresh AES-GCM nonce per key), so
+// every key's encryption key is still its own secret. Keys protected
+// before this keep their own passkey: the blob names its credential.
 
+const DEVICE_PASSKEY_STORE = 'dt:devicePasskey:v1';
+
+/** The device passkey's id, if one was made in this browser. */
+export function devicePasskeyId(): string | null {
+  try {
+    const raw = localStorage.getItem(DEVICE_PASSKEY_STORE);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as { credentialIdB64?: unknown };
+    return typeof v.credentialIdB64 === 'string' && v.credentialIdB64 ? v.credentialIdB64 : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The device passkey, made (one Face ID prompt) the first time it is needed. */
+export async function ensureDevicePasskey(prf: PrfProvider = webauthnPrf): Promise<string> {
+  const have = devicePasskeyId();
+  if (have) return have;
+  const { credentialIdB64 } = await prf.create('this device');
+  localStorage.setItem(DEVICE_PASSKEY_STORE, JSON.stringify({ credentialIdB64 }));
+  return credentialIdB64;
+}
+
+/**
+ * Ask the device passkey for a fresh secret, twice, and refuse unless the
+ * two answers agree. Two Face ID prompts. Shared by keys, the messaging
+ * key and saved secrets so each is protected the same proven way.
+ */
+export async function provenPasskeySecret(prf: PrfProvider = webauthnPrf): Promise<{ credentialIdB64: string; prfSaltB64: string; secret: Uint8Array }> {
+  const fresh = devicePasskeyId() === null;
+  const credentialIdB64 = await ensureDevicePasskey(prf);
+  try {
+    const prfSaltB64 = b64(crypto.getRandomValues(new Uint8Array(32)));
+    const secretA = await prf.evaluate(credentialIdB64, prfSaltB64);
+    const secretB = await prf.evaluate(credentialIdB64, prfSaltB64);
+    if (secretA.length !== 32 || toHex(secretA) !== toHex(secretB)) {
+      throw new Error('This passkey did not give the same answer twice, so it cannot protect anything. Nothing was changed.');
+    }
+    return { credentialIdB64, prfSaltB64, secret: secretA };
+  } catch (e) {
+    // A passkey made just now that then failed protects nothing yet:
+    // forget it so the next try makes a working one. One made earlier is
+    // kept -- a failure may only be a cancelled prompt, and it may already
+    // protect something.
+    if (fresh) localStorage.removeItem(DEVICE_PASSKEY_STORE);
+    throw e;
+  }
+}
+
+/** Encrypt each seed under one proven passkey secret, read every one back,
+ *  then save them all in ONE write. Any failure saves nothing. */
+async function lockWithDevicePasskey(entries: { keyId: string; mnemonic: string }[], prf: PrfProvider): Promise<LocalKey[]> {
+  if (entries.length === 0) return [];
+  const { credentialIdB64, prfSaltB64, secret } = await provenPasskeySecret(prf);
+  const blobs = new Map<string, PasskeyBlob>();
+  for (const e of entries) {
+    const blob = await encryptWithPrfSecret(e.mnemonic, secret, credentialIdB64, prfSaltB64);
+    if ((await decryptWithPrfSecret(blob, secret)) !== e.mnemonic) {
+      throw new Error('Passkey protection failed its own check. Every key keeps its current protection.');
+    }
+    blobs.set(e.keyId, blob);
+  }
   const all = loadAll();
-  const idx = all.findIndex(k => k.keyId === keyId);
-  if (idx < 0) throw new Error('Key not found');
-  all[idx] = { ...all[idx], passkeyMnemonic: blob, encryptedMnemonic: undefined, testMnemonic: undefined };
+  const out: LocalKey[] = [];
+  for (const [keyId, blob] of blobs) {
+    const idx = all.findIndex(k => k.keyId === keyId);
+    if (idx < 0) throw new Error('Key not found');
+    all[idx] = { ...all[idx], passkeyMnemonic: blob, encryptedMnemonic: undefined, testMnemonic: undefined };
+    out.push(all[idx]);
+  }
   saveAll(all);
-  return all[idx];
+  return out;
+}
+
+/** Keys the "Lock all with Face ID" button would lock, and why others are left. */
+export function passkeyLockPlan(): { ready: LocalKey[]; notBackedUp: LocalKey[] } {
+  const candidates = listKeys().filter(k =>
+    k.status === 'active' && k.origin === 'software' && !k.passkeyMnemonic && !k.testMnemonic && !!k.encryptedMnemonic);
+  return {
+    ready: candidates.filter(k => k.backedUp),
+    notBackedUp: candidates.filter(k => !k.backedUp),
+  };
+}
+
+/**
+ * Lock every ready key with the device passkey at once, unlocking each
+ * with the one password typed. Keys that password does not open are left
+ * exactly as they were and named. Test keys (test coins only) and keys
+ * not yet backed up are never touched. Two Face ID prompts in all, plus
+ * one the first time the device passkey is made.
+ */
+export async function protectAllKeysWithPasskey(
+  password: string,
+  prf: PrfProvider = webauthnPrf,
+): Promise<{ locked: LocalKey[]; wrongPassword: LocalKey[] }> {
+  const { ready } = passkeyLockPlan();
+  const entries: { keyId: string; mnemonic: string }[] = [];
+  const wrongPassword: LocalKey[] = [];
+  for (const k of ready) {
+    try {
+      entries.push({ keyId: k.keyId, mnemonic: await revealMnemonic(k.keyId, password, prf) });
+    } catch {
+      wrongPassword.push(k);
+    }
+  }
+  const locked = await lockWithDevicePasskey(entries, prf);
+  return { locked, wrongPassword };
 }
 
 /**

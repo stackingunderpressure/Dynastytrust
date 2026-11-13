@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { markBackedUp, type LocalKey } from '../../lib/keystore';
+import { markBackedUp, protectKeyWithPasskey, type LocalKey } from '../../lib/keystore';
+import { passkeysAvailable } from '../../lib/passkey';
 import { colors, fonts, radii, space } from '../../theme';
 import { Button, Input, Label } from '../ui';
 
@@ -204,7 +205,8 @@ export function KeyCreatedPrompt({
 // covered when they are not. A tap on the backdrop never leaves.
 export function BackupFlow({ keyData, mnemonic, onDone, onCancel }: { keyData: LocalKey; mnemonic: string; onDone: () => void; onCancel?: () => void }) {
   const words = mnemonic.split(' ');
-  const [step, setStep] = useState<'show' | 'verify'>('show');
+  const [step, setStep] = useState<'show' | 'verify' | 'lock'>('show');
+  const [locking, setLocking] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [positions] = useState<number[]>(() => {
     const p: number[] = [];
@@ -224,8 +226,54 @@ export function BackupFlow({ keyData, mnemonic, onDone, onCancel }: { keyData: L
       return;
     }
     markBackedUp(keyData.keyId);
+    // Operator, 2026-11-13: "Make browser keys Face ID for everything
+    // important." A key held in this browser is offered Face ID the moment
+    // its written backup is proven -- the one point where the way back
+    // exists AND the words are already on screen, so no password is asked.
+    // Test keys (test coins only) and hardware keys are not offered it.
+    if (keyData.origin === 'software' && !keyData.testMnemonic && !keyData.passkeyMnemonic && passkeysAvailable()) {
+      setErr(null);
+      setStep('lock');
+      return;
+    }
     onDone();
   }
+
+  async function lockWithFaceId() {
+    setErr(null);
+    setLocking(true);
+    try {
+      await protectKeyWithPasskey(keyData.keyId, { mnemonic });
+      onDone();
+    } catch (e) {
+      setErr((e instanceof Error ? e.message : 'Face ID could not lock this key') + ' The key keeps its password.');
+    } finally {
+      setLocking(false);
+    }
+  }
+
+  if (step === 'lock')
+    return (
+      <BackupModal title="Lock this key with Face ID">
+        <p style={{ fontSize: 17, color: colors.text, lineHeight: 1.6, marginTop: 0 }}>
+          Your backup is checked. Now choose how this phone unlocks the key when you sign.
+        </p>
+        <p style={{ fontSize: 17, color: colors.sub, lineHeight: 1.6 }}>
+          With Face ID (or your fingerprint) there is no password to forget, guess or have read as you type it.
+          Your phone asks two or three times now to prove it works. After that the password is gone; the ways
+          back are Face ID and the 24 words you just wrote down. You can switch back to a password later on the Keys page.
+        </p>
+        {err && <p style={{ color: colors.red, fontSize: 17 }}>{err}</p>}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
+          <Button style={{ width: '100%', minHeight: 44 }} disabled={locking} onClick={() => void lockWithFaceId()}>
+            {locking ? 'Waiting for Face ID...' : 'Lock with Face ID'}
+          </Button>
+          <Button variant="ghost" style={{ width: '100%', minHeight: 44 }} disabled={locking} onClick={onDone}>
+            Keep the password
+          </Button>
+        </div>
+      </BackupModal>
+    );
 
   if (step === 'show')
     return (
