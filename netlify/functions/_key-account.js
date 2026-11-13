@@ -1,0 +1,82 @@
+/**
+ * _key-account.js -- the server half of email-free sign-in
+ * (docs/key-signin-build-note.md). Operator, 2026-11-13: "never have an
+ * email and only sign in with your key ... it can still be hooked to the
+ * Supabase".
+ *
+ * A Supabase account needs an address, so an account made from a key gets
+ * a random one at keys.dynastytrust.family -- a name with no mailbox that
+ * nothing ever writes to. Proven live 2026-11-13 (key-signin-placeholder-
+ * test.yml): Supabase creates it confirmed without sending anything, and
+ * the same one-time login token wallet-signin-verify.js already uses logs
+ * into it.
+ */
+import { verifySignIn } from "tapit-attest";
+import { extractSignInAttestation } from "./_wallet-signin.js";
+
+export const PLACEHOLDER_DOMAIN = "keys.dynastytrust.family";
+
+export function placeholderEmail() {
+  const r = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, "0")).join("");
+  return `k-${r}@${PLACEHOLDER_DOMAIN}`;
+}
+
+export function isPlaceholderEmail(email) {
+  return typeof email === "string" && email.toLowerCase().endsWith("@" + PLACEHOLDER_DOMAIN);
+}
+
+/** A name the person chose, safe to store and show: trimmed, no control
+ *  characters, at most 40 characters; empty becomes null. */
+export function cleanDisplayName(v) {
+  if (typeof v !== "string") return null;
+  // eslint-disable-next-line no-control-regex
+  const s = v.replace(/[\u0000-\u001f\u007f]/g, "").replace(/\s+/g, " ").trim().slice(0, 40);
+  return s || null;
+}
+
+/**
+ * Check a key proof against the EXACT challenge this server issued and
+ * consume that challenge (single use, atomically). Returns { pubkey } or
+ * { status, error }. Never consumes a challenge for a proof that failed.
+ */
+export async function proveKeyControl(supabase, body) {
+  const extracted = extractSignInAttestation(body);
+  if (extracted.error) return { status: 400, error: extracted.error };
+  const { attestation, nonce } = extracted;
+  const { data: row, error: loadErr } = await supabase
+    .from("wallet_signin_challenges")
+    .select("nonce, challenge, consumed_at")
+    .eq("nonce", nonce)
+    .maybeSingle();
+  if (loadErr) return { status: 500, error: loadErr.message };
+  if (!row) return { status: 401, error: "Unknown or expired challenge" };
+  if (row.consumed_at) return { status: 401, error: "Challenge already used" };
+  const result = verifySignIn({ attestation, expectedChallenge: row.challenge });
+  if (!result.valid) return { status: 401, error: "Key proof failed: " + result.errors.join("; ") };
+  return { pubkey: result.signer, nonce, audience: row.challenge.audience };
+}
+
+export async function consumeChallenge(supabase, nonce) {
+  const { data, error } = await supabase
+    .from("wallet_signin_challenges")
+    .update({ consumed_at: new Date().toISOString() })
+    .eq("nonce", nonce)
+    .is("consumed_at", null)
+    .select("nonce");
+  if (error) return { status: 500, error: error.message };
+  if (!data || data.length === 0) return { status: 401, error: "Challenge already used" };
+  return {};
+}
+
+/** A one-time login token for this account, redeemed in the browser with
+ *  supabase.auth.verifyOtp({ token_hash, type: 'magiclink' }). Nothing is
+ *  sent anywhere. */
+export async function mintSession(supabase, userId) {
+  const { data: userData, error: userErr } = await supabase.auth.admin.getUserById(userId);
+  const email = userData?.user?.email;
+  if (userErr || !email) return { status: 500, error: "Could not resolve the account" };
+  const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({ type: "magiclink", email });
+  const tokenHash = linkData?.properties?.hashed_token;
+  if (linkErr || !tokenHash) return { status: 500, error: "Could not establish a session" };
+  return { token_hash: tokenHash };
+}

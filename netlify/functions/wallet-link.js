@@ -35,6 +35,7 @@ export async function handler(event) {
       .from("wallet_identities")
       .select("pubkey, bound_at")
       .eq("user_id", u.userId)
+      .eq("kind", "tapit")
       .maybeSingle();
     if (error) return json(500, { error: error.message });
     return json(200, { ok: true, pubkey: data?.pubkey ?? null, bound_at: data?.bound_at ?? null });
@@ -44,7 +45,8 @@ export async function handler(event) {
     const { error } = await supabase
       .from("wallet_identities")
       .delete()
-      .eq("user_id", u.userId);
+      .eq("user_id", u.userId)
+      .eq("kind", "tapit");
     if (error) return json(500, { error: error.message });
     return json(200, { ok: true });
   }
@@ -102,13 +104,19 @@ export async function handler(event) {
   if (consumeErr) return json(500, { error: consumeErr.message });
   if (!consumed || consumed.length === 0) return json(401, { error: "Challenge already used" });
 
-  // Upsert the binding (one wallet per user; preserves readiness on re-bind).
+  // Replace this account's Tapit link (one Tapit wallet per account).
+  // Since 2026-11-13 an account can also hold other sign-in keys (a phone
+  // key, a hardware wallet); only the Tapit row is touched here.
+  if (existing && existing.user_id === u.userId) return json(200, { ok: true, pubkey });
+  const { error: delErr } = await supabase
+    .from("wallet_identities")
+    .delete()
+    .eq("user_id", u.userId)
+    .eq("kind", "tapit");
+  if (delErr) return json(500, { error: delErr.message });
   const { error: upErr } = await supabase
     .from("wallet_identities")
-    .upsert(
-      { user_id: u.userId, pubkey, bound_at: new Date().toISOString() },
-      { onConflict: "user_id" },
-    );
+    .insert({ user_id: u.userId, pubkey, kind: "tapit", bound_at: new Date().toISOString() });
   if (upErr) return json(500, { error: upErr.message });
 
   return json(200, { ok: true, pubkey });

@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 import { APP_NAME, NAV_LINKS } from '../config';
 import { supabase } from '../lib/supabase';
+import { accountName } from '../lib/account-name';
 import { colors, fonts, radii } from '../theme';
 import { useReminderCount } from './RemindersBanner';
 import { VersionBadge } from './VersionBadge';
@@ -20,19 +21,19 @@ export function Layout({ activeNavId, onSignOut, children }: LayoutProps) {
   const [displayName, setDisplayName] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
-    const nameFromEmail = (email: string | undefined | null): string | null => {
-      if (!email) return null;
-      const local = email.split('@')[0];
-      // Replace common separators so "jane.doe" shows as "jane doe",
-      // then keep it lowercase -- users can't set a display name yet.
-      return local.replace(/[._-]+/g, ' ');
+    // The name chosen at key sign-up, else the email's first part with
+    // separators as spaces ("jane.doe" -> "jane doe"). A key account's
+    // placeholder address is never shown (lib/account-name.ts).
+    const nameOf = (user: Parameters<typeof accountName>[0]): string | null => {
+      const n = accountName(user);
+      return n ? n.replace(/[._-]+/g, ' ') : null;
     };
     supabase.auth.getSession().then(({ data }) => {
       if (cancelled) return;
-      setDisplayName(nameFromEmail(data.session?.user?.email));
+      setDisplayName(nameOf(data.session?.user));
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => {
-      if (!cancelled) setDisplayName(nameFromEmail(s?.user?.email));
+      if (!cancelled) setDisplayName(nameOf(s?.user));
     });
     return () => { cancelled = true; subscription.unsubscribe(); };
   }, []);

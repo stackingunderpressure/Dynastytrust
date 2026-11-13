@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { supabase, type Session } from '../lib/supabase';
+import { accountLabel } from '../lib/account-name';
 import { generateSoftwareKey, generateTestKey, listKeys, type LocalKey } from '../lib/keystore';
 import { keyNetworkMatches } from '../lib/network';
 import { durationWords } from '../lib/timelock-words';
@@ -238,7 +239,7 @@ export default function InviteClaimPath({
       <div style={col}>
         {intro}
         <p style={sub}>
-          Signed in as {session.user.email}.{' '}
+          Signed in as {accountLabel(session.user)}.{' '}
           <button
             type="button"
             style={{ background: 'none', border: 'none', color: colors.gold, cursor: 'pointer', font: 'inherit', padding: 0, textDecoration: 'underline' }}

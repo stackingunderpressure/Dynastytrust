@@ -5,6 +5,7 @@ import { colors, fonts, radii, space } from '../theme';
 import { Button, Input } from '../components/ui';
 import { startTapitFlow } from '../lib/wallet-signin';
 import { friendlyAuthError } from '../lib/auth-errors';
+import { KeySignIn } from '../components/KeySignIn';
 
 // Set once we've asked Supabase to email a 6-digit code -- 'signup' for
 // account confirmation, 'recovery' for password reset. Identifies which
@@ -278,6 +279,12 @@ export default function Auth() {
               email first, then link your wallet.
             </p>
           </>
+        )}
+
+        {mode === 'login' && (
+          <div style={{ marginTop: space[4] }}>
+            <KeySignIn />
+          </div>
         )}
 
         {mode === 'login' && (

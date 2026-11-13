@@ -61,7 +61,7 @@ export async function handler(event) {
   if (!identity) {
     return json(403, {
       error:
-        "This wallet is not linked to a DynastyTrust account. Sign in with email, then link your wallet.",
+        "This key has no DynastyTrust account yet. Create one with it, or sign in with email and link it.",
     });
   }
 

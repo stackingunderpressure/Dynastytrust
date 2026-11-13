@@ -106,6 +106,47 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Email-free sign-in, slice 1: your 24 words are your account --
+  2026-11-13, on the branch, NOT on main.** Operator: "never have an email
+  and only sign in with your key ... create one there with a password and
+  face lock ... it can still be hooked to the Supabase". Build Note and
+  decisions: `docs/key-signin-build-note.md`. Proven live FIRST
+  (key-signin-placeholder-test.yml, run 43356834911): Supabase makes a
+  confirmed account at a never-mailed address and the existing one-time
+  login token logs into it; both throwaway accounts deleted. Built:
+  migration 20261113020000 -- `wallet_identities` gets its own id, kind
+  (tapit|device|hardware) and label, so an account holds several sign-in
+  keys; one Tapit per account kept by a partial unique index; pubkey still
+  unique (run twice on local Postgres over the original table, every
+  constraint exercised). `key-signup.js` + `_key-account.js`: prove the
+  key against our own challenge, refuse a key that has an account,
+  consume the challenge, create the account at
+  k-<random>@keys.dynastytrust.family with the chosen name, bind the key,
+  delete the account again if binding fails, return the login token.
+  `wallet-link.js` now touches only the Tapit row (its old upsert on
+  user_id would have broken, and its unlink would have deleted every
+  key). Browser: `lib/key-account.ts` -- the sign-in key comes from the
+  same 24 words as the first vault key at m/86'/0'/900001'/0/0 (never a
+  vault key path; same on every network); `KeySignIn` on the sign-in
+  page: create (name + password -> 24 words -> backup check -> Face ID
+  lock -> only then the account), Face ID / this phone's key, or type
+  the 24 words (optionally kept on this phone with a password; matched
+  to an existing key by public key, so nothing is unlocked to check).
+  The header and invite page never show the placeholder address
+  (`lib/account-name.ts`). Tests: new test-key-account.mjs, 6 cases,
+  real handlers + real proofs (sign-up, same words sign in, second
+  sign-up / replay / no-account key / forged signer refused, failed bind
+  leaves no account, Tapit link/unlink leave the phone key). Walked at
+  375px against a production build with the real handlers and Chromium's
+  virtual authenticator: create as "Dad" -> words -> check -> Face ID ->
+  signed in, placeholder never shown, one account, one phone key; sign
+  out; Face ID sign-in to the same account; a second phone signs in with
+  the 24 words, nothing kept; 0px sideways; no page errors. Measured:
+  npm test green, lint 0 errors / 11 warnings, typecheck 10 errors (same
+  set), build green. NOT seen: on the operator's phone or the live
+  site. Until slice 3, a key-only account cannot claim an invite (they
+  are still email-bound) and real-bitcoin joins still need the code.
+
 - **Compiler in the browser, slice 1: every vault's address re-derived
   on the phone -- 2026-11-13, on the branch.** Operator: "What about
   compiler in browser?" Chips: "Verify first"; on a mismatch "Refuse to
