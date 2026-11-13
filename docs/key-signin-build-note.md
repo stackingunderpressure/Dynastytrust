@@ -57,5 +57,10 @@ Removing email from existing accounts (later). Anything about spending.
 Recovery without the words (lose phone AND words: account gone, money safe,
 re-invited). Rate limits on key sign-up beyond what Supabase does today.
 
-## Unverified until slice 1's first step
-Supabase accepting the placeholder address and minting its login token.
+## Proven live, 2026-11-13 (run 43356834911, key-signin-placeholder-test.yml)
+On the real project, for BOTH `k-<random>@keys.dynastytrust.family` and
+`k-<random>@key.invalid`: account created confirmed (nothing sent), one-time
+login token generated (nothing sent), redeemed exactly as the browser does,
+session belonged to that account, account deleted. The session reads
+aal1 with amr ["otp"] -- the same as an email-code login, which confirms
+decision 3 needs our own record of key-made sessions.
