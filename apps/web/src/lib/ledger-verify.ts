@@ -356,6 +356,7 @@ export async function fetchMerkleRoots(heights: readonly number[], fetchImpl: Fe
 
 const EVENT_WORDS: Record<string, string> = {
   created: 'Vault created',
+  draft_created: 'Vault draft started',
   draft_compiled: 'Vault finalized -- its Bitcoin address was fixed',
   terms_accepted: 'Terms accepted',
   invite_created: 'Invite sent',

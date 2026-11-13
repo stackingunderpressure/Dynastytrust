@@ -60,6 +60,7 @@ function toHexBytes(bytes: Uint8Array): string {
 function psbtBindingHash(psbtHex: string): string {
   return toHexBytes(sha256(new TextEncoder().encode(psbtHex)));
 }
+import { ledgerEventWords } from "../lib/ledger-verify";
 import { encryptMessage, decryptMessage, getMessagingPubkey, messagingKeyLocked, messagingKeyUsesFaceId, unlockMessagingKey, lockMessagingKey, unlockMessagingKeyForGood, regenerateMessagingKey } from "../lib/messaging";
 import { passkeysAvailable } from "../lib/passkey";
 import { TrustTab } from "../components/TrustTab";
@@ -4394,7 +4395,9 @@ function describeEvent(e: VaultEvent, actor: string): { icon: string; title: str
     case "attestation_revoked":
       return { icon: "x", title: `${actor} revoked an attestation`, color: colors.muted };
     default:
-      return { icon: "*", title: `${actor}: ${e.event_type}`, color: colors.sub };
+      // Same plain words as the sealed record page, never the raw event
+      // name (operator's screenshot showed "Owner: message_sent").
+      return { icon: "*", title: `${actor}: ${ledgerEventWords(e.event_type)}`, color: colors.sub };
   }
 }
 
