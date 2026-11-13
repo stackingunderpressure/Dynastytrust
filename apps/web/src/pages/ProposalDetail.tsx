@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { VaultAddressGate } from "../components/VaultAddressGate";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   api,
@@ -441,6 +442,10 @@ export default function ProposalDetail() {
   }
 
   return (
+    // Nothing here -- above all signing -- is shown until this phone has
+    // re-derived the vault's address and found it equal: the change check
+    // below trusts vault.address as "our own address" (VaultAddressGate).
+    <VaultAddressGate key={`${vault.id}:${vault.address ?? ""}:${vault.descriptor ?? ""}`} vault={vault} onBack={() => navigate("/vaults")}>
     <Page>
       <button
         onClick={() => navigate(`/vaults/${vault.id}`, { state: { vault } })}
@@ -634,6 +639,7 @@ export default function ProposalDetail() {
         </Button>
       )}
     </Page>
+    </VaultAddressGate>
   );
 }
 

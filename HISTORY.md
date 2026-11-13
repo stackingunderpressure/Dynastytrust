@@ -106,6 +106,50 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Compiler in the browser, slice 1: every vault's address re-derived
+  on the phone -- 2026-11-13, on the branch.** Operator: "What about
+  compiler in browser?" Chips: "Verify first"; on a mismatch "Refuse to
+  show it". Security backlog item 5 done on the vault and proposal pages;
+  item 9 begun. Built: `protocol-wasm/` -- rust-miniscript (same
+  bitcoin 0.31.2 / miniscript 11.2.3 as the Fly compiler) behind three
+  plain C-ABI exports, no wasm-bindgen; its own workspace and lockfile
+  so the Fly Docker build and the root Cargo.lock are untouched;
+  secp256k1 `lowmemory` took it from 1.6 MB to 518 KB (167 KB gzipped);
+  it imports nothing from the page. Netlify has no Rust, so the .wasm is
+  committed (`apps/web/src/lib/wasm/`) with a manifest of the source
+  SHA-256 it was built from; `scripts/test-protocol-wasm.mjs` fails if
+  the Rust changed without `node scripts/build-protocol-wasm.mjs`.
+  `lib/descriptor-check.ts` loads it; `VaultAddressGate` wraps the vault
+  page AND the proposal (signing) page, whose change check trusts
+  vault.address as "our own address": nothing renders until the phone's
+  address equals the stored one; mismatch, unreadable descriptor, or an
+  address with no descriptor stop the page; a checker that did not load
+  stops it too, with Try again. A trailing #checksum is ignored (the
+  app's own key-origin rewrite leaves a wsh vault's stale); the address
+  comparison decides. Found and fixed on the way: (a) the site's CSP had
+  no 'wasm-unsafe-eval', so browsers would refuse the module and EVERY
+  vault would have been hidden -- added to netlify.toml (WebAssembly
+  only, not JS eval), proven by walking under the old and new policy;
+  (b) compiling a draft navigates to the same route, and the page kept
+  its first vault, so the gate would never have seen the new address --
+  it now follows the navigated vault and remounts per address. Proof:
+  3 native Rust tests incl. the BIP 86 test vector; test-protocol-wasm 4
+  cases on the committed file; the offline harness now runs the browser
+  check on EVERY vault it compiles (76: named, wsh, bloc, tranche,
+  leaf-list, must-sign, decay) raw and in key-origin form, all agree
+  with the real compiler, every swapped key refused; walked at 375px
+  against a production build under the live CSP: real vault shown,
+  changed address / swapped heir key stopped, draft shown, old CSP
+  stopped (the reason for (a)), draft-then-compiled checked, proposal
+  page shown / stopped. Measured: npm test green, lint 0 errors / 11
+  warnings, typecheck 10 errors (same set), build green. NOT seen: on
+  the operator's phone, or against the live database -- any real vault
+  whose stored address and descriptor disagree (e.g. one compiled
+  before the 2026-08 Nunchuk-parity fix) will now be stopped, by
+  design. Left out: the Dashboard list's shortened addresses and
+  balances; compiling at creation in the browser and refusing a Fly
+  answer that differs (next slice); PSBT build/finalize; dropping Fly.
+
 - **Every attestation refused since 2026-08-21 -- FIXED 2026-11-13, on
   the branch.** Operator, phone screenshot of the Trust tab: "pubkey does
   not match your registered vault signing key". Root cause: 90f230d

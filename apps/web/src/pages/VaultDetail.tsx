@@ -61,6 +61,7 @@ function psbtBindingHash(psbtHex: string): string {
   return toHexBytes(sha256(new TextEncoder().encode(psbtHex)));
 }
 import { ledgerEventWords } from "../lib/ledger-verify";
+import { VaultAddressGate } from "../components/VaultAddressGate";
 import { encryptMessage, decryptMessage, getMessagingPubkey, messagingKeyLocked, messagingKeyUsesFaceId, unlockMessagingKey, lockMessagingKey, unlockMessagingKeyForGood, regenerateMessagingKey } from "../lib/messaging";
 import { passkeysAvailable } from "../lib/passkey";
 import { TrustTab } from "../components/TrustTab";
@@ -167,6 +168,14 @@ export default function VaultDetail() {
   const stateVault = (location.state as { vault?: Vault } | null)?.vault;
   const [vault, setVault] = useState<Vault | null>(stateVault ?? null);
 
+  // Compiling a draft navigates here again with the compiled vault in
+  // state; the router keeps this same component, so take the new vault
+  // (and remount below), or the address gate would never see it.
+  useEffect(() => {
+    if (stateVault && stateVault !== vault) setVault(stateVault);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stateVault]);
+
   useEffect(() => {
     if (vault || !id) return;
     let cancelled = false;
@@ -182,7 +191,13 @@ export default function VaultDetail() {
   }, [id, vault, navigate]);
 
   if (!vault) return <LoadingScreen />;
-  return <VaultDetailInner vault={vault} onBack={() => navigate("/vaults")} />;
+  // Nothing of the vault is shown until this phone has re-derived its
+  // address from its descriptor and found it equal (VaultAddressGate).
+  return (
+    <VaultAddressGate key={`${vault.id}:${vault.address ?? ""}:${vault.descriptor ?? ""}`} vault={vault} onBack={() => navigate("/vaults")}>
+      <VaultDetailInner vault={vault} onBack={() => navigate("/vaults")} />
+    </VaultAddressGate>
+  );
 }
 
 function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void }) {

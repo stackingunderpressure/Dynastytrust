@@ -66,7 +66,12 @@
     # relay hosts here would silently break that feature for anyone who
     # points it elsewhere. mempool.space covers balance/broadcast/explorer
     # lookups (config.ts's EXPLORER); *.supabase.co covers auth + the DB.
-    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://mempool.space https://blockstream.info wss:; font-src 'self' data: https://fonts.gstatic.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+    # 'wasm-unsafe-eval' (2026-11-13) lets the page compile ONE WebAssembly
+    # module of its own, served from 'self': the vault-address check
+    # (protocol-wasm, lib/descriptor-check.ts). It does not allow JavaScript
+    # eval. Without it every vault page fails closed ("could not be
+    # checked") -- proven by the walk with this policy applied.
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://mempool.space https://blockstream.info wss:; font-src 'self' data: https://fonts.gstatic.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
     X-Frame-Options = "DENY"
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"

@@ -57,7 +57,9 @@ then (c).
    `scripts/test-attestation-verify.mjs` (4 cases, browser signer vs server
    verifier, in `npm test`).
 
-5. **Descriptor trust on load.** The vault's descriptor and address come from
+5. **Descriptor trust on load.** DONE 2026-11-13 on the vault page
+   (`VaultAddressGate`, refuses to show a mismatch). Not yet on the Dashboard
+   list or other places an address is shown. Original item: The vault's descriptor and address come from
    Supabase; fingerprint pinning (2026-08-29) is a comparison aid only. Once the
    compiler runs in the browser (item 9), re-derive the address from the stored
    descriptor on every load and refuse to show a vault whose descriptor does
@@ -211,7 +213,13 @@ then (c).
       key; the invite page and the builder recommend a hardware wallet.
       Database change 20261113000000_must_sign_invites.sql not yet applied.
 
-9. **Compiler in the browser (WASM), Fly as cross-check.** Compile-first
+9. **Compiler in the browser (WASM), Fly as cross-check.** FIRST SLICE BUILT
+   2026-11-13 (see `HISTORY.md`): `protocol-wasm/` (rust-miniscript, 518 KB,
+   167 KB gzipped) runs in the page and every vault's address is re-derived
+   from its descriptor on load -- item 5 below, done. Still open: compiling
+   at creation in the browser and refusing a Fly answer that differs byte for
+   byte (the operator's chosen next slice), then PSBT build/finalize.
+   Original item: Compile-first
    migration of `protocol/` to WASM so the descriptor, address and PSBT are
    produced on the device; keep Fly for a byte-identical cross-check until the
    WASM path has run long enough to trust alone. This also unlocks item 5.

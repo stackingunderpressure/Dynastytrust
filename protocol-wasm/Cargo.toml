@@ -1,0 +1,31 @@
+# The vault-address check that runs IN THE BROWSER (security backlog
+# items 9 and 5; operator 2026-11-13: "What about compiler in browser?",
+# chose "Verify first"). Its own workspace and lockfile on purpose: the
+# Fly compiler's Docker build writes its own two-member workspace and
+# uses the root Cargo.lock, which must not change because of this crate.
+# Same bitcoin / miniscript versions as protocol/ (pinned via the lock).
+[package]
+name = "dynastytrust_protocol_wasm"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bitcoin = { version = "0.31" }
+miniscript = { version = "11" }
+# Smaller precomputed tables for the browser download (same results,
+# slower signing -- this crate never signs, it only derives addresses).
+secp256k1 = { version = "0.28", features = ["lowmemory"] }
+
+[workspace]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+overflow-checks = true

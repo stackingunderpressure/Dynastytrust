@@ -33,6 +33,10 @@ import { signersOnEveryInput as browserSigners } from '../apps/web/src/lib/psbt-
 import { findSpendingPath as serverPath, pathSignatureStatus as serverStatus } from '../netlify/functions/_vault-shape.js';
 import { findSpendingPath as browserPath, pathSignatureStatus as browserStatus } from '../apps/web/src/lib/vault-spending-paths.ts';
 import { mustSignPathsNotInScripts } from '../netlify/functions/_must-sign-check.js';
+import { readFileSync } from 'node:fs';
+import { useProtocolWasmBytes, checkVaultAddress } from '../apps/web/src/lib/descriptor-check.ts';
+import { upgradeDescriptor } from '../apps/web/src/lib/descriptor-keys.ts';
+useProtocolWasmBytes(new Uint8Array(readFileSync(new URL('../apps/web/src/lib/wasm/dynastytrust_protocol_wasm.wasm', import.meta.url))));
 
 const COMPILER = process.env.COMPILER_URL || 'http://127.0.0.1:8899';
 const SECRET = process.env.COMPILER_SECRET || 'testsecret';
@@ -51,6 +55,31 @@ function signer(n) {
 }
 const S = Array.from({ length: 10 }, (_, i) => signer(i));
 const keys = (...idx) => idx.map(i => S[i].pubkey);
+// Each signer's key-origin form, exactly as the browser rewrites a stored
+// descriptor for hardware wallets ([fp/path]xpub/0/0).
+const MASTER_FP = toHex(ROOT.identifier.slice(0, 4));
+const ORIGINS = Object.fromEntries(S.map(s => [s.pubkey, { fingerprint: MASTER_FP, derivationPath: s.path, xpub: ROOT.derive(s.path).publicExtendedKey }]));
+
+// The browser's own check (protocol-wasm, committed .wasm) must re-derive
+// the compiler's address from its descriptor -- raw, and after the
+// hardware-wallet rewrite the app stores -- and must NOT accept the same
+// descriptor once a key in it is swapped. Security backlog items 9 + 5.
+let browserChecks = 0;
+async function browserAgrees(label, compiled) {
+  const raw = await checkVaultAddress({ descriptor: compiled.descriptor, address: compiled.address, network: NET });
+  assert.equal(raw.status, 'match', `${label}: browser check on the raw descriptor: ${JSON.stringify(raw)}`);
+  const stored = upgradeDescriptor(compiled.descriptor, ORIGINS);
+  assert.notEqual(stored, compiled.descriptor, `${label}: the rewrite changed nothing`);
+  const up = await checkVaultAddress({ descriptor: stored, address: compiled.address, network: NET });
+  assert.equal(up.status, 'match', `${label}: browser check on the stored (key-origin) descriptor: ${JSON.stringify(up)}`);
+  const present = S.find(x => compiled.descriptor.includes(x.pubkey));
+  const stranger = S.find(x => !compiled.descriptor.includes(x.pubkey));
+  if (present && stranger) {
+    const swapped = await checkVaultAddress({ descriptor: compiled.descriptor.split(present.pubkey).join(stranger.pubkey), address: compiled.address, network: NET });
+    assert.equal(swapped.status, 'mismatch', `${label}: a swapped key must not match`);
+  }
+  browserChecks++;
+}
 const who = (...idx) => idx.map(i => S[i]);
 
 async function post(endpoint, body) {
@@ -61,6 +90,9 @@ async function post(endpoint, body) {
   });
   const json = await res.json();
   if (!res.ok || json.ok === false) throw new Error(`${endpoint} -> ${res.status}: ${json.error || JSON.stringify(json)}`);
+  // EVERY vault this harness compiles, from every section, is also
+  // checked by the browser's own address check.
+  if (endpoint.startsWith('/compile') && json.descriptor && json.address) await browserAgrees(endpoint, json);
   return json;
 }
 
@@ -408,6 +440,10 @@ const rejected = (msg) => console.log(`  [ok] REJECTED as it should be: ${msg}`)
   await refuse('compiler / tranche trustees are a twin pair', '/compile-tranche', { network: NET, beneficiary_key: S[5].pubkey, trustee_keys: [S[0].pubkey, twin(S[0].pubkey)], trustee_quorum: 2, unlock_block: 900_000 }, TWIN);
   // ... while the same person in two DIFFERENT paths is still allowed.
   await post('/compile', named({ heir_keys: [S[0].pubkey, S[3].pubkey], heir_quorum: 2, inheritance_after: 950_000 }));
+  // The older wsh vault type: its descriptor carries a #checksum that the
+  // app's key-origin rewrite leaves stale; the browser check must still
+  // agree on the address (post() runs it).
+  await post('/compile', named({ address_type: 'wsh' }));
   console.log('  [ok] compiler / a founder who is also an heir (different paths) still compiles');
 
   // A decay ladder whose lower rungs wrap BIP 68 and open at once.
@@ -580,5 +616,7 @@ const rejected = (msg) => console.log(`  [ok] REJECTED as it should be: ${msg}`)
   await refuse('must-sign / a must-sign key and its twin', { leaves: [leaf({ id: 'x', required_keys: [S[0].pubkey, twin(S[0].pubkey)], keys: keys(1), quorum: 1, unlock: { type: 'immediate' } })] }, 'same Taproot key');
 }
 
+assert.ok(browserChecks > 0);
+console.log(`\n  [ok] browser address check agreed with the compiler on ${browserChecks} compiled vaults (raw + key-origin form), refused every swapped key`);
 console.log('\noffline-vault-harness OK -- every door of every shape proven end to end');
 console.log('(real Rust compiler + real browser signer + real rust-miniscript finalizer; timelocks baked in, quorum/consent/cohort gates enforced)');
