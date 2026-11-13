@@ -16,118 +16,16 @@ import { getSupabaseAdmin } from './_supabase.js';
 import { pubkeyFromXpub } from './_xpub.js';
 import { MEMPOOL, mempoolFetch, getFeeRate } from './_chain.js';
 import { checkNumberBounds, MIN_FEE_RATE_SAT_VB, MAX_FEE_RATE_SAT_VB } from './_numeric.js';
+import { spendKeys, inputVbytesFor, selectCoins, spendCompilerRequest, spendSummary } from '../../packages/vault-rules/src/spend.js';
 
 const COMPILER_URL    = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
 
-// Taproot key-path input: 57.5 vbytes, output: 43 vbytes, overhead: 10.5.
-// TR_INPUT_VBYTES is only correct for a plain single-key key-path spend.
-// Every vault input here is a SCRIPT-PATH spend through a multi_a(Q,keys)
-// tapscript leaf -- witness carries one stack item per key slot (a ~65-byte
-// signature or an empty item), the full leaf script, and a control block --
-// which is meaningfully bigger. estimateTapscriptInputVbytes below sizes
-// that properly per leaf; TR_INPUT_VBYTES stays only as the last-resort
-// fallback when a vault's leaf shape can't be determined (fee still gets
-// estimated rather than the call failing outright).
-const TR_INPUT_VBYTES  = 57.5;
-const TR_OUTPUT_VBYTES = 43;
-const TX_OVERHEAD      = 10.5;
-
-// Which leaf a spend path actually signs through, and how many of the
-// vault's keys sit in that leaf -- recovery reuses the founder keys
-// (recovery_quorum falls back to founder_quorum) per the architecture doc.
-// backup is a SEPARATE key set (027_backup_path.sql), never the founder
-// keys -- unlike recovery, it's mutually exclusive with recovery on the
-// same vault (see DynastyPolicy::has_backup, protocol repo).
-function leafSignerCounts(vault, path) {
-  switch (path) {
-    case 'recovery':
-      return { quorum: vault.recovery_quorum ?? vault.founder_quorum, total: (vault.founder_keys || []).length };
-    case 'inheritance':
-      return { quorum: vault.heir_quorum, total: (vault.heir_keys || []).length };
-    case 'backup':
-      return { quorum: vault.backup_quorum, total: (vault.backup_keys || []).length };
-    case 'second_inheritance':
-      return { quorum: vault.second_heir_quorum, total: (vault.second_heir_keys || []).length };
-    case 'founders_now':
-    default:
-      return { quorum: vault.founder_quorum, total: (vault.founder_keys || []).length };
-  }
-}
-
-// Number of leaves in this vault's taproot tree -- determines the taptree
-// merkle path length baked into every input's control block. Not every
-// vault has all three: a "Gift Locker" shape has no recovery/backup leaf,
-// a "founders + backup only" shape (Tapit Circle) has no inheritance leaf
-// at all. Count only what's actually configured rather than assuming the
-// old fixed 3-leaf shape.
-function leafCountForTree(vault) {
-  let n = 1; // founders_now is always present
-  if (vault.recovery_after > 0) n += 1;
-  else if ((vault.backup_keys || []).length > 0 && vault.backup_quorum != null) n += 1;
-  if ((vault.heir_keys || []).length > 0) n += 1;
-  if ((vault.second_heir_keys || []).length > 0 && vault.second_heir_quorum != null
-      && vault.second_inheritance_after != null) n += 1;
-  return n;
-}
-
-// Generic leaf-list vault equivalents of leafSignerCounts/leafCountForTree
-// above -- same fee-estimation role, but reading vault.leaves (migration
-// 042) instead of the named founder/heir/etc columns. A decay-bearing
-// leaf expands into (quorum - floor_quorum + 1) rungs at compile time
-// (protocol::expand_decay), so its tree-depth contribution is counted the
-// same way here; `path` naming a specific rung id ("heirs_1") falls back
-// to the base leaf id (before the "_N" suffix) since the draft's own
-// leaf list only ever stores one entry per leaf, not per rung.
-function leafListSignerCounts(vault, path) {
-  const leaves = vault.leaves || [];
-  let leaf = leaves.find((l) => l.id === path);
-  if (!leaf) {
-    const base = path.replace(/_\d+$/, '');
-    leaf = leaves.find((l) => l.id === base);
-  }
-  if (!leaf) return { quorum: 0, total: 0 };
-  // Must-sign keys each add one signature and one key to the script.
-  const must = (leaf.required_keys || []).length;
-  return { quorum: leaf.quorum + must, total: (leaf.keys || []).length + must };
-}
-
-function leafListCountForTree(vault) {
-  const leaves = vault.leaves || [];
-  let n = 0;
-  for (const leaf of leaves) {
-    if (leaf.decay && typeof leaf.decay.floor_quorum === 'number') {
-      n += Math.max(1, leaf.quorum - leaf.decay.floor_quorum + 1);
-    } else {
-      n += 1;
-    }
-  }
-  return Math.max(n, 1);
-}
-
-// Size a script-path (tapscript leaf) taproot input properly instead of
-// assuming a plain key-path spend. multi_a(quorum, total) puts one witness
-// stack item per key slot (a 64-byte Schnorr signature + 1-byte push length
-// for each of the `quorum` signers, 1 empty byte for each non-signer),
-// followed by the leaf script itself and a control block (33-byte internal
-// key + 1 version/parity byte + 32 bytes per taptree level). Witness bytes
-// get the standard 1/4 segwit weight discount.
-function estimateTapscriptInputVbytes(quorum, total, treeDepth) {
-  const leafScript   = 33 * total + 2; // n pubkey pushes + CHECKSIG/CHECKSIGADD chain + push-quorum + NUMEQUAL
-  const controlBlock = 33 + 1 + 32 * treeDepth;
-  const witnessBytes =
-    quorum * 65 +                      // one Schnorr sig (+ push length) per required signer
-    Math.max(total - quorum, 0) * 1 +  // one empty stack item per non-signing keyholder
-    (leafScript + 3) +                 // leaf script + its length-prefix varint
-    (controlBlock + 3) +               // control block + its length-prefix varint
-    1;                                 // witness stack item-count varint
-  const baseInput = 41; // outpoint(36) + sequence(4) + empty scriptSig varint(1)
-  return baseInput + witnessBytes / 4;
-}
-
-function estimateFee(numInputs, numOutputs, feeRate, inputVbytes = TR_INPUT_VBYTES) {
-  return Math.ceil((TX_OVERHEAD + numInputs * inputVbytes + numOutputs * TR_OUTPUT_VBYTES) * feeRate);
-}
+// The spend rules -- input size and fee estimates, keys for the compiler,
+// coin selection, the compiler request and the summary -- are ONE copy in
+// packages/vault-rules, shared with the downloaded app
+// (scripts/test-vault-rules-spend.mjs holds this function to its recorded
+// behaviour).
 
 export async function handler(event) {
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
@@ -176,48 +74,12 @@ export async function handler(event) {
     .maybeSingle();
   if (!membership) return json(403, { error: 'Not a member of this vault' });
 
-  // vault.founder_keys / heir_keys / consent_keys are stored as
-  // xpubs; the Fly.io /psbt-binary leaf-script rebuilder expects
-  // 33-byte compressed pubkey hex (parse_pubkeys). Derive the /0/0
-  // child pubkey here so tap_scripts matches what the browser signs
-  // against. Legacy rows may already hold pubkey hex (66 chars) --
-  // those pass through unchanged.
-  const toPubkeyHex = (k) => {
-    if (typeof k !== 'string') return k;
-    if (k.length === 66) return k; // already pubkey hex
-    return pubkeyFromXpub(k); // throws "Version mismatch" etc.
-  };
-  // Generic leaf-list vault (migration 042): vault.leaves, when present,
-  // is authoritative over the named founder/heir/etc columns, the same
-  // way compiler/src/main.rs's psbt_binary treats req.leaves as
-  // authoritative over its own named-field request fields.
-  const isLeafList = Array.isArray(vault.leaves) && vault.leaves.length > 0;
-
-  let founderPubkeys, heirPubkeys, consentPubkeys, backupPubkeys, secondHeirPubkeys;
-  let leafListWire;
+  // Stored xpubs become their /0/0 child pubkey so tap_scripts match what
+  // the browser signs against; a path-builder vault's leaves are
+  // authoritative over the named columns.
+  let keys;
   try {
-    if (isLeafList) {
-      leafListWire = vault.leaves.map((leaf) => ({
-        id: leaf.id,
-        label: leaf.label || leaf.id,
-        keys: (leaf.keys || []).map(toPubkeyHex),
-        quorum: leaf.quorum,
-        unlock: leaf.unlock,
-        decay: leaf.decay ?? null,
-        // Must be forwarded or the compiler rebuilds a DIFFERENT tree
-        // (one without the must-sign keys) and refuses the vault's own
-        // address as change.
-        ...((leaf.required_keys || []).length > 0 ? { required_keys: leaf.required_keys.map(toPubkeyHex) } : {}),
-      }));
-      founderPubkeys = heirPubkeys = backupPubkeys = secondHeirPubkeys = [];
-      consentPubkeys = (vault.consent_keys || []).map(toPubkeyHex);
-    } else {
-      founderPubkeys = (vault.founder_keys || []).map(toPubkeyHex);
-      heirPubkeys = (vault.heir_keys || []).map(toPubkeyHex);
-      consentPubkeys = (vault.consent_keys || []).map(toPubkeyHex);
-      backupPubkeys = (vault.backup_keys || []).map(toPubkeyHex);
-      secondHeirPubkeys = (vault.second_heir_keys || []).map(toPubkeyHex);
-    }
+    keys = spendKeys(vault, pubkeyFromXpub);
   } catch (e) {
     return json(500, { error: 'Could not derive /0/0 pubkey from vault xpubs: ' + e.message });
   }
@@ -281,103 +143,13 @@ export async function handler(event) {
       address: vault.address });
   }
 
-  // Get fee rate and estimate. Size the input for the SPECIFIC leaf this
-  // spend signs through (path), not a flat key-path guess -- a 2-of-3
-  // founders leaf costs meaningfully more vbytes than a 1-of-1 leaf would,
-  // and either is bigger than a plain key-path spend.
+  // Fee rate, then size the input for the SPECIFIC leaf this spend signs
+  // through (path), and pick the coins.
   const rate = fee_rate || await getFeeRate(network);
-  const { quorum: leafQuorum, total: leafTotal } = isLeafList
-    ? leafListSignerCounts(vault, path)
-    : leafSignerCounts(vault, path);
-  const treeDepth = Math.ceil(Math.log2(Math.max(isLeafList ? leafListCountForTree(vault) : leafCountForTree(vault), 2)));
-  const inputVbytes = (leafQuorum > 0 && leafTotal > 0)
-    ? estimateTapscriptInputVbytes(leafQuorum, leafTotal, treeDepth)
-    : TR_INPUT_VBYTES; // fallback: leaf config missing/unexpected shape
-
-  // Coin selection: explicit list if caller supplied selected_utxos
-  // (coin-control from the UI), otherwise greedy largest-first -- except
-  // for a real sweep, which always spends every confirmed UTXO (or the
-  // coin-controlled subset, if given) as a single output with no change.
-  //
-  // sweep (2026-08-15, operator: "did max spend should be no change but
-  // there was some back to wallet miscalculation") -- the frontend's old
-  // "Max" button computed amount_sats itself by subtracting a flat
-  // 2000-sat guess from the confirmed balance, then sent that as a
-  // normal fixed-amount spend. Whenever the REAL fee (which depends on
-  // exactly how many inputs get selected and the live fee rate) differed
-  // from that guess -- routinely, since 2000 sats is not derived from
-  // anything -- the leftover became an unwanted, unrequested change
-  // output back to the vault. Sweep computes the exact fee for the exact
-  // input count first, THEN derives amount_sats = totalIn - fee, so
-  // there is nothing left over to become change by construction.
-  let selected;
-  let totalIn = 0;
-  let finalFee;
-  let amountSatsFinal;
-  let hasChange;
-  let changeVal = 0;
-
-  if (sweep) {
-    if (Array.isArray(selected_utxos) && selected_utxos.length > 0) {
-      const key = (u) => `${u.txid}:${u.vout}`;
-      const wanted = new Set(selected_utxos.map(key));
-      selected = confirmed.filter(u => wanted.has(key(u)));
-      if (selected.length !== selected_utxos.length) {
-        return json(400, { error: "One or more selected UTXOs are unconfirmed or not found" });
-      }
-    } else {
-      selected = confirmed;
-    }
-    totalIn = selected.reduce((n, u) => n + u.value, 0);
-    finalFee = estimateFee(selected.length, 1, rate, inputVbytes); // 1 output: destination only, no change
-    amountSatsFinal = totalIn - finalFee;
-    if (amountSatsFinal < 546) {
-      return json(400, {
-        ok: false,
-        error: `Not enough confirmed balance to cover the network fee. Have ${totalIn} sats, need at least ${finalFee + 546}.`,
-        confirmed_sats: totalIn,
-      });
-    }
-    hasChange = false;
-  } else {
-    const estFee = estimateFee(1, 2, rate, inputVbytes);
-    if (Array.isArray(selected_utxos) && selected_utxos.length > 0) {
-      const key = (u) => `${u.txid}:${u.vout}`;
-      const wanted = new Set(selected_utxos.map(key));
-      selected = confirmed.filter(u => wanted.has(key(u)));
-      if (selected.length !== selected_utxos.length) {
-        return json(400, { error: "One or more selected UTXOs are unconfirmed or not found" });
-      }
-      totalIn = selected.reduce((n, u) => n + u.value, 0);
-    } else {
-      const sorted = [...confirmed].sort((a, b) => b.value - a.value);
-      selected = [];
-      for (const u of sorted) {
-        selected.push(u);
-        totalIn += u.value;
-        if (totalIn >= amount_sats + estFee) break;
-      }
-    }
-
-    finalFee        = estimateFee(selected.length, 2, rate, inputVbytes);
-    changeVal        = totalIn - amount_sats - finalFee;
-    hasChange        = changeVal >= 546;
-    // Change too small to keep (1-545 sats) is not an output: it joins
-    // the fee, as the compiler does. Report THAT fee everywhere below, or
-    // the phone's check (real fee == fee shown) refuses to sign. Found
-    // 2026-11-13; scripts/test-dust-change.mjs. Only positive change: a
-    // shortfall must still reach the insufficient-funds refusal.
-    if (!hasChange && changeVal > 0) { finalFee += changeVal; changeVal = 0; }
-    amountSatsFinal  = amount_sats;
-
-    if (totalIn < amount_sats + finalFee) {
-      return json(400, {
-        ok: false,
-        error: `Insufficient funds. Need ${amount_sats + finalFee} sats confirmed, have ${totalIn}.`,
-        confirmed_sats: totalIn,
-      });
-    }
-  }
+  const inputVbytes = inputVbytesFor(vault, path);
+  const picked = selectCoins({ confirmed, amount_sats, sweep, selected_utxos, rate, inputVbytes });
+  if (!picked.ok) return json(picked.status, picked.body);
+  const { selected, totalIn, finalFee, amountSatsFinal, hasChange, changeVal } = picked;
 
   // Fetch scriptPubKeys for each selected UTXO (needed for PSBT witness_utxo)
   const inputsWithScript = await Promise.all(selected.map(async (u) => {
@@ -425,56 +197,9 @@ export async function handler(event) {
         'Content-Type': 'application/json',
         ...(COMPILER_SECRET ? { Authorization: `Bearer ${COMPILER_SECRET}` } : {}),
       },
-      body: JSON.stringify({
-        inputs:            inputsWithScript,
-        destination,
-        amount_sats:       amountSatsFinal,
-        fee_sats:          finalFee,
-        change_address:    vault.address,
-        network,
-        // Pass vault policy params so compiler can attach tap_leaf_script
-        // This is required for Coldcard/Passport/Keystone to sign correctly
-        address_type:      vault.address_type || 'tr',
-        // Fly compiler needs the intended leaf so it can set
-        // tx.lock_time (After) or every input's nSequence (OlderThan).
-        // Everything except an Immediate leaf requires one of the two to
-        // match the leaf's own unlock -- see CLAUDE.md's timelock section.
-        path,
-        key_origins: keyOrigins,
-        ...(isLeafList
-          ? {
-              // Generic leaf-list vault: forward the leaf list as-is,
-              // authoritative over every named field below (which stays
-              // absent here). Mirrors compiler/src/main.rs's own
-              // req.leaves-present branch in psbt_binary.
-              leaves: leafListWire,
-              ...(consentPubkeys.length > 0 && vault.consent_quorum != null
-                ? { consent_keys: consentPubkeys, consent_quorum: vault.consent_quorum }
-                : {}),
-            }
-          : {
-              founder_keys:      founderPubkeys,
-              founder_quorum:    vault.founder_quorum,
-              recovery_quorum:   vault.recovery_quorum ?? null,
-              heir_keys:         heirPubkeys,
-              heir_quorum:       vault.heir_quorum,
-              recovery_after:    vault.recovery_after,
-              inheritance_after: vault.inheritance_after,
-              ...(consentPubkeys.length > 0 && vault.consent_quorum != null
-                ? { consent_keys: consentPubkeys, consent_quorum: vault.consent_quorum }
-                : {}),
-              ...(backupPubkeys.length > 0 && vault.backup_quorum != null
-                ? { backup_keys: backupPubkeys, backup_quorum: vault.backup_quorum }
-                : {}),
-              ...(secondHeirPubkeys.length > 0 && vault.second_heir_quorum != null && vault.second_inheritance_after != null
-                ? {
-                    second_heir_keys: secondHeirPubkeys,
-                    second_heir_quorum: vault.second_heir_quorum,
-                    second_inheritance_after: vault.second_inheritance_after,
-                  }
-                : {}),
-            }),
-      }),
+      body: JSON.stringify(spendCompilerRequest(vault, keys, {
+        inputs: inputsWithScript, destination, amountSatsFinal, finalFee, network, path, keyOrigins,
+      })),
     });
 
     const psbtData = await compilerRes.json();
@@ -494,19 +219,7 @@ export async function handler(event) {
       ok: true,
       psbt_hex: psbtData.psbt_hex,
       psbt_b64: psbtData.psbt_b64,
-      summary: {
-        vault_name:    vault.name,
-        vault_address: vault.address,
-        destination,
-        amount_sats:   amountSatsFinal,
-        fee_sats:      finalFee,
-        change_sats:   hasChange ? changeVal : 0,
-        fee_rate:      rate,
-        input_count:   selected.length,
-        total_in_sats: totalIn,
-        network,
-        path,
-      },
+      summary: spendSummary(vault, picked, { destination, rate, network, path }),
     });
 
   } catch (err) {

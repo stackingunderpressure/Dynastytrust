@@ -1,0 +1,1421 @@
+[
+ {
+  "label": "standard, founders, fixed amount",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "psbt_hex": "70736274ff1",
+   "psbt_b64": "cHNidP8=",
+   "summary": {
+    "vault_name": "Family",
+    "vault_address": "tb1p-vault",
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 60000,
+    "fee_sats": 666,
+    "change_sats": 59334,
+    "fee_rate": 3,
+    "input_count": 1,
+    "total_in_sats": 120000,
+    "network": "signet",
+    "path": "founders_now"
+   }
+  },
+  "sentToCompiler": {
+   "inputs": [
+    {
+     "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+     "vout": 2,
+     "value_sats": 120000,
+     "script_pubkey": "5120abababababababababababababababababababababababababababababababab"
+    }
+   ],
+   "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+   "amount_sats": 60000,
+   "fee_sats": 666,
+   "change_address": "tb1p-vault",
+   "network": "signet",
+   "address_type": "tr_multileaf",
+   "path": "founders_now",
+   "key_origins": [
+    {
+     "pubkey": "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+     "fingerprint": "00000001",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    }
+   ],
+   "founder_keys": [
+    "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+    "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+    "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a"
+   ],
+   "founder_quorum": 2,
+   "recovery_quorum": null,
+   "heir_keys": [
+    "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7"
+   ],
+   "heir_quorum": 1,
+   "recovery_after": 280000,
+   "inheritance_after": 300000
+  },
+  "asked": [
+   "/signet/api/address/tb1p-vault/utxo",
+   "/signet/api/v1/fees/recommended",
+   "/signet/api/tx/2222222222222222222222222222222222222222222222222222222222222222"
+  ],
+  "event": {
+   "vault_id": "v1",
+   "user_id": "u1",
+   "event_type": "psbt_generated",
+   "metadata": {
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 60000,
+    "fee_sats": 666,
+    "fee_rate": 3,
+    "input_count": 1,
+    "binary": true,
+    "path": "founders_now",
+    "sweep": false
+   }
+  }
+ },
+ {
+  "label": "standard, explicit fee rate",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "psbt_hex": "70736274ff1",
+   "psbt_b64": "cHNidP8=",
+   "summary": {
+    "vault_name": "Family",
+    "vault_address": "tb1p-vault",
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 60000,
+    "fee_sats": 1553,
+    "change_sats": 58447,
+    "fee_rate": 7,
+    "input_count": 1,
+    "total_in_sats": 120000,
+    "network": "signet",
+    "path": "founders_now"
+   }
+  },
+  "sentToCompiler": {
+   "inputs": [
+    {
+     "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+     "vout": 2,
+     "value_sats": 120000,
+     "script_pubkey": "5120abababababababababababababababababababababababababababababababab"
+    }
+   ],
+   "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+   "amount_sats": 60000,
+   "fee_sats": 1553,
+   "change_address": "tb1p-vault",
+   "network": "signet",
+   "address_type": "tr_multileaf",
+   "path": "founders_now",
+   "key_origins": [
+    {
+     "pubkey": "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+     "fingerprint": "00000001",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    }
+   ],
+   "founder_keys": [
+    "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+    "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+    "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a"
+   ],
+   "founder_quorum": 2,
+   "recovery_quorum": null,
+   "heir_keys": [
+    "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7"
+   ],
+   "heir_quorum": 1,
+   "recovery_after": 280000,
+   "inheritance_after": 300000
+  },
+  "asked": [
+   "/signet/api/address/tb1p-vault/utxo",
+   "/signet/api/tx/2222222222222222222222222222222222222222222222222222222222222222"
+  ],
+  "event": {
+   "vault_id": "v1",
+   "user_id": "u1",
+   "event_type": "psbt_generated",
+   "metadata": {
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 60000,
+    "fee_sats": 1553,
+    "fee_rate": 7,
+    "input_count": 1,
+    "binary": true,
+    "path": "founders_now",
+    "sweep": false
+   }
+  }
+ },
+ {
+  "label": "standard, recovery path",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "psbt_hex": "70736274ff1",
+   "psbt_b64": "cHNidP8=",
+   "summary": {
+    "vault_name": "Family",
+    "vault_address": "tb1p-vault",
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 10000,
+    "fee_sats": 666,
+    "change_sats": 109334,
+    "fee_rate": 3,
+    "input_count": 1,
+    "total_in_sats": 120000,
+    "network": "signet",
+    "path": "recovery"
+   }
+  },
+  "sentToCompiler": {
+   "inputs": [
+    {
+     "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+     "vout": 2,
+     "value_sats": 120000,
+     "script_pubkey": "5120abababababababababababababababababababababababababababababababab"
+    }
+   ],
+   "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+   "amount_sats": 10000,
+   "fee_sats": 666,
+   "change_address": "tb1p-vault",
+   "network": "signet",
+   "address_type": "tr_multileaf",
+   "path": "recovery",
+   "key_origins": [
+    {
+     "pubkey": "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+     "fingerprint": "00000001",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    }
+   ],
+   "founder_keys": [
+    "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+    "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+    "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a"
+   ],
+   "founder_quorum": 2,
+   "recovery_quorum": null,
+   "heir_keys": [
+    "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7"
+   ],
+   "heir_quorum": 1,
+   "recovery_after": 280000,
+   "inheritance_after": 300000
+  },
+  "asked": [
+   "/signet/api/address/tb1p-vault/utxo",
+   "/signet/api/v1/fees/recommended",
+   "/signet/api/tx/2222222222222222222222222222222222222222222222222222222222222222"
+  ],
+  "event": {
+   "vault_id": "v1",
+   "user_id": "u1",
+   "event_type": "psbt_generated",
+   "metadata": {
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 10000,
+    "fee_sats": 666,
+    "fee_rate": 3,
+    "input_count": 1,
+    "binary": true,
+    "path": "recovery",
+    "sweep": false
+   }
+  }
+ },
+ {
+  "label": "standard, inheritance path",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "psbt_hex": "70736274ff1",
+   "psbt_b64": "cHNidP8=",
+   "summary": {
+    "vault_name": "Family",
+    "vault_address": "tb1p-vault",
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 10000,
+    "fee_sats": 567,
+    "change_sats": 109433,
+    "fee_rate": 3,
+    "input_count": 1,
+    "total_in_sats": 120000,
+    "network": "signet",
+    "path": "inheritance"
+   }
+  },
+  "sentToCompiler": {
+   "inputs": [
+    {
+     "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+     "vout": 2,
+     "value_sats": 120000,
+     "script_pubkey": "5120abababababababababababababababababababababababababababababababab"
+    }
+   ],
+   "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+   "amount_sats": 10000,
+   "fee_sats": 567,
+   "change_address": "tb1p-vault",
+   "network": "signet",
+   "address_type": "tr_multileaf",
+   "path": "inheritance",
+   "key_origins": [
+    {
+     "pubkey": "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+     "fingerprint": "00000001",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    }
+   ],
+   "founder_keys": [
+    "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+    "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+    "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a"
+   ],
+   "founder_quorum": 2,
+   "recovery_quorum": null,
+   "heir_keys": [
+    "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7"
+   ],
+   "heir_quorum": 1,
+   "recovery_after": 280000,
+   "inheritance_after": 300000
+  },
+  "asked": [
+   "/signet/api/address/tb1p-vault/utxo",
+   "/signet/api/v1/fees/recommended",
+   "/signet/api/tx/2222222222222222222222222222222222222222222222222222222222222222"
+  ],
+  "event": {
+   "vault_id": "v1",
+   "user_id": "u1",
+   "event_type": "psbt_generated",
+   "metadata": {
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 10000,
+    "fee_sats": 567,
+    "fee_rate": 3,
+    "input_count": 1,
+    "binary": true,
+    "path": "inheritance",
+    "sweep": false
+   }
+  }
+ },
+ {
+  "label": "standard, sweep",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "psbt_hex": "70736274ff3",
+   "psbt_b64": "cHNidP8=",
+   "summary": {
+    "vault_name": "Family",
+    "vault_address": "tb1p-vault",
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 175712,
+    "fee_sats": 1288,
+    "change_sats": 0,
+    "fee_rate": 3,
+    "input_count": 3,
+    "total_in_sats": 177000,
+    "network": "signet",
+    "path": "founders_now"
+   }
+  },
+  "sentToCompiler": {
+   "inputs": [
+    {
+     "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+     "vout": 1,
+     "value_sats": 50000,
+     "script_pubkey": "5120abababababababababababababababababababababababababababababababab"
+    },
+    {
+     "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+     "vout": 2,
+     "value_sats": 120000,
+     "script_pubkey": "5120abababababababababababababababababababababababababababababababab"
+    },
+    {
+     "txid": "3333333333333333333333333333333333333333333333333333333333333333",
+     "vout": 0,
+     "value_sats": 7000,
+     "script_pubkey": "5120abababababababababababababababababababababababababababababababab"
+    }
+   ],
+   "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+   "amount_sats": 175712,
+   "fee_sats": 1288,
+   "change_address": "tb1p-vault",
+   "network": "signet",
+   "address_type": "tr_multileaf",
+   "path": "founders_now",
+   "key_origins": [
+    {
+     "pubkey": "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+     "fingerprint": "00000001",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    }
+   ],
+   "founder_keys": [
+    "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+    "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+    "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a"
+   ],
+   "founder_quorum": 2,
+   "recovery_quorum": null,
+   "heir_keys": [
+    "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7"
+   ],
+   "heir_quorum": 1,
+   "recovery_after": 280000,
+   "inheritance_after": 300000
+  },
+  "asked": [
+   "/signet/api/address/tb1p-vault/utxo",
+   "/signet/api/v1/fees/recommended",
+   "/signet/api/tx/1111111111111111111111111111111111111111111111111111111111111111",
+   "/signet/api/tx/2222222222222222222222222222222222222222222222222222222222222222",
+   "/signet/api/tx/3333333333333333333333333333333333333333333333333333333333333333"
+  ],
+  "event": {
+   "vault_id": "v1",
+   "user_id": "u1",
+   "event_type": "psbt_generated",
+   "metadata": {
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 175712,
+    "fee_sats": 1288,
+    "fee_rate": 3,
+    "input_count": 3,
+    "binary": true,
+    "path": "founders_now",
+    "sweep": true
+   }
+  }
+ },
+ {
+  "label": "standard, coin control",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "psbt_hex": "70736274ff1",
+   "psbt_b64": "cHNidP8=",
+   "summary": {
+    "vault_name": "Family",
+    "vault_address": "tb1p-vault",
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 5000,
+    "fee_sats": 666,
+    "change_sats": 1334,
+    "fee_rate": 3,
+    "input_count": 1,
+    "total_in_sats": 7000,
+    "network": "signet",
+    "path": "founders_now"
+   }
+  },
+  "sentToCompiler": {
+   "inputs": [
+    {
+     "txid": "3333333333333333333333333333333333333333333333333333333333333333",
+     "vout": 0,
+     "value_sats": 7000,
+     "script_pubkey": "5120abababababababababababababababababababababababababababababababab"
+    }
+   ],
+   "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+   "amount_sats": 5000,
+   "fee_sats": 666,
+   "change_address": "tb1p-vault",
+   "network": "signet",
+   "address_type": "tr_multileaf",
+   "path": "founders_now",
+   "key_origins": [
+    {
+     "pubkey": "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+     "fingerprint": "00000001",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    }
+   ],
+   "founder_keys": [
+    "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+    "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+    "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a"
+   ],
+   "founder_quorum": 2,
+   "recovery_quorum": null,
+   "heir_keys": [
+    "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7"
+   ],
+   "heir_quorum": 1,
+   "recovery_after": 280000,
+   "inheritance_after": 300000
+  },
+  "asked": [
+   "/signet/api/address/tb1p-vault/utxo",
+   "/signet/api/v1/fees/recommended",
+   "/signet/api/tx/3333333333333333333333333333333333333333333333333333333333333333"
+  ],
+  "event": {
+   "vault_id": "v1",
+   "user_id": "u1",
+   "event_type": "psbt_generated",
+   "metadata": {
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 5000,
+    "fee_sats": 666,
+    "fee_rate": 3,
+    "input_count": 1,
+    "binary": true,
+    "path": "founders_now",
+    "sweep": false
+   }
+  }
+ },
+ {
+  "label": "standard, coin control names an unconfirmed coin",
+  "status": 400,
+  "body": {
+   "error": "One or more selected UTXOs are unconfirmed or not found"
+  },
+  "sentToCompiler": null,
+  "asked": [
+   "/signet/api/address/tb1p-vault/utxo",
+   "/signet/api/v1/fees/recommended"
+  ],
+  "event": null
+ },
+ {
+  "label": "standard, sweep with coin control",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "psbt_hex": "70736274ff2",
+   "psbt_b64": "cHNidP8=",
+   "summary": {
+    "vault_name": "Family",
+    "vault_address": "tb1p-vault",
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 56088,
+    "fee_sats": 912,
+    "change_sats": 0,
+    "fee_rate": 3,
+    "input_count": 2,
+    "total_in_sats": 57000,
+    "network": "signet",
+    "path": "founders_now"
+   }
+  },
+  "sentToCompiler": {
+   "inputs": [
+    {
+     "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+     "vout": 1,
+     "value_sats": 50000,
+     "script_pubkey": "5120abababababababababababababababababababababababababababababababab"
+    },
+    {
+     "txid": "3333333333333333333333333333333333333333333333333333333333333333",
+     "vout": 0,
+     "value_sats": 7000,
+     "script_pubkey": "5120abababababababababababababababababababababababababababababababab"
+    }
+   ],
+   "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+   "amount_sats": 56088,
+   "fee_sats": 912,
+   "change_address": "tb1p-vault",
+   "network": "signet",
+   "address_type": "tr_multileaf",
+   "path": "founders_now",
+   "key_origins": [
+    {
+     "pubkey": "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+     "fingerprint": "00000001",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    }
+   ],
+   "founder_keys": [
+    "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+    "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+    "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a"
+   ],
+   "founder_quorum": 2,
+   "recovery_quorum": null,
+   "heir_keys": [
+    "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7"
+   ],
+   "heir_quorum": 1,
+   "recovery_after": 280000,
+   "inheritance_after": 300000
+  },
+  "asked": [
+   "/signet/api/address/tb1p-vault/utxo",
+   "/signet/api/v1/fees/recommended",
+   "/signet/api/tx/1111111111111111111111111111111111111111111111111111111111111111",
+   "/signet/api/tx/3333333333333333333333333333333333333333333333333333333333333333"
+  ],
+  "event": {
+   "vault_id": "v1",
+   "user_id": "u1",
+   "event_type": "psbt_generated",
+   "metadata": {
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 56088,
+    "fee_sats": 912,
+    "fee_rate": 3,
+    "input_count": 2,
+    "binary": true,
+    "path": "founders_now",
+    "sweep": true
+   }
+  }
+ },
+ {
+  "label": "standard, change just under the floor",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "psbt_hex": "70736274ff1",
+   "psbt_b64": "cHNidP8=",
+   "summary": {
+    "vault_name": "Family",
+    "vault_address": "tb1p-vault",
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 119000,
+    "fee_sats": 444,
+    "change_sats": 556,
+    "fee_rate": 2,
+    "input_count": 1,
+    "total_in_sats": 120000,
+    "network": "signet",
+    "path": "founders_now"
+   }
+  },
+  "sentToCompiler": {
+   "inputs": [
+    {
+     "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+     "vout": 2,
+     "value_sats": 120000,
+     "script_pubkey": "5120abababababababababababababababababababababababababababababababab"
+    }
+   ],
+   "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+   "amount_sats": 119000,
+   "fee_sats": 444,
+   "change_address": "tb1p-vault",
+   "network": "signet",
+   "address_type": "tr_multileaf",
+   "path": "founders_now",
+   "key_origins": [
+    {
+     "pubkey": "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+     "fingerprint": "00000001",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    }
+   ],
+   "founder_keys": [
+    "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+    "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+    "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a"
+   ],
+   "founder_quorum": 2,
+   "recovery_quorum": null,
+   "heir_keys": [
+    "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7"
+   ],
+   "heir_quorum": 1,
+   "recovery_after": 280000,
+   "inheritance_after": 300000
+  },
+  "asked": [
+   "/signet/api/address/tb1p-vault/utxo",
+   "/signet/api/tx/2222222222222222222222222222222222222222222222222222222222222222"
+  ],
+  "event": {
+   "vault_id": "v1",
+   "user_id": "u1",
+   "event_type": "psbt_generated",
+   "metadata": {
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 119000,
+    "fee_sats": 444,
+    "fee_rate": 2,
+    "input_count": 1,
+    "binary": true,
+    "path": "founders_now",
+    "sweep": false
+   }
+  }
+ },
+ {
+  "label": "standard, more than the balance",
+  "status": 400,
+  "body": {
+   "ok": false,
+   "error": "Insufficient funds. Need 501417 sats confirmed, have 177000.",
+   "confirmed_sats": 177000
+  },
+  "sentToCompiler": null,
+  "asked": [
+   "/signet/api/address/tb1p-vault/utxo",
+   "/signet/api/v1/fees/recommended"
+  ],
+  "event": null
+ },
+ {
+  "label": "standard, below dust",
+  "status": 400,
+  "body": {
+   "error": "amount_sats must be between 546 and 9007199254740991."
+  },
+  "sentToCompiler": null,
+  "asked": [],
+  "event": null
+ },
+ {
+  "label": "standard, fee rate out of range",
+  "status": 400,
+  "body": {
+   "error": "fee_rate must be between 1 and 1000."
+  },
+  "sentToCompiler": null,
+  "asked": [],
+  "event": null
+ },
+ {
+  "label": "backup + second inheritance vault, backup path",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "psbt_hex": "70736274ff1",
+   "psbt_b64": "cHNidP8=",
+   "summary": {
+    "vault_name": "Family",
+    "vault_address": "tb1p-vault",
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 10000,
+    "fee_sats": 567,
+    "change_sats": 109433,
+    "fee_rate": 3,
+    "input_count": 1,
+    "total_in_sats": 120000,
+    "network": "signet",
+    "path": "backup"
+   }
+  },
+  "sentToCompiler": {
+   "inputs": [
+    {
+     "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+     "vout": 2,
+     "value_sats": 120000,
+     "script_pubkey": "5120abababababababababababababababababababababababababababababababab"
+    }
+   ],
+   "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+   "amount_sats": 10000,
+   "fee_sats": 567,
+   "change_address": "tb1p-vault",
+   "network": "signet",
+   "address_type": "tr_multileaf",
+   "path": "backup",
+   "key_origins": [
+    {
+     "pubkey": "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+     "fingerprint": "00000001",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    }
+   ],
+   "founder_keys": [
+    "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+    "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+    "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a"
+   ],
+   "founder_quorum": 2,
+   "recovery_quorum": null,
+   "heir_keys": [
+    "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7"
+   ],
+   "heir_quorum": 1,
+   "recovery_after": 0,
+   "inheritance_after": 300000,
+   "backup_keys": [
+    "03125466b84452ba4be4d788f0328c3f21eab427975915664415d9d327e9c22b2e"
+   ],
+   "backup_quorum": 1,
+   "second_heir_keys": [
+    "02e76407c7f6b361ae1e8a3adcd19fe4279d21115de78c17b8fb105bbcb92a8a3e"
+   ],
+   "second_heir_quorum": 1,
+   "second_inheritance_after": 320000
+  },
+  "asked": [
+   "/signet/api/address/tb1p-vault/utxo",
+   "/signet/api/v1/fees/recommended",
+   "/signet/api/tx/2222222222222222222222222222222222222222222222222222222222222222"
+  ],
+  "event": {
+   "vault_id": "v1",
+   "user_id": "u1",
+   "event_type": "psbt_generated",
+   "metadata": {
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 10000,
+    "fee_sats": 567,
+    "fee_rate": 3,
+    "input_count": 1,
+    "binary": true,
+    "path": "backup",
+    "sweep": false
+   }
+  }
+ },
+ {
+  "label": "backup + second inheritance vault, second inheritance",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "psbt_hex": "70736274ff1",
+   "psbt_b64": "cHNidP8=",
+   "summary": {
+    "vault_name": "Family",
+    "vault_address": "tb1p-vault",
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 10000,
+    "fee_sats": 567,
+    "change_sats": 109433,
+    "fee_rate": 3,
+    "input_count": 1,
+    "total_in_sats": 120000,
+    "network": "signet",
+    "path": "second_inheritance"
+   }
+  },
+  "sentToCompiler": {
+   "inputs": [
+    {
+     "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+     "vout": 2,
+     "value_sats": 120000,
+     "script_pubkey": "5120abababababababababababababababababababababababababababababababab"
+    }
+   ],
+   "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+   "amount_sats": 10000,
+   "fee_sats": 567,
+   "change_address": "tb1p-vault",
+   "network": "signet",
+   "address_type": "tr_multileaf",
+   "path": "second_inheritance",
+   "key_origins": [
+    {
+     "pubkey": "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+     "fingerprint": "00000001",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    }
+   ],
+   "founder_keys": [
+    "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+    "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+    "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a"
+   ],
+   "founder_quorum": 2,
+   "recovery_quorum": null,
+   "heir_keys": [
+    "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7"
+   ],
+   "heir_quorum": 1,
+   "recovery_after": 0,
+   "inheritance_after": 300000,
+   "backup_keys": [
+    "03125466b84452ba4be4d788f0328c3f21eab427975915664415d9d327e9c22b2e"
+   ],
+   "backup_quorum": 1,
+   "second_heir_keys": [
+    "02e76407c7f6b361ae1e8a3adcd19fe4279d21115de78c17b8fb105bbcb92a8a3e"
+   ],
+   "second_heir_quorum": 1,
+   "second_inheritance_after": 320000
+  },
+  "asked": [
+   "/signet/api/address/tb1p-vault/utxo",
+   "/signet/api/v1/fees/recommended",
+   "/signet/api/tx/2222222222222222222222222222222222222222222222222222222222222222"
+  ],
+  "event": {
+   "vault_id": "v1",
+   "user_id": "u1",
+   "event_type": "psbt_generated",
+   "metadata": {
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 10000,
+    "fee_sats": 567,
+    "fee_rate": 3,
+    "input_count": 1,
+    "binary": true,
+    "path": "second_inheritance",
+    "sweep": false
+   }
+  }
+ },
+ {
+  "label": "path-builder, immediate leaf",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "psbt_hex": "70736274ff1",
+   "psbt_b64": "cHNidP8=",
+   "summary": {
+    "vault_name": "Family",
+    "vault_address": "tb1p-vault",
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 20000,
+    "fee_sats": 664,
+    "change_sats": 99336,
+    "fee_rate": 3,
+    "input_count": 1,
+    "total_in_sats": 120000,
+    "network": "signet",
+    "path": "everyday"
+   }
+  },
+  "sentToCompiler": {
+   "inputs": [
+    {
+     "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+     "vout": 2,
+     "value_sats": 120000,
+     "script_pubkey": "5120abababababababababababababababababababababababababababababababab"
+    }
+   ],
+   "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+   "amount_sats": 20000,
+   "fee_sats": 664,
+   "change_address": "tb1p-vault",
+   "network": "signet",
+   "address_type": "tr_multileaf",
+   "path": "everyday",
+   "key_origins": [
+    {
+     "pubkey": "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+     "fingerprint": "00000002",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    }
+   ],
+   "leaves": [
+    {
+     "id": "everyday",
+     "label": "Everyday",
+     "keys": [
+      "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+      "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba"
+     ],
+     "quorum": 2,
+     "unlock": {
+      "type": "immediate"
+     },
+     "decay": null
+    },
+    {
+     "id": "heirs",
+     "label": "Heirs",
+     "keys": [
+      "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7",
+      "03125466b84452ba4be4d788f0328c3f21eab427975915664415d9d327e9c22b2e",
+      "02e76407c7f6b361ae1e8a3adcd19fe4279d21115de78c17b8fb105bbcb92a8a3e"
+     ],
+     "quorum": 3,
+     "unlock": {
+      "type": "after",
+      "blocks": 300000
+     },
+     "decay": {
+      "step_blocks": 26000,
+      "floor_quorum": 1
+     }
+    },
+    {
+     "id": "idle",
+     "label": "Idle",
+     "keys": [
+      "02b37b76ccd7eb813dcbf498f6c47cba43728f9586d18310b146fb5425de6f1e9a"
+     ],
+     "quorum": 1,
+     "unlock": {
+      "type": "older",
+      "blocks": 52000
+     },
+     "decay": null,
+     "required_keys": [
+      "02d8eda8cb51bd59f4de86851951915bbb6a805dcac086c71191dd6cef104e151f"
+     ]
+    }
+   ],
+   "consent_keys": [
+    "03c9a549139348d1afc2a901ea869a26ef32afeac303f79cf5603d75bab73113e3"
+   ],
+   "consent_quorum": 1
+  },
+  "asked": [
+   "/signet/api/address/tb1p-vault/utxo",
+   "/signet/api/v1/fees/recommended",
+   "/signet/api/tx/2222222222222222222222222222222222222222222222222222222222222222"
+  ],
+  "event": {
+   "vault_id": "v1",
+   "user_id": "u1",
+   "event_type": "psbt_generated",
+   "metadata": {
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 20000,
+    "fee_sats": 664,
+    "fee_rate": 3,
+    "input_count": 1,
+    "binary": true,
+    "path": "everyday",
+    "sweep": false
+   }
+  }
+ },
+ {
+  "label": "path-builder, a decay rung",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "psbt_hex": "70736274ff1",
+   "psbt_b64": "cHNidP8=",
+   "summary": {
+    "vault_name": "Family",
+    "vault_address": "tb1p-vault",
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 20000,
+    "fee_sats": 738,
+    "change_sats": 99262,
+    "fee_rate": 3,
+    "input_count": 1,
+    "total_in_sats": 120000,
+    "network": "signet",
+    "path": "heirs_2"
+   }
+  },
+  "sentToCompiler": {
+   "inputs": [
+    {
+     "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+     "vout": 2,
+     "value_sats": 120000,
+     "script_pubkey": "5120abababababababababababababababababababababababababababababababab"
+    }
+   ],
+   "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+   "amount_sats": 20000,
+   "fee_sats": 738,
+   "change_address": "tb1p-vault",
+   "network": "signet",
+   "address_type": "tr_multileaf",
+   "path": "heirs_2",
+   "key_origins": [
+    {
+     "pubkey": "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+     "fingerprint": "00000002",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    }
+   ],
+   "leaves": [
+    {
+     "id": "everyday",
+     "label": "Everyday",
+     "keys": [
+      "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+      "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba"
+     ],
+     "quorum": 2,
+     "unlock": {
+      "type": "immediate"
+     },
+     "decay": null
+    },
+    {
+     "id": "heirs",
+     "label": "Heirs",
+     "keys": [
+      "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7",
+      "03125466b84452ba4be4d788f0328c3f21eab427975915664415d9d327e9c22b2e",
+      "02e76407c7f6b361ae1e8a3adcd19fe4279d21115de78c17b8fb105bbcb92a8a3e"
+     ],
+     "quorum": 3,
+     "unlock": {
+      "type": "after",
+      "blocks": 300000
+     },
+     "decay": {
+      "step_blocks": 26000,
+      "floor_quorum": 1
+     }
+    },
+    {
+     "id": "idle",
+     "label": "Idle",
+     "keys": [
+      "02b37b76ccd7eb813dcbf498f6c47cba43728f9586d18310b146fb5425de6f1e9a"
+     ],
+     "quorum": 1,
+     "unlock": {
+      "type": "older",
+      "blocks": 52000
+     },
+     "decay": null,
+     "required_keys": [
+      "02d8eda8cb51bd59f4de86851951915bbb6a805dcac086c71191dd6cef104e151f"
+     ]
+    }
+   ],
+   "consent_keys": [
+    "03c9a549139348d1afc2a901ea869a26ef32afeac303f79cf5603d75bab73113e3"
+   ],
+   "consent_quorum": 1
+  },
+  "asked": [
+   "/signet/api/address/tb1p-vault/utxo",
+   "/signet/api/v1/fees/recommended",
+   "/signet/api/tx/2222222222222222222222222222222222222222222222222222222222222222"
+  ],
+  "event": {
+   "vault_id": "v1",
+   "user_id": "u1",
+   "event_type": "psbt_generated",
+   "metadata": {
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 20000,
+    "fee_sats": 738,
+    "fee_rate": 3,
+    "input_count": 1,
+    "binary": true,
+    "path": "heirs_2",
+    "sweep": false
+   }
+  }
+ },
+ {
+  "label": "path-builder, leaf with a must-sign key",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "psbt_hex": "70736274ff1",
+   "psbt_b64": "cHNidP8=",
+   "summary": {
+    "vault_name": "Family",
+    "vault_address": "tb1p-vault",
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 20000,
+    "fee_sats": 664,
+    "change_sats": 99336,
+    "fee_rate": 3,
+    "input_count": 1,
+    "total_in_sats": 120000,
+    "network": "signet",
+    "path": "idle"
+   }
+  },
+  "sentToCompiler": {
+   "inputs": [
+    {
+     "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+     "vout": 2,
+     "value_sats": 120000,
+     "script_pubkey": "5120abababababababababababababababababababababababababababababababab"
+    }
+   ],
+   "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+   "amount_sats": 20000,
+   "fee_sats": 664,
+   "change_address": "tb1p-vault",
+   "network": "signet",
+   "address_type": "tr_multileaf",
+   "path": "idle",
+   "key_origins": [
+    {
+     "pubkey": "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+     "fingerprint": "00000002",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    }
+   ],
+   "leaves": [
+    {
+     "id": "everyday",
+     "label": "Everyday",
+     "keys": [
+      "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+      "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba"
+     ],
+     "quorum": 2,
+     "unlock": {
+      "type": "immediate"
+     },
+     "decay": null
+    },
+    {
+     "id": "heirs",
+     "label": "Heirs",
+     "keys": [
+      "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7",
+      "03125466b84452ba4be4d788f0328c3f21eab427975915664415d9d327e9c22b2e",
+      "02e76407c7f6b361ae1e8a3adcd19fe4279d21115de78c17b8fb105bbcb92a8a3e"
+     ],
+     "quorum": 3,
+     "unlock": {
+      "type": "after",
+      "blocks": 300000
+     },
+     "decay": {
+      "step_blocks": 26000,
+      "floor_quorum": 1
+     }
+    },
+    {
+     "id": "idle",
+     "label": "Idle",
+     "keys": [
+      "02b37b76ccd7eb813dcbf498f6c47cba43728f9586d18310b146fb5425de6f1e9a"
+     ],
+     "quorum": 1,
+     "unlock": {
+      "type": "older",
+      "blocks": 52000
+     },
+     "decay": null,
+     "required_keys": [
+      "02d8eda8cb51bd59f4de86851951915bbb6a805dcac086c71191dd6cef104e151f"
+     ]
+    }
+   ],
+   "consent_keys": [
+    "03c9a549139348d1afc2a901ea869a26ef32afeac303f79cf5603d75bab73113e3"
+   ],
+   "consent_quorum": 1
+  },
+  "asked": [
+   "/signet/api/address/tb1p-vault/utxo",
+   "/signet/api/v1/fees/recommended",
+   "/signet/api/tx/2222222222222222222222222222222222222222222222222222222222222222"
+  ],
+  "event": {
+   "vault_id": "v1",
+   "user_id": "u1",
+   "event_type": "psbt_generated",
+   "metadata": {
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 20000,
+    "fee_sats": 664,
+    "fee_rate": 3,
+    "input_count": 1,
+    "binary": true,
+    "path": "idle",
+    "sweep": false
+   }
+  }
+ },
+ {
+  "label": "no confirmed coins",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "status": "no_utxos",
+   "message": "No confirmed UTXOs. Fund the vault and wait for confirmation.",
+   "address": "tb1p-vault"
+  },
+  "sentToCompiler": null,
+  "asked": [
+   "/signet/api/address/tb1p-vault/utxo"
+  ],
+  "event": null
+ },
+ {
+  "label": "a coin whose transaction cannot be read",
+  "status": 502,
+  "body": {
+   "error": "Could not fetch the scriptPubKey for input 2222222222222222222222222222222222222222222222222222222222222222:2. Try again in a moment."
+  },
+  "sentToCompiler": null,
+  "asked": [
+   "/signet/api/address/tb1p-vault/utxo",
+   "/signet/api/v1/fees/recommended",
+   "/signet/api/tx/2222222222222222222222222222222222222222222222222222222222222222"
+  ],
+  "event": null
+ },
+ {
+  "label": "fee lookup fails (falls back)",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "psbt_hex": "70736274ff1",
+   "psbt_b64": "cHNidP8=",
+   "summary": {
+    "vault_name": "Family",
+    "vault_address": "tb1p-vault",
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 10000,
+    "fee_sats": 1109,
+    "change_sats": 108891,
+    "fee_rate": 5,
+    "input_count": 1,
+    "total_in_sats": 120000,
+    "network": "signet",
+    "path": "founders_now"
+   }
+  },
+  "sentToCompiler": {
+   "inputs": [
+    {
+     "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+     "vout": 2,
+     "value_sats": 120000,
+     "script_pubkey": "5120abababababababababababababababababababababababababababababababab"
+    }
+   ],
+   "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+   "amount_sats": 10000,
+   "fee_sats": 1109,
+   "change_address": "tb1p-vault",
+   "network": "signet",
+   "address_type": "tr_multileaf",
+   "path": "founders_now",
+   "key_origins": [
+    {
+     "pubkey": "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+     "fingerprint": "00000001",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    }
+   ],
+   "founder_keys": [
+    "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+    "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+    "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a"
+   ],
+   "founder_quorum": 2,
+   "recovery_quorum": null,
+   "heir_keys": [
+    "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7"
+   ],
+   "heir_quorum": 1,
+   "recovery_after": 280000,
+   "inheritance_after": 300000
+  },
+  "asked": [
+   "/signet/api/address/tb1p-vault/utxo",
+   "/signet/api/v1/fees/recommended",
+   "/signet/api/tx/2222222222222222222222222222222222222222222222222222222222222222"
+  ],
+  "event": {
+   "vault_id": "v1",
+   "user_id": "u1",
+   "event_type": "psbt_generated",
+   "metadata": {
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 10000,
+    "fee_sats": 1109,
+    "fee_rate": 5,
+    "input_count": 1,
+    "binary": true,
+    "path": "founders_now",
+    "sweep": false
+   }
+  }
+ },
+ {
+  "label": "key origins from members (older vault)",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "psbt_hex": "70736274ff1",
+   "psbt_b64": "cHNidP8=",
+   "summary": {
+    "vault_name": "Family",
+    "vault_address": "tb1p-vault",
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 10000,
+    "fee_sats": 666,
+    "change_sats": 109334,
+    "fee_rate": 3,
+    "input_count": 1,
+    "total_in_sats": 120000,
+    "network": "signet",
+    "path": "founders_now"
+   }
+  },
+  "sentToCompiler": {
+   "inputs": [
+    {
+     "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+     "vout": 2,
+     "value_sats": 120000,
+     "script_pubkey": "5120abababababababababababababababababababababababababababababababab"
+    }
+   ],
+   "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+   "amount_sats": 10000,
+   "fee_sats": 666,
+   "change_address": "tb1p-vault",
+   "network": "signet",
+   "address_type": "tr_multileaf",
+   "path": "founders_now",
+   "key_origins": [
+    {
+     "pubkey": "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+     "fingerprint": "00000002",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    }
+   ],
+   "founder_keys": [
+    "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+    "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+    "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a"
+   ],
+   "founder_quorum": 2,
+   "recovery_quorum": null,
+   "heir_keys": [
+    "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7"
+   ],
+   "heir_quorum": 1,
+   "recovery_after": 280000,
+   "inheritance_after": 300000
+  },
+  "asked": [
+   "/signet/api/address/tb1p-vault/utxo",
+   "/signet/api/v1/fees/recommended",
+   "/signet/api/tx/2222222222222222222222222222222222222222222222222222222222222222"
+  ],
+  "event": {
+   "vault_id": "v1",
+   "user_id": "u1",
+   "event_type": "psbt_generated",
+   "metadata": {
+    "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount_sats": 10000,
+    "fee_sats": 666,
+    "fee_rate": 3,
+    "input_count": 1,
+    "binary": true,
+    "path": "founders_now",
+    "sweep": false
+   }
+  }
+ }
+]
