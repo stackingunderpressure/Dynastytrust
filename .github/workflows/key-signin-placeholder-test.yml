@@ -1,0 +1,30 @@
+# One-off live check for email-free sign-in (docs/key-signin-build-note.md,
+# slice 1, operator 2026-11-13: "Automate"). Creates a throwaway account
+# with a never-mailed placeholder address, logs into it through the same
+# one-time token path the key sign-in uses, and deletes it. Runs when this
+# file or its script is pushed to the working branch, or by hand. Reads
+# the existing SUPABASE_ACCESS_TOKEN secret; the admin key it fetches is
+# masked and never leaves the runner.
+name: Key sign-in placeholder test
+
+on:
+  push:
+    branches: [claude/dynasty-unify-2026-11]
+    paths:
+      - .github/workflows/key-signin-placeholder-test.yml
+      - scripts/key-signin-placeholder-test.mjs
+  workflow_dispatch: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Placeholder account, one-time login, delete
+        run: node scripts/key-signin-placeholder-test.mjs
