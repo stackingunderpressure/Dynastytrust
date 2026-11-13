@@ -36,6 +36,7 @@ import { mustSignPathsNotInScripts } from '../netlify/functions/_must-sign-check
 import { readFileSync } from 'node:fs';
 import { useProtocolWasmBytes, checkVaultAddress } from '../apps/web/src/lib/descriptor-check.ts';
 import { upgradeDescriptor } from '../apps/web/src/lib/descriptor-keys.ts';
+import { ownKeyInDescriptor } from '../apps/web/src/lib/vault-pin.ts';
 useProtocolWasmBytes(new Uint8Array(readFileSync(new URL('../apps/web/src/lib/wasm/dynastytrust_protocol_wasm.wasm', import.meta.url))));
 
 const COMPILER = process.env.COMPILER_URL || 'http://127.0.0.1:8899';
@@ -74,6 +75,14 @@ async function browserAgrees(label, compiled) {
   assert.equal(up.status, 'match', `${label}: browser check on the stored (key-origin) descriptor: ${JSON.stringify(up)}`);
   const present = S.find(x => compiled.descriptor.includes(x.pubkey));
   const stranger = S.find(x => !compiled.descriptor.includes(x.pubkey));
+  // Threat model B: each phone's "is my key in this vault" check must find
+  // every key the compiler put in, raw and after the key-origin rewrite, and
+  // never one it did not.
+  for (const x of S) {
+    const inIt = compiled.descriptor.includes(x.pubkey) || compiled.descriptor.includes(x.pubkey.slice(2));
+    assert.equal(ownKeyInDescriptor(compiled.descriptor, x.pubkey), inIt, `${label}: own-key check (raw) for ${x.path}`);
+    assert.equal(ownKeyInDescriptor(stored, x.pubkey), inIt, `${label}: own-key check (key-origin form) for ${x.path}`);
+  }
   if (present && stranger) {
     const swapped = await checkVaultAddress({ descriptor: compiled.descriptor.split(present.pubkey).join(stranger.pubkey), address: compiled.address, network: NET });
     assert.equal(swapped.status, 'mismatch', `${label}: a swapped key must not match`);
@@ -617,6 +626,6 @@ const rejected = (msg) => console.log(`  [ok] REJECTED as it should be: ${msg}`)
 }
 
 assert.ok(browserChecks > 0);
-console.log(`\n  [ok] browser address check agreed with the compiler on ${browserChecks} compiled vaults (raw + key-origin form), refused every swapped key`);
+console.log(`\n  [ok] browser address check agreed with the compiler on ${browserChecks} compiled vaults (raw + key-origin form), refused every swapped key; the own-key check found exactly the keys in each`);
 console.log('\noffline-vault-harness OK -- every door of every shape proven end to end');
 console.log('(real Rust compiler + real browser signer + real rust-miniscript finalizer; timelocks baked in, quorum/consent/cohort gates enforced)');

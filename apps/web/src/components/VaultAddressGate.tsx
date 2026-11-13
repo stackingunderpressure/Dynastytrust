@@ -1,5 +1,20 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { checkVaultAddress, type VaultAddressCheck } from '../lib/descriptor-check';
+import { runGateChecks, type GateCheck } from '../lib/vault-gate';
+import { listKeys } from '../lib/keystore';
+import { api } from '../lib/api';
+import { supabase } from '../lib/supabase';
+
+/** The key this person joined this vault with, if it is held on this phone. */
+async function joinedKeyOnThisPhone(vaultId: string): Promise<string | null> {
+  const { data } = await supabase.auth.getSession();
+  const me = data.session?.user.id;
+  if (!me) return null;
+  const { members } = await api.members.list(vaultId);
+  const row = members.find(m => m.user_id === me && m.status === 'active' && m.pubkey);
+  if (!row?.pubkey) return null;
+  const local = listKeys().find(k => k.status === 'active' && k.pubkey === row.pubkey);
+  return local ? row.pubkey : null;
+}
 import { colors, fonts, radii, space } from '../theme';
 import { Button } from './ui';
 
@@ -25,15 +40,16 @@ export function VaultAddressGate({
   onBack,
   children,
 }: {
-  vault: { address?: string | null; descriptor?: string | null; network: string };
+  vault: { id?: string; address?: string | null; descriptor?: string | null; network: string };
   onBack: () => void;
   children: ReactNode;
 }) {
-  const [check, setCheck] = useState<VaultAddressCheck | null>(null);
+  const [check, setCheck] = useState<GateCheck | null>(null);
   const run = useCallback(() => {
     let cancelled = false;
     setCheck(null);
-    checkVaultAddress(vault).then(c => { if (!cancelled) setCheck(c); });
+    runGateChecks(vault, () => (vault.id ? joinedKeyOnThisPhone(vault.id) : Promise.resolve(null)))
+      .then(c => { if (!cancelled) setCheck(c); });
     return () => { cancelled = true; };
   }, [vault]);
   useEffect(() => run(), [run]);
@@ -52,7 +68,9 @@ export function VaultAddressGate({
   }
 
   const title =
-    check.status === 'mismatch' ? 'Stop: this vault\'s address does not match its own recipe'
+    check.status === 'pin_changed' ? 'Stop: this vault is not the one this phone first saw'
+      : check.status === 'own_key_missing' ? 'Stop: your key is not in this vault'
+      : check.status === 'mismatch' ? 'Stop: this vault\'s address does not match its own recipe'
       : check.status === 'unreadable' ? 'Stop: this vault\'s address could not be checked'
         : 'This vault could not be checked yet';
 
@@ -75,6 +93,31 @@ export function VaultAddressGate({
             <p style={mono}>{check.derived}</p>
           </div>
         </>
+      )}
+      {check.status === 'pin_changed' && (
+        <>
+          <p style={sub}>
+            The first time this phone opened this vault, on {new Date(check.pinnedAt).toLocaleDateString()}, its address
+            was different. A finished vault's address can never change, so something replaced this vault's recipe since.
+            Do not send money to it or sign for it. Call the other people in the vault, by voice, and compare the address
+            each of you wrote down.
+          </p>
+          <div>
+            <p style={{ ...sub, fontSize: 16 }}>Address this phone first saw:</p>
+            <p style={mono}>{check.pinned}</p>
+          </div>
+          <div>
+            <p style={{ ...sub, fontSize: 16 }}>Address it shows now:</p>
+            <p style={mono}>{check.now}</p>
+          </div>
+        </>
+      )}
+      {check.status === 'own_key_missing' && (
+        <p style={sub}>
+          You joined this vault with a key that is on this phone, but the vault's recipe does not include it. Whoever
+          made this vault could spend it without you. Do not send money to it. Ask the owner, by voice, what happened
+          before doing anything else.
+        </p>
       )}
       {check.status === 'unreadable' && (
         <p style={sub}>
