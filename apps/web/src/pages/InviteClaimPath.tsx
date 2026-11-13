@@ -146,8 +146,9 @@ export default function InviteClaimPath({
           <div style={{ ...col }}>
             {intro}
             <p style={sub}>
-              First, sign in or create an account{invite.email_hint ? ` with the email address this was sent to (${invite.email_hint})` : ''}.
-              The link only works for that address.
+              {invite.email_hint
+                ? `First, sign in or create an account with the email address this was sent to (${invite.email_hint}). The link only works for that address.`
+                : 'First, sign in or create an account -- with an email, or with no email using your key. The owner will confirm your key with you before it goes in the vault.'}
             </p>
           </div>
         </div>
@@ -355,8 +356,9 @@ export default function InviteClaimPath({
             <p style={{ ...p, color: colors.red }}>{err}</p>
             {needsTwoStep && (
               <p style={{ ...sub, marginTop: space[2] }}>
-                Open the <Link to="/keys" style={{ color: colors.gold }}>Keys page</Link>, turn on two-step sign-in, sign out
-                and back in with your code, then open this link again. Your key stays on this device meanwhile.
+                Sign out and sign back in with your key (No email? Your key is your account), or open the{' '}
+                <Link to="/keys" style={{ color: colors.gold }}>Keys page</Link>, turn on two-step sign-in, and sign back in with
+                your code. Then open this link again. Your key stays on this device meanwhile.
               </p>
             )}
           </Card>

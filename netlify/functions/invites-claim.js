@@ -19,7 +19,8 @@
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 import { recordEvent } from "./_ledger.js";
-import { emailMatches, joinAllowedAtAal, checkClaimedKey } from "./_invite-rules.js";
+import { inviteEmailAllows, joinAllowedAtAal, checkClaimedKey } from "./_invite-rules.js";
+import { isKeySession, isPlaceholderEmail } from "./_key-account.js";
 
 export async function handler(event) {
   if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
@@ -84,8 +85,10 @@ export async function handler(event) {
   // person. See _invite-rules.js for what each one closes.
   let claimedKey = null;
   if (invite.leaf_id) {
-    if (!emailMatches(u.claims?.email, invite.invited_email)) {
-      return json(403, { error: "This invite is for a different email address. Sign in with the address it was sent to." });
+    if (!inviteEmailAllows(u.claims?.email, invite.invited_email)) {
+      return json(403, { error: isPlaceholderEmail(u.claims?.email)
+        ? "This invite was made for an email address, and you signed in with your key. Ask the owner for a link-only invite (no email), or sign in with that email."
+        : "This invite is for a different email address. Sign in with the address it was sent to." });
     }
     const { data: vault, error: vErr } = await supabase
       .from("vaults").select("id, network, status").eq("id", invite.vault_id).maybeSingle();
@@ -94,9 +97,10 @@ export async function handler(event) {
     if (vault.status !== "draft") {
       return json(409, { error: "This vault has already been finalized, so nobody new can join it." });
     }
-    if (!joinAllowedAtAal(vault.network, u.claims?.aal)) {
+    const keySession = vault.network === "bitcoin" && u.claims?.aal !== "aal2" ? await isKeySession(supabase, u.claims) : false;
+    if (!joinAllowedAtAal(vault.network, u.claims?.aal, keySession)) {
       return json(403, {
-        error: "Joining a real-bitcoin vault needs two-step sign-in. Turn it on under Keys, sign in again with your code, then open this link again.",
+        error: "Joining a real-bitcoin vault needs two-step sign-in, or signing in with your key. Sign in with your key (or turn on two-step under Keys and sign in with your code), then open this link again.",
         needs_two_step: true,
       });
     }

@@ -15,9 +15,9 @@ globalThis.localStorage = { getItem: () => null, setItem: () => {}, removeItem: 
 const F = (f) => new URL(`../netlify/functions/${f}`, import.meta.url).href;
 
 // ---- in-memory tables + Supabase admin auth
-const tables = { wallet_signin_challenges: [], wallet_identities: [], wallet_signins: [] };
+const tables = { wallet_signin_challenges: [], wallet_identities: [], wallet_signins: [], key_session_claims: [], key_sessions: [] };
 const users = new Map(); let failNextBind = false;
-const UNIQUE = { wallet_identities: ['pubkey'] };
+const UNIQUE = { wallet_identities: ['pubkey'], key_sessions: ['session_id'], key_session_claims: ['claim_hash'] };
 function from(t) {
   const rows = tables[t]; const f = []; let op = 'select', payload;
   const match = (r) => f.every(x => x(r));
@@ -49,13 +49,13 @@ const auth = { admin: {
   getUserById: async (id) => ({ data: { user: users.get(id) ?? null }, error: users.has(id) ? null : { message: 'no user' } }),
   generateLink: async ({ email }) => { const u = [...users.values()].find(x => x.email === email); if (!u) return { data: null, error: { message: 'no user' } }; const h = `t${++tokenSeq}`; tokens.set(h, u.id); return { data: { properties: { hashed_token: h } }, error: null }; },
 } };
-let caller = null;
+let caller = null; let callerSession = null;
 mock.module(F('_supabase.js'), { namedExports: { getSupabaseAdmin: () => ({ from, auth }) } });
-mock.module(F('_auth.js'), { namedExports: { requireUser: async () => (caller ? { userId: caller } : { error: 'Not signed in' }), json: (statusCode, body) => ({ statusCode, body }) } });
+mock.module(F('_auth.js'), { namedExports: { requireUser: async () => (caller ? { userId: caller, claims: { sub: caller, session_id: callerSession } } : { error: 'Not signed in' }), json: (statusCode, body) => ({ statusCode, body }) } });
 
 mock.module(new URL('../apps/web/src/lib/supabase.ts', import.meta.url).href, { namedExports: { supabase: {} } });
 const H = {};
-for (const f of ['key-signup', 'wallet-signin-challenge', 'wallet-signin-verify', 'wallet-link']) H[f] = (await import(F(f + '.js'))).handler;
+for (const f of ['key-signup', 'wallet-signin-challenge', 'wallet-signin-verify', 'wallet-link', 'key-session']) H[f] = (await import(F(f + '.js'))).handler;
 const ka = await import('../apps/web/src/lib/key-account.ts');
 const { answerSignInChallenge } = await import('tapit-attest');
 const { generateMnemonic } = await import('@scure/bip39');
@@ -133,5 +133,37 @@ await H['wallet-link']({ httpMethod: 'DELETE', headers: {} });
 assert.deepEqual(tables.wallet_identities.filter(r => r.user_id === user.id).map(r => r.kind), ['device'], 'unlinking Tapit keeps the phone key');
 assert.equal((await call('wallet-signin-verify', { grant: await proof(WORDS) })).statusCode, 200, 'still signs in with the words');
 pass('Tapit link and unlink touch only the Tapit key');
+
+// 7. Key-made sessions (slice 3): a key login comes with a one-time claim;
+//    only the same account's new session can redeem it, once, in time.
+{
+  const { isKeySession } = await import(F('_key-account.js'));
+  const db = { from };
+  const login = await call('wallet-signin-verify', { grant: await proof(WORDS) });
+  const claim = login.body.key_session_claim;
+  assert.match(claim, /^[0-9a-f]{64}$/);
+  assert.ok(!JSON.stringify(tables.key_session_claims).includes(claim), 'only the hash is stored');
+  const SID = '0000aaaa-1111-2222-3333-444455556666';
+  caller = 'u-intruder'; callerSession = SID;
+  assert.equal((await call('key-session', { claim })).statusCode, 403, "another account cannot redeem it");
+  caller = user.id; callerSession = SID;
+  assert.equal((await call('key-session', { claim })).statusCode, 200);
+  assert.equal(await isKeySession(db, { sub: user.id, session_id: SID }), true);
+  assert.equal(await isKeySession(db, { sub: 'u-intruder', session_id: SID }), false);
+  assert.equal(await isKeySession(db, { sub: user.id, session_id: '9999aaaa-1111-2222-3333-444455556666' }), false);
+  callerSession = '1111bbbb-1111-2222-3333-444455556666';
+  assert.equal((await call('key-session', { claim })).statusCode, 409, 'a claim works once');
+  const late = (await call('wallet-signin-verify', { grant: await proof(WORDS) })).body.key_session_claim;
+  tables.key_session_claims.at(-1).expires_at = new Date(Date.now() - 1000).toISOString();
+  assert.equal((await call('key-session', { claim: late })).statusCode, 410, 'an expired claim is refused');
+  assert.equal((await call('key-session', { claim: 'zz' })).statusCode, 400);
+  callerSession = undefined;
+  const fresh = (await call('wallet-signin-verify', { grant: await proof(WORDS) })).body.key_session_claim;
+  assert.equal((await call('key-session', { claim: fresh })).statusCode, 400, 'a session with no id cannot be recorded');
+  const signup = await call('key-signup', { grant: await proof(generateMnemonic(wordlist, 256)) });
+  assert.match(signup.body.key_session_claim, /^[0-9a-f]{64}$/, 'sign-up hands one out too');
+  caller = null;
+}
+pass('key-made sessions: one-time claim, own account only, once, in time, hashed at rest');
 
 console.log(`key-account tests passed (${n} cases)`);

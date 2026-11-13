@@ -18,6 +18,7 @@ import { getSupabaseAdmin } from "./_supabase.js";
 import { json } from "./_auth.js";
 import { verifySignIn } from "tapit-attest";
 import { extractSignInAttestation } from "./_wallet-signin.js";
+import { issueKeySessionClaim } from "./_key-account.js";
 
 export async function handler(event) {
   if (event.httpMethod !== "POST") {
@@ -99,5 +100,8 @@ export async function handler(event) {
     return json(500, { error: "Could not establish a session" });
   }
 
-  return json(200, { ok: true, email, token_hash: linkData.properties.hashed_token });
+  // A key proof earned this login: hand back a one-time claim so the new
+  // session can be recorded as key-made (key-session.js; slice 3).
+  const key_session_claim = await issueKeySessionClaim(supabase, identity.user_id);
+  return json(200, { ok: true, email, token_hash: linkData.properties.hashed_token, key_session_claim });
 }

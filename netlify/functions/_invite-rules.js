@@ -15,6 +15,14 @@
  * Operator's decisions (chips, 2026-11-11): email-bound; confirmation
  * ALWAYS, test coins included; two-step sign-in to join a real-bitcoin
  * vault; a password-protected phone key or a hardware wallet.
+ *
+ * Changed 2026-11-13, email-free sign-in slice 3 (operator's chips,
+ * docs/key-signin-build-note.md): the email is now OPTIONAL. An invite
+ * with no email is link-only -- gate 1 is off for it, and gate 3 (the
+ * owner confirms the key's fingerprint with the person) is what stands
+ * between a forwarded link and the vault. An invite WITH an email keeps
+ * gate 1 exactly as before. And a session made by proving a key counts
+ * like two-step sign-in for joining a real-bitcoin vault.
  */
 import { assertNotPrivateExtendedKey, pubkeyFromXpub } from "./_xpub.js";
 
@@ -58,9 +66,9 @@ export function checkPathInvite(vault, { leaf_id, invited_label, invited_email, 
   }
   const label = typeof invited_label === "string" ? invited_label.trim() : "";
   if (!label || label.length > 80) throw new Error("Give the person's name (up to 80 characters).");
-  const email = typeof invited_email === "string" ? invited_email.trim().toLowerCase() : "";
-  if (!EMAIL.test(email)) throw new Error("Give the email address this person signs in with.");
-  return { role: roleForPath(leaf), label, email, mustSign };
+  const typed = typeof invited_email === "string" ? invited_email.trim().toLowerCase() : "";
+  if (typed && !EMAIL.test(typed)) throw new Error("That email address does not look right. Fix it, or leave it empty for a link-only invite.");
+  return { role: roleForPath(leaf), label, email: typed || null, mustSign };
 }
 
 /** The signed-in account must BE the invited address. */
@@ -71,8 +79,15 @@ export function emailMatches(signedInEmail, invitedEmail) {
 
 /** Joining a real-bitcoin vault needs a session that has passed the
  *  second step, whether or not the account would otherwise be let in. */
-export function joinAllowedAtAal(network, aal) {
-  return network !== "bitcoin" || aal === "aal2";
+export function joinAllowedAtAal(network, aal, keySession = false) {
+  return network !== "bitcoin" || aal === "aal2" || keySession === true;
+}
+
+/** Does this invite let the signed-in account in? A link-only invite (no
+ *  email) does; an email invite only for that address. */
+export function inviteEmailAllows(signedInEmail, invitedEmail) {
+  if (invitedEmail == null || String(invitedEmail).trim() === "") return true;
+  return emailMatches(signedInEmail, invitedEmail);
 }
 
 /**

@@ -71,16 +71,37 @@ async function proofFor(mnemonic: string): Promise<{ attestation: unknown }> {
   return { attestation };
 }
 
-async function redeem(tokenHash: unknown): Promise<void> {
-  const { error } = await supabase.auth.verifyOtp({ token_hash: String(tokenHash), type: 'magiclink' });
+async function redeem(payload: Record<string, unknown>): Promise<void> {
+  const { error } = await supabase.auth.verifyOtp({ token_hash: String(payload.token_hash), type: 'magiclink' });
   if (error) throw new Error(error.message);
+  await recordKeySession(payload.key_session_claim);
+}
+
+/**
+ * Tell the server THIS new session was made by proving a key, so it counts
+ * for joining a real-bitcoin vault (operator's chip: "Key sign-in is
+ * enough"). Best effort: if it fails, sign-in still worked and only that
+ * join asks for the authenticator code instead.
+ */
+export async function recordKeySession(claim: unknown): Promise<boolean> {
+  if (typeof claim !== 'string' || !claim) return false;
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) return false;
+    const res = await fetch(`${API}/key-session`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ claim }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 /** Make the account. Called with the words the backup step just checked. */
 export async function createAccountWithWords(keyId: string, mnemonic: string, displayName: string): Promise<void> {
   const grant = await proofFor(mnemonic);
-  const { token_hash } = await post('key-signup', { grant, display_name: displayName });
-  await redeem(token_hash);
+  await redeem(await post('key-signup', { grant, display_name: displayName }));
   remember(keyId);
 }
 
@@ -90,8 +111,7 @@ export async function signInWithThisPhone(password?: string): Promise<void> {
   if (!k) throw new Error('There is no sign-in key on this phone. Sign in with your 24 words.');
   const mnemonic = await revealMnemonic(k.keyId, password);
   const grant = await proofFor(mnemonic);
-  const { token_hash } = await post('wallet-signin-verify', { grant });
-  await redeem(token_hash);
+  await redeem(await post('wallet-signin-verify', { grant }));
 }
 
 /**
@@ -106,8 +126,7 @@ export async function signInWithWords(words: string, keepWithPassword?: string):
   if (!seen.lengthOk || !seen.valid) throw new Error('These words are not a valid recovery phrase. Check them against your written copy.');
   const mnemonic = seen.words.join(' ');
   const grant = await proofFor(mnemonic);
-  const { token_hash } = await post('wallet-signin-verify', { grant });
-  await redeem(token_hash);
+  await redeem(await post('wallet-signin-verify', { grant }));
 
   // Already on this phone (same words under a vault key)? Use that one.
   // Matched by public key worked out from the typed words -- nothing on

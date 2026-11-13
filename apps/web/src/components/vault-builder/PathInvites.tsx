@@ -162,8 +162,9 @@ export function PathInvites({
             <div key={p.invite.id} style={row}>
               <strong>{p.invite.invited_label}</strong> -- waiting for them to join
               <div style={sub}>
-                Send them this link yourself. It only works when they sign in as {p.invite.invited_email}, and it
-                expires on {new Date(p.invite.expires_at).toLocaleDateString()}.
+                {p.invite.invited_email
+                  ? <>Send them this link yourself. It only works when they sign in as {p.invite.invited_email}, and it expires on {new Date(p.invite.expires_at).toLocaleDateString()}.</>
+                  : <>Send them this link yourself, privately: anyone who has it can ask to join, so you will confirm their key with them before it can go in the vault. It expires on {new Date(p.invite.expires_at).toLocaleDateString()}.</>}
               </div>
               <div style={{ fontFamily: fonts.mono, fontSize: 16, color: colors.muted, wordBreak: 'break-all', marginBottom: space[2] }}>
                 {linkFor(p.invite)}
@@ -229,20 +230,20 @@ export function PathInvites({
             <Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Anna" required maxLength={80} />
           </div>
           <div>
-            <Label>The email they sign in with</Label>
+            <Label>The email they sign in with (optional)</Label>
             <Input
               type="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
-              placeholder="anna@example.com"
+              placeholder="Leave empty if they sign in with a key"
               autoCapitalize="none"
               autoCorrect="off"
-              required
             />
           </div>
           <div style={{ fontSize: 17, color: colors.sub, lineHeight: 1.55 }}>
-            You get a link to send them. Only that email address can use it, and their key goes into the vault
-            only after you confirm it with them.
+            You get a link to send them. With an email, only that address can use it. Without one, anyone with the
+            link can ask to join -- send it privately. Either way, their key goes into the vault only after you confirm
+            it with them.
             {mustSign ? ' Their invite page tells them nothing on this path can move without them, and recommends a hardware wallet.' : ''}
           </div>
           {err && <div style={{ fontSize: 17, color: colors.red }}>{err}</div>}

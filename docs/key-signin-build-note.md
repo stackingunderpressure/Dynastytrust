@@ -34,6 +34,10 @@ hooked to the Supabase I think."
    proof, because a Supabase session cannot show how it was made.
 4. Order: phone key + Face ID first.
 
+## Status
+Slice 1 shipped 2026-11-13 (f226b54). Slice 3 built 2026-11-13 (see HISTORY.md).
+Slice 2 (hardware wallet sign-in) and slice 4 are open.
+
 ## Slices
 1. Create an account with a phone key (24 words, backup check, Face ID lock),
    sign in with Face ID, recover from the words. FIRST: prove on the live

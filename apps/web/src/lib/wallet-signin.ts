@@ -21,6 +21,7 @@
 
 import { schnorr } from '@noble/curves/secp256k1';
 import { supabase } from './supabase';
+import { recordKeySession } from './key-account';
 
 const API = '/api';
 
@@ -265,6 +266,8 @@ export async function completeTapitCallback(cb: TapitCallback): Promise<TapitRes
     type: 'magiclink',
   });
   if (error) throw new Error(error.message);
+  // A Tapit key proof earned this session too: record it as key-made.
+  await recordKeySession(payload.key_session_claim);
 
   return { mode: 'signin' };
 }

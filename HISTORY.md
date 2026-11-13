@@ -106,6 +106,37 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Email-free sign-in, slice 3: link-only invites + key sign-in counts
+  for real bitcoin -- 2026-11-13, on the branch.** Operator: "Slice 3 go".
+  Decisions (chips): invites by link + the owner confirming the key; "Key
+  sign-in is enough" to join a real-bitcoin vault. Built: the path-invite
+  email is optional (`checkPathInvite` -> email null = link-only); the
+  claim lets anyone signed in use a link-only invite, an email invite
+  still only its own address (a key account gets a plain message to ask
+  for a link-only one); gate 3 (owner confirms the fingerprint) is
+  unchanged and is what stands behind a forwarded link. Key-made
+  sessions: a Supabase session cannot show how it was made (live: aal1 /
+  amr otp either way), so key-signup and wallet-signin-verify (Tapit too)
+  return a one-time claim with the login token; the browser redeems the
+  token, then posts the claim with its NEW access token to
+  `key-session.js`, which records the verified JWT's session_id
+  (migration 20261113030000: `key_session_claims` hashed, single-use,
+  10 min; `key_sessions`; RLS on, no policies). `invites-claim` accepts a
+  real-bitcoin join when aal2 OR that session is recorded for that same
+  account. Owner form: email "(optional)", link-only wording says send it
+  privately; join page and two-step help mention signing in with a key.
+  Tests: invite-rules 7 (updated), invite-handlers 9 (new case: link-only
+  join by a key account, email invite refused, real bitcoin refused
+  one-step, refused with another account's key-session record, allowed
+  with its own), key-account 7 (new: claim hashed at rest, own account
+  only, once, expiry, no-session-id refused). Migration run twice on
+  local Postgres. Walked at 375px with the real handlers: a key-session
+  row recorded after creating the account and after Face ID sign-in; a
+  link-only invite page shows the key box and no email hint; 0px
+  sideways; no page errors. Measured: npm test green, lint 0 errors / 11
+  warnings, typecheck 10 errors (same set), build green. NOT seen: a real
+  join on the live site.
+
 - **Email-free sign-in, slice 1: your 24 words are your account --
   2026-11-13, on the branch, NOT on main.** Operator: "never have an email
   and only sign in with your key ... create one there with a password and

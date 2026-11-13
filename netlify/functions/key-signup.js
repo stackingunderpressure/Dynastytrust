@@ -16,7 +16,7 @@
  */
 import { getSupabaseAdmin } from "./_supabase.js";
 import { json } from "./_auth.js";
-import { proveKeyControl, consumeChallenge, mintSession, placeholderEmail, cleanDisplayName } from "./_key-account.js";
+import { proveKeyControl, consumeChallenge, mintSession, placeholderEmail, cleanDisplayName, issueKeySessionClaim } from "./_key-account.js";
 
 export async function handler(event) {
   if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
@@ -57,5 +57,6 @@ export async function handler(event) {
 
   const session = await mintSession(supabase, userId);
   if (session.error) return json(session.status, { error: session.error });
-  return json(200, { ok: true, token_hash: session.token_hash });
+  const key_session_claim = await issueKeySessionClaim(supabase, userId);
+  return json(200, { ok: true, token_hash: session.token_hash, key_session_claim });
 }

@@ -34,9 +34,11 @@ const inv = (o, v = draft) => () => r.checkPathInvite(v, { leaf_id: 'kids', invi
 assert.throws(inv({ leaf_id: 'nope' }), /not part of this vault/);
 assert.throws(inv({ invited_label: '  ' }), /person's name/);
 assert.throws(inv({ invited_label: 'x'.repeat(81) }), /person's name/);
-for (const bad of ['', 'anna', 'anna@', '@x.com', 'a b@x.com', 'anna@x', undefined, 7]) assert.throws(inv({ invited_email: bad }), /email address/, String(bad));
+for (const bad of ['anna', 'anna@', '@x.com', 'a b@x.com', 'anna@x']) assert.throws(inv({ invited_email: bad }), /email address/, String(bad));
+// Since 2026-11-13: no email at all is a link-only invite (owner confirms the key).
+for (const none of ['', '   ', undefined, null, 7]) assert.equal(inv({ invited_email: none })().email, null, String(none));
 assert.throws(inv({}, { ...draft, status: 'compiled' }), /only be invited while the vault is still being set up/);
-pass('a path invite needs a real path, a name and an email, on a vault still being set up; the role follows the path');
+pass('a path invite needs a real path and a name on a vault still being set up; an email is optional but must be real if given; the role follows the path');
 
 // 1b. An invite into a path's must-sign group.
 {
@@ -59,7 +61,11 @@ pass('a must-sign invite needs a path that has must-sign slots, and never more i
 // 2. The link is for one address.
 assert.equal(r.emailMatches('Anna@Example.com ', 'anna@example.com'), true);
 for (const [a, b] of [['mallory@example.com', 'anna@example.com'], [undefined, 'anna@example.com'], ['anna@example.com', null], ['', ''], ['anna@example.com.evil.io', 'anna@example.com']]) assert.equal(r.emailMatches(a, b), false);
-pass('only the invited email address matches; a missing or look-alike address does not');
+assert.equal(r.inviteEmailAllows('k-1@keys.dynastytrust.family', null), true, 'a link-only invite lets a key account in');
+assert.equal(r.inviteEmailAllows(undefined, ''), true);
+assert.equal(r.inviteEmailAllows('k-1@keys.dynastytrust.family', 'anna@example.com'), false, 'an email invite never lets a key account in');
+assert.equal(r.inviteEmailAllows('Anna@example.com', 'anna@example.com'), true);
+pass('only the invited email address matches; a missing or look-alike address does not; a link-only invite needs no email');
 
 // 3. Real bitcoin needs the second step.
 assert.equal(r.joinAllowedAtAal('bitcoin', 'aal2'), true);
@@ -67,7 +73,9 @@ assert.equal(r.joinAllowedAtAal('bitcoin', 'aal1'), false);
 assert.equal(r.joinAllowedAtAal('bitcoin', undefined), false);
 assert.equal(r.joinAllowedAtAal('signet', 'aal1'), true);
 assert.equal(r.joinAllowedAtAal('testnet', undefined), true);
-pass('joining a real-bitcoin vault needs a two-step session; test networks do not');
+assert.equal(r.joinAllowedAtAal('bitcoin', 'aal1', true), true, 'a key-made session counts');
+assert.equal(r.joinAllowedAtAal('bitcoin', 'aal1', 'yes'), false, 'only a real true counts');
+pass('joining a real-bitcoin vault needs a two-step or key-made session; test networks do not');
 
 // 4. The submitted key must be what it claims to be.
 const key = ({ xprv: _x, ...k }) => k;

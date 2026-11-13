@@ -68,7 +68,7 @@ const call = async (fn, method, { body, query } = {}) => {
   const r = await H[fn]({ httpMethod: method, body: body ? JSON.stringify(body) : undefined, queryStringParameters: query ?? {} });
   return { status: r.statusCode, ...JSON.parse(r.body) };
 };
-const as = (userId, email, aal = 'aal1') => { who = userId ? { userId, claims: { sub: userId, email, aal } } : null; };
+const as = (userId, email, aal = 'aal1', session_id = undefined) => { who = userId ? { userId, claims: { sub: userId, email, aal, session_id } } : null; };
 
 const OWNER = 'u-dad';
 const vault = { id: 'v1', user_id: OWNER, name: 'Family vault', network: 'signet', status: 'draft', address_type: 'tr_multileaf', consent_keys: [], consent_quorum: null,
@@ -239,6 +239,41 @@ pass('a confirmed key cannot be changed; an unconfirmed one can, with the same c
   assert.equal(r.status, 201, 'a removed member no longer holds the slot');
 }
 pass("a person can be invited into a path's must-sign slot (never more than it has), is told so, joins into that group, and cannot be finalized there unconfirmed");
+
+// 6b. Email-free sign-in, slice 3 (2026-11-13): link-only invites and
+//     key-made sessions.
+{
+  as(OWNER, 'dad@example.com');
+  r = await call('invites', 'POST', { body: { vault_id: 'v1', leaf_id: 'kids', invited_label: 'Sam', invited_email: '' } });
+  assert.equal(r.status, 201, JSON.stringify(r));
+  const linkOnly = tables.vault_invites.find(i => i.invited_label === 'Sam');
+  assert.equal(linkOnly.invited_email ?? null, null);
+  as(null);
+  r = await call('invites-lookup', 'GET', { query: { token: linkOnly.token } });
+  assert.equal(r.invite.email_hint, null);
+  // A key account (never-mailed placeholder) joins a link-only invite...
+  const samKey = mk(7, TEST, "m/48'/1'/0'/2'");
+  as('u-sam', 'k-0011aa@keys.dynastytrust.family');
+  r = await claim(samKey, linkOnly.token); assert.equal(r.status, 200, JSON.stringify(r));
+  const sam = tables.vault_members.find(m => m.vault_id === 'v1' && m.user_id === 'u-sam');
+  assert.ok(sam && !sam.key_confirmed_at, 'the owner still has to confirm the key');
+  // ...but never an invite that was made for an email.
+  tables.vault_invites.push({ id: 'i-mail', vault_id: 'v1', invited_role: 'heir', invited_label: 'Kim', invited_email: 'kim@example.com', leaf_id: 'kids', token: 'tok-mail', expires_at: new Date(Date.now() + 1e9).toISOString(), claimed_at: null });
+  as('u-kim-key', 'k-0022bb@keys.dynastytrust.family');
+  r = await claim(mk(8, TEST, "m/48'/1'/0'/2'"), 'tok-mail'); assert.equal(r.status, 403); assert.match(r.error, /signed in with your key/);
+  // Real bitcoin: a one-step session is refused; a key-made session is let in;
+  // a key-made record for SOMEONE ELSE's session does not count.
+  tables.vault_invites.push({ id: 'i-main2', vault_id: 'v-main', invited_role: 'heir', invited_label: 'Lee', invited_email: null, leaf_id: 'kids', token: 'tok-main2', expires_at: new Date(Date.now() + 1e9).toISOString(), claimed_at: null });
+  const leeMain = mk(9, MAIN, "m/48'/0'/0'/2'");
+  const SID = '11111111-2222-3333-4444-555555555555';
+  as('u-lee', 'k-0033cc@keys.dynastytrust.family', 'aal1', SID);
+  r = await claim(leeMain, 'tok-main2'); assert.equal(r.status, 403); assert.equal(r.needs_two_step, true);
+  tables.key_sessions = [{ session_id: SID, user_id: 'u-someone-else' }];
+  r = await claim(leeMain, 'tok-main2'); assert.equal(r.status, 403, 'a key session of another account must not count');
+  tables.key_sessions = [{ session_id: SID, user_id: 'u-lee' }];
+  r = await claim(leeMain, 'tok-main2'); assert.equal(r.status, 200, JSON.stringify(r));
+}
+pass('a link-only invite lets a key account join (owner confirmation still required); an email invite never does; on real bitcoin a key-made session counts, only for its own account');
 
 // 7. Nobody new can join once the vault is finalized.
 tables.vault_invites.push({ id: 'i-late', vault_id: 'v1', invited_role: 'heir', invited_label: 'Late', invited_email: 'late@example.com', leaf_id: 'kids', token: 'tok-late', expires_at: new Date(Date.now() + 1e9).toISOString(), claimed_at: null });
