@@ -6,6 +6,7 @@ import { getNostrRelays } from '../lib/nostrRelayPrefs';
 import { NostrTransport } from '@dynastytrust/nostr-transport';
 import { subscribeCirclePhraseAcks } from '../lib/circle-phrase-ack-channel';
 import { wrapSentSecret } from '../lib/sent-secrets';
+import { serverSecretPasswordProblem } from '../lib/password-rules';
 import { api, type CirclePhraseDelivery } from '../lib/api';
 import { colors, radii, space } from '../theme';
 import { Button, Input, Label } from './ui';
@@ -289,8 +290,10 @@ export function CirclePhraseSetup({
     const password = await askPassword({
       title: 'Save a recoverable copy',
       message:
-        "Set a password to encrypt this phrase pair for later recall. You'll need this exact password to reveal it again -- there is no reset, so pick one you'll actually remember.",
+        "Set a password to encrypt this phrase pair for later recall. You'll need this exact password to reveal it again -- there is no reset, so pick one you'll actually remember. The locked copy is kept on our server, so it needs at least 12 characters: four or more unrelated words is ideal.",
       password: true,
+      placeholder: 'Four unrelated words is ideal',
+      check: v => serverSecretPasswordProblem(v),
       confirmLabel: 'Save',
     });
     if (!password) return;

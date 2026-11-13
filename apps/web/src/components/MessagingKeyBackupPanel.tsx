@@ -7,6 +7,7 @@ import {
   wrapMessagingKeyForBackup,
   unwrapMessagingKeyFromBackup,
 } from "../lib/messaging";
+import { passwordHint, serverSecretPasswordProblem } from "../lib/password-rules";
 import { colors, radii } from "../theme";
 import { Button, Input } from "./ui";
 import { useToast } from "./toast";
@@ -65,8 +66,10 @@ export function MessagingKeyBackupPanel({
   }, [check, refreshToken]);
 
   async function backUp() {
-    if (passphrase.length < 8) {
-      toast.error("Use at least 8 characters for your recovery passphrase.");
+    // The backup lives on the server, so it gets the strong rule (threat model I).
+    const weak = serverSecretPasswordProblem(passphrase);
+    if (weak) {
+      toast.error(weak);
       return;
     }
     if (passphrase !== confirmPassphrase) {
@@ -181,6 +184,11 @@ export function MessagingKeyBackupPanel({
         onChange={e => setPassphrase(e.target.value)}
         style={{ fontSize: 16 }}
       />
+      {!isMismatch && (
+        <div style={{ fontSize: 15, color: passwordHint(passphrase, "mainnet").level === "weak" ? colors.orange : colors.sub, lineHeight: 1.5 }}>
+          {passwordHint(passphrase, "mainnet").text}
+        </div>
+      )}
       {!isMismatch && (
         <Input
           type="password"

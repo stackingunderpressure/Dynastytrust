@@ -12,6 +12,7 @@
  */
 
 import { createRemoteJWKSet, jwtVerify } from "jose";
+import { placeholderAccountAllowed, currentAppMeta } from "./_placeholder-guard.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 if (!SUPABASE_URL) throw new Error("Missing env: SUPABASE_URL");
@@ -41,14 +42,10 @@ const FACTOR_TTL_MS = 60_000;
 /**
  * Does this account have a verified authenticator?
  *
- * ON A LOOKUP ERROR THIS RETURNS false (the step is not asked for) and
- * logs loudly. That is a deliberate, temporary choice: this check runs
- * in front of every function, it could not be exercised against the
- * live project when it was written (2026-11-10), and failing closed on
- * an untested lookup would turn one wrong assumption into a total
- * outage for every account. Once the operator has witnessed real
- * lookups succeeding in the function logs, flip this to throw -- see
- * docs/security-backlog.md item 10.
+ * Returns true / false, or null when the lookup failed -- and requireUser
+ * then refuses a password-only (aal1) request. It was fail-open until the
+ * lookup was proven on the live project (2026-11-13, see the catch below
+ * and docs/security-backlog.md item 10).
  */
 export async function hasVerifiedFactor(userId) {
   const hit = FACTOR_CACHE.get(userId);
@@ -120,6 +117,12 @@ export async function requireUser(event, { allowQueryToken = false } = {}) {
         return { error: "Two-step sign-in required: enter your authenticator code to continue" };
       }
     }
+
+    // Threat model J: a never-mailed username/Tapit address this app did
+    // not make (someone used Supabase's public sign-up with it) never acts.
+    const allowed = await placeholderAccountAllowed(payload, currentAppMeta);
+    if (allowed === null) return { error: "Could not check this account just now. Try again in a moment." };
+    if (!allowed) return { error: "This account was not made by DynastyTrust. Sign in with your own username, email or Tapit wallet." };
 
     return { userId: payload.sub, claims: payload };
   } catch (err) {

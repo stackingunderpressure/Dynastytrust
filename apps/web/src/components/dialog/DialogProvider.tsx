@@ -34,6 +34,9 @@ interface PromptOpts {
   // When set, the confirm button stays disabled until the typed value matches
   // this string exactly (used for "type the name to delete" guards).
   matchValue?: string;
+  // When set, a non-null answer is shown under the field as the reason the
+  // value cannot be used yet, and the confirm button stays disabled.
+  check?: (value: string) => string | null;
 }
 
 interface DialogApi {
@@ -133,7 +136,8 @@ function PromptDialog({
   onSubmit: (value: string) => void;
 }) {
   const [value, setValue] = useState(opts.defaultValue ?? '');
-  const matchOk = opts.matchValue == null || value === opts.matchValue;
+  const problem = opts.check ? opts.check(value) : null;
+  const matchOk = (opts.matchValue == null || value === opts.matchValue) && !problem;
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -152,6 +156,9 @@ function PromptDialog({
           placeholder={opts.placeholder}
           onChange={e => setValue(e.target.value)}
         />
+        {problem && value && (
+          <div style={{ fontSize: 15, color: colors.orange, lineHeight: 1.5 }}>{problem}</div>
+        )}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <Button type="button" variant="ghost" onClick={onCancel}>
             Cancel

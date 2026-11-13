@@ -9,14 +9,23 @@
  */
 
 import { encryptText, decryptBlobAnyRounds, type EncryptedBlob } from './keystore';
+import { serverSecretPasswordProblem } from './password-rules';
 
 /** Encrypt an arbitrary set of secret fields (e.g. { normalPhrase,
  *  duressPhrase }) under a password the owner sets. The server only
- *  ever receives the returned blob. */
+ *  ever receives the returned blob.
+ *
+ *  Threat model item I: the blob sits on the server, so a database leak
+ *  lets anyone guess its password offline, at their own speed. The
+ *  password is therefore held to the real-bitcoin rule whatever the
+ *  vault's network -- the duress phrase inside is real-world safety, not
+ *  test coins. An older blob under a weaker password still opens. */
 export async function wrapSentSecret(
   fields: Record<string, string>,
   password: string,
 ): Promise<EncryptedBlob> {
+  const weak = serverSecretPasswordProblem(password);
+  if (weak) throw new Error(weak);
   return encryptText(JSON.stringify(fields), password);
 }
 

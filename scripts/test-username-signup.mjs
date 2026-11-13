@@ -15,7 +15,11 @@ const auth = { admin: { createUser: async (o) => {
   if (made.some(u => u.email === o.email)) return { data: null, error: { message: 'A user with this email address has already been registered' } };
   made.push(o); return { data: { user: { id: 'u' + made.length } }, error: null };
 } } };
-mock.module(F('_supabase.js'), { namedExports: { getSupabaseAdmin: () => ({ auth, from: () => { throw new Error('no table use expected'); } }) } });
+// placeholder_account: who holds a name (threat model J); rate_hit otherwise.
+const rpc = async (name, a) => name === 'placeholder_account'
+  ? { data: made.filter(u => u.email === a.p_email).map((u, i) => ({ id: 'u' + (i + 1), confirmed: true, made_by: u.app_metadata?.dt_made_by ?? null })), error: null }
+  : { data: 1, error: null };
+mock.module(F('_supabase.js'), { namedExports: { getSupabaseAdmin: () => ({ auth, rpc, from: () => { throw new Error('no table use expected'); } }) } });
 mock.module(F('_auth.js'), { namedExports: { requireUser: async () => ({ error: 'n/a' }), json: (statusCode, body) => ({ statusCode, body }) } });
 const srv = await import(F('username-signup.js'));
 const web = await import('../apps/web/src/lib/username.ts');
@@ -26,7 +30,7 @@ const GOOD = 'river-copper-lantern-58';
 // 1. A username account: confirmed, never-mailed address, name defaults to the username.
 let r = await call({ username: '  Grandpa.Joe ', password: GOOD });
 assert.equal(r.statusCode, 200, JSON.stringify(r.body));
-assert.deepEqual(made[0], { email: 'grandpa.joe@users.dynastytrust.family', password: GOOD, email_confirm: true, user_metadata: { display_name: 'grandpa.joe', username: 'grandpa.joe', signin: 'username' } });
+assert.deepEqual(made[0], { email: 'grandpa.joe@users.dynastytrust.family', password: GOOD, email_confirm: true, user_metadata: { display_name: 'grandpa.joe', username: 'grandpa.joe', signin: 'username' }, app_metadata: { dt_made_by: 'username-signup' } });
 assert.equal(web.signInAddress(' Grandpa.Joe '), made[0].email, 'the browser signs in at the same address');
 assert.equal(web.signInAddress('anna@example.com'), 'anna@example.com', 'an email is used as typed');
 pass('a username account: confirmed, never-mailed address, same address at sign-in');

@@ -106,6 +106,59 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Threat model 2026-11-13: holes A, B, C, D, F, H, I, J closed on the
+  branch, NOT on main.** Operator: "help me understand where an attacker
+  could find vulnerabilities of each stage of a vault ... we're not leaving
+  any holes". Written up in docs/threat-model-2026-11-13.md; chips: fix all
+  four groups. (D) e2f09a0 -- the live-check workflow holding the database
+  master token runs by hand only, never on a branch push. (A) e54b668 --
+  migration 20261113040000 drops all 16 client write policies (three were
+  June `for all` policies that let an owner session rewrite its own
+  vault's descriptor AND address together, past every server check and
+  past the in-browser address check) and revokes write grants from the
+  browser roles. Proven before/after on a real Postgres with Supabase's
+  roles and default grants (scripts/test-no-client-writes-db.sh): before,
+  the address became `bc1p-attacker`; after, refused. (B) 76d76bb -- every
+  phone pins each finalized vault's address the first time it opens it
+  and stops on any change (lib/vault-pin.ts), and a member's own joined
+  key must be in the descriptor (each xpub's /0/0 child derived, not
+  string-compared); offline harness checks the own-key test on 76
+  compiled vaults. (C) 1053a17 -- finishing a real-bitcoin vault needs a
+  two-step (aal2) or Tapit key session, at all six finalize paths, refused
+  before the compiler is asked; new email accounts and resets meet the
+  strong password rule; the two-step factor lookup fails CLOSED, flipped
+  only after it was proven live (run 43465741702, HTTP 200). (F)+(H)
+  ca8a587 -- the key-confirm prompt says never confirm from a text; per-
+  connection limits on sign-in challenges (30/10 min) and account creation
+  (5/hour), atomic counter and challenge cleanup in migration
+  20261113050000, fail-open on a counter outage. (I) saved circle phrases
+  and the messaging-key backup sit on the server, so their passwords now
+  meet the strong rule whatever the vault's network
+  (password-rules.ts `serverSecretPasswordProblem`, enforced in
+  sent-secrets.ts and messaging.ts, shown live in both dialogs); older
+  blobs still open. (J) username/Tapit accounts this app makes carry
+  app_metadata.dt_made_by (the public sign-up cannot set it); requireUser
+  refuses an unmarked account at either never-mailed domain (fresh lookup
+  when the token predates the mark, fail-closed); username-signup removes
+  an unmarked squatter on the name; migration 20261113060000 backfills the
+  mark on existing accounts (caveat in the file: a squatter made before
+  today cannot be told apart) and adds the server-only placeholder_account
+  lookup. Found while doing J, read live (run 43467126830, read-only):
+  the project AUTO-CONFIRMS every email sign-up (mailer_autoconfirm true)
+  and has NO mail sender of its own (Supabase's built-in one, 2 emails an
+  hour, team addresses only), so anyone can make an account at an email
+  they do not own, and an email-bound invite is not really bound. The
+  operator chose to require the email code; that needs a mail sender
+  first -- open. Also confirmed live: password_min_length is the right
+  field name (value 6 until the hand-run auth deploy). Tests: finalize-
+  guard 3, auth-failclosed 2, rate-limit 3, vault-pin 5, secret-
+  passphrase 3, placeholder-guard 4 (fails on the old _auth.js),
+  username-signup 2 (updated for the mark), real-Postgres 21 checks.
+  Measured: npm test green, lint 0 errors / 11 warnings, typecheck 10
+  errors (same set), build green. NOT done: E (messaging safety codes), G
+  (Tapit challenge binding), K (mempool privacy, noted only). NOT seen:
+  any of it on the operator's phone or live -- none is on main.
+
 - **Sign-in rethought: email, username, or sovereign Tapit; Face ID right
   after -- 2026-11-13, on the branch.** Operator: "I don't like signing in
   with key. It's too much garble ... the most sovereign way is run your

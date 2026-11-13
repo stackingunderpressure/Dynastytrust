@@ -19,8 +19,9 @@ import { getSupabaseAdmin } from "./_supabase.js";
 import { json } from "./_auth.js";
 import { overLimit, TOO_MANY } from "./_rate-limit.js";
 import { cleanDisplayName } from "./_key-account.js";
+import { USERNAME_DOMAIN, madeByUs } from "./_placeholder-guard.js";
 
-export const USERNAME_DOMAIN = "users.dynastytrust.family";
+export { USERNAME_DOMAIN };
 const USERNAME = /^[a-z0-9][a-z0-9_.-]{2,29}$/;
 const FIRST_GUESSES = ["password", "passwort", "bitcoin", "satoshi", "dynastytrust", "dynasty", "qwerty", "letmein", "iloveyou", "welcome", "admin", "123456", "abc123"];
 
@@ -53,15 +54,30 @@ export async function handler(event) {
   // Threat model H: account creation (and "is this name taken" probing) is
   // limited per connection.
   if (await overLimit(supabase, { name: "username-signup", event, max: 5, windowSeconds: 3600 })) return json(429, { error: TOO_MANY });
-  const { data, error } = await supabase.auth.admin.createUser({
-    email: `${username}@${USERNAME_DOMAIN}`,
+  const email = `${username}@${USERNAME_DOMAIN}`;
+  const create = () => supabase.auth.admin.createUser({
+    email,
     password: body.password,
     email_confirm: true,
     user_metadata: { display_name: cleanDisplayName(body.display_name) ?? username, username, signin: "username" },
+    app_metadata: madeByUs("username-signup"),
   });
+  let { data, error } = await create();
   if (error || !data?.user?.id) {
     const taken = /already|registered|exists/i.test(error?.message ?? "");
-    return json(taken ? 409 : 500, { error: taken ? "That username is taken. Choose another." : "Could not create the account" });
+    if (!taken) return json(500, { error: "Could not create the account" });
+    // Threat model J: the name may be held by an account this app never
+    // made -- someone called Supabase's public sign-up with this address.
+    // Such an account can never act here (requireUser refuses it), so it
+    // is removed and the real one made. An account WE made keeps the name.
+    const { data: rows, error: lookErr } = await supabase.rpc("placeholder_account", { p_email: email });
+    const holder = Array.isArray(rows) ? rows[0] : null;
+    if (lookErr || !holder || holder.made_by) return json(409, { error: "That username is taken. Choose another." });
+    const { error: delErr } = await supabase.auth.admin.deleteUser(holder.id);
+    if (delErr) return json(500, { error: "Could not create the account" });
+    console.warn("[username-signup] removed an account this app did not make, holding a username");
+    ({ data, error } = await create());
+    if (error || !data?.user?.id) return json(409, { error: "That username is taken. Choose another." });
   }
   return json(200, { ok: true, username });
 }

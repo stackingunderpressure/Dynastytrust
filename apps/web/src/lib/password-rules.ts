@@ -55,6 +55,17 @@ export function passwordProblem(password: string, network: AnyNetwork): string |
   return null;
 }
 
+/** Why this password may not lock a secret that is STORED ON THE SERVER
+ *  (a saved circle phrase, the messaging-key backup), or null. Always the
+ *  real-bitcoin rule: a database leak allows offline guessing at the
+ *  attacker's own speed (threat model item I). */
+export function serverSecretPasswordProblem(password: string): string | null {
+  if (password.length < MIN_REAL) {
+    return `A secret kept on our server needs a password of at least ${MIN_REAL} characters. This has ${password.length}.`;
+  }
+  return passwordProblem(password, 'mainnet');
+}
+
 export interface PasswordHint { level: 'empty' | 'weak' | 'ok' | 'strong'; text: string }
 
 /** What to tell someone as they type. Never claims more than the rule knows. */

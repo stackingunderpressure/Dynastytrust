@@ -14,19 +14,15 @@
 import { verifySignIn } from "tapit-attest";
 import { extractSignInAttestation } from "./_wallet-signin.js";
 
-export const PLACEHOLDER_DOMAIN = "keys.dynastytrust.family";
+import { KEY_DOMAIN, isPlaceholderEmail } from "./_placeholder-guard.js";
+
+export const PLACEHOLDER_DOMAIN = KEY_DOMAIN;
+// A never-mailed address: a Tapit-made account, or a username account.
+export { isPlaceholderEmail };
 
 export function placeholderEmail() {
   const r = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, "0")).join("");
   return `k-${r}@${PLACEHOLDER_DOMAIN}`;
-}
-
-/** A never-mailed address: a Tapit-made account, or a username account
- *  (username-signup.js). */
-export function isPlaceholderEmail(email) {
-  if (typeof email !== "string") return false;
-  const e = email.toLowerCase();
-  return e.endsWith("@" + PLACEHOLDER_DOMAIN) || e.endsWith("@users.dynastytrust.family");
 }
 
 /** A name the person chose, safe to store and show: trimmed, no control

@@ -34,6 +34,7 @@ import { chacha20poly1305 } from '@noble/ciphers/chacha.js';
 import { randomBytes } from '@noble/hashes/utils';
 import { encryptText, decryptBlobAnyRounds, encryptWithPrfSecret, decryptWithPrfSecret, provenPasskeySecret, type EncryptedBlob, type PasskeyBlob } from './keystore';
 import { webauthnPrf, type PrfProvider } from './passkey';
+import { serverSecretPasswordProblem } from './password-rules';
 
 const MSG_KEY_STORE = 'dynastytrust:messaging:v1';
 
@@ -233,6 +234,10 @@ export async function wrapMessagingKeyForBackup(
   passphrase: string,
   prf: PrfProvider = webauthnPrf,
 ): Promise<{ pubkey: string; blob: EncryptedBlob }> {
+  // Threat model item I: this blob is stored on the server, where a leak
+  // allows offline guessing -- so the real-bitcoin password rule, always.
+  const weak = serverSecretPasswordProblem(passphrase);
+  if (weak) throw new Error(weak);
   if (messagingKeyLocked()) await unlockMessagingKey(prf);
   const { priv, pub } = ensureMessagingKey();
   const blob = await encryptText(priv, passphrase);

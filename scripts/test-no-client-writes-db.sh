@@ -26,7 +26,9 @@ $PSQL <<'SQL'
 create role anon nologin; create role authenticated nologin; create role service_role nologin bypassrls;
 create schema auth; create schema extensions;
 create extension if not exists citext;
-create table auth.users (id uuid primary key, email text);
+create table auth.users (id uuid primary key, email text, email_confirmed_at timestamptz, raw_app_meta_data jsonb);
+-- Threat model J: a username account that exists before the backfill.
+insert into auth.users values ('33333333-3333-3333-3333-333333333333', 'grandpa.joe@users.dynastytrust.family', now(), '{"provider":"email"}');
 create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('test.uid', true), '')::uuid $$;
 create function auth.jwt() returns jsonb language sql stable as $$ select '{}'::jsonb $$;
 create publication supabase_realtime;
@@ -38,12 +40,13 @@ SQL
 for f in supabase/migrations/*.sql; do
   $PSQL -f "$f" >/dev/null 2>"$DIR/err" || { echo "[no-client-writes] FAIL applying $(basename "$f")"; cat "$DIR/err"; exit 1; }
 done
-# Twice: the new migration must be safe to run again.
+# Twice: these migrations must be safe to run again.
 $PSQL -f supabase/migrations/20261113040000_no_client_writes.sql >/dev/null 2>&1
+$PSQL -f supabase/migrations/20261113060000_placeholder_accounts.sql >/dev/null
 
 OWNER=11111111-1111-1111-1111-111111111111
 $PSQL <<SQL
-insert into auth.users values ('$OWNER', 'dad@example.com');
+insert into auth.users (id, email) values ('$OWNER', 'dad@example.com');
 insert into vaults (id, user_id, name, network, address, descriptor, status)
   values ('22222222-2222-2222-2222-222222222222', '$OWNER', 'Family', 'bitcoin', 'bc1p-real', 'tr(real)', 'compiled');
 SQL
@@ -88,4 +91,13 @@ echo "$out" | grep -qi "permission denied" && ok "the browser role cannot read t
 $PSQL -c "insert into wallet_signin_challenges (nonce, challenge, audience, expires_at) values ('old', '{}', 'a', now() - interval '2 hours'), ('fresh', '{}', 'a', now() + interval '5 minutes');"
 $PSQL -c "set role service_role; select rate_housekeeping();" >/dev/null
 [ "$($PSQL -c "select string_agg(nonce, ',') from wallet_signin_challenges")" = "fresh" ] && ok "housekeeping deletes expired challenges, keeps live ones"
+# Threat model J: existing placeholder accounts are marked; a later public
+# sign-up at such an address is not; the lookup is server-only.
+[ "$($PSQL -c "select raw_app_meta_data->>'dt_made_by' from auth.users where email like 'grandpa.joe@%'")" = "backfill-2026-11-13" ] && ok "an existing username account was marked as ours"
+[ "$($PSQL -c "select raw_app_meta_data->>'provider' from auth.users where email like 'grandpa.joe@%'")" = "email" ] && ok "the backfill kept its other app_metadata"
+$PSQL -c "insert into auth.users values ('44444444-4444-4444-4444-444444444444', 'squat@users.dynastytrust.family', null, '{\"provider\":\"email\"}');"
+[ "$($PSQL -c "set role service_role; select confirmed::text || ',' || coalesce(made_by, 'none') from placeholder_account('SQUAT@users.dynastytrust.family')")" = "false,none" ] && ok "placeholder_account reports a squatter as unmarked and unconfirmed"
+[ -z "$($PSQL -c "set role service_role; select id from placeholder_account('dad@example.com')")" ] && ok "placeholder_account says nothing about an ordinary email"
+out=$($PSQL -c "set role authenticated; select * from placeholder_account('squat@users.dynastytrust.family');" 2>&1 || true)
+echo "$out" | grep -qi "permission denied" && ok "the browser role cannot call placeholder_account"
 echo "no-client-writes db tests passed ($n checks)"

@@ -17,6 +17,7 @@
 import { getSupabaseAdmin } from "./_supabase.js";
 import { json } from "./_auth.js";
 import { overLimit, TOO_MANY } from "./_rate-limit.js";
+import { madeByUs } from "./_placeholder-guard.js";
 import { proveKeyControl, consumeChallenge, mintSession, placeholderEmail, cleanDisplayName, issueKeySessionClaim } from "./_key-account.js";
 
 export async function handler(event) {
@@ -43,6 +44,7 @@ export async function handler(event) {
     email: placeholderEmail(),
     email_confirm: true,
     user_metadata: { display_name: displayName, signin: "key" },
+    app_metadata: madeByUs("key-signup"), // threat model J: only marked placeholder accounts may act
   });
   const userId = created?.user?.id;
   if (createErr || !userId) return json(500, { error: "Could not create the account" });
