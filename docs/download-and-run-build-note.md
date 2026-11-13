@@ -111,3 +111,9 @@ calls, the ported checks with parity tests, Bitcoin Core as the chain
 source, the desktop shell built for Linux in CI first; walked against a
 private Bitcoin Core chain (build a vault, fund it, spend it, all with no
 server); on the branch; nothing to main until the ship chip.
+
+## Decisions taken (operator chips, 2026-11-13)
+
+Desktop app; Bitcoin Core on the same computer; an encrypted file plus a
+backup file; every vault shape the builder makes, with every key on this
+computer or a hardware wallet.
