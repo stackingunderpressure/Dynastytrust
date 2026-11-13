@@ -3,9 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { APP_NAME } from '../config';
 import { colors, fonts, radii, space } from '../theme';
-import { Button, Input } from '../components/ui';
+import { Button } from '../components/ui';
 import { LoadingScreen } from '../components/LoadingScreen';
-import { friendlyAuthError } from '../lib/auth-errors';
 
 /**
  * Landing.tsx -- public first-lander page.
@@ -108,178 +107,27 @@ function Bullet({ children }: { children: React.ReactNode }) {
 // Same supabase calls as the standalone Auth page, compressed into
 // a card that lives on the landing.
 
+// One sign-in screen for the whole app (pages/Auth.tsx, which RequireAuth
+// shows). This card used to carry its own email-only form, so it never
+// offered a username or Tapit and told people their email was how they
+// sign back in (operator, 2026-11-13: make sure nothing still describes
+// the old way in). It now names the three ways in and opens that screen.
 function InlineAuthForm() {
-  const [mode, setMode] = useState<'login' | 'signup'>('login');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // Waiting for the 6-digit code Supabase emails on sign-up. This card
-  // used to say "we sent a confirmation link" and had no box for the
-  // code the email actually carries, so a new person was stranded on the
-  // home page (found walking the journey, 2026-11-11). Same calls as
-  // pages/Auth.tsx: verifying the code opens a session, and the listener
-  // above sends a signed-in visitor on to /vaults.
-  const [awaitingCode, setAwaitingCode] = useState(false);
-  const [code, setCode] = useState('');
-  const [resent, setResent] = useState(false);
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      if (mode === 'signup') {
-        const { error } = await supabase.auth.signUp({ email, password });
-        if (error) throw error;
-        setAwaitingCode(true);
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
-      }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Authentication failed';
-      // Signed up earlier but never entered the code: take them to it.
-      if (mode === 'login' && message.toLowerCase().includes('email not confirmed')) {
-        setAwaitingCode(true);
-        void supabase.auth.resend({ type: 'signup', email });
-      } else {
-        setError(friendlyAuthError(message));
-      }
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function verifyCode(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      const { error } = await supabase.auth.verifyOtp({ email, token: code, type: 'signup' });
-      if (error) throw error;
-    } catch (err: unknown) {
-      setError(friendlyAuthError(err instanceof Error ? err.message : 'Invalid code'));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function resendCode() {
-    setBusy(true);
-    setError(null);
-    setResent(false);
-    try {
-      const { error } = await supabase.auth.resend({ type: 'signup', email });
-      if (error) throw error;
-      setResent(true);
-    } catch (err: unknown) {
-      setError(friendlyAuthError(err instanceof Error ? err.message : 'Could not resend code'));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (awaitingCode) {
-    return (
-      <div style={s.authCard}>
-        <div style={s.authHeading}>Check your email</div>
-        <p style={s.authSub}>
-          We sent a 6-digit code to{' '}
-          <strong style={{ color: colors.gold }}>{email}</strong>. Enter it here to finish. If it is not in
-          your inbox in a minute, look in spam.
-        </p>
-        <form onSubmit={verifyCode} style={s.authForm}>
-          <label style={s.fieldLabel} htmlFor="lp-code">Code</label>
-          <Input
-            id="lp-code"
-            type="text"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            value={code}
-            onChange={e => setCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
-            required
-            minLength={6}
-            maxLength={6}
-            placeholder="000000"
-            style={{ fontSize: 20, padding: '12px 14px', letterSpacing: '0.3em', textAlign: 'center' }}
-          />
-          {error && <p style={s.authError}>{error}</p>}
-          {resent && !error && <p style={s.authSub}>New code sent.</p>}
-          <Button type="submit" disabled={busy || code.length !== 6} style={{ marginTop: space[3], padding: '14px', fontSize: 17 }}>
-            {busy ? 'Working...' : 'Verify code'}
-          </Button>
-        </form>
-        <button style={{ ...s.linkBtn, minHeight: 44 }} disabled={busy} onClick={() => void resendCode()}>
-          Resend code
-        </button>
-        <button
-          style={{ ...s.linkBtn, minHeight: 44 }}
-          onClick={() => { setAwaitingCode(false); setCode(''); setError(null); setResent(false); setMode('login'); }}
-        >
-          Back to sign in
-        </button>
-      </div>
-    );
-  }
-
+  const navigate = useNavigate();
+  const line: CSSProperties = { margin: 0, fontSize: 17, lineHeight: 1.55, color: colors.sub };
   return (
     <div style={s.authCard}>
-      <div style={s.tabs}>
-        <button
-          type="button"
-          onClick={() => setMode('login')}
-          style={{ ...s.tab, ...(mode === 'login' ? s.tabActive : null) }}
-        >
-          Sign in
-        </button>
-        <button
-          type="button"
-          onClick={() => setMode('signup')}
-          style={{ ...s.tab, ...(mode === 'signup' ? s.tabActive : null) }}
-        >
-          Create account
-        </button>
+      <div style={s.authHeading}>Sign in or create an account</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: space[2], marginBottom: space[3] }}>
+        <p style={line}><strong style={{ color: colors.text }}>Email and password.</strong> Recommended: if you are ever locked out, a code to your email gets you back in.</p>
+        <p style={line}><strong style={{ color: colors.text }}>Username and password.</strong> No email at all, so no reset: keep the password safe, and turn on Face ID after.</p>
+        <p style={line}><strong style={{ color: colors.text }}>Sovereign sign-in with Tapit.</strong> Your own Tapit wallet proves it is you. No email, no password here.</p>
       </div>
-
-      <form onSubmit={submit} style={s.authForm}>
-        <label style={s.fieldLabel} htmlFor="lp-email">Email</label>
-        <Input
-          id="lp-email"
-          type="email"
-          autoComplete="email"
-          value={email}
-          onChange={e => setEmail(e.target.value)}
-          required
-          placeholder="you@example.com"
-          style={{ fontSize: 17, padding: '12px 14px' }}
-        />
-        <label style={s.fieldLabel} htmlFor="lp-password">Password</label>
-        <Input
-          id="lp-password"
-          type="password"
-          autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-          value={password}
-          onChange={e => setPassword(e.target.value)}
-          required
-          minLength={8}
-          placeholder="at least 8 characters"
-          style={{ fontSize: 17, padding: '12px 14px' }}
-        />
-        {error && <p style={s.authError}>{error}</p>}
-        <Button
-          type="submit"
-          disabled={busy}
-          style={{ marginTop: space[3], padding: '14px', fontSize: 17 }}
-        >
-          {busy ? 'Working...' : mode === 'login' ? 'Sign in' : 'Create account'}
-        </Button>
-      </form>
-
+      <Button style={{ width: '100%', padding: '14px', fontSize: 17 }} onClick={() => navigate('/vaults')}>
+        Continue
+      </Button>
       <p style={s.authFine}>
-        No KYC. No credit card. Use an email you will still have in ten
-        years -- it is how you and your family sign back in. Private keys
-        are generated in your browser and never touch our servers.
+        No KYC. No credit card. Private keys are made on your own device and never touch our servers.
       </p>
     </div>
   );
@@ -339,7 +187,7 @@ function Modes() {
             still enforces.
           </p>
           <ul style={s.modeList}>
-            <ModeBullet>Email + password sign-in</ModeBullet>
+            <ModeBullet>Sign in with email, a username, or your own Tapit wallet</ModeBullet>
             <ModeBullet>Attorney PDF export included</ModeBullet>
             <ModeBullet>Realtime governance across family members</ModeBullet>
             <ModeBullet>Optional stipend + distribution-wallet automation</ModeBullet>
@@ -349,14 +197,14 @@ function Modes() {
           <div style={{ ...s.modeLabel, color: colors.green }}>Sovereign</div>
           <div style={s.modeTitle}>Download, run isolated</div>
           <p style={s.modeBody}>
-            One binary. Local SQLite. Local policy compiler. Local
-            keypair identity -- no email, no account, no server that
-            can be subpoenaed. Tor by default. Nostr relays for peer
+            One binary. Local SQLite. Local policy compiler. Your own
+            Tapit wallet is your identity -- no email, no account, no
+            server that can be subpoenaed. Tor by default. Nostr relays for peer
             sync. Source-available and self-hostable. For users who
             treat sovereignty as a hard requirement.
           </p>
           <ul style={s.modeList}>
-            <ModeBullet>No account, no server-side identity</ModeBullet>
+            <ModeBullet>No account and no server-side identity: your Tapit wallet is you</ModeBullet>
             <ModeBullet>Connect to your own Bitcoin node</ModeBullet>
             <ModeBullet>Peer-to-peer vault coordination over Tor</ModeBullet>
             <ModeBullet>Signed releases, IPFS-pinned</ModeBullet>

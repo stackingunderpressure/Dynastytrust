@@ -235,7 +235,7 @@ export function PathInvites({
               type="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
-              placeholder="Leave empty if they sign in with a key"
+              placeholder="Leave empty if they use a username or Tapit"
               autoCapitalize="none"
               autoCorrect="off"
             />
