@@ -40,7 +40,7 @@ export const KEY_LESSONS: readonly KeyLesson[] = [
   },
   {
     title: 'Want to make your own seed with dice?',
-    body: 'Do that on a signing device built for it, such as a Coldcard or a SeedSigner, and bring only its public key here with Import xpub. A browser is the wrong place for that ceremony.',
+    body: 'Do that on a signing device built for it, such as a SeedSigner, and bring only its public key here with Import xpub. A browser is the wrong place for that ceremony.',
   },
 ];
 

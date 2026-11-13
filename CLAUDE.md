@@ -165,7 +165,9 @@ Every vault has three spending paths compiled into a Taproot script:
 - **Path 2 -- Recovery**: `and(after(R_blocks), thresh(Q, founder_keys))` -- timelock
 - **Path 3 -- Inheritance**: `and(after(I_blocks), thresh(Q_h, heir_keys))` -- timelock
 
-Target hardware-wallet compatibility: Nunchuk, Sparrow, Coldcard.
+Target hardware-wallet compatibility: Nunchuk, Sparrow, SeedSigner. Coldcard is
+NOT recommended (operator, 2026-11-13: "I do not recommend at all") -- never
+suggest it to a user; a PSBT it can sign is fine, an endorsement is not.
 
 ---
 
@@ -577,7 +579,7 @@ See `Stack` above for the layout.
    add `vault_members`, `vault_invites`, and extend `proposals` with
    per-signer state. See Phase B plan in the session notes.
 2. **End-to-end testnet spend** verified with real signers.
-3. **Hardware wallet signing flow** (Coldcard PSBT export/import).
+3. **Hardware wallet signing flow** (PSBT export/import to a signing device).
 4. **Governance panel** showing real block height from mempool.space.
 5. **Dependency upgrades (no rush, batch when convenient).** Current pins:
    - Rust: `bitcoin = 0.31.2` (latest stable 0.32.x), `miniscript = 11.2.3`
