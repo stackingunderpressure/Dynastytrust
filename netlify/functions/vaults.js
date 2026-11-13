@@ -1,6 +1,7 @@
 import { draftViewForMember } from "./_invite-rules.js";
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
+import { realBitcoinFinalizeProblem } from "./_finalize-guard.js";
 import { recordEvent, canonicalJson } from "./_ledger.js";
 import { createHash } from "node:crypto";
 
@@ -153,6 +154,13 @@ export async function handler(event) {
     const isBlocDraft = body.mode === "bloc-draft";
     const isLeavesDraft = body.mode === "leaves-draft";
     let insertRow;
+
+    // Threat model C: any mode that saves a FINISHED vault (bloc, legacy
+    // compiled) needs a stronger sign-in on real bitcoin; drafts do not.
+    if (!isDraft && !isBlocDraft && !isLeavesDraft) {
+      const strong = await realBitcoinFinalizeProblem(supabase, u.claims, network);
+      if (strong) return json(403, { error: strong, needs_two_step: true });
+    }
 
     if (isLeavesDraft) {
       // Shape-only generic leaf-list vault (the "toggle-a-leaf" builder,

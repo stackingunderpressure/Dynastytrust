@@ -32,6 +32,7 @@
 import { mustSignPathsNotInScripts } from "./_must-sign-check.js";
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
+import { realBitcoinFinalizeProblem } from "./_finalize-guard.js";
 import { recordEvent } from "./_ledger.js";
 import { fetchVerifiedTipHeight, relativeToAbsolute, checkTimelockFloor } from "./_chain.js";
 import { checkNumberBounds } from "./_numeric.js";
@@ -89,6 +90,11 @@ export async function handler(event) {
   if (!vault) return json(404, { error: "Vault not found" });
   if (vault.user_id !== u.userId) return json(403, { error: "Only the owner can compile" });
   if (vault.status !== "draft") return json(400, { error: "Vault is not in draft status" });
+  // Threat model C: a password alone cannot finish a real-bitcoin vault.
+  {
+    const strong = await realBitcoinFinalizeProblem(supabase, u.claims, vault.network);
+    if (strong) return json(403, { error: strong, needs_two_step: true });
+  }
 
   const leaves = Array.isArray(vault.leaves) ? vault.leaves : [];
   if (!leaves.length) return json(400, { error: "Draft has no leaves configured" });

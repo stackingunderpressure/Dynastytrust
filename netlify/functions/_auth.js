@@ -50,7 +50,7 @@ const FACTOR_TTL_MS = 60_000;
  * lookups succeeding in the function logs, flip this to throw -- see
  * docs/security-backlog.md item 10.
  */
-async function hasVerifiedFactor(userId) {
+export async function hasVerifiedFactor(userId) {
   const hit = FACTOR_CACHE.get(userId);
   if (hit && Date.now() - hit.at < FACTOR_TTL_MS) return hit.has;
   try {
@@ -61,8 +61,12 @@ async function hasVerifiedFactor(userId) {
     FACTOR_CACHE.set(userId, { has, at: Date.now() });
     return has;
   } catch (e) {
-    console.error("[auth] MFA factor lookup FAILED -- second step NOT enforced for this request:", e?.message || e);
-    return false;
+    // Fail CLOSED since 2026-11-13 (threat model C): the lookup was proven
+    // working on the live project (key-signin-placeholder-test run
+    // 43465741702, HTTP 200), so an error here is an outage or an attack,
+    // and a password-only session is refused until it can be checked.
+    console.error("[auth] MFA factor lookup FAILED -- refusing this password-only request:", e?.message || e);
+    return null;
   }
 }
 
@@ -107,8 +111,14 @@ export async function requireUser(event, { allowQueryToken = false } = {}) {
     // Two-step sign-in is enforced HERE, not only in the browser: once
     // an account has a verified authenticator, a session that has only
     // proven the password (aal1) is refused by every function.
-    if (payload.aal !== "aal2" && !aalSatisfied(payload.aal, await hasVerifiedFactor(payload.sub))) {
-      return { error: "Two-step sign-in required: enter your authenticator code to continue" };
+    if (payload.aal !== "aal2") {
+      const has = await hasVerifiedFactor(payload.sub);
+      if (has === null) {
+        return { error: "Could not check your two-step sign-in just now. Try again in a moment." };
+      }
+      if (!aalSatisfied(payload.aal, has)) {
+        return { error: "Two-step sign-in required: enter your authenticator code to continue" };
+      }
     }
 
     return { userId: payload.sub, claims: payload };

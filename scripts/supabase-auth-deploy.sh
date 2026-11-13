@@ -11,6 +11,12 @@
 # (supabase.com/docs/reference/api) and fix the field name here, the
 # request shape itself is right.
 #
+# Also sets Supabase's own password minimum to 12 (threat model item C,
+# docs/threat-model-2026-11-13.md, 2026-11-13): the app already holds new
+# passwords to the strong rule; this makes the server refuse a short one
+# even from a direct API call. Field name password_min_length, not yet
+# confirmed live -- the first run says so either way.
+#
 # Deliberately run by hand only (see the workflow that calls this),
 # never automatically on push: this PATCHes real, live auth
 # configuration for real users. Every {{ .Token }} in these templates
@@ -52,7 +58,8 @@ payload=$(jq -n \
     mailer_templates_confirmation_content: $confirmation,
     mailer_subjects_confirmation: $confirmation_subject,
     mailer_templates_recovery_content: $recovery,
-    mailer_subjects_recovery: $recovery_subject
+    mailer_subjects_recovery: $recovery_subject,
+    password_min_length: 12
   }')
 
 echo "Pushing login-code email templates to project ${SUPABASE_PROJECT_REF}..."
@@ -70,4 +77,4 @@ if [ "$http_status" -lt 200 ] || [ "$http_status" -ge 300 ]; then
   exit 1
 fi
 
-echo "Done. Auth email templates updated."
+echo "Done. Auth email templates and the 12-character password minimum updated."

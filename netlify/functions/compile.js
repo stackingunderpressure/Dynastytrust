@@ -19,6 +19,7 @@
  */
 
 import { requireUser, json } from "./_auth.js";
+import { realBitcoinFinalizeProblem } from "./_finalize-guard.js";
 import { recordEvent } from "./_ledger.js";
 import { getSupabaseAdmin } from "./_supabase.js";
 import { fetchVerifiedTipHeight, relativeToAbsolute, checkTimelockFloor } from "./_chain.js";
@@ -60,6 +61,12 @@ export async function handler(event) {
     consent_quorum = null,
     save = true,   // if true, auto-save compiled vault to DB
   } = body;
+
+  // Threat model C: a password alone cannot finish (save) a real-bitcoin vault.
+  if (save) {
+    const strong = await realBitcoinFinalizeProblem(getSupabaseAdmin(), u.claims, network);
+    if (strong) return json(403, { error: strong, needs_two_step: true });
+  }
 
   // Validate required fields. Heirs + timelocks are optional --
   // omitting them compiles a plain multisig / single-sig vault with

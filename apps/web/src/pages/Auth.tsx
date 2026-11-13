@@ -63,6 +63,10 @@ export default function Auth() {
         const { error } = await supabase.auth.signInWithPassword({ email: signInAddress(email), password });
         if (error) { declineFaceIdOffer(); throw error; }
       } else if (mode === 'signup') {
+        // Threat model C: an account may come to own a real-bitcoin vault,
+        // so a new email account gets the same strong rule as a username.
+        const weak = passwordProblem(password, 'mainnet');
+        if (weak) { setError(weak); return; }
         const { error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
         setPending('signup');
@@ -308,7 +312,7 @@ export default function Auth() {
             value={password}
             onChange={e => setPassword(e.target.value)}
             required
-            minLength={mode === 'signup' && withUsername ? 12 : 8}
+            minLength={mode === 'signup' ? 12 : 8}
             placeholder="••••••••"
             style={{ fontSize: 17, padding: '12px 14px' }}
           />
@@ -403,6 +407,9 @@ export function SetNewPassword({ onDone }: { onDone: () => void }) {
       setError('Passwords do not match.');
       return;
     }
+    // Threat model C: a new password meets the same strong rule as sign-up.
+    const weak = passwordProblem(password, 'mainnet');
+    if (weak) { setError(weak); return; }
     setBusy(true);
     setError(null);
     try {
@@ -431,7 +438,7 @@ export function SetNewPassword({ onDone }: { onDone: () => void }) {
             value={password}
             onChange={e => setPassword(e.target.value)}
             required
-            minLength={8}
+            minLength={12}
             placeholder="••••••••"
             style={{ fontSize: 17, padding: '12px 14px' }}
           />
@@ -443,7 +450,7 @@ export function SetNewPassword({ onDone }: { onDone: () => void }) {
             value={confirm}
             onChange={e => setConfirm(e.target.value)}
             required
-            minLength={8}
+            minLength={12}
             placeholder="••••••••"
             style={{ fontSize: 17, padding: '12px 14px' }}
           />

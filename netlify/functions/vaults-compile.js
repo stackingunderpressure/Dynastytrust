@@ -34,6 +34,7 @@
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
+import { realBitcoinFinalizeProblem } from "./_finalize-guard.js";
 import { recordEvent } from "./_ledger.js";
 import { pubkeyFromXpub } from "./_xpub.js";
 import { fetchVerifiedTipHeight, relativeToAbsolute, checkTimelockFloor } from "./_chain.js";
@@ -108,6 +109,11 @@ export async function handler(event) {
   if (!vault) return json(404, { error: "Vault not found" });
   if (vault.user_id !== u.userId) return json(403, { error: "Only the owner can compile" });
   if (vault.status !== "draft") return json(400, { error: "Vault is not in draft status" });
+  // Threat model C: a password alone cannot finish a real-bitcoin vault.
+  {
+    const strong = await realBitcoinFinalizeProblem(supabase, u.claims, vault.network);
+    if (strong) return json(403, { error: strong, needs_two_step: true });
+  }
 
   // Two ways to source signer keys: invite-based (vault_members, other
   // people bring their own xpub via a claim link) or direct_keys (the
