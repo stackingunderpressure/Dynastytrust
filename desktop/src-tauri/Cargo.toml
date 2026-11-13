@@ -1,0 +1,28 @@
+# The DynastyTrust desktop app (docs/download-and-run-build-note.md):
+# a Tauri shell around the web app's download build, plus ONE native
+# capability the web page cannot have -- talking to Bitcoin Core on this
+# computer with Core's own login file. Its own workspace and lockfile, so
+# the Fly compiler's build and the root Cargo.lock are not affected.
+[package]
+name = "dynastytrust_desktop"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = { version = "2", default-features = false, features = ["json"] }
+base64 = "0.22"
+
+[workspace]
+
+[profile.release]
+overflow-checks = true
+lto = true
+codegen-units = 1
+strip = true

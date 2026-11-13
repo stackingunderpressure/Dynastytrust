@@ -9,3 +9,9 @@ Cargo.lock.bak
 .DS_Store
 *.log
 .review-tmp/
+
+# Desktop app (docs/download-and-run-build-note.md): build outputs.
+desktop/node_modules/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+apps/web/dist-download/

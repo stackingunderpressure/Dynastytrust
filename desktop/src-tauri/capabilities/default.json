@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The app window may call only DynastyTrust's own commands.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

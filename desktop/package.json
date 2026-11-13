@@ -1,0 +1,14 @@
+{
+  "name": "@dynastytrust/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "DynastyTrust you download and run: one person, no server of ours (docs/download-and-run-build-note.md).",
+  "scripts": {
+    "icons": "tauri icon app-icon.png",
+    "build": "tauri build",
+    "dev": "tauri dev"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.4"
+  }
+}
