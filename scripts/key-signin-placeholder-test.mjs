@@ -82,6 +82,13 @@ async function tryPassword() {
     const claims = JSON.parse(Buffer.from(t.body.access_token.split('.')[1], 'base64url').toString());
     if (claims.sub !== userId) { console.log('FAIL session belongs to a different account'); return false; }
     console.log('PASS password sign-in is that account');
+    // Threat model C: the two-step factor lookup _auth.js depends on
+    // (supabase-js admin.mfa.listFactors -> GET /admin/users/{id}/factors)
+    // must work before _auth.js may refuse on a lookup error.
+    const fl = await call('GET', `/admin/users/${userId}/factors`);
+    const factors = Array.isArray(fl.body) ? fl.body : fl.body?.factors;
+    console.log(fl.ok && Array.isArray(factors) ? `PASS two-step factor lookup works (HTTP ${fl.status}, ${factors.length} factors)` : `FAIL two-step factor lookup: HTTP ${fl.status} ${JSON.stringify(fl.body).slice(0, 200)}`);
+    if (!(fl.ok && Array.isArray(factors))) return false;
     const w = await call('POST', '/token?grant_type=password', { email, password: password + 'x' }, { apikey: anon, 'content-type': 'application/json' });
     console.log(w.ok ? 'FAIL a wrong password signed in' : 'PASS a wrong password is refused');
     return !w.ok;
