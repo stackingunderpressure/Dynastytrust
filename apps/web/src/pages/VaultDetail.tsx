@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   api,
@@ -69,6 +69,8 @@ import { RemindersBanner } from "../components/RemindersBanner";
 import { HaltVaultBar } from "../components/HaltVaultBar";
 import { CirclePhraseSetup } from "../components/CirclePhraseSetup";
 import { SentSecretsPanel } from "../components/SentSecretsPanel";
+import { MessagingSafetyPanel, type PeerKey } from "../components/MessagingSafetyPanel";
+import { peerKeyStatus, senderKeyMatches } from "../lib/messaging-safety";
 import { VaultMembershipSetup } from "../components/VaultMembershipSetup";
 import { NotifyCircleViaNostr } from "../components/NotifyCircleViaNostr";
 import { MessagingKeyBackupPanel } from "../components/MessagingKeyBackupPanel";
@@ -3929,13 +3931,29 @@ function MessagesTab({ vault }: { vault: Vault }) {
   const pendingMembers = members.filter(
     m => m.status === "active" && m.user_id && !m.messaging_pubkey,
   );
+  // Threat model E: every OTHER member's messaging key against the one this
+  // phone first saw (lib/messaging-safety.ts). A changed key pauses sending
+  // to them until the safety code is compared by voice.
+  const [safetyTick, setSafetyTick] = useState(0);
+  const peers = useMemo<PeerKey[]>(() => {
+    void safetyTick;
+    if (!myUserId) return [];
+    const seen = new Set<string>();
+    return members
+      .filter(m => m.status === "active" && m.user_id && m.messaging_pubkey)
+      .filter(m => m.user_id !== myUserId && !seen.has(m.user_id) && seen.add(m.user_id))
+      .map(m => ({ member: m, pubkey: m.messaging_pubkey!, status: peerKeyStatus(vault.id, m.user_id, m.messaging_pubkey!) }));
+  }, [members, myUserId, vault.id, safetyTick]);
+  const pausedIds = new Set(peers.filter(p => p.status === "changed").map(p => p.member.user_id));
+  const sendable = keyedMembers.filter(m => !pausedIds.has(m.user_id));
 
   async function send(e: React.FormEvent) {
     e.preventDefault();
     if (!draft.trim() || !myUserId) return;
     setBusy(true);
     try {
-      const recipients = keyedMembers
+      // Never to a member whose key changed and has not been checked again.
+      const recipients = sendable
         .filter(m => m.messaging_pubkey)
         .map(m => ({ user_id: m.user_id, pubkey: m.messaging_pubkey! }));
       if (recipients.length === 0) {
@@ -4016,6 +4034,8 @@ function MessagesTab({ vault }: { vault: Vault }) {
         <strong style={{ color: colors.gold }}>End-to-end encrypted.</strong> Messages are sealed to each recipient's X25519 key before they leave your browser. The server stores ciphertext only and cannot read them.
       </div>
 
+      <MessagingSafetyPanel vaultId={vault.id} peers={peers} onChanged={() => setSafetyTick(n => n + 1)} />
+
       <MessagingKeyBackupPanel refreshToken={keyBackupRefresh} onRestored={() => { setFaceTick(n => n + 1); void load(); }} />
 
       {pendingMembers.length > 0 && (
@@ -4049,7 +4069,7 @@ function MessagesTab({ vault }: { vault: Vault }) {
           rows={3}
           value={draft}
           onChange={e => setDraft(e.target.value)}
-          placeholder={`Message to ${keyedMembers.length} member${keyedMembers.length === 1 ? "" : "s"}...`}
+          placeholder={`Message to ${sendable.length} member${sendable.length === 1 ? "" : "s"}...`}
         />
         {keyedMembers.length === 0 && (
           <div style={{ fontSize: 16, color: colors.orange, lineHeight: 1.5 }}>
@@ -4060,7 +4080,8 @@ function MessagesTab({ vault }: { vault: Vault }) {
         )}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
           <div style={{ fontSize: 15, color: colors.muted }}>
-            {keyedMembers.length} recipient{keyedMembers.length === 1 ? "" : "s"}
+            {sendable.length} recipient{sendable.length === 1 ? "" : "s"}
+            {pausedIds.size > 0 ? ` (${pausedIds.size} paused: key changed)` : ""}
             {pendingMembers.length > 0 && keyedMembers.length > 0
               ? ` (${pendingMembers.length} not ready)`
               : ""}
@@ -4075,7 +4096,7 @@ function MessagesTab({ vault }: { vault: Vault }) {
             >
               {showKeyReset ? "Cancel" : "Key settings"}
             </Button>
-            <Button type="submit" disabled={busy || !draft.trim() || keyedMembers.length === 0}>
+            <Button type="submit" disabled={busy || !draft.trim() || sendable.length === 0}>
               {busy ? "Sending..." : "Send"}
             </Button>
           </div>
@@ -4133,6 +4154,9 @@ function MessagesTab({ vault }: { vault: Vault }) {
           const sender = members.find(mem => mem.user_id === m.sender_user_id);
           const senderLabel = sender?.label || "(unknown)";
           const mine = m.sender_user_id === myUserId;
+          // Threat model E: a message sealed with a key other than the one
+          // this phone remembers for its sender is labelled, not hidden.
+          const keyMismatch = !mine && senderKeyMatches(vault.id, m.sender_user_id, m.sender_pubkey) === false;
           return (
             <div
               key={m.id}
@@ -4151,6 +4175,12 @@ function MessagesTab({ vault }: { vault: Vault }) {
                 </span>
                 <span>{new Date(m.created_at).toLocaleString()}</span>
               </div>
+              {keyMismatch && (
+                <div style={{ fontSize: 15, color: colors.red, lineHeight: 1.5, marginBottom: 4 }}>
+                  Sent with a different key than the one this phone knows for {senderLabel}. Do not act on it until you have
+                  compared your safety code with them by voice.
+                </div>
+              )}
               <div style={{ fontSize: 17, color: colors.text, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
                 {plaintext !== null ? plaintext : (
                   <span style={{ color: colors.muted, fontStyle: "italic" }}>

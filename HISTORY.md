@@ -155,8 +155,17 @@ signers" as not yet verified. Item 1 above postdates it.
   passphrase 3, placeholder-guard 4 (fails on the old _auth.js),
   username-signup 2 (updated for the mark), real-Postgres 21 checks.
   Measured: npm test green, lint 0 errors / 11 warnings, typecheck 10
-  errors (same set), build green. NOT done: E (messaging safety codes), G
-  (Tapit challenge binding), K (mempool privacy, noted only). NOT seen:
+  errors (same set), build green. (E) messaging safety codes, added the
+  same day: lib/messaging-safety.ts gives each pair of people a 12-digit
+  code from both messaging keys (order-independent; known answer
+  0633 3438 5720 for 11..11/22..22, cross-checked in Python), pins each
+  member's key on first sight, and on a change pauses sending to that
+  member and labels their messages until the new code is compared by voice
+  and accepted (MessagingSafetyPanel in the Messages tab). Test 6 cases;
+  walked at 375px with a stand-in backend: compare, send, server swaps
+  Mom's key -> red stop, Send disabled, message labelled, accept ->
+  sending resumes; 0 sideways px, no page errors. NOT done: G (Tapit
+  challenge binding), K (mempool privacy, noted only). NOT seen:
   any of it on the operator's phone or live -- none is on main.
 
 - **Sign-in rethought: email, username, or sovereign Tapit; Face ID right
