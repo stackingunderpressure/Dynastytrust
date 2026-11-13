@@ -256,7 +256,7 @@ export function PsbtQrDisplay({
           style={{ display: 'block' }}
         />
       </div>
-      <div style={{ fontSize: 13, color: colors.muted, fontFamily: fonts.mono }}>
+      <div style={{ fontSize: 15, color: colors.muted, fontFamily: fonts.mono }}>
         {totalFragments > 1
           ? `frame ${(frame % totalFragments) + 1} of ${totalFragments}`
           : 'single QR'}
@@ -274,13 +274,13 @@ export function PsbtQrDisplay({
             maxWidth: renderSize,
           }}
         >
-          <span style={{ fontSize: 12, color: colors.muted, fontFamily: fonts.sans, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          <span style={{ fontSize: 14, color: colors.muted, fontFamily: fonts.sans, textTransform: 'uppercase', letterSpacing: 0.5 }}>
             Transaction check
           </span>
           <span style={{ fontSize: 18, color: colors.gold, fontFamily: fonts.mono, letterSpacing: 2 }}>
             {fingerprint.slice(0, 4)} {fingerprint.slice(4, 8)}
           </span>
-          <span style={{ fontSize: 12, color: colors.muted, fontFamily: fonts.sans, textAlign: 'center' }}>
+          <span style={{ fontSize: 14, color: colors.muted, fontFamily: fonts.sans, textAlign: 'center' }}>
             Compare this to what your signer shows before signing. A mismatch means
             don't trust the QR transfer -- rescan. A match only proves it's the same
             transaction -- still read the amount, address, and path on your signer.
@@ -288,7 +288,7 @@ export function PsbtQrDisplay({
         </div>
       )}
       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-        <span style={{ fontSize: 13, color: colors.muted, fontFamily: fonts.sans }}>Speed:</span>
+        <span style={{ fontSize: 15, color: colors.muted, fontFamily: fonts.sans }}>Speed:</span>
         {(Object.keys(SPEED_PRESETS) as Speed[]).map(s => (
           <button
             key={s}
@@ -296,7 +296,7 @@ export function PsbtQrDisplay({
             onClick={() => setSpeed(s)}
             style={{
               padding: '4px 10px',
-              fontSize: 13,
+              fontSize: 15,
               background: speed === s ? colors.gold : 'none',
               border: `1px solid ${speed === s ? colors.gold : colors.border}`,
               borderRadius: radii.md,
@@ -310,7 +310,7 @@ export function PsbtQrDisplay({
           </button>
         ))}
       </div>
-      <p style={{ fontSize: 13, color: colors.muted, textAlign: 'center', maxWidth: renderSize }}>
+      <p style={{ fontSize: 15, color: colors.muted, textAlign: 'center', maxWidth: renderSize }}>
         Scanner missing frames? Try "Slow." Also turn your screen brightness all the way up --
         a dim screen is the most common reason an air-gapped signer can't lock onto the code.
       </p>
@@ -319,7 +319,7 @@ export function PsbtQrDisplay({
         onClick={() => setPaused(p => !p)}
         style={{
           padding: '4px 12px',
-          fontSize: 13,
+          fontSize: 15,
           background: 'none',
           border: `1px solid ${colors.border}`,
           borderRadius: radii.md,

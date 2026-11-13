@@ -55,16 +55,16 @@ export function BehaviorTimeline({ legs, floorWarning, kidCount, floorWarningTex
               {gi < groups.length - 1 && <div style={{ width: 2, flex: 1, background: colors.border, minHeight: 20 }} />}
             </div>
             <div style={{ paddingBottom: 16, flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: accent, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: accent, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                 {immediate ? 'Now -- no waiting' : `After ${blocksToHuman(g.afterBlocks)}`}
               </div>
               {g.legs.map((leg, li) => (
                 <div key={li} style={{ marginTop: 7 }}>
-                  <div style={{ fontSize: 15, fontWeight: 500, color: leg.weak ? colors.red : colors.text }}>
+                  <div style={{ fontSize: 17, fontWeight: 500, color: leg.weak ? colors.red : colors.text }}>
                     {leg.label}{leg.weak ? '  (weakest point)' : ''}
                   </div>
-                  <div style={{ fontSize: 14, color: colors.sub }}>{leg.who}</div>
-                  <div style={{ fontSize: 14, color: colors.muted, lineHeight: 1.4 }}>{leg.meaning}</div>
+                  <div style={{ fontSize: 16, color: colors.sub }}>{leg.who}</div>
+                  <div style={{ fontSize: 16, color: colors.muted, lineHeight: 1.4 }}>{leg.meaning}</div>
                 </div>
               ))}
             </div>
@@ -72,7 +72,7 @@ export function BehaviorTimeline({ legs, floorWarning, kidCount, floorWarningTex
         );
       })}
       {(floorWarning || floorWarningText) && (
-        <div style={{ marginTop: 6, padding: '10px 14px', borderRadius: radii.md, background: colors.red + '11', border: `1px solid ${colors.red}33`, color: colors.red, fontSize: 14, lineHeight: 1.5 }}>
+        <div style={{ marginTop: 6, padding: '10px 14px', borderRadius: radii.md, background: colors.red + '11', border: `1px solid ${colors.red}33`, color: colors.red, fontSize: 16, lineHeight: 1.5 }}>
           {floorWarningText ??
             `Heads up: the kid ladder eventually lets a SINGLE kid key spend alone (1 of ${kidCount}). If the kids hold phone keys, consider a decay floor of 2 or higher -- so no one lost or stolen phone is ever enough on its own.`}
         </div>

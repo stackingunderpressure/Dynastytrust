@@ -106,6 +106,21 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Type two steps larger everywhere -- 2026-11-13, on the branch, NOT
+  on main.** Operator: "Type is too small everywhere". Measured first at
+  375px on five screens (vault, builder, Keys, join, recovery phrase):
+  90-98% of visible text was under 16px, middle 14-15px, smallest 12px.
+  Every `fontSize` under 18 in `apps/web/src` went up 2px (12->14,
+  13->15, 14->16, 15->17, 16->18, 17->18; 894 values in 59 files;
+  headings 18px and up unchanged), and the phone navigation bar's 12px
+  override in `core.css` went to 14px. After, same screens: middle
+  16-17px, smallest 14-15px, 3-44% under 16px, 0px sideways scroll on
+  all five; before/after pictures checked for collisions and clipping.
+  `scripts/test-readability.mjs` floor raised from 12px to 14px (945
+  sizes, 43 at 14px). Measured: `npm test` green, lint 0 errors / 11
+  warnings (same set), typecheck 10 errors (same set), build green.
+  NOT seen: on the operator's phone.
+
 - **Recovery-phrase screen: "Copy all 24 words" removed -- 2026-11-13,
   on the branch, NOT on main.** Operator: "Remove the copy all 24 words
   button". It put the seed words on the phone's clipboard, where other

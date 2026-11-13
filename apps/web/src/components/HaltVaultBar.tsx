@@ -64,10 +64,10 @@ export function HaltVaultBar({
         }}
       >
         <div>
-          <div style={{ fontWeight: 700, color: colors.red, fontSize: 15 }}>
+          <div style={{ fontWeight: 700, color: colors.red, fontSize: 17 }}>
             Signing is halted on this vault
           </div>
-          <div style={{ fontSize: 14, color: colors.sub, marginTop: 2 }}>
+          <div style={{ fontSize: 16, color: colors.sub, marginTop: 2 }}>
             No spend can be signed until this is turned back off.
           </div>
         </div>
@@ -88,7 +88,7 @@ export function HaltVaultBar({
         flexWrap: 'wrap',
       }}
     >
-      <span style={{ fontSize: 14, color: colors.muted }}>
+      <span style={{ fontSize: 16, color: colors.muted }}>
         Not sure a request is really safe to sign? Halt all signing on this vault immediately.
       </span>
       <Button variant="ghost" size="sm" disabled={busy} onClick={handleHalt} style={{ color: colors.red }}>

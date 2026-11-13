@@ -15,7 +15,7 @@ export const selectStyle: CSSProperties = {
   border: `1px solid ${colors.border}`,
   borderRadius: radii.md,
   color: colors.text,
-  fontSize: 16, // iOS Safari zooms on focus below 16px
+  fontSize: 18, // iOS Safari zooms on focus below 16px
   fontFamily: fonts.sans,
   boxSizing: 'border-box',
 };
@@ -64,14 +64,14 @@ export function KeyPicker({
             marginBottom: 6,
           }}
         >
-          <span style={{ fontSize: 16 }}>{role.charAt(0).toUpperCase()}</span>
+          <span style={{ fontSize: 18 }}>{role.charAt(0).toUpperCase()}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 500, color: colors.text, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ fontSize: 17, fontWeight: 500, color: colors.text, display: 'flex', alignItems: 'center', gap: 6 }}>
               {k.label}
               {k.origin === 'tapit' && (
                 <span
                   style={{
-                    fontSize: 12,
+                    fontSize: 14,
                     fontWeight: 700,
                     letterSpacing: '0.06em',
                     color: colors.gold,
@@ -84,7 +84,7 @@ export function KeyPicker({
                 </span>
               )}
             </div>
-            <div style={{ fontSize: 13, color: colors.muted }}>
+            <div style={{ fontSize: 15, color: colors.muted }}>
               <span style={{ color: accentColor }}>{k.persona}</span>
               {' . '}
               {k.origin === 'tapit' ? 'no local key material' : k.fingerprint}
@@ -94,7 +94,7 @@ export function KeyPicker({
             {!backedUp && (
               <Link
                 to="/keys"
-                style={{ fontSize: 13, color: colors.orange, textDecoration: 'none' }}
+                style={{ fontSize: 15, color: colors.orange, textDecoration: 'none' }}
               >
                 Not backed up yet -- back up in Key Manager
               </Link>
@@ -107,7 +107,7 @@ export function KeyPicker({
               border: 'none',
               color: colors.muted,
               cursor: 'pointer',
-              fontSize: 16,
+              fontSize: 18,
             }}
           >
             x
@@ -132,7 +132,7 @@ export function KeyPicker({
         </select>
       )}
       {!available.length && !selected.length && (
-        <p style={{ fontSize: 15, color: colors.muted }}>
+        <p style={{ fontSize: 17, color: colors.muted }}>
           No active keys available yet -- generate or import one below.
         </p>
       )}

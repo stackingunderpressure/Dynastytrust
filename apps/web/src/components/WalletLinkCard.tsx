@@ -63,7 +63,7 @@ export function WalletLinkCard() {
           <p style={s.body}>
             Linked -- sign in with this Tapit key any time instead of a password.
           </p>
-          <p style={{ ...s.body, fontFamily: fonts.mono, fontSize: 12.5, marginTop: 6 }}>
+          <p style={{ ...s.body, fontFamily: fonts.mono, fontSize: 14, marginTop: 6 }}>
             {shortPubkey(linkedPubkey)}
           </p>
           <div style={{ display: 'flex', gap: space[2], marginTop: space[3], flexWrap: 'wrap' }}>
@@ -116,6 +116,6 @@ const s: Record<string, CSSProperties> = {
   },
   head: { display: 'flex', alignItems: 'center', gap: space[3], marginBottom: space[2] },
   dot: { width: 9, height: 9, borderRadius: '50%', background: colors.gold, flex: '0 0 auto' },
-  title: { fontSize: 15, fontWeight: 700, color: colors.text },
-  body: { margin: 0, fontSize: 13.5, lineHeight: 1.6, color: colors.sub },
+  title: { fontSize: 17, fontWeight: 700, color: colors.text },
+  body: { margin: 0, fontSize: 15, lineHeight: 1.6, color: colors.sub },
 };

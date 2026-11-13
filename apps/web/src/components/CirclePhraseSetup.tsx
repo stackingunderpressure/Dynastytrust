@@ -149,10 +149,10 @@ export function CirclePhraseSetup({
           marginBottom: space[4],
         }}
       >
-        <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+        <div style={{ fontSize: 17, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
           Circle safety phrase
         </div>
-        <p style={{ fontSize: 14, color: colors.sub, margin: 0 }}>
+        <p style={{ fontSize: 16, color: colors.sub, margin: 0 }}>
           This vault has {barePubkeys.length} founder key{barePubkeys.length === 1 ? '' : 's'} that
           look like they came from Tapit (no extended public key attached), but none of them match a
           Tapit-origin key in this browser's Key Manager right now. If you added that key on a different
@@ -329,13 +329,13 @@ export function CirclePhraseSetup({
         marginBottom: space[4],
       }}
     >
-      <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+      <div style={{ fontSize: 17, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
         Circle safety phrase
       </div>
 
       {!unlocked && loaded ? (
         <>
-          <p style={{ fontSize: 14, color: colors.muted, marginBottom: 12 }}>
+          <p style={{ fontSize: 16, color: colors.muted, marginBottom: 12 }}>
             Phrase set -- sent to {sentCount} of {circleMembers.length} member{circleMembers.length === 1 ? '' : 's'},
             confirmed received by {confirmedCount}. It's never stored here in plain text, so this card
             can't show you what it is -- only that it went out and whether it actually landed.
@@ -345,17 +345,17 @@ export function CirclePhraseSetup({
               const d = deliveryFor(k.keyId);
               return (
                 <div key={k.keyId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                  <div style={{ fontSize: 15, color: colors.text, minWidth: 0 }}>
+                  <div style={{ fontSize: 17, color: colors.text, minWidth: 0 }}>
                     {k.label} <span style={{ color: colors.muted }}>({k.persona})</span>
                   </div>
-                  <div style={{ fontSize: 13, color: d ? statusColor(d) : colors.sub, flexShrink: 0, textAlign: 'right' }}>
+                  <div style={{ fontSize: 15, color: d ? statusColor(d) : colors.sub, flexShrink: 0, textAlign: 'right' }}>
                     {d ? statusText(d) : 'Not sent yet'}
                   </div>
                 </div>
               );
             })}
           </div>
-          <Button variant="ghost" size="sm" style={{ fontSize: 14 }} onClick={changePhrase}>
+          <Button variant="ghost" size="sm" style={{ fontSize: 16 }} onClick={changePhrase}>
             Change phrase
           </Button>
         </>
@@ -371,14 +371,14 @@ export function CirclePhraseSetup({
                 marginBottom: 10,
               }}
             >
-              <p style={{ fontSize: 14, color: colors.red, margin: 0 }}>
+              <p style={{ fontSize: 16, color: colors.red, margin: 0 }}>
                 Couldn't check whether this vault already has a phrase on file -- reload this page to
                 try again. You can still send below either way; it just won't show past history until
                 that loads.
               </p>
             </div>
           )}
-          <p style={{ fontSize: 14, color: colors.muted, marginBottom: 10 }}>
+          <p style={{ fontSize: 16, color: colors.muted, marginBottom: 10 }}>
             Pick one word or phrase your circle uses to confirm it's really you on a call, and a
             different duress phrase that silently means "I'm being forced." Send both, once, to each
             circle member's Tapit wallet.
@@ -393,10 +393,10 @@ export function CirclePhraseSetup({
               marginBottom: 14,
             }}
           >
-            <p style={{ fontSize: 14, color: colors.red, fontWeight: 600, marginBottom: 4 }}>
+            <p style={{ fontSize: 16, color: colors.red, fontWeight: 600, marginBottom: 4 }}>
               Remember this phrase -- there is no reset.
             </p>
-            <p style={{ fontSize: 14, color: colors.sub, lineHeight: 1.5 }}>
+            <p style={{ fontSize: 16, color: colors.sub, lineHeight: 1.5 }}>
               Once this is sent, your circle's phone-verification ritual depends on it: if you forget
               it, you can't correctly confirm yourself (or a duress signal) to any circle member on a
               call, and signing for this vault effectively stalls until you pick a new phrase and
@@ -426,14 +426,14 @@ export function CirclePhraseSetup({
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <Button
                 size="sm"
-                style={{ fontSize: 14 }}
+                style={{ fontSize: 16 }}
                 disabled={!ready || saving}
                 onClick={() => void saveRecoverableCopy()}
               >
                 {saving ? 'Saving…' : savedOk ? 'Save another copy' : 'Save a recoverable copy'}
               </Button>
               {savedOk && (
-                <span style={{ fontSize: 13, color: colors.gold }}>
+                <span style={{ fontSize: 15, color: colors.gold }}>
                   Saved -- see "Secrets sent" below to reveal it later
                 </span>
               )}
@@ -444,7 +444,7 @@ export function CirclePhraseSetup({
             <Button
               variant="ghost"
               size="sm"
-              style={{ fontSize: 14 }}
+              style={{ fontSize: 16 }}
               disabled={!ready || sendingAll || busyKeyId !== null}
               onClick={() => void sendToAll()}
             >
@@ -458,13 +458,13 @@ export function CirclePhraseSetup({
               return (
                 <div key={k.keyId} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                    <div style={{ fontSize: 15, color: colors.text, minWidth: 0 }}>
+                    <div style={{ fontSize: 17, color: colors.text, minWidth: 0 }}>
                       {k.label} <span style={{ color: colors.muted }}>({k.persona})</span>
                     </div>
                     <Button
                       variant="ghost"
                       size="sm"
-                      style={{ fontSize: 14, flexShrink: 0 }}
+                      style={{ fontSize: 16, flexShrink: 0 }}
                       disabled={!ready || sendingAll || busyKeyId === k.keyId}
                       onClick={() => void sendTo(k.keyId, k.tapitXOnlyPubkey!, k.label, k.persona)}
                     >
@@ -476,7 +476,7 @@ export function CirclePhraseSetup({
                     </Button>
                   </div>
                   {d && (
-                    <div style={{ fontSize: 13, color: statusColor(d), paddingLeft: 2 }}>
+                    <div style={{ fontSize: 15, color: statusColor(d), paddingLeft: 2 }}>
                       {statusText(d)}
                     </div>
                   )}

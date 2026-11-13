@@ -35,7 +35,7 @@ export function HardwareKeyImport({
   const [err, setErr] = useState<string | null>(null);
   const keystoreNetwork = network === 'bitcoin' ? 'mainnet' : network;
   const examplePath = network === 'bitcoin' ? "m/48'/0'/0'/2'" : "m/48'/1'/0'/2'";
-  const sub: React.CSSProperties = { fontSize: 15, color: colors.sub, lineHeight: 1.6, margin: 0 };
+  const sub: React.CSSProperties = { fontSize: 17, color: colors.sub, lineHeight: 1.6, margin: 0 };
 
   // Fill the form from a scan or a paste, taking only what is really there.
   function fill(text: string) {
@@ -117,7 +117,7 @@ export function HardwareKeyImport({
           <Button style={{ minHeight: 44 }} onClick={() => { setErr(null); setMode('scan'); }}>Scan its key QR</Button>
           <Button variant="ghost" style={{ minHeight: 44 }} onClick={() => { setErr(null); setMode('form'); }}>Paste it</Button>
         </div>
-        <p style={{ ...sub, fontSize: 14 }}>
+        <p style={{ ...sub, fontSize: 16 }}>
           On a SeedSigner: open the seed, tap Export xpub, then Multisig and Native Segwit. Either QR format
           works, Animated (default) or Static; hold the phone steady until the animated one finishes.
         </p>
@@ -149,7 +149,7 @@ export function HardwareKeyImport({
         <Label>Derivation path</Label>
         <Input mono value={path} onChange={e => setPath(e.target.value)} placeholder={examplePath} autoCapitalize="none" autoCorrect="off" spellCheck={false} />
       </div>
-      <p style={{ ...sub, fontSize: 14 }}>
+      <p style={{ ...sub, fontSize: 16 }}>
         Read the fingerprint and path from the wallet's own screen. A scan of its key QR fills both in.
       </p>
       {err && <p style={{ ...sub, color: colors.red }}>{err}</p>}

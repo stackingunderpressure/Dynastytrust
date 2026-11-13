@@ -2,7 +2,7 @@ import type { LabelHTMLAttributes, CSSProperties } from 'react';
 import { colors } from '../../theme';
 
 const base: CSSProperties = {
-  fontSize: 13,
+  fontSize: 15,
   fontWeight: 600,
   letterSpacing: '0.08em',
   color: colors.muted,

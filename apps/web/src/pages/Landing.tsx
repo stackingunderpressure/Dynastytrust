@@ -206,7 +206,7 @@ function InlineAuthForm() {
           />
           {error && <p style={s.authError}>{error}</p>}
           {resent && !error && <p style={s.authSub}>New code sent.</p>}
-          <Button type="submit" disabled={busy || code.length !== 6} style={{ marginTop: space[3], padding: '14px', fontSize: 15 }}>
+          <Button type="submit" disabled={busy || code.length !== 6} style={{ marginTop: space[3], padding: '14px', fontSize: 17 }}>
             {busy ? 'Working...' : 'Verify code'}
           </Button>
         </form>
@@ -252,7 +252,7 @@ function InlineAuthForm() {
           onChange={e => setEmail(e.target.value)}
           required
           placeholder="you@example.com"
-          style={{ fontSize: 15, padding: '12px 14px' }}
+          style={{ fontSize: 17, padding: '12px 14px' }}
         />
         <label style={s.fieldLabel} htmlFor="lp-password">Password</label>
         <Input
@@ -264,13 +264,13 @@ function InlineAuthForm() {
           required
           minLength={8}
           placeholder="at least 8 characters"
-          style={{ fontSize: 15, padding: '12px 14px' }}
+          style={{ fontSize: 17, padding: '12px 14px' }}
         />
         {error && <p style={s.authError}>{error}</p>}
         <Button
           type="submit"
           disabled={busy}
-          style={{ marginTop: space[3], padding: '14px', fontSize: 15 }}
+          style={{ marginTop: space[3], padding: '14px', fontSize: 17 }}
         >
           {busy ? 'Working...' : mode === 'login' ? 'Sign in' : 'Create account'}
         </Button>
@@ -437,7 +437,7 @@ const s: Record<string, CSSProperties> = {
 
   logo: {
     fontFamily: fonts.display,
-    fontSize: 15,
+    fontSize: 17,
     fontWeight: 700,
     letterSpacing: '0.18em',
     color: colors.gold,
@@ -455,7 +455,7 @@ const s: Record<string, CSSProperties> = {
     letterSpacing: '-0.01em',
   },
   tagline: {
-    fontSize: 17,
+    fontSize: 18,
     lineHeight: 1.6,
     color: colors.sub,
     marginBottom: space[6],
@@ -474,14 +474,14 @@ const s: Record<string, CSSProperties> = {
     display: 'flex',
     gap: space[3],
     alignItems: 'flex-start',
-    fontSize: 15,
+    fontSize: 17,
     lineHeight: 1.55,
     color: colors.text,
   },
   bulletMark: {
     color: colors.gold,
     fontFamily: fonts.mono,
-    fontSize: 15,
+    fontSize: 17,
     flex: '0 0 auto',
     marginTop: 1,
   },
@@ -507,7 +507,7 @@ const s: Record<string, CSSProperties> = {
     borderRadius: radii.md,
     background: 'transparent',
     color: colors.muted,
-    fontSize: 15,
+    fontSize: 17,
     fontFamily: fonts.sans,
     cursor: 'pointer',
   },
@@ -521,7 +521,7 @@ const s: Record<string, CSSProperties> = {
     gap: 6,
   },
   fieldLabel: {
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: 600,
     letterSpacing: '0.08em',
     color: colors.sub,
@@ -529,12 +529,12 @@ const s: Record<string, CSSProperties> = {
     marginTop: space[2],
   },
   authError: {
-    fontSize: 14,
+    fontSize: 16,
     color: colors.red,
     margin: '6px 0 0',
   },
   authFine: {
-    fontSize: 13,
+    fontSize: 15,
     color: colors.muted,
     lineHeight: 1.55,
     marginTop: space[4],
@@ -547,7 +547,7 @@ const s: Record<string, CSSProperties> = {
     marginBottom: space[2],
   },
   authSub: {
-    fontSize: 15,
+    fontSize: 17,
     color: colors.sub,
     lineHeight: 1.6,
     marginBottom: space[4],
@@ -556,7 +556,7 @@ const s: Record<string, CSSProperties> = {
     background: 'none',
     border: 'none',
     color: colors.gold,
-    fontSize: 15,
+    fontSize: 17,
     cursor: 'pointer',
     padding: 0,
     fontFamily: fonts.sans,
@@ -570,7 +570,7 @@ const s: Record<string, CSSProperties> = {
   },
   sectionHead: { marginBottom: space[8] },
   eyebrow: {
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: 700,
     letterSpacing: '0.18em',
     color: colors.gold,
@@ -597,13 +597,13 @@ const s: Record<string, CSSProperties> = {
     padding: '22px 22px',
   },
   pillarTitle: {
-    fontSize: 15,
+    fontSize: 17,
     fontWeight: 700,
     color: colors.gold,
     marginBottom: space[2],
   },
   pillarBody: {
-    fontSize: 13.5,
+    fontSize: 15,
     lineHeight: 1.6,
     color: colors.sub,
     margin: 0,
@@ -621,7 +621,7 @@ const s: Record<string, CSSProperties> = {
     padding: '24px 24px',
   },
   modeLabel: {
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: 700,
     letterSpacing: '0.12em',
     textTransform: 'uppercase',
@@ -636,7 +636,7 @@ const s: Record<string, CSSProperties> = {
     marginBottom: space[3],
   },
   modeBody: {
-    fontSize: 15,
+    fontSize: 17,
     lineHeight: 1.55,
     color: colors.sub,
     marginBottom: space[4],
@@ -653,7 +653,7 @@ const s: Record<string, CSSProperties> = {
     display: 'flex',
     gap: space[2],
     alignItems: 'flex-start',
-    fontSize: 15,
+    fontSize: 17,
     lineHeight: 1.5,
     color: colors.text,
   },
@@ -665,7 +665,7 @@ const s: Record<string, CSSProperties> = {
   },
   modeFine: {
     marginTop: space[4],
-    fontSize: 13,
+    fontSize: 15,
     color: colors.muted,
     fontFamily: fonts.mono,
   },
@@ -688,7 +688,7 @@ const s: Record<string, CSSProperties> = {
   footerLeft: {},
   footerLogo: {
     fontFamily: fonts.display,
-    fontSize: 15,
+    fontSize: 17,
     fontWeight: 700,
     letterSpacing: '0.18em',
     color: colors.gold,
@@ -696,7 +696,7 @@ const s: Record<string, CSSProperties> = {
     marginBottom: 4,
   },
   footerTagline: {
-    fontSize: 14,
+    fontSize: 16,
     color: colors.muted,
   },
   footerRight: {
@@ -704,7 +704,7 @@ const s: Record<string, CSSProperties> = {
     gap: space[5],
   },
   footerLink: {
-    fontSize: 15,
+    fontSize: 17,
     color: colors.sub,
     textDecoration: 'none',
   },

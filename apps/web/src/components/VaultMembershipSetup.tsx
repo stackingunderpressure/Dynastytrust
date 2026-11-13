@@ -328,7 +328,7 @@ export function VaultMembershipSetup({
         borderRadius: radii.md,
         padding: '12px 14px',
         marginTop: 10,
-        fontSize: 14,
+        fontSize: 16,
         color: colors.sub,
       }}
     >
@@ -362,11 +362,11 @@ export function VaultMembershipSetup({
           marginBottom: space[4],
         }}
       >
-        <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+        <div style={{ fontSize: 17, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
           Circle membership
         </div>
         {barePubkeys.length > 0 && (
-          <p style={{ fontSize: 14, color: colors.sub, margin: 0 }}>
+          <p style={{ fontSize: 16, color: colors.sub, margin: 0 }}>
             This vault has {barePubkeys.length} key{barePubkeys.length === 1 ? '' : 's'} that
             look like they came from Tapit (no extended public key attached), but none of them match a
             Tapit-origin key in this browser's Key Manager right now. If you added that key on a different
@@ -391,11 +391,11 @@ export function VaultMembershipSetup({
           marginBottom: space[4],
         }}
       >
-        <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+        <div style={{ fontSize: 17, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
           Circle membership
         </div>
         {anyBarePubkeys > 0 && (
-          <p style={{ fontSize: 14, color: colors.sub, margin: 0 }}>
+          <p style={{ fontSize: 16, color: colors.sub, margin: 0 }}>
             This vault has {anyBarePubkeys} key{anyBarePubkeys === 1 ? '' : 's'} that
             look like they came from Tapit, but none of them match a Tapit-origin key in this
             browser's Key Manager right now --{' '}
@@ -460,17 +460,17 @@ export function VaultMembershipSetup({
         marginBottom: space[4],
       }}
     >
-      <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+      <div style={{ fontSize: 17, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
         Circle membership
       </div>
-      <p style={{ fontSize: 14, color: colors.muted, marginBottom: 14 }}>
+      <p style={{ fontSize: 16, color: colors.muted, marginBottom: 14 }}>
         Each circle member's Tapit wallet needs to hold a membership record for this vault before
         it will recognize a spend request as real. Send it once per member -- their wallet reviews
         it and holds its own copy, then sends back a confirmation you'll see appear below.
       </p>
 
       {!ready && vaultDescriptor !== null && (
-        <p style={{ fontSize: 14, color: colors.gold, marginBottom: 10 }}>
+        <p style={{ fontSize: 16, color: colors.gold, marginBottom: 10 }}>
           No leaf scripts on file for this vault yet -- recompile to refresh them before sending.
         </p>
       )}
@@ -484,7 +484,7 @@ export function VaultMembershipSetup({
           return (
             <div key={k.keyId} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                <div style={{ fontSize: 15, color: colors.text, minWidth: 0 }}>
+                <div style={{ fontSize: 17, color: colors.text, minWidth: 0 }}>
                   {k.label}{' '}
                   {editingThis ? (
                     <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
@@ -500,7 +500,7 @@ export function VaultMembershipSetup({
                         placeholder="e.g. Owner, Trustee, Dad"
                         maxLength={60}
                         style={{
-                          fontSize: 14,
+                          fontSize: 16,
                           padding: '1px 5px',
                           borderRadius: 4,
                           border: `1px solid ${colors.gold}`,
@@ -513,14 +513,14 @@ export function VaultMembershipSetup({
                         type="button"
                         disabled={savingLabel}
                         onClick={() => void saveKeyLabel(pk)}
-                        style={{ fontSize: 14, color: colors.gold, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                        style={{ fontSize: 16, color: colors.gold, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
                       >
                         {savingLabel ? '...' : 'Save'}
                       </button>
                       <button
                         type="button"
                         onClick={() => setEditingPubkey(null)}
-                        style={{ fontSize: 14, color: colors.muted, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                        style={{ fontSize: 16, color: colors.muted, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
                       >
                         Cancel)
                       </button>
@@ -545,7 +545,7 @@ export function VaultMembershipSetup({
                 <Button
                   variant="ghost"
                   size="sm"
-                  style={{ fontSize: 14, flexShrink: 0 }}
+                  style={{ fontSize: 16, flexShrink: 0 }}
                   disabled={!ready || busyKeyId === k.keyId}
                   onClick={() => void grant(k.keyId, role, k.tapitXOnlyPubkey!, k.label, k.persona)}
                 >
@@ -559,7 +559,7 @@ export function VaultMembershipSetup({
                 </Button>
               </div>
               {g && (
-                <div style={{ fontSize: 13, color: STATUS_COLOR[g.status], paddingLeft: 2 }}>
+                <div style={{ fontSize: 15, color: STATUS_COLOR[g.status], paddingLeft: 2 }}>
                   {STATUS_LABEL[g.status]}
                   {STATUS_DETAIL[g.status] ?? ''}
                   {g.responded_at ? ` -- ${new Date(g.responded_at).toLocaleString()}` : ''}

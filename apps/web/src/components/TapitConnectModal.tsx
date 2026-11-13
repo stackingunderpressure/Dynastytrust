@@ -143,45 +143,45 @@ export function TapitConnectModal({ mode, onClose, onDone }: { mode: TapitMode; 
 
   return (
     <Modal title="Connect Tapit wallet" onClose={onClose}>
-      {state.kind === 'loading' && <p style={{ color: colors.muted, fontSize: 15 }}>Preparing request...</p>}
+      {state.kind === 'loading' && <p style={{ color: colors.muted, fontSize: 17 }}>Preparing request...</p>}
       {state.kind === 'error' && (
         <>
-          <p style={{ color: colors.red, fontSize: 15, marginBottom: 16 }}>{state.message}</p>
+          <p style={{ color: colors.red, fontSize: 17, marginBottom: 16 }}>{state.message}</p>
           <Button variant="ghost" onClick={onClose}>Close</Button>
         </>
       )}
-      {state.kind === 'connecting' && <p style={{ color: colors.muted, fontSize: 15 }}>Connecting...</p>}
+      {state.kind === 'connecting' && <p style={{ color: colors.muted, fontSize: 17 }}>Connecting...</p>}
       {state.kind === 'waiting' && (
         <>
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: space[3] }}>
             <QrImage data={state.requestUrl} />
           </div>
-          <p style={{ fontSize: 15, color: colors.sub, textAlign: 'center', lineHeight: 1.6, marginBottom: 12 }}>
+          <p style={{ fontSize: 17, color: colors.sub, textAlign: 'center', lineHeight: 1.6, marginBottom: 12 }}>
             Scan this with the phone your Tapit wallet is on. Approving there signs you in here
             automatically -- this tab does not need to redirect anywhere.
           </p>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', marginBottom: 4 }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: colors.gold }} />
-            <span style={{ fontSize: 14, color: colors.muted }}>Waiting for approval...</span>
+            <span style={{ fontSize: 16, color: colors.muted }}>Waiting for approval...</span>
           </div>
           <div style={{ textAlign: 'center', marginTop: 16, paddingTop: 16, borderTop: `1px solid ${colors.border}` }}>
             <a
               href={state.requestUrl}
               onClick={onClose}
-              style={{ fontSize: 14, color: colors.gold, fontFamily: fonts.sans }}
+              style={{ fontSize: 16, color: colors.gold, fontFamily: fonts.sans }}
             >
               Or open Tapit directly on this device
             </a>
           </div>
 
           <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${colors.border}` }}>
-            <p style={{ fontSize: 14, color: colors.muted, marginBottom: 8, textAlign: 'center' }}>
+            <p style={{ fontSize: 16, color: colors.muted, marginBottom: 8, textAlign: 'center' }}>
               Wallet already open on this device? Skip the QR -- paste its public key instead.
             </p>
             {pubkeySent ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: colors.gold }} />
-                <span style={{ fontSize: 14, color: colors.muted }}>
+                <span style={{ fontSize: 16, color: colors.muted }}>
                   Sent -- check your Tapit wallet's Inbox to approve.
                 </span>
               </div>

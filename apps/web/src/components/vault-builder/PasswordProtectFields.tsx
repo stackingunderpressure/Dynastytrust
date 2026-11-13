@@ -55,7 +55,7 @@ export function PasswordProtectFields({
   const hintColor = hint.level === 'weak' ? colors.orange : hint.level === 'strong' ? colors.green : colors.sub;
   return (
     <>
-      <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 15, color: colors.sub, fontFamily: fonts.sans }}>
+      <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 17, color: colors.sub, fontFamily: fonts.sans }}>
         <input
           type="checkbox"
           checked={state.enabled}
@@ -75,7 +75,7 @@ export function PasswordProtectFields({
               minLength={8}
               placeholder="Four unrelated words is ideal"
             />
-            <div style={{ fontSize: 13, color: hintColor, marginTop: 6, lineHeight: 1.5, fontFamily: fonts.sans }}>{hint.text}</div>
+            <div style={{ fontSize: 15, color: hintColor, marginTop: 6, lineHeight: 1.5, fontFamily: fonts.sans }}>{hint.text}</div>
           </div>
           <div>
             <Label>Confirm password</Label>

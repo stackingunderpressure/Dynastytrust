@@ -6,6 +6,10 @@
  * screens were under 14px (226 under 12px), and the fine-print grey
  * was 2.7:1 against its background. Sizes went up two steps and the
  * grey was lightened; this keeps both from drifting back.
+ * Operator again, 2026-11-13: "Type is too small everywhere". Measured
+ * at 375px across five screens: 90-98% of visible text under 16px,
+ * middle 14-15px, smallest 12px. Every size under 18px went up 2px
+ * (body text 15 -> 17, the phone's own default); the floor is now 14.
  * Wired into `npm test`.
  *
  * Run:  node scripts/test-readability.mjs
@@ -19,8 +23,8 @@ const src = join(dirname(fileURLToPath(import.meta.url)), '..', 'apps', 'web', '
 let n = 0; const pass = (l) => { n++; console.log(`  [ok] ${l}`); };
 const files = (d) => readdirSync(d).flatMap(f => { const p = join(d, f); return statSync(p).isDirectory() ? files(p) : /\.tsx$/.test(f) ? [p] : []; });
 
-// 1. No text below 12px anywhere, and the bulk of it at 13px or more.
-const MIN_PX = 12;
+// 1. No text below 14px anywhere, and the bulk of it at 15px or more.
+const MIN_PX = 14;
 const sizes = []; const tooSmall = [];
 for (const f of files(src)) {
   readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
@@ -32,9 +36,9 @@ for (const f of files(src)) {
 }
 assert.ok(sizes.length > 500, `expected to find the app's text sizes, found ${sizes.length}`);
 assert.deepEqual(tooSmall, [], `text smaller than ${MIN_PX}px:\n  ${tooSmall.join('\n  ')}`);
-const under13 = sizes.filter(s => s < 13).length;
-assert.ok(under13 / sizes.length < 0.08, `${under13} of ${sizes.length} text sizes are 12px; keep 12px for badges and labels only`);
-pass(`no text below ${MIN_PX}px in ${sizes.length} sizes; ${under13} at 12px`);
+const under15 = sizes.filter(s => s < 15).length;
+assert.ok(under15 / sizes.length < 0.08, `${under15} of ${sizes.length} text sizes are 14px; keep 14px for badges and labels only`);
+pass(`no text below ${MIN_PX}px in ${sizes.length} sizes; ${under15} at 14px`);
 
 // 2. Every text colour is readable on every background it sits on.
 const theme = readFileSync(join(src, 'theme.ts'), 'utf8');

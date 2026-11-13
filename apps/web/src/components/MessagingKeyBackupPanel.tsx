@@ -130,7 +130,7 @@ export function MessagingKeyBackupPanel({
 
   if (state.kind === "in-sync") {
     return (
-      <div style={{ fontSize: 13, color: colors.muted }}>
+      <div style={{ fontSize: 15, color: colors.muted }}>
         Messaging key backed up -- readable from any browser with your recovery passphrase.
       </div>
     );
@@ -138,7 +138,7 @@ export function MessagingKeyBackupPanel({
 
   if (state.kind === "error") {
     return (
-      <div style={{ fontSize: 13, color: colors.muted }}>
+      <div style={{ fontSize: 15, color: colors.muted }}>
         Could not check messaging-key backup status ({state.detail}).
       </div>
     );
@@ -158,7 +158,7 @@ export function MessagingKeyBackupPanel({
         gap: 8,
       }}
     >
-      <div style={{ fontSize: 14, color: colors.sub, lineHeight: 1.5 }}>
+      <div style={{ fontSize: 16, color: colors.sub, lineHeight: 1.5 }}>
         {isMismatch ? (
           <>
             <strong style={{ color: colors.orange }}>This browser doesn't have your saved messaging key.</strong>{" "}
@@ -179,7 +179,7 @@ export function MessagingKeyBackupPanel({
         placeholder="Recovery passphrase"
         value={passphrase}
         onChange={e => setPassphrase(e.target.value)}
-        style={{ fontSize: 14 }}
+        style={{ fontSize: 16 }}
       />
       {!isMismatch && (
         <Input
@@ -187,7 +187,7 @@ export function MessagingKeyBackupPanel({
           placeholder="Confirm passphrase"
           value={confirmPassphrase}
           onChange={e => setConfirmPassphrase(e.target.value)}
-          style={{ fontSize: 14 }}
+          style={{ fontSize: 16 }}
         />
       )}
       <Button
@@ -196,7 +196,7 @@ export function MessagingKeyBackupPanel({
         type="button"
         disabled={busy}
         onClick={() => void (isMismatch ? restore() : backUp())}
-        style={{ alignSelf: "flex-start", fontSize: 14 }}
+        style={{ alignSelf: "flex-start", fontSize: 16 }}
       >
         {busy ? "Working..." : isMismatch ? "Restore my key" : "Back up now"}
       </Button>

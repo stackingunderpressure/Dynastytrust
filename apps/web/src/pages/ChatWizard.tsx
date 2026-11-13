@@ -141,9 +141,9 @@ export default function ChatWizard() {
           flexWrap: 'wrap',
         }}
       >
-        <span style={{ fontSize: 14, color: colors.muted }}>Pace:</span>
+        <span style={{ fontSize: 16, color: colors.muted }}>Pace:</span>
         <ModeToggle mode={mode} onChange={setMode} />
-        <span style={{ fontSize: 14, color: colors.muted }}>
+        <span style={{ fontSize: 16, color: colors.muted }}>
           {mode === 'express'
             ? 'Fast and concrete -- ask "why?" any time for the deeper lesson.'
             : 'Take all the education you want -- one step at a time, as deep as you like.'}
@@ -220,7 +220,7 @@ function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => voi
               background: active ? colors.gold + '22' : 'transparent',
               color: active ? colors.gold : colors.muted,
               fontWeight: active ? 700 : 400,
-              fontSize: 15,
+              fontSize: 17,
               fontFamily: fonts.sans,
               cursor: 'pointer',
             }}
@@ -253,7 +253,7 @@ function Bubble({
           borderRadius: radii.lg,
           padding: '10px 14px',
           color: muted ? colors.muted : colors.text,
-          fontSize: 15,
+          fontSize: 17,
           lineHeight: 1.5,
           whiteSpace: 'pre-wrap',
           fontFamily: fonts.sans,
@@ -262,7 +262,7 @@ function Bubble({
       >
         <div
           style={{
-            fontSize: 12,
+            fontSize: 14,
             letterSpacing: '0.08em',
             textTransform: 'uppercase',
             color: isUser ? colors.gold : colors.muted,
@@ -308,7 +308,7 @@ function ConfirmCard({
     >
       <div
         style={{
-          fontSize: 13,
+          fontSize: 15,
           letterSpacing: '0.08em',
           textTransform: 'uppercase',
           color: colors.gold,
@@ -319,7 +319,7 @@ function ConfirmCard({
         Proposed vault -- you decide
       </div>
 
-      <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: space[2] }}>
+      <div style={{ fontSize: 17, fontWeight: 600, color: colors.text, marginBottom: space[2] }}>
         {templateTitle(proposal.template)}
       </div>
 
@@ -327,7 +327,7 @@ function ConfirmCard({
         style={{
           margin: 0,
           paddingLeft: 18,
-          fontSize: 15,
+          fontSize: 17,
           color: colors.sub,
           lineHeight: 1.6,
         }}
@@ -359,7 +359,7 @@ function ConfirmCard({
         <div
           style={{
             marginTop: space[3],
-            fontSize: 15,
+            fontSize: 17,
             color: colors.text,
             lineHeight: 1.5,
             fontStyle: 'italic',
@@ -378,7 +378,7 @@ function ConfirmCard({
         </div>
       )}
       {dismissed && (
-        <div style={{ marginTop: space[3], fontSize: 14, color: colors.muted }}>
+        <div style={{ marginTop: space[3], fontSize: 16, color: colors.muted }}>
           No problem -- ask Sage anything else, or refine what you want.
         </div>
       )}

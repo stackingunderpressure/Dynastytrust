@@ -91,13 +91,13 @@ export default function InviteClaimPath({
 
   const page: React.CSSProperties = { minHeight: '100vh', fontFamily: fonts.sans, padding: space[4], display: 'flex', justifyContent: 'center' };
   const col: React.CSSProperties = { width: '100%', maxWidth: 520, display: 'flex', flexDirection: 'column', gap: space[3] };
-  const p: React.CSSProperties = { fontSize: 15, color: colors.text, lineHeight: 1.6, margin: 0 };
-  const sub: React.CSSProperties = { fontSize: 15, color: colors.sub, lineHeight: 1.6, margin: 0 };
+  const p: React.CSSProperties = { fontSize: 17, color: colors.text, lineHeight: 1.6, margin: 0 };
+  const sub: React.CSSProperties = { fontSize: 17, color: colors.sub, lineHeight: 1.6, margin: 0 };
   const h: React.CSSProperties = { fontFamily: fonts.display, fontSize: 20, color: colors.gold, marginBottom: space[2] };
 
   const intro = (
     <Card>
-      <div style={{ fontFamily: fonts.display, fontSize: 15, letterSpacing: '0.12em', color: colors.gold, marginBottom: space[2] }}>{APP_NAME}</div>
+      <div style={{ fontFamily: fonts.display, fontSize: 17, letterSpacing: '0.12em', color: colors.gold, marginBottom: space[2] }}>{APP_NAME}</div>
       <p style={p}>
         {invite.invited_label ? `${invite.invited_label}, you` : 'You'} have been invited to hold a key for{' '}
         <strong>{path ? `"${path.label}"` : 'a path'}</strong> in the Bitcoin vault <strong>{vault.name}</strong>
@@ -271,7 +271,7 @@ export default function InviteClaimPath({
                 <Label>{real ? 'Password to lock the key on this device' : 'Password (optional for test coins)'}</Label>
                 <Input type="password" value={password} onChange={e => setPassword(e.target.value)} required={real} placeholder="Four unrelated words is ideal" />
                 {(real || password) && (
-                  <p style={{ ...sub, fontSize: 13, marginTop: 6, color: passwordHint(password, vault.network).level === 'weak' ? colors.orange : colors.sub }}>
+                  <p style={{ ...sub, fontSize: 15, marginTop: 6, color: passwordHint(password, vault.network).level === 'weak' ? colors.orange : colors.sub }}>
                     {passwordHint(password, vault.network).text}
                   </p>
                 )}
@@ -282,7 +282,7 @@ export default function InviteClaimPath({
                   <Input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} required />
                 </div>
               )}
-              <p style={{ ...sub, fontSize: 15 }}>
+              <p style={{ ...sub, fontSize: 17 }}>
                 The password cannot be recovered. If you forget it, the 24 words still bring the key back.
               </p>
               <KeySafety />
@@ -322,7 +322,7 @@ export default function InviteClaimPath({
                   <select
                     value={existingId}
                     onChange={e => setExistingId(e.target.value)}
-                    style={{ width: '100%', padding: '11px 13px', background: colors.input, border: `1px solid ${colors.border}`, borderRadius: radii.md, color: colors.text, fontSize: 16, fontFamily: fonts.sans, boxSizing: 'border-box' }}
+                    style={{ width: '100%', padding: '11px 13px', background: colors.input, border: `1px solid ${colors.border}`, borderRadius: radii.md, color: colors.text, fontSize: 18, fontFamily: fonts.sans, boxSizing: 'border-box' }}
                   >
                     <option value="">Pick a key on this device...</option>
                     {localKeys.map(k => (

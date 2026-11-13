@@ -186,10 +186,10 @@ export function NotifyCircleViaNostr({
         marginBottom: 16,
       }}
     >
-      <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+      <div style={{ fontSize: 17, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
         Notify circle via Nostr
       </div>
-      <div style={{ fontSize: 14, color: colors.muted, marginBottom: 14 }}>
+      <div style={{ fontSize: 16, color: colors.muted, marginBottom: 14 }}>
         Delivers the spend request straight into each signer's Tapit inbox -- no link to hand
         them by hand. They still verify with you by phone before signing; once they do, their
         signature merges in here automatically.
@@ -204,7 +204,7 @@ export function NotifyCircleViaNostr({
               key={s.key.keyId}
               style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}
             >
-              <div style={{ fontSize: 15, color: colors.text, minWidth: 0 }}>
+              <div style={{ fontSize: 17, color: colors.text, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   {received && (
                     <span
@@ -218,7 +218,7 @@ export function NotifyCircleViaNostr({
                         borderRadius: "50%",
                         background: colors.green,
                         color: "#fff",
-                        fontSize: 12,
+                        fontSize: 14,
                         fontWeight: 700,
                         flexShrink: 0,
                       }}
@@ -231,7 +231,7 @@ export function NotifyCircleViaNostr({
                   </span>
                 </div>
                 {meta && (
-                  <div style={{ fontSize: 13, marginTop: 2, color: meta.color, display: "flex", alignItems: "center", gap: 4 }}>
+                  <div style={{ fontSize: 15, marginTop: 2, color: meta.color, display: "flex", alignItems: "center", gap: 4 }}>
                     <span aria-hidden>{meta.icon}</span>
                     <span>{meta.label}</span>
                   </div>
@@ -240,7 +240,7 @@ export function NotifyCircleViaNostr({
               <Button
                 variant="ghost"
                 size="sm"
-                style={{ fontSize: 14, flexShrink: 0 }}
+                style={{ fontSize: 16, flexShrink: 0 }}
                 disabled={busyKeyId === s.key.keyId || received}
                 onClick={() => void notify(s.key)}
               >

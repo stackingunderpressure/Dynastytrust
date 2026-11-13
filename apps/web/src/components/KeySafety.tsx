@@ -16,7 +16,7 @@ export function KeySafety({ defaultOpen = false }: { defaultOpen?: boolean }) {
         style={{
           display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: space[2], width: '100%', minHeight: 44,
           padding: `${space[2]}px ${space[3]}px`, background: 'transparent', border: 'none', color: colors.gold,
-          font: 'inherit', fontSize: 15, fontWeight: 600, textAlign: 'left', cursor: 'pointer',
+          font: 'inherit', fontSize: 17, fontWeight: 600, textAlign: 'left', cursor: 'pointer',
         }}
       >
         <span>What makes a key safe</span>
@@ -26,8 +26,8 @@ export function KeySafety({ defaultOpen = false }: { defaultOpen?: boolean }) {
         <div style={{ padding: `0 ${space[3]}px ${space[3]}px` }}>
           {KEY_LESSONS.map(l => (
             <div key={l.title} style={{ marginTop: space[3] }}>
-              <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 2 }}>{l.title}</div>
-              <div style={{ fontSize: 14, color: colors.sub, lineHeight: 1.6 }}>{l.body}</div>
+              <div style={{ fontSize: 17, fontWeight: 600, color: colors.text, marginBottom: 2 }}>{l.title}</div>
+              <div style={{ fontSize: 16, color: colors.sub, lineHeight: 1.6 }}>{l.body}</div>
             </div>
           ))}
         </div>

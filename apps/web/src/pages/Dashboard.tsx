@@ -223,10 +223,10 @@ export default function Dashboard() {
         </Button>
       </div>
 
-      {loading && <p style={{ color: colors.muted, fontSize: 15 }}>Loading...</p>}
+      {loading && <p style={{ color: colors.muted, fontSize: 17 }}>Loading...</p>}
       {error && (
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-          <p style={{ color: colors.red, fontSize: 15, margin: 0 }}>{error}</p>
+          <p style={{ color: colors.red, fontSize: 17, margin: 0 }}>{error}</p>
           <Button variant="ghost" size="sm" onClick={() => { setLoading(true); void load(); }}>
             Retry
           </Button>
@@ -249,7 +249,7 @@ export default function Dashboard() {
           <p
             style={{
               color: colors.muted,
-              fontSize: 15,
+              fontSize: 17,
               maxWidth: 360,
               margin: "0 auto 24px",
             }}
@@ -287,11 +287,11 @@ export default function Dashboard() {
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12, gap: 8 }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: colors.text, marginBottom: 4, wordBreak: "break-word" }}>{v.name}</div>
+                  <div style={{ fontSize: 18, fontWeight: 600, color: colors.text, marginBottom: 4, wordBreak: "break-word" }}>{v.name}</div>
                   <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                     <span
                       style={{
-                        fontSize: 12,
+                        fontSize: 14,
                         fontWeight: 700,
                         letterSpacing: "0.1em",
                         padding: "3px 8px",
@@ -305,7 +305,7 @@ export default function Dashboard() {
                     {v.bloc_policy && (
                       <span
                         style={{
-                          fontSize: 12,
+                          fontSize: 14,
                           fontWeight: 700,
                           letterSpacing: "0.1em",
                           padding: "3px 8px",
@@ -320,7 +320,7 @@ export default function Dashboard() {
                     {v.my_role && (
                       <span
                         style={{
-                          fontSize: 12,
+                          fontSize: 14,
                           fontWeight: 700,
                           letterSpacing: "0.08em",
                           padding: "3px 8px",
@@ -346,35 +346,35 @@ export default function Dashboard() {
                 }}
               >
                 {bal ? satsToBtc(bal.total_sats) : "--"}
-                <span style={{ fontSize: 15, color: colors.muted }}> BTC</span>
+                <span style={{ fontSize: 17, color: colors.muted }}> BTC</span>
               </div>
               {!bal && v.address && balanceErrors[v.id] && (
-                <div style={{ fontSize: 13, color: colors.orange, marginBottom: 6 }}>
+                <div style={{ fontSize: 15, color: colors.orange, marginBottom: 6 }}>
                   Balance unavailable -- mempool.space did not respond. Refresh to retry.
                 </div>
               )}
               {bal?.usd_value != null && (
-                <div style={{ fontSize: 15, color: colors.sub, marginBottom: 8 }}>
+                <div style={{ fontSize: 17, color: colors.sub, marginBottom: 8 }}>
                   ${bal.usd_value.toLocaleString("en-US", { maximumFractionDigits: 0 })}
                 </div>
               )}
-              <div style={{ fontFamily: fonts.mono, fontSize: 13, color: colors.muted, marginBottom: 6 }}>
+              <div style={{ fontFamily: fonts.mono, fontSize: 15, color: colors.muted, marginBottom: 6 }}>
                 {v.address
                   ? `${v.address.slice(0, 14)}...${v.address.slice(-8)}`
                   : "Draft -- awaiting compile"}
               </div>
               {roleStatus(v, tips[v.network] ?? null) && (
-                <div style={{ fontSize: 14, color: roleAccent(v.my_role), marginBottom: 12 }}>
+                <div style={{ fontSize: 16, color: roleAccent(v.my_role), marginBottom: 12 }}>
                   {roleStatus(v, tips[v.network] ?? null)}
                 </div>
               )}
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", borderTop: `1px solid ${colors.divider}`, paddingTop: 12 }}>
                 {v.bloc_policy?.parent_pubkeys?.length ? (
                   <>
-                    <span style={{ fontSize: 13, color: colors.muted }}>
+                    <span style={{ fontSize: 15, color: colors.muted }}>
                       {v.bloc_policy.parents_together_quorum} of {v.bloc_policy.parent_pubkeys.length} parents
                     </span>
-                    <span style={{ fontSize: 13, color: colors.muted }}>
+                    <span style={{ fontSize: 15, color: colors.muted }}>
                       Decaying kids ladder to {v.bloc_policy.kids_decay_floor_quorum}
                     </span>
                   </>
@@ -390,20 +390,20 @@ export default function Dashboard() {
                   // up here as a bogus "2/0 founders, 2/0 heirs" summary -- the
                   // real spending rules live in v.leaves instead.
                   v.leaves.map(leaf => (
-                    <span key={leaf.id} style={{ fontSize: 13, color: colors.muted }}>
+                    <span key={leaf.id} style={{ fontSize: 15, color: colors.muted }}>
                       {leaf.label}: {(leaf.required_keys ?? []).length > 0 ? `${(leaf.required_keys ?? []).length} must-sign + ` : ''}{leaf.quorum}/{leaf.keys.length}
                       {leaf.unlock.type === "after" ? opensSuffix(leaf.unlock.blocks, tips[v.network] ?? null) : ""}
                     </span>
                   ))
                 ) : (
                   <>
-                    <span style={{ fontSize: 13, color: colors.muted }}>
+                    <span style={{ fontSize: 15, color: colors.muted }}>
                       {v.founder_quorum}/{v.founder_keys.length} founders
                     </span>
-                    <span style={{ fontSize: 13, color: colors.muted }}>
+                    <span style={{ fontSize: 15, color: colors.muted }}>
                       {v.heir_quorum}/{v.heir_keys.length} heirs
                     </span>
-                    <span style={{ fontSize: 13, color: colors.muted }}>
+                    <span style={{ fontSize: 15, color: colors.muted }}>
                       Recovery{opensSuffix(v.recovery_after, tips[v.network] ?? null)}
                     </span>
                   </>
@@ -413,7 +413,7 @@ export default function Dashboard() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  style={{ fontSize: 14, padding: "5px 10px" }}
+                  style={{ fontSize: 16, padding: "5px 10px" }}
                   onClick={() => setRenaming(v)}
                 >
                   Rename
@@ -422,7 +422,7 @@ export default function Dashboard() {
                   <Button
                     variant="danger"
                     size="sm"
-                    style={{ fontSize: 14, padding: "5px 10px" }}
+                    style={{ fontSize: 16, padding: "5px 10px" }}
                     disabled={deletingId === v.id}
                     onClick={() => deleteVault(v)}
                   >
@@ -534,7 +534,7 @@ function TrustCodeModal({ onClose }: { onClose: () => void }) {
       <div style={{ fontSize: 18, fontWeight: 600, color: colors.text, marginBottom: 6, fontFamily: fonts.display }}>
         Join a vault with a trust code
       </div>
-      <div style={{ fontSize: 15, color: colors.muted, marginBottom: 14, lineHeight: 1.5 }}>
+      <div style={{ fontSize: 17, color: colors.muted, marginBottom: 14, lineHeight: 1.5 }}>
         Paste the invite code a trustee sent you. You must already be signed in -- the code associates this account with your slot in the vault.
       </div>
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -700,7 +700,7 @@ function RoleSummary({ vaults, tips }: { vaults: Vault[]; tips: Record<string, n
     <div style={{ marginBottom: 20 }}>
       <div
         style={{
-          fontSize: 13,
+          fontSize: 15,
           fontWeight: 700,
           letterSpacing: "0.1em",
           color: colors.muted,
@@ -734,7 +734,7 @@ function RoleSummary({ vaults, tips }: { vaults: Vault[]; tips: Record<string, n
               </span>
               <span
                 style={{
-                  fontSize: 12,
+                  fontSize: 14,
                   fontWeight: 700,
                   letterSpacing: "0.1em",
                   color: c.color,
@@ -744,7 +744,7 @@ function RoleSummary({ vaults, tips }: { vaults: Vault[]; tips: Record<string, n
                 {c.label}
               </span>
             </div>
-            <div style={{ fontSize: 14, color: colors.muted, marginTop: 2 }}>
+            <div style={{ fontSize: 16, color: colors.muted, marginTop: 2 }}>
               {c.detail}
             </div>
           </div>
@@ -785,7 +785,7 @@ function PendingFeed() {
     <div style={{ marginBottom: 20 }}>
       <div
         style={{
-          fontSize: 14,
+          fontSize: 16,
           fontWeight: 700,
           letterSpacing: "0.1em",
           color: colors.orange,
@@ -828,19 +828,19 @@ function PendingRow({ item, onOpen }: { item: PendingProposal; onOpen: () => voi
       }}
     >
       <div>
-        <div style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>
+        <div style={{ fontSize: 17, fontWeight: 600, color: colors.text }}>
           {item.vault.name}
         </div>
-        <div style={{ fontSize: 14, color: colors.muted, marginTop: 2 }}>
+        <div style={{ fontSize: 16, color: colors.muted, marginTop: 2 }}>
           Send {amount} BTC
           {item.destination ? ` to ${item.destination.slice(0, 8)}...${item.destination.slice(-6)}` : ""}
         </div>
       </div>
       <div style={{ textAlign: "right" }}>
-        <div style={{ fontSize: 14, color: colors.orange, fontWeight: 600 }}>
+        <div style={{ fontSize: 16, color: colors.orange, fontWeight: 600 }}>
           {signed} / {quorum} signed
         </div>
-        <div style={{ fontSize: 13, color: colors.muted, marginTop: 2 }}>
+        <div style={{ fontSize: 15, color: colors.muted, marginTop: 2 }}>
           {item.vault.network.toUpperCase()}
         </div>
       </div>
@@ -859,7 +859,7 @@ function DraftsSection({ drafts }: { drafts: Vault[] }) {
     <div style={{ marginBottom: 20 }}>
       <div
         style={{
-          fontSize: 14,
+          fontSize: 16,
           fontWeight: 700,
           letterSpacing: "0.1em",
           color: colors.gold,
@@ -889,10 +889,10 @@ function DraftsSection({ drafts }: { drafts: Vault[] }) {
             }}
           >
             <div>
-              <div style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>
+              <div style={{ fontSize: 17, fontWeight: 600, color: colors.text }}>
                 {v.name}
               </div>
-              <div style={{ fontSize: 14, color: colors.muted, marginTop: 2 }}>
+              <div style={{ fontSize: 16, color: colors.muted, marginTop: 2 }}>
                 {v.bloc_policy ? (
                   <>Dynasty Bloc / {v.network.toUpperCase()}</>
                 ) : (
@@ -908,7 +908,7 @@ function DraftsSection({ drafts }: { drafts: Vault[] }) {
                 )}
               </div>
             </div>
-            <div style={{ fontSize: 13, color: colors.gold, fontWeight: 600 }}>
+            <div style={{ fontSize: 15, color: colors.gold, fontWeight: 600 }}>
               DRAFT
             </div>
           </div>

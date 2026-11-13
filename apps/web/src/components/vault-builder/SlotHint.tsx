@@ -27,7 +27,7 @@ export function SlotHint({
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          fontSize: 14,
+          fontSize: 16,
           color: colors.muted,
           marginBottom: 6,
         }}
@@ -49,7 +49,7 @@ export function SlotHint({
                 padding: '8px 10px',
                 border: `1px dashed ${color}66`,
                 borderRadius: radii.md,
-                fontSize: 13,
+                fontSize: 15,
                 color: colors.muted,
                 textAlign: 'center',
               }}

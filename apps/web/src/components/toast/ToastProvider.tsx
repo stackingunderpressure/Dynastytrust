@@ -100,7 +100,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
         borderRadius: radii.md,
         color: colors.text,
         fontFamily: fonts.sans,
-        fontSize: 15,
+        fontSize: 17,
         padding: `${space[3]}px ${space[4]}px`,
         minWidth: 240,
         maxWidth: 360,

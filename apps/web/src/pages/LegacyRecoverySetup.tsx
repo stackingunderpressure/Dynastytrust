@@ -428,18 +428,18 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
   return (
     <Card>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <div style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>{role.label}</div>
+        <div style={{ fontSize: 17, fontWeight: 600, color: colors.text }}>{role.label}</div>
         {(address || payloadHex || broadcastTxid) && (
           <button
             type="button"
             onClick={handleStartOver}
-            style={{ background: 'none', border: 'none', color: colors.muted, cursor: 'pointer', fontSize: 14, padding: 0, fontFamily: fonts.sans }}
+            style={{ background: 'none', border: 'none', color: colors.muted, cursor: 'pointer', fontSize: 16, padding: 0, fontFamily: fonts.sans }}
           >
             Start over
           </button>
         )}
       </div>
-      <div style={{ fontSize: 14, color: colors.muted, marginBottom: 10 }}>
+      <div style={{ fontSize: 16, color: colors.muted, marginBottom: 10 }}>
         Saved in this browser as you go -- reopening this page picks up right where you left off.
       </div>
 
@@ -460,14 +460,14 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
 
       {mode === 'software' ? (
         <>
-          <label style={{ display: 'block', fontSize: 14, color: colors.muted, marginBottom: 4 }}>Local key</label>
+          <label style={{ display: 'block', fontSize: 16, color: colors.muted, marginBottom: 4 }}>Local key</label>
           <select
             value={keyId}
             onChange={e => { setKeyId(e.target.value); setAddress(null); setCandidate(null); setPayloadHex(null); setBuiltTx(null); setBroadcastTxid(null); }}
             style={{
               width: '100%', padding: '10px 12px', background: colors.input,
               border: `1px solid ${colors.border}`, borderRadius: radii.md,
-              color: colors.text, fontSize: 16, fontFamily: fonts.sans, marginBottom: 10,
+              color: colors.text, fontSize: 18, fontFamily: fonts.sans, marginBottom: 10,
             }}
           >
             <option value="">Choose a local key...</option>
@@ -476,7 +476,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
         </>
       ) : (
         <>
-          <p style={{ fontSize: 15, color: colors.sub, lineHeight: 1.6, marginBottom: 8 }}>
+          <p style={{ fontSize: 17, color: colors.sub, lineHeight: 1.6, marginBottom: 8 }}>
             The key you used to sign this vault's spends won't show up as a "local key" -- its
             private material never touched this browser, by design. Instead, export a SEPARATE
             account xpub from that same hardware wallet, at this exact path (not the vault's own
@@ -488,7 +488,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
             device's "export xpub" or "custom derivation" feature. This is a one-time export per
             key -- it identifies the address, never the private key.
           </p>
-          <label style={{ display: 'block', fontSize: 14, color: colors.muted, marginBottom: 4 }}>
+          <label style={{ display: 'block', fontSize: 16, color: colors.muted, marginBottom: 4 }}>
             Legacy Recovery account xpub
           </label>
           {hwScanning ? (
@@ -531,7 +531,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
               style={{
                 width: '100%', padding: '10px 12px', background: colors.input,
                 border: `1px solid ${colors.border}`, borderRadius: radii.md,
-                color: colors.text, fontSize: 16, fontFamily: fonts.sans,
+                color: colors.text, fontSize: 18, fontFamily: fonts.sans,
                 boxSizing: 'border-box', marginBottom: 10,
               }}
             />
@@ -548,10 +548,10 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
 
           {address && (
             <div style={{ marginTop: 4 }}>
-              <div style={{ fontSize: 14, color: colors.muted, marginBottom: 4 }}>
+              <div style={{ fontSize: 16, color: colors.muted, marginBottom: 4 }}>
                 This key's on-chain lookup address:
               </div>
-              <div style={{ fontFamily: fonts.mono, fontSize: 15, color: colors.text, wordBreak: 'break-all', marginBottom: 10 }}>
+              <div style={{ fontFamily: fonts.mono, fontSize: 17, color: colors.text, wordBreak: 'break-all', marginBottom: 10 }}>
                 {address}
               </div>
               <Button
@@ -569,32 +569,32 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
               </Button>
 
               {candidate ? (
-                <div style={{ fontSize: 15, color: colors.text, lineHeight: 1.6, marginBottom: 4 }}>
+                <div style={{ fontSize: 17, color: colors.text, lineHeight: 1.6, marginBottom: 4 }}>
                   <span style={{ color: colors.gold, fontWeight: 600 }}>Already published.</span>{' '}
                   This key can recover the full descriptor on its own, no other key or share needed.{' '}
                   <a
                     href={explorerTxUrl(vault.network, candidate.txid)}
                     target="_blank" rel="noopener noreferrer"
-                    style={{ color: colors.gold, fontFamily: fonts.mono, fontSize: 15 }}
+                    style={{ color: colors.gold, fontFamily: fonts.mono, fontSize: 17 }}
                   >
                     View transaction
                   </a>
                 </div>
               ) : broadcastTxid ? (
-                <div style={{ fontSize: 15, color: colors.text, lineHeight: 1.6 }}>
+                <div style={{ fontSize: 17, color: colors.text, lineHeight: 1.6 }}>
                   <span style={{ color: colors.gold, fontWeight: 600 }}>Published.</span> This key can now
                   recover the full descriptor on its own, decades from now, with nothing else needed.{' '}
                   <a
                     href={explorerTxUrl(vault.network, broadcastTxid)}
                     target="_blank" rel="noopener noreferrer"
-                    style={{ color: colors.gold, fontFamily: fonts.mono, fontSize: 15 }}
+                    style={{ color: colors.gold, fontFamily: fonts.mono, fontSize: 17 }}
                   >
                     View transaction
                   </a>
                 </div>
               ) : (
                 <div style={{ marginTop: 6, paddingTop: 12, borderTop: `1px solid ${colors.border}` }}>
-                  <p style={{ fontSize: 15, color: colors.sub, lineHeight: 1.6, marginBottom: 10 }}>
+                  <p style={{ fontSize: 17, color: colors.sub, lineHeight: 1.6, marginBottom: 10 }}>
                     Nothing published yet. First seal the payload with this key -- that never touches
                     the network, it just produces the exact bytes to publish. Then either copy that
                     hex into ANY wallet that supports a custom OP_RETURN output (Sparrow, Electrum,
@@ -606,7 +606,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
 
                   {mode === 'software' ? (
                     <>
-                      <p style={{ fontSize: 14, color: colors.gold, lineHeight: 1.6, marginBottom: 10 }}>
+                      <p style={{ fontSize: 16, color: colors.gold, lineHeight: 1.6, marginBottom: 10 }}>
                         This only recovers anything later if this exact key's seed phrase still
                         exists somewhere independent of this browser -- written down on paper or
                         steel, the same as you'd treat any real seed. If this key's only copy
@@ -630,7 +630,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
                         </Button>
                       ) : (
                         <>
-                          <p style={{ fontSize: 15, color: colors.sub, lineHeight: 1.6, marginBottom: 10 }}>
+                          <p style={{ fontSize: 17, color: colors.sub, lineHeight: 1.6, marginBottom: 10 }}>
                             Sign the exact message below on your hardware wallet, at derivation path{' '}
                             <code style={{ fontFamily: fonts.mono, color: colors.text }}>
                               {legacyOnChainDerivationPath(vaultNetworkToKeystoreNetwork(vault.network))}
@@ -640,7 +640,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
                             code below instead of typing the message in by hand. Then paste the
                             signature it produces below.
                           </p>
-                          <label style={{ display: 'block', fontSize: 14, color: colors.muted, marginBottom: 4 }}>
+                          <label style={{ display: 'block', fontSize: 16, color: colors.muted, marginBottom: 4 }}>
                             Message to sign
                           </label>
                           <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
@@ -663,7 +663,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
                               />
                             </div>
                           )}
-                          <label style={{ display: 'block', fontSize: 14, color: colors.muted, marginBottom: 4 }}>
+                          <label style={{ display: 'block', fontSize: 16, color: colors.muted, marginBottom: 4 }}>
                             Signature
                           </label>
                           <Textarea
@@ -704,7 +704,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
 
                   {payloadHex && (
                     <div style={{ marginBottom: 14 }}>
-                      <label style={{ display: 'block', fontSize: 14, color: colors.muted, marginBottom: 4 }}>
+                      <label style={{ display: 'block', fontSize: 16, color: colors.muted, marginBottom: 4 }}>
                         OP_RETURN payload (hex) -- paste this exactly, as a custom OP_RETURN output, in
                         any wallet. Re-sealing produces a DIFFERENT payload, so build from whichever
                         copy you actually use -- don't mix an old copy with a freshly re-sealed one.
@@ -720,7 +720,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
 
                   {payloadHex && (
                   <>
-                  <p style={{ fontSize: 15, color: colors.sub, lineHeight: 1.6, marginBottom: 10 }}>
+                  <p style={{ fontSize: 17, color: colors.sub, lineHeight: 1.6, marginBottom: 10 }}>
                     Or, publish directly from DynastyTrust: pick any of your OTHER funded local keys
                     below -- it pays a small, permanent amount to the address above and carries the
                     sealed payload above, both as outputs of the SAME transaction. This key above
@@ -728,7 +728,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
                     time.
                   </p>
 
-                  <label style={{ display: 'block', fontSize: 14, color: colors.muted, marginBottom: 4 }}>
+                  <label style={{ display: 'block', fontSize: 16, color: colors.muted, marginBottom: 4 }}>
                     Paying key (any local key with spendable funds)
                   </label>
                   <select
@@ -737,7 +737,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
                     style={{
                       width: '100%', padding: '10px 12px', background: colors.input,
                       border: `1px solid ${colors.border}`, borderRadius: radii.md,
-                      color: colors.text, fontSize: 16, fontFamily: fonts.sans, marginBottom: 10,
+                      color: colors.text, fontSize: 18, fontFamily: fonts.sans, marginBottom: 10,
                     }}
                   >
                     <option value="">Choose a local key...</option>
@@ -752,19 +752,19 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
                       style={{
                         width: '100%', padding: '10px 12px', background: colors.input,
                         border: `1px solid ${colors.border}`, borderRadius: radii.md,
-                        color: colors.text, fontSize: 16, fontFamily: fonts.sans,
+                        color: colors.text, fontSize: 18, fontFamily: fonts.sans,
                         boxSizing: 'border-box', marginBottom: 10,
                       }}
                     />
                   )}
                   {billboardAddress && (
-                    <div style={{ fontSize: 14, color: colors.muted, marginBottom: 10 }}>
+                    <div style={{ fontSize: 16, color: colors.muted, marginBottom: 10 }}>
                       Fund this key's own address from any wallet, then fetch its UTXOs below:{' '}
                       <span style={{ fontFamily: fonts.mono, color: colors.sub, wordBreak: 'break-all' }}>{billboardAddress}</span>
                     </div>
                   )}
 
-                  <label style={{ display: 'block', fontSize: 14, color: colors.muted, marginBottom: 4 }}>
+                  <label style={{ display: 'block', fontSize: 16, color: colors.muted, marginBottom: 4 }}>
                     Amount to send to the address above (sats -- never meant to move again)
                   </label>
                   <input
@@ -773,7 +773,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
                     style={{
                       width: 140, padding: '10px 12px', background: colors.input,
                       border: `1px solid ${colors.border}`, borderRadius: radii.md,
-                      color: colors.text, fontSize: 15, fontFamily: fonts.mono, marginBottom: 10,
+                      color: colors.text, fontSize: 17, fontFamily: fonts.mono, marginBottom: 10,
                     }}
                   />
 
@@ -782,7 +782,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
                   </Button>
 
                   {fetchedUtxos && fetchedUtxos.length === 0 && (
-                    <div style={{ fontSize: 15, color: colors.sub, marginBottom: 12 }}>
+                    <div style={{ fontSize: 17, color: colors.sub, marginBottom: 12 }}>
                       Nothing found yet. Send it a small amount, wait for a confirmation, then fetch again.
                     </div>
                   )}
@@ -798,7 +798,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
                             background: utxoTxid === u.txid && utxoVout === String(u.vout) ? `${colors.gold}22` : colors.input,
                             border: `1px solid ${utxoTxid === u.txid && utxoVout === String(u.vout) ? colors.gold : colors.border}`,
                             borderRadius: radii.md,
-                            color: colors.text, fontSize: 14, fontFamily: fonts.mono, cursor: 'pointer',
+                            color: colors.text, fontSize: 16, fontFamily: fonts.mono, cursor: 'pointer',
                           }}
                         >
                           {u.value} sats -- {u.txid.slice(0, 16)}...:{u.vout}
@@ -815,7 +815,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
                       style={{
                         padding: '10px 12px', background: colors.input,
                         border: `1px solid ${colors.border}`, borderRadius: radii.md,
-                        color: colors.text, fontSize: 15, fontFamily: fonts.mono,
+                        color: colors.text, fontSize: 17, fontFamily: fonts.mono,
                       }}
                     />
                     <input
@@ -825,7 +825,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
                       style={{
                         padding: '10px 12px', background: colors.input,
                         border: `1px solid ${colors.border}`, borderRadius: radii.md,
-                        color: colors.text, fontSize: 15, fontFamily: fonts.mono,
+                        color: colors.text, fontSize: 17, fontFamily: fonts.mono,
                       }}
                     />
                   </div>
@@ -837,7 +837,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
                       style={{
                         padding: '10px 12px', background: colors.input,
                         border: `1px solid ${colors.border}`, borderRadius: radii.md,
-                        color: colors.text, fontSize: 15, fontFamily: fonts.mono,
+                        color: colors.text, fontSize: 17, fontFamily: fonts.mono,
                       }}
                     />
                     <input
@@ -847,7 +847,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
                       style={{
                         padding: '10px 12px', background: colors.input,
                         border: `1px solid ${colors.border}`, borderRadius: radii.md,
-                        color: colors.text, fontSize: 15, fontFamily: fonts.mono,
+                        color: colors.text, fontSize: 17, fontFamily: fonts.mono,
                       }}
                     />
                   </div>
@@ -858,7 +858,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
                     </Button>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                      <div style={{ fontSize: 15, color: colors.sub }}>
+                      <div style={{ fontSize: 17, color: colors.sub }}>
                         Signed and ready. Payment to the recovery address: {builtTx.payToSats ?? 0} sats. Fee: {builtTx.feeSats} sats.
                         Change back to the paying key's own address: {builtTx.changeSats} sats.
                       </div>
@@ -922,7 +922,7 @@ export default function LegacyRecoverySetup() {
 
   return (
     <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: space[3] }}>
-      <p style={{ fontSize: 16, fontWeight: 450, color: colors.text, lineHeight: 1.6 }}>
+      <p style={{ fontSize: 18, fontWeight: 450, color: colors.text, lineHeight: 1.6 }}>
         All you need is your key. Each keyholder below seals an encrypted copy of this vault's
         descriptor for their own on-chain address -- computable only from their real seed, never
         from this vault's xpubs, its descriptor, or anything DynastyTrust stores -- then publishes
@@ -946,12 +946,12 @@ export default function LegacyRecoverySetup() {
       <button
         type="button"
         onClick={() => navigate(`/vaults/${vault.id}`)}
-        style={{ background: 'none', border: 'none', color: colors.muted, cursor: 'pointer', fontSize: 15, padding: 0, fontFamily: fonts.sans, alignSelf: 'flex-start' }}
+        style={{ background: 'none', border: 'none', color: colors.muted, cursor: 'pointer', fontSize: 17, padding: 0, fontFamily: fonts.sans, alignSelf: 'flex-start' }}
       >
         Back to vault
       </button>
 
-      <div style={{ fontSize: 15, color: colors.muted }}>
+      <div style={{ fontSize: 17, color: colors.muted }}>
         Recovery itself doesn't need DynastyTrust running -- it needs a key and{' '}
         <a href="/dynastytrust-legacy-recovery-tool.html" target="_blank" rel="noopener noreferrer" style={{ color: colors.gold }}>
           this standalone recovery tool

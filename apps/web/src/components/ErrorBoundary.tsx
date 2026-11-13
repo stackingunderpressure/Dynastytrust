@@ -47,7 +47,7 @@ export class ErrorBoundary extends Component<Props, State> {
           <div
             style={{
               fontFamily: fonts.display,
-              fontSize: 15,
+              fontSize: 17,
               letterSpacing: '0.16em',
               color: colors.gold,
               textTransform: 'uppercase',
@@ -67,7 +67,7 @@ export class ErrorBoundary extends Component<Props, State> {
           >
             Something went wrong on this page.
           </h1>
-          <p style={{ fontSize: 15, color: colors.sub, lineHeight: 1.55, marginBottom: space[5] }}>
+          <p style={{ fontSize: 17, color: colors.sub, lineHeight: 1.55, marginBottom: space[5] }}>
             Your coins are safe -- the app never holds keys. This is a bug
             in the UI that crashed the current view. Reload or navigate
             away to recover. If it reproduces, send us the error text below.
@@ -89,7 +89,7 @@ export class ErrorBoundary extends Component<Props, State> {
           <div
             style={{
               fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-              fontSize: 14,
+              fontSize: 16,
               color: colors.red,
               background: colors.surface,
               border: `1px solid ${colors.border}`,
@@ -103,12 +103,12 @@ export class ErrorBoundary extends Component<Props, State> {
               {error.name}: {error.message}
             </div>
             {error.stack && (
-              <div style={{ color: colors.muted, fontSize: 13, lineHeight: 1.55 }}>
+              <div style={{ color: colors.muted, fontSize: 15, lineHeight: 1.55 }}>
                 {error.stack.split('\n').slice(0, 12).join('\n')}
               </div>
             )}
             {info?.componentStack && (
-              <div style={{ color: colors.muted, fontSize: 13, lineHeight: 1.55, marginTop: 10 }}>
+              <div style={{ color: colors.muted, fontSize: 15, lineHeight: 1.55, marginTop: 10 }}>
                 {info.componentStack.split('\n').slice(0, 10).join('\n')}
               </div>
             )}
@@ -122,7 +122,7 @@ export class ErrorBoundary extends Component<Props, State> {
 function btn(variant: 'primary' | 'ghost'): React.CSSProperties {
   const base: React.CSSProperties = {
     padding: '10px 18px',
-    fontSize: 15,
+    fontSize: 17,
     borderRadius: 8,
     border: '1px solid',
     cursor: 'pointer',

@@ -76,7 +76,7 @@ export function FundingStep({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18, alignItems: 'center' }}>
-      <p style={{ fontSize: 15, color: colors.muted, textAlign: 'center', maxWidth: 420, margin: 0 }}>
+      <p style={{ fontSize: 17, color: colors.muted, textAlign: 'center', maxWidth: 420, margin: 0 }}>
         Send Bitcoin to this address to fund your vault. This page checks
         automatically -- no need to reload.
       </p>
@@ -89,7 +89,7 @@ export function FundingStep({
           display: 'flex',
           alignItems: 'center',
           gap: 8,
-          fontSize: 14,
+          fontSize: 16,
           color: confirmedSats > 0 ? colors.green : unconfirmedSats > 0 ? colors.gold : colors.muted,
           background: colors.inset,
           borderRadius: radii.md,
@@ -119,7 +119,7 @@ export function FundingStep({
               : 'Waiting for funds...'}
       </div>
       {lastCheckedAt && confirmedSats === 0 && (
-        <span style={{ fontSize: 13, color: colors.muted, fontFamily: fonts.mono }}>
+        <span style={{ fontSize: 15, color: colors.muted, fontFamily: fonts.mono }}>
           Last checked {lastCheckedAt.toLocaleTimeString()}
         </span>
       )}

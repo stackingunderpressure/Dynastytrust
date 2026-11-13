@@ -37,8 +37,8 @@ export function PathDraftCard({ vault }: { vault: Vault }) {
   }, [vault.id, vault.user_id]);
   useEffect(() => { void load(); }, [load]);
 
-  const p: React.CSSProperties = { fontSize: 15, color: colors.text, lineHeight: 1.6, margin: `0 0 ${space[2]}px` };
-  const sub: React.CSSProperties = { fontSize: 15, color: colors.sub, lineHeight: 1.6, margin: `0 0 ${space[2]}px` };
+  const p: React.CSSProperties = { fontSize: 17, color: colors.text, lineHeight: 1.6, margin: `0 0 ${space[2]}px` };
+  const sub: React.CSSProperties = { fontSize: 17, color: colors.sub, lineHeight: 1.6, margin: `0 0 ${space[2]}px` };
   const h: React.CSSProperties = { fontFamily: fonts.display, fontSize: 18, color: colors.gold, marginBottom: space[2] };
   const leaves = vault.leaves ?? [];
 

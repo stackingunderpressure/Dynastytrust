@@ -21,7 +21,7 @@ function baseStyle(mono?: boolean): CSSProperties {
     // iOS Safari auto-zooms on any focused input with font-size < 16px
     // and never zooms back out. Keep every form control at >=16px so
     // the viewport stays put when users tap a field.
-    fontSize: 16,
+    fontSize: 18,
     fontFamily: mono ? fonts.mono : fonts.sans,
     boxSizing: 'border-box',
   };

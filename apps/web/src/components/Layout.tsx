@@ -44,7 +44,7 @@ export function Layout({ activeNavId, onSignOut, children }: LayoutProps) {
           <span
             style={{
               fontFamily: fonts.display,
-              fontSize: 17,
+              fontSize: 18,
               fontWeight: 700,
               letterSpacing: '0.12em',
               color: colors.gold,
@@ -67,7 +67,7 @@ export function Layout({ activeNavId, onSignOut, children }: LayoutProps) {
               <span
                 title={displayName}
                 style={{
-                  fontSize: 15,
+                  fontSize: 17,
                   color: colors.sub,
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',
@@ -86,7 +86,7 @@ export function Layout({ activeNavId, onSignOut, children }: LayoutProps) {
                 border: `1px solid ${colors.border}`,
                 borderRadius: radii.md,
                 color: colors.muted,
-                fontSize: 15,
+                fontSize: 17,
                 padding: '6px 14px',
                 cursor: 'pointer',
                 fontFamily: fonts.sans,
@@ -107,7 +107,7 @@ export function Layout({ activeNavId, onSignOut, children }: LayoutProps) {
                 style={{
                   padding: '8px 14px',
                   borderRadius: radii.md,
-                  fontSize: 15,
+                  fontSize: 17,
                   fontFamily: fonts.sans,
                   background: active ? colors.border : 'transparent',
                   color: active ? colors.text : colors.muted,
@@ -121,7 +121,7 @@ export function Layout({ activeNavId, onSignOut, children }: LayoutProps) {
                   <span
                     style={{
                       marginLeft: 6,
-                      fontSize: 13,
+                      fontSize: 15,
                       fontWeight: 700,
                       background: colors.orange,
                       color: colors.bg,

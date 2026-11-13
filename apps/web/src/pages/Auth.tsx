@@ -143,7 +143,7 @@ export default function Auth() {
             <Button
               type="submit"
               disabled={codeBusy || code.length !== 6}
-              style={{ marginTop: space[4], padding: '14px', fontSize: 15, letterSpacing: '0.04em' }}
+              style={{ marginTop: space[4], padding: '14px', fontSize: 17, letterSpacing: '0.04em' }}
             >
               {codeBusy ? 'Working…' : 'Verify code'}
             </Button>
@@ -155,7 +155,7 @@ export default function Auth() {
           >
             Resend code
           </button>
-          <button style={{ ...s.link, marginTop: space[2], fontSize: 15 }} onClick={backToSignIn}>
+          <button style={{ ...s.link, marginTop: space[2], fontSize: 17 }} onClick={backToSignIn}>
             Back to sign in
           </button>
         </div>
@@ -180,13 +180,13 @@ export default function Auth() {
               onChange={e => setEmail(e.target.value)}
               required
               placeholder="you@example.com"
-              style={{ fontSize: 15, padding: '12px 14px' }}
+              style={{ fontSize: 17, padding: '12px 14px' }}
             />
             {error && <p style={s.error}>{error}</p>}
             <Button
               type="submit"
               disabled={busy}
-              style={{ marginTop: space[4], padding: '14px', fontSize: 15, letterSpacing: '0.04em' }}
+              style={{ marginTop: space[4], padding: '14px', fontSize: 17, letterSpacing: '0.04em' }}
             >
               {busy ? 'Working…' : 'Send code'}
             </Button>
@@ -230,7 +230,7 @@ export default function Auth() {
             onChange={e => setEmail(e.target.value)}
             required
             placeholder="you@example.com"
-            style={{ fontSize: 15, padding: '12px 14px' }}
+            style={{ fontSize: 17, padding: '12px 14px' }}
           />
 
           <label style={s.label} htmlFor="auth-password">Password</label>
@@ -243,7 +243,7 @@ export default function Auth() {
             required
             minLength={8}
             placeholder="••••••••"
-            style={{ fontSize: 15, padding: '12px 14px' }}
+            style={{ fontSize: 17, padding: '12px 14px' }}
           />
 
           {error && <p style={s.error}>{error}</p>}
@@ -251,7 +251,7 @@ export default function Auth() {
           <Button
             type="submit"
             disabled={busy}
-            style={{ marginTop: space[4], padding: '14px', fontSize: 15, letterSpacing: '0.04em' }}
+            style={{ marginTop: space[4], padding: '14px', fontSize: 17, letterSpacing: '0.04em' }}
           >
             {busy ? 'Working…' : mode === 'login' ? 'Sign in' : 'Create account'}
           </Button>
@@ -269,7 +269,7 @@ export default function Auth() {
               type="button"
               disabled={busy}
               onClick={() => void tapit()}
-              style={{ width: '100%', padding: '14px', fontSize: 15 }}
+              style={{ width: '100%', padding: '14px', fontSize: 17 }}
             >
               Sign in with Tapit
             </Button>
@@ -282,7 +282,7 @@ export default function Auth() {
 
         {mode === 'login' && (
           <button
-            style={{ ...s.link, marginTop: space[4], fontSize: 15 }}
+            style={{ ...s.link, marginTop: space[4], fontSize: 17 }}
             onClick={() => { setMode('reset'); setError(null); }}
           >
             Forgot password?
@@ -340,7 +340,7 @@ export function SetNewPassword({ onDone }: { onDone: () => void }) {
             required
             minLength={8}
             placeholder="••••••••"
-            style={{ fontSize: 15, padding: '12px 14px' }}
+            style={{ fontSize: 17, padding: '12px 14px' }}
           />
           <label style={s.label} htmlFor="confirm-password">Confirm password</label>
           <Input
@@ -352,13 +352,13 @@ export function SetNewPassword({ onDone }: { onDone: () => void }) {
             required
             minLength={8}
             placeholder="••••••••"
-            style={{ fontSize: 15, padding: '12px 14px' }}
+            style={{ fontSize: 17, padding: '12px 14px' }}
           />
           {error && <p style={s.error}>{error}</p>}
           <Button
             type="submit"
             disabled={busy}
-            style={{ marginTop: space[4], padding: '14px', fontSize: 15, letterSpacing: '0.04em' }}
+            style={{ marginTop: space[4], padding: '14px', fontSize: 17, letterSpacing: '0.04em' }}
           >
             {busy ? 'Working…' : 'Update password'}
           </Button>
@@ -394,7 +394,7 @@ const s: Record<string, CSSProperties> = {
     marginBottom: space[2],
   },
   tagline: {
-    fontSize: 15,
+    fontSize: 17,
     color: colors.muted,
     marginBottom: 36,
     lineHeight: 1.5,
@@ -406,7 +406,7 @@ const s: Record<string, CSSProperties> = {
     marginBottom: space[3],
   },
   sub: {
-    fontSize: 15,
+    fontSize: 17,
     color: colors.sub,
     lineHeight: 1.6,
     marginBottom: space[6],
@@ -431,13 +431,13 @@ const s: Record<string, CSSProperties> = {
     background: colors.border,
   },
   orText: {
-    fontSize: 14,
+    fontSize: 16,
     color: colors.muted,
     textTransform: 'uppercase',
     letterSpacing: '0.08em',
   },
   tapitHint: {
-    fontSize: 14,
+    fontSize: 16,
     color: colors.muted,
     lineHeight: 1.5,
     marginTop: space[3],
@@ -449,7 +449,7 @@ const s: Record<string, CSSProperties> = {
     borderRadius: radii.md,
     background: 'transparent',
     color: colors.muted,
-    fontSize: 15,
+    fontSize: 17,
     fontFamily: fonts.sans,
     cursor: 'pointer',
     transition: 'all 0.15s',
@@ -464,7 +464,7 @@ const s: Record<string, CSSProperties> = {
     gap: space[2],
   },
   label: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: 500,
     letterSpacing: '0.06em',
     color: colors.sub,
@@ -472,12 +472,12 @@ const s: Record<string, CSSProperties> = {
     marginTop: space[2],
   },
   error: {
-    fontSize: 15,
+    fontSize: 17,
     color: colors.red,
     margin: '4px 0',
   },
   resent: {
-    fontSize: 15,
+    fontSize: 17,
     color: colors.gold,
     margin: '4px 0',
   },
@@ -485,7 +485,7 @@ const s: Record<string, CSSProperties> = {
     background: 'none',
     border: 'none',
     color: colors.gold,
-    fontSize: 15,
+    fontSize: 17,
     cursor: 'pointer',
     padding: 0,
     fontFamily: fonts.sans,

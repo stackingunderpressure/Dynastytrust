@@ -105,10 +105,10 @@ export function RemindersBanner({ vaultId }: RemindersBannerProps) {
           flexWrap: 'wrap',
         }}
       >
-        <div style={{ fontSize: 14, fontWeight: 700, color: colors.orange, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: colors.orange, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
           Reminders ({reminders.length})
         </div>
-        <div style={{ fontSize: 13, color: colors.muted }}>
+        <div style={{ fontSize: 15, color: colors.muted }}>
           click to review
         </div>
       </div>
@@ -120,7 +120,7 @@ export function RemindersBanner({ vaultId }: RemindersBannerProps) {
               display: 'flex',
               justifyContent: 'space-between',
               gap: 12,
-              fontSize: 14,
+              fontSize: 16,
               color: colors.text,
             }}
           >
@@ -136,7 +136,7 @@ export function RemindersBanner({ vaultId }: RemindersBannerProps) {
           </div>
         ))}
         {reminders.length > 3 && (
-          <div style={{ fontSize: 13, color: colors.muted, marginTop: 2 }}>
+          <div style={{ fontSize: 15, color: colors.muted, marginTop: 2 }}>
             +{reminders.length - 3} more
           </div>
         )}

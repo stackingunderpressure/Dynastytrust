@@ -88,7 +88,7 @@ export default function TapitCosignCallback() {
             <div style={{ fontSize: 18, fontWeight: 600, color: colors.text }}>
               Signed via Tapit
             </div>
-            <p style={{ marginTop: 8, fontSize: 15, color: colors.muted }}>
+            <p style={{ marginTop: 8, fontSize: 17, color: colors.muted }}>
               You can close this tab -- your other DynastyTrust tab should
               pick this up automatically in a moment. If it doesn't, copy the
               signed PSBT below and paste it into the "Paste signed PSBT" box
@@ -102,7 +102,7 @@ export default function TapitCosignCallback() {
             <div
               style={{
                 marginTop: 12,
-                fontSize: 13,
+                fontSize: 15,
                 color: colors.muted,
                 wordBreak: "break-all",
                 fontFamily: fonts.mono,
@@ -122,7 +122,7 @@ export default function TapitCosignCallback() {
             <div style={{ fontSize: 18, fontWeight: 600, color: colors.text }}>
               Signing wasn't completed
             </div>
-            <p style={{ marginTop: 8, fontSize: 15, color: colors.muted }}>
+            <p style={{ marginTop: 8, fontSize: 17, color: colors.muted }}>
               Tapit didn't return a signed transaction -- you may have
               declined the request, or the link was opened without one.
               You can close this tab and try again from your vault.
@@ -134,7 +134,7 @@ export default function TapitCosignCallback() {
             <div style={{ fontSize: 18, fontWeight: 600, color: colors.text }}>
               Something went wrong
             </div>
-            <p style={{ marginTop: 8, fontSize: 15, color: colors.muted }}>
+            <p style={{ marginTop: 8, fontSize: 17, color: colors.muted }}>
               Tapit's response could not be read. Close this tab and try
               signing again from your vault.
             </p>
@@ -145,7 +145,7 @@ export default function TapitCosignCallback() {
           style={{
             display: "inline-block",
             marginTop: 20,
-            fontSize: 14,
+            fontSize: 16,
             color: colors.gold,
           }}
         >

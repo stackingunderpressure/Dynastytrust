@@ -211,7 +211,7 @@ export default function ProposalDetail() {
     const back = vaultId ? `/vaults/${vaultId}` : "/vaults";
     return (
       <Page>
-        <p style={{ color: colors.red, fontSize: 15 }}>{error ?? "Proposal not available"}</p>
+        <p style={{ color: colors.red, fontSize: 17 }}>{error ?? "Proposal not available"}</p>
         <div style={{ display: "flex", gap: 10 }}>
           <Button variant="ghost" onClick={() => navigate(back)}>
             {vaultId ? "Back to vault" : "Back to vaults"}
@@ -448,7 +448,7 @@ export default function ProposalDetail() {
           background: "none",
           border: "none",
           color: colors.muted,
-          fontSize: 15,
+          fontSize: 17,
           cursor: "pointer",
           fontFamily: fonts.sans,
           marginBottom: space[4],
@@ -462,7 +462,7 @@ export default function ProposalDetail() {
       {isTrancheClaim ? (
         <div
           style={{
-            fontSize: 14,
+            fontSize: 16,
             color: colors.muted,
             background: colors.inset,
             border: `1px solid ${colors.border}`,
@@ -490,7 +490,7 @@ export default function ProposalDetail() {
 
       {!terminal && !isTrancheClaim && signableKeys.length > 0 && (
         <ActionCard>
-          <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 8 }}>
+          <div style={{ fontSize: 17, fontWeight: 600, color: colors.text, marginBottom: 8 }}>
             Sign with your key
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -500,10 +500,10 @@ export default function ProposalDetail() {
                 variant="ghost"
                 disabled={busy}
                 onClick={() => void signWith(k)}
-                style={{ justifyContent: "flex-start", fontSize: 15 }}
+                style={{ justifyContent: "flex-start", fontSize: 17 }}
               >
                 {k.label}{" "}
-                <span style={{ color: colors.muted, marginLeft: 8, fontSize: 13 }}>
+                <span style={{ color: colors.muted, marginLeft: 8, fontSize: 15 }}>
                   ({k.fingerprint})
                 </span>
               </Button>
@@ -514,10 +514,10 @@ export default function ProposalDetail() {
 
       {!terminal && psbtMismatch && (
         <ActionCard>
-          <div style={{ fontSize: 15, fontWeight: 600, color: colors.red, marginBottom: 4 }}>
+          <div style={{ fontSize: 17, fontWeight: 600, color: colors.red, marginBottom: 4 }}>
             Do not sign this request
           </div>
-          <div style={{ fontSize: 14, color: colors.muted }}>
+          <div style={{ fontSize: 16, color: colors.muted }}>
             The transaction attached to this request does not match what the request says:{" "}
             {psbtMismatch}. Signing has been disabled on this page. Ask the proposer to rebuild
             it, and contact support if this persists.
@@ -538,10 +538,10 @@ export default function ProposalDetail() {
 
       {!terminal && !isTrancheClaim && (
         <ActionCard>
-          <div style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
+          <div style={{ fontSize: 17, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
             Sign with hardware wallet
           </div>
-          <div style={{ fontSize: 14, color: colors.muted, marginBottom: 12 }}>
+          <div style={{ fontSize: 16, color: colors.muted, marginBottom: 12 }}>
             Export this transaction to your signing device, sign, then scan or paste the
             signed result back here.
           </div>
@@ -556,7 +556,7 @@ export default function ProposalDetail() {
       {!terminal && !isTrancheClaim && quorumMet && (
         <Button
           disabled={busy}
-          style={{ background: colors.green, width: "100%", padding: "14px", fontSize: 15 }}
+          style={{ background: colors.green, width: "100%", padding: "14px", fontSize: 17 }}
           onClick={() => void broadcast()}
         >
           {busy ? "Broadcasting..." : "Broadcast transaction"}
@@ -564,7 +564,7 @@ export default function ProposalDetail() {
       )}
 
       {!terminal && !isTrancheClaim && !quorumMet && mustSignMissing.length > 0 && (
-        <div style={{ fontSize: 15, color: colors.orange, textAlign: "center", padding: "10px 0", lineHeight: 1.5 }}>
+        <div style={{ fontSize: 17, color: colors.orange, textAlign: "center", padding: "10px 0", lineHeight: 1.5 }}>
           This path cannot be spent without {mustSignMissing.join(" and ")}. {mustSignMissing.length === 1 ? "It has" : "They have"} not
           signed yet, and no number of other signatures can stand in for {mustSignMissing.length === 1 ? "it" : "them"}.
         </div>
@@ -585,7 +585,7 @@ export default function ProposalDetail() {
         const elsewhere = mineElsewhere.filter(k => !signedNow.has(k.pubkey.slice(2).toLowerCase()));
         if (!iSigned && mineElsewhere.length > 0 && elsewhere.length === 0) {
           return (
-            <div style={{ fontSize: 15, color: colors.muted, textAlign: "center", padding: "10px 0", lineHeight: 1.5 }}>
+            <div style={{ fontSize: 17, color: colors.muted, textAlign: "center", padding: "10px 0", lineHeight: 1.5 }}>
               {mineElsewhere.map(k => `"${k.label}"`).join(" and ")} {mineElsewhere.length === 1 ? "has" : "have"} signed. Waiting on {remaining} more
               signature{remaining === 1 ? "" : "s"} to reach the {required} this path needs.
             </div>
@@ -593,14 +593,14 @@ export default function ProposalDetail() {
         }
         if (!iSigned && elsewhere.length > 0) {
           return (
-            <div style={{ fontSize: 15, color: colors.sub, textAlign: "center", padding: "10px 0", lineHeight: 1.5 }}>
+            <div style={{ fontSize: 17, color: colors.sub, textAlign: "center", padding: "10px 0", lineHeight: 1.5 }}>
               {elsewhere.map(k => `"${k.label}"`).join(" and ")} {elsewhere.length === 1 ? "is a signer" : "are signers"} on this path, but {elsewhere.length === 1 ? "its seed is" : "their seeds are"} not
               in this browser. Sign this transaction on the device that holds {elsewhere.length === 1 ? "it" : "them"}, then bring the signed copy back here.
             </div>
           );
         }
         return (
-          <div style={{ fontSize: 15, color: colors.muted, textAlign: "center", padding: "10px 0", lineHeight: 1.5 }}>
+          <div style={{ fontSize: 17, color: colors.muted, textAlign: "center", padding: "10px 0", lineHeight: 1.5 }}>
             {iSigned
               ? `You've signed. Waiting on ${remaining} more signature${remaining === 1 ? "" : "s"} to reach the ${required} this path needs.`
               : "None of your local keys are signers on this vault. If you should be able to sign, open Keys and tap Restore from words to bring your key onto this device."}
@@ -617,7 +617,7 @@ export default function ProposalDetail() {
             display: "inline-block",
             marginTop: space[4],
             color: colors.gold,
-            fontSize: 15,
+            fontSize: 17,
           }}
         >
           View on mempool.space
@@ -627,7 +627,7 @@ export default function ProposalDetail() {
       {!terminal && !isTrancheClaim && (
         <Button
           variant="ghost"
-          style={{ marginTop: space[3], fontSize: 14 }}
+          style={{ marginTop: space[3], fontSize: 16 }}
           onClick={() => void cancel()}
         >
           Cancel proposal
@@ -660,7 +660,7 @@ function SummaryCard({ proposal, vault }: { proposal: Proposal; vault: Vault }) 
     >
       <div
         style={{
-          fontSize: 13,
+          fontSize: 15,
           fontWeight: 700,
           letterSpacing: "0.1em",
           color: colors.muted,
@@ -679,12 +679,12 @@ function SummaryCard({ proposal, vault }: { proposal: Proposal; vault: Vault }) 
         }}
       >
         {satsToBtc(proposal.amount_sats)}
-        <span style={{ fontSize: 16, color: colors.muted }}> BTC</span>
+        <span style={{ fontSize: 18, color: colors.muted }}> BTC</span>
       </div>
       <div
         style={{
           fontFamily: fonts.mono,
-          fontSize: 14,
+          fontSize: 16,
           color: colors.sub,
           wordBreak: "break-all",
           marginBottom: space[2],
@@ -693,7 +693,7 @@ function SummaryCard({ proposal, vault }: { proposal: Proposal; vault: Vault }) 
         To: {proposal.destination}
       </div>
       {proposal.memo && (
-        <div style={{ fontSize: 14, color: colors.sub }}>Note: {proposal.memo}</div>
+        <div style={{ fontSize: 16, color: colors.sub }}>Note: {proposal.memo}</div>
       )}
     </div>
   );
@@ -721,8 +721,8 @@ function ProgressCard({
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-        <span style={{ fontSize: 15, color: colors.muted }}>Signatures</span>
-        <span style={{ fontSize: 15, color: quorumMet ? colors.green : colors.orange }}>
+        <span style={{ fontSize: 17, color: colors.muted }}>Signatures</span>
+        <span style={{ fontSize: 17, color: quorumMet ? colors.green : colors.orange }}>
           {collected} / {required} required
         </span>
       </div>
@@ -737,7 +737,7 @@ function ProgressCard({
           }}
         />
       </div>
-      <div style={{ fontSize: 13, color: colors.muted, marginTop: space[2] }}>Status: {status}</div>
+      <div style={{ fontSize: 15, color: colors.muted, marginTop: space[2] }}>Status: {status}</div>
     </div>
   );
 }
@@ -758,7 +758,7 @@ function MembersSection({ members, sessions }: { members: VaultMember[]; session
         style={{
           padding: "10px 16px",
           borderBottom: `1px solid ${colors.border}`,
-          fontSize: 15,
+          fontSize: 17,
           fontWeight: 600,
           color: colors.text,
         }}
@@ -779,8 +779,8 @@ function MembersSection({ members, sessions }: { members: VaultMember[]; session
             }}
           >
             <div>
-              <div style={{ fontSize: 15, color: colors.text }}>{m.label ?? "Unnamed"}</div>
-              <div style={{ fontSize: 13, color: colors.muted }}>
+              <div style={{ fontSize: 17, color: colors.text }}>{m.label ?? "Unnamed"}</div>
+              <div style={{ fontSize: 15, color: colors.muted }}>
                 {m.role}
                 {m.fingerprint ? ` / ${m.fingerprint}` : " / no key yet"}
               </div>
@@ -790,7 +790,7 @@ function MembersSection({ members, sessions }: { members: VaultMember[]; session
                 display: "flex",
                 alignItems: "center",
                 gap: 5,
-                fontSize: 13,
+                fontSize: 15,
                 fontWeight: 700,
                 letterSpacing: "0.06em",
                 padding: "3px 8px",
@@ -812,7 +812,7 @@ function MembersSection({ members, sessions }: { members: VaultMember[]; session
                     borderRadius: "50%",
                     background: colors.green,
                     color: "#fff",
-                    fontSize: 12,
+                    fontSize: 14,
                     fontWeight: 700,
                   }}
                 >
@@ -918,7 +918,7 @@ function ExternalPsbt({
         <Button
           variant="ghost"
           size="sm"
-          style={{ fontSize: 14 }}
+          style={{ fontSize: 16 }}
           onClick={() => setShowQrDisplay(s => !s)}
         >
           {showQrDisplay ? "Hide QR" : "Show QR"}
@@ -926,7 +926,7 @@ function ExternalPsbt({
         <Button
           variant="ghost"
           size="sm"
-          style={{ fontSize: 14 }}
+          style={{ fontSize: 16 }}
           onClick={() => setShowQrScanner(s => !s)}
         >
           {showQrScanner ? "Hide scanner" : "Scan signed QR"}
@@ -935,7 +935,7 @@ function ExternalPsbt({
       {showQrDisplay && (
         <div style={{ marginBottom: 14 }}>
           <PsbtQrDisplay psbtHex={psbtToSign} />
-          <div style={{ fontSize: 13, color: colors.muted, marginTop: 6, textAlign: "center" }}>
+          <div style={{ fontSize: 15, color: colors.muted, marginTop: 6, textAlign: "center" }}>
             UR `crypto-psbt` animated. Stateless -- no pairing needed. Point your air-gapped signer at the screen.
           </div>
         </div>
@@ -959,7 +959,7 @@ function ExternalPsbt({
           onChange={e => setHex(e.target.value)}
           placeholder="Paste signed PSBT (hex or base64 both work)"
         />
-        {err && <p style={{ color: colors.red, fontSize: 14, margin: "4px 0" }}>{err}</p>}
+        {err && <p style={{ color: colors.red, fontSize: 16, margin: "4px 0" }}>{err}</p>}
         <Button
           type="submit"
           variant="ghost"
@@ -1118,7 +1118,7 @@ function DiscussionSection({
       >
         <div
           style={{
-            fontSize: 13,
+            fontSize: 15,
             fontWeight: 700,
             letterSpacing: "0.1em",
             color: colors.muted,
@@ -1127,7 +1127,7 @@ function DiscussionSection({
         >
           Discussion
         </div>
-        <div style={{ display: "flex", gap: 10, fontSize: 13 }}>
+        <div style={{ display: "flex", gap: 10, fontSize: 15 }}>
           <span style={{ color: colors.green }}>approve {tally.approve}</span>
           <span style={{ color: colors.muted }}>abstain {tally.abstain}</span>
           <span style={{ color: colors.red }}>decline {tally.decline}</span>
@@ -1137,9 +1137,9 @@ function DiscussionSection({
       <VoteRoster members={members} latestVoteByUser={latestVoteByUser} currentUserId={currentUserId} />
 
       {loading ? (
-        <p style={{ color: colors.muted, fontSize: 15 }}>Loading...</p>
+        <p style={{ color: colors.muted, fontSize: 17 }}>Loading...</p>
       ) : comments.length === 0 ? (
-        <p style={{ color: colors.muted, fontSize: 15, marginBottom: 14 }}>
+        <p style={{ color: colors.muted, fontSize: 17, marginBottom: 14 }}>
           No discussion yet. Record your position or note context before signing.
         </p>
       ) : (
@@ -1192,7 +1192,7 @@ function DiscussionSection({
                   borderRadius: radii.sm,
                   background: vote === v ? voteColor(v) + "33" : "transparent",
                   color: vote === v ? voteColor(v) : colors.text,
-                  fontSize: 14,
+                  fontSize: 16,
                   fontFamily: fonts.sans,
                   cursor: "pointer",
                   textTransform: "capitalize",
@@ -1207,7 +1207,7 @@ function DiscussionSection({
             {busy ? "Posting..." : vote ? "Record vote" : "Post comment"}
           </Button>
         </div>
-        {err && <p style={{ color: colors.red, fontSize: 14, margin: 0 }}>{err}</p>}
+        {err && <p style={{ color: colors.red, fontSize: 16, margin: 0 }}>{err}</p>}
       </form>
     </div>
   );
@@ -1249,13 +1249,13 @@ function VoteRoster({
             key={m.id}
             style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}
           >
-            <span style={{ fontSize: 14, color: colors.text, minWidth: 0 }}>
+            <span style={{ fontSize: 16, color: colors.text, minWidth: 0 }}>
               {m.label || "Unnamed"}
               {m.user_id === currentUserId && <span style={{ color: colors.muted }}> (you)</span>}
             </span>
             <span
               style={{
-                fontSize: 12,
+                fontSize: 14,
                 fontWeight: 700,
                 padding: "2px 7px",
                 borderRadius: 4,
@@ -1308,11 +1308,11 @@ function CommentRow({
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-          <span style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>{authorLabel}</span>
+          <span style={{ fontSize: 17, fontWeight: 600, color: colors.text }}>{authorLabel}</span>
           {comment.vote && (
             <span
               style={{
-                fontSize: 12,
+                fontSize: 14,
                 fontWeight: 700,
                 padding: "2px 7px",
                 borderRadius: 4,
@@ -1326,11 +1326,11 @@ function CommentRow({
             </span>
           )}
           {superseded && (
-            <span style={{ fontSize: 12, color: colors.muted, fontStyle: "italic" }}>changed since</span>
+            <span style={{ fontSize: 14, color: colors.muted, fontStyle: "italic" }}>changed since</span>
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 13, color: colors.muted }}>
+          <span style={{ fontSize: 15, color: colors.muted }}>
             {new Date(comment.created_at).toLocaleString()}
           </span>
           {canDelete && (
@@ -1341,7 +1341,7 @@ function CommentRow({
                 border: "none",
                 color: colors.muted,
                 cursor: "pointer",
-                fontSize: 13,
+                fontSize: 15,
                 padding: 0,
               }}
             >
@@ -1351,7 +1351,7 @@ function CommentRow({
         </div>
       </div>
       {comment.body && (
-        <div style={{ fontSize: 15, color: colors.text, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+        <div style={{ fontSize: 17, color: colors.text, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
           {comment.body}
         </div>
       )}

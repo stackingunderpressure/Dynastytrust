@@ -431,7 +431,7 @@ export default function Reminders() {
   const myRoles = Array.from(new Set(vaults.map(v => v.my_role).filter(Boolean))) as string[];
 
   if (loading) {
-    return <p style={{ color: colors.muted, fontSize: 15 }}>Loading reminders...</p>;
+    return <p style={{ color: colors.muted, fontSize: 17 }}>Loading reminders...</p>;
   }
 
   return (
@@ -446,7 +446,7 @@ export default function Reminders() {
             borderRadius: 12,
             padding: '20px 22px',
             color: colors.sub,
-            fontSize: 15,
+            fontSize: 17,
             lineHeight: 1.6,
           }}
         >
@@ -485,10 +485,10 @@ function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: () => void 
       }}
     >
       <div>
-        <div style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>
+        <div style={{ fontSize: 17, fontWeight: 600, color: colors.text }}>
           Banner reminders across the app
         </div>
-        <div style={{ fontSize: 14, color: colors.muted, marginTop: 4, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 16, color: colors.muted, marginTop: 4, lineHeight: 1.5 }}>
           When on, urgent reminders surface as banners on the Dashboard and
           vault pages. When off, they live only here. This page is always
           available either way.
@@ -514,13 +514,13 @@ function ReminderCard({ r }: { r: Reminder }) {
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 6 }}>
-        <div style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>
+        <div style={{ fontSize: 17, fontWeight: 600, color: colors.text }}>
           {r.title}
         </div>
         {r.daysUntil != null && (
           <div
             style={{
-              fontSize: 13,
+              fontSize: 15,
               fontWeight: 700,
               letterSpacing: '0.1em',
               textTransform: 'uppercase',
@@ -533,11 +533,11 @@ function ReminderCard({ r }: { r: Reminder }) {
         )}
       </div>
       {(r.vaultName || r.filingReference) && (
-        <div style={{ fontSize: 13, color: colors.muted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+        <div style={{ fontSize: 15, color: colors.muted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
           {r.vaultName && `${r.vaultName} . `}{r.role}{r.filingReference && ` . ${r.filingReference}`}
         </div>
       )}
-      <div style={{ fontSize: 15, color: colors.sub, lineHeight: 1.55 }}>
+      <div style={{ fontSize: 17, color: colors.sub, lineHeight: 1.55 }}>
         {r.body}
       </div>
       {r.forms && r.forms.length > 0 && (
@@ -552,7 +552,7 @@ function ReminderCard({ r }: { r: Reminder }) {
                 rel="noreferrer"
                 title={f.desc}
                 style={{
-                  fontSize: 13,
+                  fontSize: 15,
                   fontWeight: 600,
                   padding: '4px 10px',
                   background: colors.input,
@@ -578,7 +578,7 @@ function FormsReference() {
     <div>
       <div
         style={{
-          fontSize: 13,
+          fontSize: 15,
           fontWeight: 700,
           letterSpacing: '0.12em',
           color: colors.gold,
@@ -617,8 +617,8 @@ function FormsReference() {
                 border: `1px solid ${colors.border}`,
               }}
             >
-              <div style={{ fontSize: 14, fontWeight: 700, color: colors.gold }}>{f.name}</div>
-              <div style={{ fontSize: 13, color: colors.muted, marginTop: 2, lineHeight: 1.4 }}>{f.desc}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: colors.gold }}>{f.name}</div>
+              <div style={{ fontSize: 15, color: colors.muted, marginTop: 2, lineHeight: 1.4 }}>{f.desc}</div>
             </a>
           );
         })}
@@ -634,7 +634,7 @@ function RoleGuidance({ roles }: { roles: string[] }) {
     <div>
       <div
         style={{
-          fontSize: 13,
+          fontSize: 15,
           fontWeight: 700,
           letterSpacing: '0.12em',
           color: colors.gold,
@@ -658,10 +658,10 @@ function RoleGuidance({ roles }: { roles: string[] }) {
                 padding: '14px 18px',
               }}
             >
-              <div style={{ fontSize: 15, fontWeight: 700, color: colors.text, marginBottom: 4 }}>
+              <div style={{ fontSize: 17, fontWeight: 700, color: colors.text, marginBottom: 4 }}>
                 {g.label}
               </div>
-              <div style={{ fontSize: 15, color: colors.sub, lineHeight: 1.55 }}>{g.body}</div>
+              <div style={{ fontSize: 17, color: colors.sub, lineHeight: 1.55 }}>{g.body}</div>
             </div>
           );
         })}
@@ -678,7 +678,7 @@ function FullReference() {
         border: `1px solid ${colors.border}`,
         borderRadius: 12,
         padding: '16px 20px',
-        fontSize: 15,
+        fontSize: 17,
         color: colors.sub,
         lineHeight: 1.6,
       }}

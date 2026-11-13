@@ -14,7 +14,7 @@ export function Field({ label, htmlFor, hint, children }: FieldProps) {
       <Label htmlFor={htmlFor}>{label}</Label>
       {children}
       {hint ? (
-        <div style={{ fontSize: 14, color: 'var(--color-muted)', marginTop: 6 }}>
+        <div style={{ fontSize: 16, color: 'var(--color-muted)', marginTop: 6 }}>
           {hint}
         </div>
       ) : null}
