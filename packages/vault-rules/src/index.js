@@ -3,3 +3,5 @@
 export * from "./timelocks.js";
 export * from "./standard.js";
 export * from "./spend.js";
+export * from "./numeric.js";
+export * from "./xpub.js";

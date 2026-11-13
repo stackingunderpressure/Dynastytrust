@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { broadcastTxUrl, type Network } from '../config';
+import { DOWNLOAD } from './download';
 import type { ProofOfLife, DuressFlag } from 'tapit-attest';
 import type { SpendingPathSummary } from './vault-spending-paths';
 import type { AnchorCheck, LedgerAnchor, LedgerCheck, LedgerEntry } from './ledger-verify';
@@ -16,6 +17,14 @@ async function getToken(): Promise<string> {
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  if (DOWNLOAD) {
+    // The download build: no server of ours. Same answers, made on this
+    // computer (lib/local-server). Loaded only in that build.
+    const { handleLocal } = await import('./local-server');
+    const { status, payload } = await handleLocal(path, init);
+    if (status < 200 || status >= 300) throw new Error((payload.error as string) ?? `Request failed: ${status}`);
+    return payload as T;
+  }
   const token = await getToken();
   const res = await fetch(`${API}${path}`, {
     ...init,

@@ -7,7 +7,8 @@
 //!
 //! * It logs in with Core's own cookie file, read fresh on each call, never
 //!   stored and never handed to the page.
-//! * Only the methods in `ALLOWED` pass. Reading the chain, estimating fees,
+//! * Only the methods in `ALLOWED` pass. Reading the chain, checksumming a
+//!   descriptor, estimating fees,
 //!   broadcasting a finished transaction, and keeping WATCH-ONLY wallets
 //!   whose names start with `dynastytrust-` (Core's wallet RPCs are how it
 //!   finds a vault's coins quickly). Nothing that spends from a Core wallet,
@@ -24,6 +25,7 @@ use std::path::PathBuf;
 /// Methods the page may call on Core, and whether each is wallet-scoped.
 const ALLOWED: &[(&str, bool)] = &[
     ("getblockchaininfo", false),
+    ("getdescriptorinfo", false),
     ("getblockcount", false),
     ("getblockhash", false),
     ("getblockheader", false),
@@ -38,6 +40,7 @@ const ALLOWED: &[(&str, bool)] = &[
     ("importdescriptors", true),
     ("listunspent", true),
     ("listtransactions", true),
+    ("gettransaction", true),
     ("getwalletinfo", true),
     ("rescanblockchain", true),
 ];
@@ -164,6 +167,9 @@ mod tests {
     #[test]
     fn only_listed_methods_pass() {
         assert!(check_call("getblockcount", &json!([]), &None).is_ok());
+        assert!(check_call("getdescriptorinfo", &json!(["addr(x)"]), &None).is_ok());
+        assert!(check_call("gettransaction", &json!(["00"]), &Some("dynastytrust-a".into())).is_ok());
+        assert!(check_call("gettransaction", &json!(["00"]), &Some("savings".into())).is_err());
         for m in ["stop", "walletpassphrase", "sendtoaddress", "dumpprivkey", "setnetworkactive", "importprivkey", "signrawtransactionwithwallet"] {
             assert!(check_call(m, &json!([]), &None).is_err(), "{m} must be refused");
             assert!(check_call(m, &json!([]), &Some("dynastytrust-x".into())).is_err(), "{m} must be refused on our wallet too");
