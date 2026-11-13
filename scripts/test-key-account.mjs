@@ -60,16 +60,21 @@ import { createHash } from 'node:crypto';
 // A stand-in for a Tapit wallet's key: any secp256k1 key signs the same
 // TA-1 challenge the wallet does (tapit-attest answerSignInChallenge).
 const walletKey = (words) => createHash('sha256').update('tapit-test-wallet:' + words).digest('hex');
-const { answerSignInChallenge } = await import('tapit-attest');
+const { answerSignInChallenge, signInScreenCode } = await import('tapit-attest');
 const { generateMnemonic } = await import('@scure/bip39');
 const { wordlist } = await import('@scure/bip39/wordlists/english');
 
 let n = 0;
 const pass = (l) => { n++; console.log(`  [ok] ${l}`); };
 const call = (fn, body) => H[fn]({ httpMethod: 'POST', headers: {}, body: JSON.stringify(body) });
-const proof = async (mnemonic) => {
+// As the wallet signs since threat model G: with the number the person typed
+// from the screen (signInScreenCode), inside the signature. `typed` lets a
+// case sign with no number (an old wallet: 'none') or the wrong one ('wrong').
+const proof = async (mnemonic, typed = 'right') => {
   const { body } = await call('wallet-signin-challenge', {});
-  return { attestation: answerSignInChallenge({ challenge: body.challenge, signerPrivateKey: walletKey(mnemonic) }) };
+  const right = signInScreenCode(body.challenge);
+  const screenCode = typed === 'right' ? right : typed === 'none' ? undefined : String((Number(right) + 1) % 100).padStart(2, '0');
+  return { attestation: answerSignInChallenge({ challenge: body.challenge, signerPrivateKey: walletKey(mnemonic), ...(screenCode !== undefined ? { screenCode } : {}) }) };
 };
 const WORDS = generateMnemonic(wordlist, 256);
 
@@ -118,6 +123,17 @@ forged.attestation.signer = (await proof(WORDS)).attestation.signer; // claim so
 assert.equal((await call('key-signup', { grant: forged })).statusCode, 401);
 assert.equal((await call('wallet-signin-verify', { grant: forged })).statusCode, 401);
 pass('refused: a second sign-up, a replayed proof, a key with no account, a forged signer');
+
+// 4b. Threat model G: a proof without the sign-in number (an old wallet that
+//     never asked), or with the wrong one, is refused at all three doors.
+for (const typed of ['none', 'wrong']) {
+  const grantFor = () => proof(WORDS, typed);
+  const v = await call('wallet-signin-verify', { grant: await grantFor() });
+  assert.equal(v.statusCode, 401, `sign-in took a proof with ${typed} number`);
+  assert.match(v.body.error, typed === 'none' ? /number missing/ : /number does not match/);
+  assert.equal((await call('key-signup', { grant: await grantFor() })).statusCode, 401, `sign-up took ${typed}`);
+}
+pass('refused: a proof with no sign-in number or the wrong one, at sign-in and sign-up');
 
 // 5. A failed bind deletes the account it just made.
 const before = users.size;

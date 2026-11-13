@@ -51,7 +51,8 @@ export async function proveKeyControl(supabase, body) {
   if (loadErr) return { status: 500, error: loadErr.message };
   if (!row) return { status: 401, error: "Unknown or expired challenge" };
   if (row.consumed_at) return { status: 401, error: "Challenge already used" };
-  const result = verifySignIn({ attestation, expectedChallenge: row.challenge });
+  // Threat model G: the sign-in number the person typed in Tapit, signed in.
+  const result = verifySignIn({ attestation, expectedChallenge: row.challenge, requireScreenCode: true });
   if (!result.valid) return { status: 401, error: "Key proof failed: " + result.errors.join("; ") };
   return { pubkey: result.signer, nonce, audience: row.challenge.audience };
 }

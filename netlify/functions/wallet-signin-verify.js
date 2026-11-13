@@ -47,7 +47,8 @@ export async function handler(event) {
   if (!row) return json(401, { error: "Unknown or expired challenge" });
   if (row.consumed_at) return json(401, { error: "Challenge already used" });
 
-  const result = verifySignIn({ attestation, expectedChallenge: row.challenge });
+  // Threat model G: the sign-in number the person typed in Tapit, signed in.
+  const result = verifySignIn({ attestation, expectedChallenge: row.challenge, requireScreenCode: true });
   if (!result.valid) {
     return json(401, { error: "Sign-in proof failed: " + result.errors.join("; ") });
   }

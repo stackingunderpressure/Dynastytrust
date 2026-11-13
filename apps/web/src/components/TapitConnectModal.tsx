@@ -13,7 +13,7 @@ import { colors, fonts, space } from '../theme';
 const XONLY_PUBKEY_RE = /^[0-9a-f]{64}$/i;
 
 // Scan-to-connect: the QR encodes the exact same request URL
-// startTapitFlow would otherwise redirect this tab to (tapit-wallet's
+// prepareTapitFlow would otherwise redirect this tab to (tapit-wallet's
 // existing /sign route, unchanged -- no new screen needed on that side).
 // The difference is a response_channel field riding along in the request:
 // Tapit's approveSignRequest sees it and publishes the signed grant back
@@ -47,7 +47,7 @@ export function TapitConnectModal({ mode, onClose, onDone }: { mode: TapitMode; 
   const [state, setState] = useState<
     | { kind: 'loading' }
     | { kind: 'error'; message: string }
-    | { kind: 'waiting'; requestUrl: string }
+    | { kind: 'waiting'; requestUrl: string; screenCode: string }
     | { kind: 'connecting' }
   >({ kind: 'loading' });
   const cleanupRef = useRef<(() => void) | null>(null);
@@ -55,7 +55,8 @@ export function TapitConnectModal({ mode, onClose, onDone }: { mode: TapitMode; 
 
   const [pubkeyInput, setPubkeyInput] = useState('');
   const [sendingPubkey, setSendingPubkey] = useState(false);
-  const [pubkeySent, setPubkeySent] = useState(false);
+  // The pushed request has its own challenge, so its own number (threat model G).
+  const [pubkeySent, setPubkeySent] = useState<string | null>(null);
 
   function finishWithGrant(grant: unknown) {
     setState({ kind: 'connecting' });
@@ -74,7 +75,7 @@ export function TapitConnectModal({ mode, onClose, onDone }: { mode: TapitMode; 
     let cancelled = false;
     (async () => {
       try {
-        const { requestUrl, replyPrivateKey, replyPublicKey } = await startTapitConnectRequest(mode);
+        const { requestUrl, replyPrivateKey, replyPublicKey, screenCode } = await startTapitConnectRequest(mode);
         if (cancelled) return;
         const { subscription, transport } = subscribeSignInResponses(
           replyPrivateKey,
@@ -87,7 +88,7 @@ export function TapitConnectModal({ mode, onClose, onDone }: { mode: TapitMode; 
           subscription.close();
           transport.close();
         };
-        setState({ kind: 'waiting', requestUrl });
+        setState({ kind: 'waiting', requestUrl, screenCode });
       } catch (e) {
         if (!cancelled) setState({ kind: 'error', message: e instanceof Error ? e.message : 'Could not start' });
       }
@@ -108,7 +109,7 @@ export function TapitConnectModal({ mode, onClose, onDone }: { mode: TapitMode; 
     }
     setSendingPubkey(true);
     try {
-      const { replyPrivateKey, replyPublicKey, delivered } = await startTapitPubkeyConnectRequest(mode, clean);
+      const { replyPrivateKey, replyPublicKey, delivered, screenCode } = await startTapitPubkeyConnectRequest(mode, clean);
       const { subscription, transport } = subscribeSignInResponses(
         replyPrivateKey,
         replyPublicKey,
@@ -130,7 +131,7 @@ export function TapitConnectModal({ mode, onClose, onDone }: { mode: TapitMode; 
         subscription.close();
         transport.close();
       };
-      setPubkeySent(true);
+      setPubkeySent(screenCode);
       if (!delivered) {
         toast.error("Couldn't reach a relay just now -- the request is queued and will retry automatically. Keep this open.");
       }
@@ -156,8 +157,9 @@ export function TapitConnectModal({ mode, onClose, onDone }: { mode: TapitMode; 
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: space[3] }}>
             <QrImage data={state.requestUrl} />
           </div>
+          <ScreenNumber code={state.screenCode} />
           <p style={{ fontSize: 17, color: colors.sub, textAlign: 'center', lineHeight: 1.6, marginBottom: 12 }}>
-            Scan this with the phone your Tapit wallet is on. Approving there signs you in here
+            Scan this with the phone your Tapit wallet is on. Tapit will ask for the number above. Approving there signs you in here
             automatically -- this tab does not need to redirect anywhere.
           </p>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', marginBottom: 4 }}>
@@ -179,11 +181,14 @@ export function TapitConnectModal({ mode, onClose, onDone }: { mode: TapitMode; 
               Wallet already open on this device? Skip the QR -- paste its public key instead.
             </p>
             {pubkeySent ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: colors.gold }} />
-                <span style={{ fontSize: 16, color: colors.muted }}>
-                  Sent -- check your Tapit wallet's Inbox to approve.
-                </span>
+              <div>
+                <ScreenNumber code={pubkeySent} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: colors.gold }} />
+                  <span style={{ fontSize: 16, color: colors.muted }}>
+                    Sent -- check your Tapit wallet's Inbox to approve. It will ask for this number.
+                  </span>
+                </div>
               </div>
             ) : (
               <div style={{ display: 'flex', gap: 8 }}>
@@ -208,5 +213,16 @@ export function TapitConnectModal({ mode, onClose, onDone }: { mode: TapitMode; 
         </>
       )}
     </Modal>
+  );
+}
+
+/** The two-digit sign-in number (threat model G): Tapit asks the person to type it. */
+function ScreenNumber({ code }: { code: string }) {
+  return (
+    <div role="status" style={{ textAlign: 'center', marginBottom: space[3] }}>
+      <div style={{ fontSize: 16, color: colors.sub }}>Your sign-in number</div>
+      <div aria-label={`Sign-in number ${code.split('').join(' ')}`} style={{ fontFamily: fonts.mono, fontSize: 40, letterSpacing: '0.2em', color: colors.gold }}>{code}</div>
+      <div style={{ fontSize: 15, color: colors.muted, lineHeight: 1.5 }}>Never type a number someone else gives you.</div>
+    </div>
   );
 }

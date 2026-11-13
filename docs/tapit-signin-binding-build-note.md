@@ -43,9 +43,13 @@ screens together, the way bank and work-account apps now do it.
   DynastyTrust shows it large next to the QR and in the "check your Tapit"
   wait screen. The Tapit wallet does NOT show it: it asks the person to type
   the number they see on the screen they are signing in on, and refuses to
-  approve on a wrong number. A pushed request nobody started cannot be
-  approved by tapping through it, and an attacker cannot see what the
-  victim's screen shows.
+  approve on a wrong number. A pushed request nobody started, or a QR
+  someone sent, cannot be approved by tapping through it: the person has no
+  screen of their own showing the number. CORRECTED before building
+  (2026-11-13): this does NOT stop a fake website that shows a real
+  request's QR and its number side by side -- there the attacker owns the
+  screen. Bank number-matching has the same limit; the wallet's wording
+  warns against signing in on a screen you did not open yourself.
 - **The login-trap fix (browser only).** The page that starts a redirect
   sign-in keeps a one-time marker in that tab; a callback that arrives in a
   tab that never started one is refused with a plain message.
@@ -100,6 +104,10 @@ new words; every Tapit sign-in gets one extra step (type two digits).
 
 ## Deliberately left out
 
+- A fake website relaying a real request's QR and number (see the
+  correction above). Only a proximity check between the two devices stops
+  that, and browsers do not offer one to a web wallet.
+
 - A person talked into typing a number an attacker reads to them over the
   phone. No code on two screens stops that; the wallet's wording warns
   against it, and it is named here so it is not mistaken for covered.
@@ -114,3 +122,8 @@ One slice, end to end: wallet side with its tests, then DynastyTrust with its
 tests, walked together with the real wallet build against a stand-in
 DynastyTrust backend, both on their branches; nothing to main until the
 ship chip.
+
+## Decisions taken (operator chips, 2026-11-13)
+
+Type the number; the server enforces it; wallet first. Built: tapit-wallet
+2d021b2 + 177251b, then DynastyTrust (this branch). See HISTORY.md.

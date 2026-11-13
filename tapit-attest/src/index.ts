@@ -162,6 +162,7 @@ export {
 export {
   buildSignInChallenge,
   answerSignInChallenge,
+  signInScreenCode,
   verifySignIn,
   type SignInChallenge,
   type SignInAttestation,

@@ -164,8 +164,31 @@ signers" as not yet verified. Item 1 above postdates it.
   and accepted (MessagingSafetyPanel in the Messages tab). Test 6 cases;
   walked at 375px with a stand-in backend: compare, send, server swaps
   Mom's key -> red stop, Send disabled, message labelled, accept ->
-  sending resumes; 0 sideways px, no page errors. NOT done: G (Tapit
-  challenge binding), K (mempool privacy, noted only). NOT seen:
+  sending resumes; 0 sideways px, no page errors. (G) Tapit sign-in tied
+  to the screen that asked (Build Note docs/tapit-signin-binding-build-
+  note.md; chips: type the number, server enforces, wallet first). Every
+  sign-in request has a two-digit number (signInScreenCode, from the
+  nonce); DynastyTrust shows it -- same-device sign-in now shows it before
+  an "Open Tapit" link, the QR and pushed paths beside the QR -- and never
+  sends it; Tapit (2d021b2, 177251b) makes the person type it, refuses a
+  wrong one and signs it into the proof; wallet-signin-verify, key-signup
+  and wallet-link require it (verifySignIn requireScreenCode). The field
+  is optional in the signed body, so a proof without it hashes exactly as
+  before (old golden fixture still verifies); a new golden fixture made by
+  the wallet's real build proves the two library copies agree on the
+  numbered form. Also the login trap: a returning approval for a sign-in
+  this browser did not start (localStorage, 10 minutes) is refused before
+  it reaches the server. Limit, stated in the note: a fake site relaying a
+  real QR and its number is not stopped. Tests: Dynasty tapit-attest 77
+  (incl. 4 new parity), key-account 8 (numberless and wrong-number proofs
+  refused at sign-in and sign-up), tapit-binding 5; wallet tapit-attest
+  195 (191 pass, 4 skipped), wallet vitest 976. Joint walk, both real
+  builds against stand-in backends at 375px, twice, all steps passed: the
+  first walk also caught the number box white-on-white in Tapit's dark
+  theme, fixed in 177251b. Wallet build: its bundle budget already failed
+  before this (SignApprovalScreen 11.50KB gz vs 9.75KB), now 11.92KB -- not
+  bumped. NOT done: K (mempool privacy, noted only). NOT seen: on the
+  operator's phone with the deployed wallet. NOT seen:
   any of it on the operator's phone or live -- none is on main.
 
 - **Sign-in rethought: email, username, or sovereign Tapit; Face ID right

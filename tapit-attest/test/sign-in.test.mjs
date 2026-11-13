@@ -108,3 +108,45 @@ test('round-trips: build a challenge, answer it, verify it', () => {
   });
   assert.equal(res.valid, true, res.errors.join('; '));
 });
+
+// -- Sign-in number (2026-11-13, threat model item G) --------------------
+// Golden fixture generated from the Tapit wallet's REAL source
+// (tapit-wallet 2d021b2, tapit-attest/dist) with the same test key, nonce
+// and timestamps as GOLDEN above, plus the sign-in number inside the
+// signature. Dynasty verifying it is the parity proof for the new field.
+import { signInScreenCode } from '../dist/index.js';
+
+const GOLDEN_NUMBERED = {
+  code: '27',
+  attestation: {
+    ...GOLDEN.attestation,
+    screenCode: '27',
+    signature:
+      '9fce060cb496987c3c9eb27ac5e50b02f57b4c3cc52f93c0a8fed29c2215897bfc46bf82c0c50cea22775980a9b849223ab3ea0237e93b9df777679bb9cf6cc1',
+  },
+};
+
+test('PARITY: the sign-in number is the same number Tapit computes', () => {
+  assert.equal(signInScreenCode(GOLDEN.challenge), GOLDEN_NUMBERED.code);
+  assert.equal(signInScreenCode({ nonce: '00'.repeat(32) }), '36'); // Tapit's own known answer
+});
+
+test('PARITY: Dynasty verifies a real Tapit-made numbered proof, also when the number is required', () => {
+  const res = verifySignIn({ attestation: GOLDEN_NUMBERED.attestation, expectedChallenge: GOLDEN.challenge, now: GOLDEN.nowInsideWindowMs, requireScreenCode: true });
+  assert.equal(res.valid, true, res.errors.join('; '));
+});
+
+test('a proof without the number is refused when the number is required', () => {
+  const res = verifySignIn({ attestation: GOLDEN.attestation, expectedChallenge: GOLDEN.challenge, now: GOLDEN.nowInsideWindowMs, requireScreenCode: true });
+  assert.equal(res.valid, false);
+  assert.ok(res.errors.some((e) => e.includes('number missing')));
+});
+
+test('the number cannot be added or changed after signing', () => {
+  for (const screenCode of ['27', '28']) {
+    const res = verifySignIn({ attestation: { ...GOLDEN.attestation, screenCode }, expectedChallenge: GOLDEN.challenge, now: GOLDEN.nowInsideWindowMs, requireScreenCode: true });
+    assert.equal(res.valid, false, `accepted an added number ${screenCode}`);
+  }
+  const changed = { ...GOLDEN_NUMBERED.attestation, screenCode: '28' };
+  assert.equal(verifySignIn({ attestation: changed, expectedChallenge: GOLDEN.challenge, now: GOLDEN.nowInsideWindowMs }).valid, false);
+});

@@ -54,6 +54,13 @@ export interface SignInAttestation {
   /** x-only public key of the holder proving key control. */
   signer: string;
   issuedAt: string;
+  /**
+   * The two-digit sign-in number the holder typed from the screen they are
+   * signing in on (`signInScreenCode`). Optional and inside the signed
+   * digest: absent, the digest is byte-identical to before this field
+   * existed. Port of the Tapit wallet's field (tapit-wallet 2d021b2).
+   */
+  screenCode?: string;
   /** The holder's Schnorr signature over the sign-in digest. */
   signature: string;
 }
@@ -72,7 +79,20 @@ function signInBase(attestation: SignInAttestation): SignInBase {
     challenge: attestation.challenge,
     signer: attestation.signer,
     issuedAt: attestation.issuedAt,
+    ...(attestation.screenCode !== undefined ? { screenCode: attestation.screenCode } : {}),
   };
+}
+
+/**
+ * The two-digit sign-in number for a challenge (threat model item G): shown
+ * on the screen that asked for the sign-in; the wallet makes the holder type
+ * it and signs it in. Port of the Tapit wallet's function: tagged hash
+ * 'tapit/sign-in-screen-code' of the nonce bytes, first two bytes mod 100.
+ */
+export function signInScreenCode(challenge: Pick<SignInChallenge, 'nonce'>): string {
+  if (!isHex(challenge.nonce, 32)) throw new Error('nonce must be 32-byte hex');
+  const h = taggedHash('tapit/sign-in-screen-code', fromHex(challenge.nonce));
+  return String(((h[0] << 8) | h[1]) % 100).padStart(2, '0');
 }
 
 function signInDigest(base: SignInBase): Uint8Array {
@@ -136,6 +156,7 @@ export function answerSignInChallenge(input: {
   challenge: SignInChallenge;
   signerPrivateKey: string;
   issuedAt?: string;
+  screenCode?: string;
 }): SignInAttestation {
   if (!isChallengeShape(input.challenge)) {
     throw new Error('challenge is malformed');
@@ -149,6 +170,7 @@ export function answerSignInChallenge(input: {
     challenge: input.challenge,
     signer: toHex(schnorr.getPublicKey(priv)),
     issuedAt: input.issuedAt ?? new Date().toISOString(),
+    ...(input.screenCode !== undefined ? { screenCode: input.screenCode } : {}),
   };
   return { ...base, signature: toHex(schnorr.sign(signInDigest(base), priv)) };
 }
@@ -175,6 +197,8 @@ export function verifySignIn(input: {
   expectedChallenge: SignInChallenge;
   /** Current time in ms for the freshness check. Defaults to `Date.now()`. */
   now?: number;
+  /** Refuse a proof without the right sign-in number inside its signature. */
+  requireScreenCode?: boolean;
 }): SignInVerifyResult {
   const att = input.attestation;
   if (!att || !isHex(att.signature, 64) || !isHex(att.signer, 32)) {
@@ -212,6 +236,12 @@ export function verifySignIn(input: {
     signatureOk = false;
   }
   if (!signatureOk) errors.push('sign-in signature is invalid');
+
+  if (att.screenCode !== undefined && att.screenCode !== signInScreenCode(input.expectedChallenge)) {
+    errors.push('sign-in number does not match this sign-in');
+  } else if (input.requireScreenCode && att.screenCode === undefined) {
+    errors.push('sign-in number missing: update Tapit and try again');
+  }
 
   const valid = errors.length === 0;
   return { valid, signer: valid ? att.signer : null, errors };

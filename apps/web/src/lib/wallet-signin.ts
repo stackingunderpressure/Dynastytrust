@@ -22,6 +22,50 @@
 import { schnorr } from '@noble/curves/secp256k1';
 import { supabase } from './supabase';
 import { recordKeySession } from './key-account';
+import { signInScreenCode } from 'tapit-attest';
+
+// -- Threat model G (docs/tapit-signin-binding-build-note.md) --------------
+// 1. The sign-in number: every request's challenge has a two-digit number
+//    (signInScreenCode). This page shows it; the Tapit wallet makes the
+//    person type it and signs it into the proof; the server refuses a proof
+//    without it. A request nobody started on a screen of their own cannot be
+//    approved by tapping through it.
+// 2. The login trap: an attacker could approve their OWN request and send
+//    someone the return link, signing that person's browser into the
+//    attacker's account. So every start remembers its challenge here for a
+//    few minutes, and a returning approval for a challenge this browser did
+//    not start is refused. localStorage, not sessionStorage: on an iPhone
+//    the wallet may hand back to a different tab of the same browser.
+const PENDING = 'dt:tapitPending:v1';
+const PENDING_TTL_MS = 10 * 60 * 1000;
+type Pending = { nonce: string; at: number }[];
+function readPending(): Pending {
+  try {
+    const v = JSON.parse(localStorage.getItem(PENDING) || '[]');
+    return Array.isArray(v) ? (v as Pending).filter(p => p && typeof p.nonce === 'string' && Date.now() - p.at < PENDING_TTL_MS) : [];
+  } catch {
+    return [];
+  }
+}
+function rememberPending(nonce: string): void {
+  try { localStorage.setItem(PENDING, JSON.stringify([...readPending(), { nonce, at: Date.now() }].slice(-8))); } catch { /* private mode: the return will be refused, so say so there */ }
+}
+/** Did THIS browser start the sign-in this nonce belongs to? Consumes it. */
+export function takePending(nonce: string): boolean {
+  const all = readPending();
+  const hit = all.some(p => p.nonce === nonce);
+  try { localStorage.setItem(PENDING, JSON.stringify(all.filter(p => p.nonce !== nonce))); } catch { /* nothing to clear */ }
+  return hit;
+}
+/** The two-digit number to show for a request's challenge. */
+export function numberFor(challenge: unknown): string {
+  return signInScreenCode(challenge as { nonce: string });
+}
+function nonceOf(challenge: unknown): string {
+  const n = (challenge as { nonce?: unknown } | null)?.nonce;
+  if (typeof n !== 'string') throw new Error('The sign-in server sent a challenge without a nonce');
+  return n;
+}
 
 const API = '/api';
 
@@ -30,7 +74,7 @@ const API = '/api';
 // psbt-cosign, Cut B stage B2) hit the same wallet without a second env
 // override to keep in sync.
 export const WALLET_SIGN_URL =
-  (import.meta.env.VITE_TAPIT_WALLET_URL as string | undefined) ??
+  (import.meta.env?.VITE_TAPIT_WALLET_URL as string | undefined) ??
   'https://tapit-wallet.netlify.app/sign';
 
 // The wallet's plain root -- visiting it with no existing session routes
@@ -87,8 +131,14 @@ export function b64Decode<T>(s: string): T {
  * Start a sign-in (fresh login) or link (bind while logged in). Mints a
  * challenge, packages it for the wallet, and navigates there.
  */
-export async function startTapitFlow(mode: TapitMode): Promise<void> {
+export interface TapitStart { url: string; screenCode: string }
+
+/** Prepare a same-device Tapit sign-in: the wallet link and its number. The
+ *  page shows the number, then the person opens the link (a fresh tap, which
+ *  iOS Safari also prefers to an automatic jump). */
+export async function prepareTapitFlow(mode: TapitMode): Promise<TapitStart> {
   const challenge = await mintSignInChallenge();
+  rememberPending(nonceOf(challenge));
   // Land on /keys so RequireAuth's callback handler runs (the public Landing
   // at "/" would not). tapit_mode rides along; the wallet preserves it and
   // appends ?grant=.
@@ -100,7 +150,7 @@ export async function startTapitFlow(mode: TapitMode): Promise<void> {
     callback,
     challenge,
   });
-  window.location.href = `${WALLET_SIGN_URL}?req=${req}`;
+  return { url: `${WALLET_SIGN_URL}?req=${req}`, screenCode: numberFor(challenge) };
 }
 
 function toHex(bytes: Uint8Array): string {
@@ -108,7 +158,7 @@ function toHex(bytes: Uint8Array): string {
 }
 
 export interface TapitConnectRequest {
-  /** Same URL startTapitFlow would navigate to -- render as a QR, or as a
+  /** Same URL prepareTapitFlow would navigate to -- render as a QR, or as a
    *  plain link for same-device use. Scanning it on a phone opens Tapit's
    *  existing /sign route unchanged; the only new behavior lives in how
    *  approval gets delivered back (see response_channel below). */
@@ -121,6 +171,8 @@ export interface TapitConnectRequest {
    *  decrypt whatever comes back. */
   replyPrivateKey: string;
   replyPublicKey: string;
+  /** The two-digit number this page shows; Tapit asks for it (threat model G). */
+  screenCode: string;
 }
 
 /**
@@ -132,12 +184,13 @@ export interface TapitConnectRequest {
  * callback URL. Lets this tab stay open on a QR while a DIFFERENT device
  * (the phone with Tapit on it) does the approving -- a URL redirect could
  * never do that, since scanning a QR opens a new browser context, not
- * this tab. Same challenge-minting and request shape as startTapitFlow;
+ * this tab. Same challenge-minting and request shape as prepareTapitFlow;
  * this only adds response_channel and returns the URL instead of
  * navigating to it.
  */
 export async function startTapitConnectRequest(mode: TapitMode): Promise<TapitConnectRequest> {
   const challenge = await mintSignInChallenge();
+  rememberPending(nonceOf(challenge));
   const replyPriv = crypto.getRandomValues(new Uint8Array(32));
   const replyPrivateKey = toHex(replyPriv);
   const replyPublicKey = toHex(schnorr.getPublicKey(replyPriv));
@@ -158,6 +211,7 @@ export async function startTapitConnectRequest(mode: TapitMode): Promise<TapitCo
     requestUrl: `${WALLET_SIGN_URL}?req=${req}`,
     replyPrivateKey,
     replyPublicKey,
+    screenCode: numberFor(challenge),
   };
 }
 
@@ -180,6 +234,7 @@ export async function startTapitPubkeyConnectRequest(
   recipientXOnlyPubkey: string,
 ): Promise<TapitConnectRequest & { delivered: boolean }> {
   const challenge = await mintSignInChallenge();
+  rememberPending(nonceOf(challenge));
   const replyPriv = crypto.getRandomValues(new Uint8Array(32));
   const replyPrivateKey = toHex(replyPriv);
   const replyPublicKey = toHex(schnorr.getPublicKey(replyPriv));
@@ -205,6 +260,7 @@ export async function startTapitPubkeyConnectRequest(
     replyPrivateKey,
     replyPublicKey,
     delivered,
+    screenCode: numberFor(challenge),
   };
 }
 
@@ -248,6 +304,11 @@ function attestationFromGrant(grant: unknown): unknown {
 export async function completeTapitCallback(cb: TapitCallback): Promise<TapitResult> {
   const attestation = attestationFromGrant(cb.grant);
   if (!attestation) throw new Error('Wallet returned no sign-in proof');
+  // Threat model G, the login trap: only finish a sign-in this browser started.
+  const nonce = (attestation as { challenge?: { nonce?: unknown } }).challenge?.nonce;
+  if (typeof nonce !== 'string' || !takePending(nonce)) {
+    throw new Error('This Tapit approval is for a sign-in that was not started in this browser, so it was not used. If you started it here, start again: sign-ins expire after a few minutes. If someone sent you this link, ignore it.');
+  }
   const grant = { attestation };
 
   if (cb.mode === 'link') {

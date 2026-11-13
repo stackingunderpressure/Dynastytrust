@@ -11,7 +11,7 @@
  * a place to put the 64 digit public key from Tapit into there and then
  * it can do all of the Nostr messaging back and forth after that."
  *
- * Root cause: wallet-signin.ts's existing flows (startTapitFlow, and the
+ * Root cause: wallet-signin.ts's existing flows (prepareTapitFlow, and the
  * "open Tapit directly" fallback inside startTapitConnectRequest) both
  * navigate this tab to tapit-wallet's own site as a fresh, top-level page
  * load -- which re-initializes that SPA from scratch and, on an
