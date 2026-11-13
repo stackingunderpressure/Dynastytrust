@@ -40,6 +40,13 @@ pub fn api_err(status: u16, msg: impl ToString) -> ServiceError {
     ServiceError { status, error: msg.to_string() }
 }
 
+/// A refusal's body, byte for byte as the server writes it: `ok` first.
+fn refusal(error: &str) -> String {
+    #[derive(Serialize)]
+    struct Refusal<'a> { ok: bool, error: &'a str }
+    serde_json::to_string(&Refusal { ok: false, error }).unwrap_or_default()
+}
+
 /// One entry point for every endpoint, for callers with no web server (the
 /// browser module): request JSON in, (status, response JSON) out -- the same
 /// status and body the server sends.
@@ -47,7 +54,7 @@ pub fn handle(endpoint: &str, body: &str) -> (u16, String) {
     fn run<Req: serde::de::DeserializeOwned, Resp: Serialize>(
         body: &str, f: fn(Req) -> Result<Resp, ServiceError>,
     ) -> (u16, String) {
-        let err = |status: u16, error: String| (status, serde_json::json!({ "ok": false, "error": error }).to_string());
+        let err = |status: u16, error: String| (status, refusal(&error));
         let req: Req = match serde_json::from_str(body) {
             Ok(r) => r,
             Err(e) => return err(422, format!("Invalid request body: {e}")),
@@ -73,7 +80,7 @@ pub fn handle(endpoint: &str, body: &str) -> (u16, String) {
         "/governance/status" => run(body, governance_status),
         "/governance/audit" => run(body, governance_audit),
         "/validate-address" => run(body, validate_address),
-        other => (404, serde_json::json!({ "ok": false, "error": format!("unknown endpoint {other}") }).to_string()),
+        other => (404, refusal(&format!("unknown endpoint {other}"))),
     }
 }
 

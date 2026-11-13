@@ -1,0 +1,32 @@
+# The vault COMPILER in the browser (sovereign slice 1,
+# docs/super-sovereign-build-note.md): every compiler request -- compile,
+# PSBT build, merge, finalize, governance -- answered by
+# dynastytrust_protocol::service, the SAME code the Fly server runs, with no
+# server. Its own workspace and lockfile, like protocol-wasm/, so the Fly
+# Docker build and the root Cargo.lock are not affected. The lockfile pins
+# the same bitcoin / miniscript / secp256k1 versions as the root one.
+# Loaded only when a vault is built or spent (operator's chip), so the
+# small address checker in protocol-wasm/ stays small.
+[package]
+name = "dynastytrust_compiler_wasm"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+dynastytrust_protocol = { path = "../protocol" }
+serde_json = "1.0"
+
+[workspace]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+# Same as the Fly compiler's profile: integer overflow is caught, never
+# wrapped, in PSBT arithmetic.
+overflow-checks = true
+strip = true

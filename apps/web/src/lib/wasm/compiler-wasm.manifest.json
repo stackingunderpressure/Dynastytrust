@@ -1,0 +1,7 @@
+{
+  "note": "Written by scripts/build-compiler-wasm.mjs. Do not edit by hand.",
+  "sourceSha256": "97bd8bab888ee1e9f113f64d0aae4ccbfb634bfa411354eb6a136b0efbad6f65",
+  "wasmSha256": "87a3cd7a0f06a8eef8768009596dcf8e4bfd90f53fd12051b4e59528fb053d53",
+  "wasmBytes": 2831736,
+  "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)"
+}

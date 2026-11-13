@@ -88,3 +88,25 @@ trusted to build the right vault. Every later phase needs it.
 One slice end to end: browser module with parity proven on every harness
 case, gates green, the Core spend from a browser-built vault, on the branch;
 nothing to main until the ship chip.
+
+## Decisions taken (operator chips, 2026-11-13)
+
+Groundwork only (the live site keeps the Fly compiler); next slice: your
+own Bitcoin node; load the compiler only when building. Then, after
+reading the code: about 2,000 of main.rs's lines were request logic inside
+the server's handlers, not in the shared library -- the operator chose to
+MOVE that logic into the library (one copy), not copy it.
+
+## Built (slice 1, on the branch)
+
+- Step 1 (b54c343): `protocol/src/service.rs` holds the 12 handlers' logic;
+  `compiler/src/main.rs` keeps same-named thin wrappers. Proven unchanged:
+  231 recorded server answers (`scripts/fixtures/compiler-reference.jsonl`)
+  replayed against the reshaped server, 39 + 130 Rust tests, the harness.
+- Step 2: `compiler-wasm/` runs `service::handle` in the browser;
+  `apps/web/src/lib/browser-compiler.ts` loads it on first use; nothing in
+  the app calls it yet. 2,831,736 bytes (1.55 MB compressed), no imports.
+  All 231 answers reproduced (181 byte-identical; 50 identical JSON with
+  the `leaf_scripts` HashMap in another order -- the server itself varies
+  that order run to run). Bitcoin Core 32.1 proof, 14 checks, run with NO
+  compiler server: every compiler call answered by the browser module.

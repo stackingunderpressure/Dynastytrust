@@ -106,6 +106,32 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Super Sovereign slice 1: the whole vault compiler runs in the browser
+  -- groundwork, 2026-11-13, on the branch, NOT on main.** Operator asked
+  whether the sovereign package (DynastyTrust over Nostr, no hosted
+  servers) was ever built; it was design only (docs/super-sovereign-
+  mode.md). Re-grounded in docs/super-sovereign-build-note.md; chips:
+  groundwork only, own-node slice next, load only when building, and --
+  after the code showed ~2,000 lines of logic inside the server's handlers
+  -- move it into the shared library rather than copy it. Step 1:
+  protocol/src/service.rs (the 12 handlers, unchanged logic), server keeps
+  same-named wrappers. Step 2: compiler-wasm/ + lib/browser-compiler.ts.
+  Proof: a reference of 231 server answers recorded BEFORE the move
+  (offline harness RECORD_COMPILER + 23 hand-made: merge, governance,
+  address validation), replayed: reshaped server 231/231, browser module
+  231/231 (181 byte-identical, 50 identical JSON with the leaf_scripts
+  HashMap reordered -- measured: the server itself reorders it run to run,
+  54 then 51); every PSBT and finalize answer byte-identical. cargo test
+  39 + 130 (same as before) + 2; offline harness OK; Bitcoin Core 32.1
+  proof 14/14 with NO compiler server running. New npm test
+  test-compiler-wasm (fails if protocol/ or compiler-wasm/ changes without
+  a rebuild -- checked by changing a file). Gates: npm test green, lint 0
+  errors / 11 warnings, typecheck 10 (same set), build green. NOT done:
+  the live site still uses Fly (by choice); the module is not in the site
+  build yet (nothing imports it); not walked in a real browser (Node runs
+  the same loader and bytes). Fly redeploys the reshaped compiler next
+  time compiler/ or protocol/ reaches main.
+
 - **Threat model 2026-11-13: holes A, B, C, D, F, H, I, J closed on the
   branch, NOT on main.** Operator: "help me understand where an attacker
   could find vulnerabilities of each stage of a vault ... we're not leaving

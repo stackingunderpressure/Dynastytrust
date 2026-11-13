@@ -50,9 +50,25 @@ const keys = (...i) => i.map(n => S[n].pubkey);
 let n = 0; const pass = (l) => { n++; console.log(`  [ok] ${l}`); };
 const note = (l) => console.log(`  [..] ${l}`);
 
+// COMPILER_URL=wasm: every compiler request goes to the BROWSER compiler
+// (apps/web/src/lib/browser-compiler.ts + the committed .wasm), with no
+// server at all -- sovereign slice 1's proof that Bitcoin Core accepts
+// vaults and spends built entirely on a device.
+let onDevice = null;
 async function post(endpoint, body) {
-  const res = await fetch(`${COMPILER}${endpoint}`, { method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${SECRET}` }, body: JSON.stringify(body) });
+  let res;
+  if (COMPILER === 'wasm') {
+    if (!onDevice) {
+      onDevice = await import(new URL('../apps/web/src/lib/browser-compiler.ts', import.meta.url).href);
+      const { readFileSync: rf } = await import('node:fs');
+      onDevice.useCompilerWasmBytes(new Uint8Array(rf(new URL('../apps/web/src/lib/wasm/dynastytrust_compiler_wasm.wasm', import.meta.url))));
+    }
+    const out = await onDevice.compileOnDevice(endpoint, body);
+    res = { ok: out.status === 200, status: out.status, json: async () => JSON.parse(out.body) };
+  } else {
+    res = await fetch(`${COMPILER}${endpoint}`, { method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${SECRET}` }, body: JSON.stringify(body) });
+  }
   const json = await res.json();
   if (!res.ok || json.ok === false) throw new Error(`${endpoint} -> ${res.status}: ${json.error || JSON.stringify(json)}`);
   return json;
