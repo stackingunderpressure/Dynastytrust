@@ -3,9 +3,12 @@
 // never be shown as if it were theirs; it carries the name they chose.
 
 export const PLACEHOLDER_DOMAIN = 'keys.dynastytrust.family';
+const USERNAME_DOMAIN = 'users.dynastytrust.family';
 
+/** A never-mailed address: a Tapit-made account, or a username account. */
 export function isPlaceholderEmail(email: string | null | undefined): boolean {
-  return !!email && email.toLowerCase().endsWith('@' + PLACEHOLDER_DOMAIN);
+  const e = (email ?? '').toLowerCase();
+  return !!e && (e.endsWith('@' + PLACEHOLDER_DOMAIN) || e.endsWith('@' + USERNAME_DOMAIN));
 }
 
 type UserLike = { email?: string | null; user_metadata?: Record<string, unknown> | null } | null | undefined;
@@ -23,5 +26,7 @@ export function accountName(user: UserLike): string | null {
 export function accountLabel(user: UserLike): string {
   const email = user?.email;
   if (email && !isPlaceholderEmail(email)) return email;
-  return accountName(user) ?? 'your key';
+  const username = user?.user_metadata?.username;
+  if (typeof username === 'string' && username) return `username ${username}`;
+  return accountName(user) ?? 'your Tapit wallet';
 }

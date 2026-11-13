@@ -21,8 +21,12 @@ export function placeholderEmail() {
   return `k-${r}@${PLACEHOLDER_DOMAIN}`;
 }
 
+/** A never-mailed address: a Tapit-made account, or a username account
+ *  (username-signup.js). */
 export function isPlaceholderEmail(email) {
-  return typeof email === "string" && email.toLowerCase().endsWith("@" + PLACEHOLDER_DOMAIN);
+  if (typeof email !== "string") return false;
+  const e = email.toLowerCase();
+  return e.endsWith("@" + PLACEHOLDER_DOMAIN) || e.endsWith("@users.dynastytrust.family");
 }
 
 /** A name the person chose, safe to store and show: trimmed, no control

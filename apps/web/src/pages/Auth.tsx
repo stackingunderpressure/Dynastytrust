@@ -5,6 +5,8 @@ import { colors, fonts, radii, space } from '../theme';
 import { Button, Input } from '../components/ui';
 import { startTapitFlow, rememberSignupName, WALLET_BASE_URL } from '../lib/wallet-signin';
 import { friendlyAuthError } from '../lib/auth-errors';
+import { signInAddress, usernameProblem, normalizeUsername } from '../lib/username';
+import { passwordProblem } from '../lib/password-rules';
 
 // Set once we've asked Supabase to email a 6-digit code -- 'signup' for
 // account confirmation, 'recovery' for password reset. Identifies which
@@ -28,6 +30,10 @@ export default function Auth() {
   // Sovereign sign-in with Tapit: creating an account asks only a name.
   const [tapitCreate, setTapitCreate] = useState(false);
   const [tapitName, setTapitName] = useState('');
+  // Create account: with an email (can be reset) or a username (no email,
+  // no reset). Operator, 2026-11-13: "user name password ... or email for
+  // future proof of getting locked out".
+  const [withUsername, setWithUsername] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -35,16 +41,31 @@ export default function Auth() {
     setError(null);
 
     try {
-      if (mode === 'signup') {
+      if (mode === 'signup' && withUsername) {
+        const bad = usernameProblem(email) ?? passwordProblem(password, 'mainnet');
+        if (bad) { setError(bad); return; }
+        const res = await fetch('/api/username-signup', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: normalizeUsername(email), password }),
+        });
+        const out = await res.json().catch(() => ({})) as { error?: string };
+        if (!res.ok) { setError(out.error ?? 'Could not create the account'); return; }
+        const { error } = await supabase.auth.signInWithPassword({ email: signInAddress(email), password });
+        if (error) throw error;
+      } else if (mode === 'signup') {
         const { error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
         setPending('signup');
       } else if (mode === 'reset') {
+        if (!email.includes('@')) {
+          setError('A username account has no email, so its password cannot be reset. If you turned on Face ID for it on this phone, sign in with Face ID.');
+          return;
+        }
         const { error } = await supabase.auth.resetPasswordForEmail(email);
         if (error) throw error;
         setPending('recovery');
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { error } = await supabase.auth.signInWithPassword({ email: signInAddress(email), password });
         if (error) throw error;
       }
     } catch (err: unknown) {
@@ -173,12 +194,14 @@ export default function Auth() {
         <div style={s.card}>
           <div style={s.logo}>{APP_NAME}</div>
           <h2 style={s.heading}>Reset password</h2>
-          <p style={s.sub}>Enter your account email and we'll send a 6-digit code.</p>
+          <p style={s.sub}>Enter your account email and we'll send a 6-digit code. A username account has no email, so it cannot be reset.</p>
           <form onSubmit={submit} style={s.form}>
             <label style={s.label} htmlFor="auth-email">Email</label>
             <Input
               id="auth-email"
-              type="email"
+              type="text"
+              autoCapitalize="none"
+              autoCorrect="off"
               autoComplete="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
@@ -225,15 +248,35 @@ export default function Auth() {
         </div>
 
         <form onSubmit={submit} style={s.form}>
-          <label style={s.label} htmlFor="auth-email">Email</label>
+          {mode === 'signup' && (
+            <div style={{ ...s.tabs, marginBottom: space[2] }}>
+              <button type="button" style={{ ...s.tab, ...(!withUsername ? s.tabActive : null) }} onClick={() => { setWithUsername(false); setError(null); }}>
+                With email
+              </button>
+              <button type="button" style={{ ...s.tab, ...(withUsername ? s.tabActive : null) }} onClick={() => { setWithUsername(true); setError(null); }}>
+                Username, no email
+              </button>
+            </div>
+          )}
+          {mode === 'signup' && (
+            <p style={{ ...s.tapitHint, margin: 0, color: withUsername ? colors.orange : colors.sub }}>
+              {withUsername
+                ? 'No email means no reset. If you forget this password the account is gone for good (money in a vault stays safe with its own keys, and you would be invited back). Turn on Face ID after, and keep the password written down somewhere safe.'
+                : 'Recommended: if you are ever locked out, a code to this email gets you back in. We send nothing else.'}
+            </p>
+          )}
+          <label style={s.label} htmlFor="auth-email">{mode === 'login' ? 'Email or username' : withUsername && mode === 'signup' ? 'Username' : 'Email'}</label>
           <Input
             id="auth-email"
-            type="email"
-            autoComplete="email"
+            type={mode === 'signup' && !withUsername ? 'email' : 'text'}
+            autoComplete={mode === 'signup' && withUsername ? 'username' : 'email'}
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
             value={email}
             onChange={e => setEmail(e.target.value)}
             required
-            placeholder="you@example.com"
+            placeholder={mode === 'login' ? 'you@example.com or your username' : mode === 'signup' && withUsername ? 'e.g. grandpa.joe' : 'you@example.com'}
             style={{ fontSize: 17, padding: '12px 14px' }}
           />
 
@@ -245,7 +288,7 @@ export default function Auth() {
             value={password}
             onChange={e => setPassword(e.target.value)}
             required
-            minLength={8}
+            minLength={mode === 'signup' && withUsername ? 12 : 8}
             placeholder="••••••••"
             style={{ fontSize: 17, padding: '12px 14px' }}
           />
