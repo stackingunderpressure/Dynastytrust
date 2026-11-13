@@ -106,6 +106,28 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **A spend with 1-545 sats of change could not be signed -- FIXED
+  2026-11-13, on the branch, NOT on main.** Found by a code-reading agent
+  mapping the one-person flows for the download build; confirmed by
+  reading both sides, then reproduced before fixing (operator chose
+  "Reproduce, then fix"). When leftover change is below the 546-sat
+  floor, the compiler (protocol/src/psbt_builder.rs) correctly adds it to
+  the fee, but psbt-binary.js, psbt-binary-bloc.js and
+  psbt-binary-tranche.js still reported the smaller estimated fee, so the
+  phone's check (real fee == fee shown, verifyPsbtMatchesRequest) refused
+  to sign: "The PSBT's real fee is 711 sats, not the 411 sats shown". It
+  failed safe -- no money could be lost -- but a legitimate send was
+  blocked. Fix: in each builder, positive sub-floor change is added to
+  finalFee before the compiler call, the summary and the activity record;
+  a real shortfall still reaches the insufficient-funds refusal. New
+  scripts/test-dust-change.mjs (npm test): the REAL psbt-binary.js
+  handler with the browser compiler module answering its compiler call,
+  then the phone's own check -- normal change, 300-sat change, exactly 0,
+  and a 10-sat shortfall; fails on the old code with the refusal above.
+  NOT run end to end: the Bloc and tranche builders (same three lines,
+  order checked by reading). Gates: npm test green, lint 0 errors / 11
+  warnings, typecheck 10 (same set), build green.
+
 - **Super Sovereign slice 1: the whole vault compiler runs in the browser
   -- groundwork, 2026-11-13, on the branch, NOT on main.** Operator asked
   whether the sovereign package (DynastyTrust over Nostr, no hosted

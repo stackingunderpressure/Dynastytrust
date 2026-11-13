@@ -362,6 +362,12 @@ export async function handler(event) {
     finalFee        = estimateFee(selected.length, 2, rate, inputVbytes);
     changeVal        = totalIn - amount_sats - finalFee;
     hasChange        = changeVal >= 546;
+    // Change too small to keep (1-545 sats) is not an output: it joins
+    // the fee, as the compiler does. Report THAT fee everywhere below, or
+    // the phone's check (real fee == fee shown) refuses to sign. Found
+    // 2026-11-13; scripts/test-dust-change.mjs. Only positive change: a
+    // shortfall must still reach the insufficient-funds refusal.
+    if (!hasChange && changeVal > 0) { finalFee += changeVal; changeVal = 0; }
     amountSatsFinal  = amount_sats;
 
     if (totalIn < amount_sats + finalFee) {
