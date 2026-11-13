@@ -1,0 +1,9 @@
+{
+  "name": "@dynastytrust/vault-rules",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Vault-correctness rules as pure functions: ONE copy shared by the website's server functions and the downloaded app (docs/download-and-run-build-note.md). No database, no network, no dependencies.",
+  "main": "src/index.js",
+  "exports": { ".": "./src/index.js" }
+}

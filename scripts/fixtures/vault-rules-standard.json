@@ -1,0 +1,1003 @@
+[
+ {
+  "label": "xpub founders, one heir",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "vault": {
+    "id": "v1",
+    "user_id": "u1",
+    "name": "Family",
+    "network": "signet",
+    "address_type": "tr_multileaf",
+    "status": "compiled",
+    "founder_quorum": 2,
+    "heir_quorum": 1,
+    "recovery_quorum": null,
+    "recovery_after": 276280,
+    "inheritance_after": 302560,
+    "consent_quorum": null,
+    "backup_quorum": null,
+    "second_heir_quorum": null,
+    "second_inheritance_after": null,
+    "planned_founder_count": 3,
+    "planned_heir_count": 1,
+    "address": "tb1p-test-4",
+    "descriptor": "tr([00000001/48'/1'/0'/2']tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz/0/0,[00000002/48'/1'/0'/2']tpubDEXiq2SVhhqALktxfVFgj3C9M3T2G7xL11iezYg2LJAf245YkNyqp2K9TrvHABDCp2232k34UegU4aKEtUZNigit8EEqoLNe2JKMzMiLwYq/0/0,[00000003/48'/1'/0'/2']tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD/0/0,[00000004/48'/1'/0'/2']tpubDEeDAFdob3LJDkTRZgpjYWBgUDN5DQTz5VgzrGW2bABWm3cu365PEqTZJfaeTJKvnnWfVqb1j7qcjzXgQ5y54BBcyyZfkTuPNREB3r4UeoD/0/0)",
+    "miniscript_policy": "policy",
+    "founder_keys": [
+     "tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz",
+     "tpubDEXiq2SVhhqALktxfVFgj3C9M3T2G7xL11iezYg2LJAf245YkNyqp2K9TrvHABDCp2232k34UegU4aKEtUZNigit8EEqoLNe2JKMzMiLwYq",
+     "tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD"
+    ],
+    "heir_keys": [
+     "tpubDEeDAFdob3LJDkTRZgpjYWBgUDN5DQTz5VgzrGW2bABWm3cu365PEqTZJfaeTJKvnnWfVqb1j7qcjzXgQ5y54BBcyyZfkTuPNREB3r4UeoD"
+    ],
+    "consent_keys": [],
+    "backup_keys": [],
+    "second_heir_keys": [],
+    "leaf_scripts": {
+     "founders_now": "aa"
+    },
+    "key_origins": [
+     {
+      "pubkey": "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+      "fingerprint": "00000001",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     },
+     {
+      "pubkey": "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+      "fingerprint": "00000002",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     },
+     {
+      "pubkey": "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a",
+      "fingerprint": "00000003",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     },
+     {
+      "pubkey": "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7",
+      "fingerprint": "00000004",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     }
+    ]
+   }
+  },
+  "sentToCompiler": {
+   "endpoint": "/compile",
+   "payload": {
+    "name": "Family",
+    "network": "signet",
+    "address_type": "tr_multileaf",
+    "founder_keys": [
+     "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+     "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+     "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a"
+    ],
+    "founder_quorum": 2,
+    "recovery_quorum": null,
+    "heir_keys": [
+     "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7"
+    ],
+    "heir_quorum": 1,
+    "recovery_after": 276280,
+    "inheritance_after": 302560
+   }
+  },
+  "written": {
+   "address": "tb1p-test-4",
+   "descriptor": "tr([00000001/48'/1'/0'/2']tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz/0/0,[00000002/48'/1'/0'/2']tpubDEXiq2SVhhqALktxfVFgj3C9M3T2G7xL11iezYg2LJAf245YkNyqp2K9TrvHABDCp2232k34UegU4aKEtUZNigit8EEqoLNe2JKMzMiLwYq/0/0,[00000003/48'/1'/0'/2']tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD/0/0,[00000004/48'/1'/0'/2']tpubDEeDAFdob3LJDkTRZgpjYWBgUDN5DQTz5VgzrGW2bABWm3cu365PEqTZJfaeTJKvnnWfVqb1j7qcjzXgQ5y54BBcyyZfkTuPNREB3r4UeoD/0/0)",
+   "miniscript_policy": "policy",
+   "founder_keys": [
+    "tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz",
+    "tpubDEXiq2SVhhqALktxfVFgj3C9M3T2G7xL11iezYg2LJAf245YkNyqp2K9TrvHABDCp2232k34UegU4aKEtUZNigit8EEqoLNe2JKMzMiLwYq",
+    "tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD"
+   ],
+   "heir_keys": [
+    "tpubDEeDAFdob3LJDkTRZgpjYWBgUDN5DQTz5VgzrGW2bABWm3cu365PEqTZJfaeTJKvnnWfVqb1j7qcjzXgQ5y54BBcyyZfkTuPNREB3r4UeoD"
+   ],
+   "consent_keys": [],
+   "backup_keys": [],
+   "second_heir_keys": [],
+   "recovery_after": 276280,
+   "inheritance_after": 302560,
+   "second_inheritance_after": null,
+   "status": "compiled",
+   "leaf_scripts": {
+    "founders_now": "aa"
+   },
+   "key_origins": [
+    {
+     "pubkey": "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+     "fingerprint": "00000001",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    },
+    {
+     "pubkey": "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+     "fingerprint": "00000002",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    },
+    {
+     "pubkey": "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a",
+     "fingerprint": "00000003",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    },
+    {
+     "pubkey": "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7",
+     "fingerprint": "00000004",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    }
+   ]
+  },
+  "tipCalls": 1
+ },
+ {
+  "label": "a Tapit key among founders",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "vault": {
+    "id": "v1",
+    "user_id": "u1",
+    "name": "Family",
+    "network": "signet",
+    "address_type": "tr_multileaf",
+    "status": "compiled",
+    "founder_quorum": 2,
+    "heir_quorum": 1,
+    "recovery_quorum": null,
+    "recovery_after": 276280,
+    "inheritance_after": 302560,
+    "consent_quorum": null,
+    "backup_quorum": null,
+    "second_heir_quorum": null,
+    "second_inheritance_after": null,
+    "planned_founder_count": 3,
+    "planned_heir_count": 1,
+    "address": "tb1p-test-4",
+    "descriptor": "tr([00000001/48'/1'/0'/2']tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz/0/0,02ba83883f303241867a4ccbe1f3bc0c2552434b53e3eaeb8053a12286884f0720,[00000003/48'/1'/0'/2']tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD/0/0,03993e4744d802e4e1dccda607b12299960cb22607f7b4d84ce272891b761b6a72)",
+    "miniscript_policy": "policy",
+    "founder_keys": [
+     "tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz",
+     "02ba83883f303241867a4ccbe1f3bc0c2552434b53e3eaeb8053a12286884f0720",
+     "tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD"
+    ],
+    "heir_keys": [
+     "03993e4744d802e4e1dccda607b12299960cb22607f7b4d84ce272891b761b6a72"
+    ],
+    "consent_keys": [],
+    "backup_keys": [],
+    "second_heir_keys": [],
+    "leaf_scripts": {
+     "founders_now": "aa"
+    },
+    "key_origins": [
+     {
+      "pubkey": "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+      "fingerprint": "00000001",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     },
+     {
+      "pubkey": "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a",
+      "fingerprint": "00000003",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     }
+    ]
+   }
+  },
+  "sentToCompiler": {
+   "endpoint": "/compile",
+   "payload": {
+    "name": "Family",
+    "network": "signet",
+    "address_type": "tr_multileaf",
+    "founder_keys": [
+     "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+     "02ba83883f303241867a4ccbe1f3bc0c2552434b53e3eaeb8053a12286884f0720",
+     "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a"
+    ],
+    "founder_quorum": 2,
+    "recovery_quorum": null,
+    "heir_keys": [
+     "03993e4744d802e4e1dccda607b12299960cb22607f7b4d84ce272891b761b6a72"
+    ],
+    "heir_quorum": 1,
+    "recovery_after": 276280,
+    "inheritance_after": 302560
+   }
+  },
+  "written": {
+   "address": "tb1p-test-4",
+   "descriptor": "tr([00000001/48'/1'/0'/2']tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz/0/0,02ba83883f303241867a4ccbe1f3bc0c2552434b53e3eaeb8053a12286884f0720,[00000003/48'/1'/0'/2']tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD/0/0,03993e4744d802e4e1dccda607b12299960cb22607f7b4d84ce272891b761b6a72)",
+   "miniscript_policy": "policy",
+   "founder_keys": [
+    "tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz",
+    "02ba83883f303241867a4ccbe1f3bc0c2552434b53e3eaeb8053a12286884f0720",
+    "tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD"
+   ],
+   "heir_keys": [
+    "03993e4744d802e4e1dccda607b12299960cb22607f7b4d84ce272891b761b6a72"
+   ],
+   "consent_keys": [],
+   "backup_keys": [],
+   "second_heir_keys": [],
+   "recovery_after": 276280,
+   "inheritance_after": 302560,
+   "second_inheritance_after": null,
+   "status": "compiled",
+   "leaf_scripts": {
+    "founders_now": "aa"
+   },
+   "key_origins": [
+    {
+     "pubkey": "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+     "fingerprint": "00000001",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    },
+    {
+     "pubkey": "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a",
+     "fingerprint": "00000003",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    }
+   ]
+  },
+  "tipCalls": 1
+ },
+ {
+  "label": "duplicate founder key",
+  "status": 400,
+  "body": {
+   "error": "Need exactly 3 provisioned founder(s); 2 ready (after removing duplicate keys)."
+  },
+  "sentToCompiler": null,
+  "written": null,
+  "tipCalls": 0
+ },
+ {
+  "label": "too few founders",
+  "status": 400,
+  "body": {
+   "error": "Need exactly 3 provisioned founder(s); 2 ready (after removing duplicate keys)."
+  },
+  "sentToCompiler": null,
+  "written": null,
+  "tipCalls": 0
+ },
+ {
+  "label": "xpub missing its origin is not provisioned",
+  "status": 400,
+  "body": {
+   "error": "Need exactly 3 provisioned founder(s); 2 ready (after removing duplicate keys)."
+  },
+  "sentToCompiler": null,
+  "written": null,
+  "tipCalls": 0
+ },
+ {
+  "label": "backup instead of recovery",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "vault": {
+    "id": "v1",
+    "user_id": "u1",
+    "name": "Family",
+    "network": "signet",
+    "address_type": "tr_multileaf",
+    "status": "compiled",
+    "founder_quorum": 2,
+    "heir_quorum": 1,
+    "recovery_quorum": null,
+    "recovery_after": 0,
+    "inheritance_after": 302560,
+    "consent_quorum": null,
+    "backup_quorum": 1,
+    "second_heir_quorum": null,
+    "second_inheritance_after": null,
+    "planned_founder_count": 3,
+    "planned_heir_count": 1,
+    "address": "tb1p-test-4",
+    "descriptor": "tr([00000001/48'/1'/0'/2']tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz/0/0,[00000002/48'/1'/0'/2']tpubDEXiq2SVhhqALktxfVFgj3C9M3T2G7xL11iezYg2LJAf245YkNyqp2K9TrvHABDCp2232k34UegU4aKEtUZNigit8EEqoLNe2JKMzMiLwYq/0/0,[00000003/48'/1'/0'/2']tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD/0/0,[00000004/48'/1'/0'/2']tpubDEeDAFdob3LJDkTRZgpjYWBgUDN5DQTz5VgzrGW2bABWm3cu365PEqTZJfaeTJKvnnWfVqb1j7qcjzXgQ5y54BBcyyZfkTuPNREB3r4UeoD/0/0)",
+    "miniscript_policy": "policy",
+    "founder_keys": [
+     "tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz",
+     "tpubDEXiq2SVhhqALktxfVFgj3C9M3T2G7xL11iezYg2LJAf245YkNyqp2K9TrvHABDCp2232k34UegU4aKEtUZNigit8EEqoLNe2JKMzMiLwYq",
+     "tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD"
+    ],
+    "heir_keys": [
+     "tpubDEeDAFdob3LJDkTRZgpjYWBgUDN5DQTz5VgzrGW2bABWm3cu365PEqTZJfaeTJKvnnWfVqb1j7qcjzXgQ5y54BBcyyZfkTuPNREB3r4UeoD"
+    ],
+    "consent_keys": [],
+    "backup_keys": [
+     "tpubDE4CYsWtymYFQ6vKa1aBYUDn8DQxNCMNBYRXN6LxbPiW2RuQfYsjHnYLeTBsYSsK7Z1LvpjGWPz3YmUL8nEcGpCf9NJcyUoDn7TFSvdUaZJ"
+    ],
+    "second_heir_keys": [],
+    "leaf_scripts": {
+     "founders_now": "aa"
+    },
+    "key_origins": [
+     {
+      "pubkey": "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+      "fingerprint": "00000001",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     },
+     {
+      "pubkey": "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+      "fingerprint": "00000002",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     },
+     {
+      "pubkey": "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a",
+      "fingerprint": "00000003",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     },
+     {
+      "pubkey": "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7",
+      "fingerprint": "00000004",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     },
+     {
+      "pubkey": "03125466b84452ba4be4d788f0328c3f21eab427975915664415d9d327e9c22b2e",
+      "fingerprint": "00000005",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     }
+    ]
+   }
+  },
+  "sentToCompiler": {
+   "endpoint": "/compile",
+   "payload": {
+    "name": "Family",
+    "network": "signet",
+    "address_type": "tr_multileaf",
+    "founder_keys": [
+     "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+     "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+     "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a"
+    ],
+    "founder_quorum": 2,
+    "recovery_quorum": null,
+    "heir_keys": [
+     "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7"
+    ],
+    "heir_quorum": 1,
+    "recovery_after": 0,
+    "inheritance_after": 302560,
+    "backup_keys": [
+     "03125466b84452ba4be4d788f0328c3f21eab427975915664415d9d327e9c22b2e"
+    ],
+    "backup_quorum": 1
+   }
+  },
+  "written": {
+   "address": "tb1p-test-4",
+   "descriptor": "tr([00000001/48'/1'/0'/2']tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz/0/0,[00000002/48'/1'/0'/2']tpubDEXiq2SVhhqALktxfVFgj3C9M3T2G7xL11iezYg2LJAf245YkNyqp2K9TrvHABDCp2232k34UegU4aKEtUZNigit8EEqoLNe2JKMzMiLwYq/0/0,[00000003/48'/1'/0'/2']tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD/0/0,[00000004/48'/1'/0'/2']tpubDEeDAFdob3LJDkTRZgpjYWBgUDN5DQTz5VgzrGW2bABWm3cu365PEqTZJfaeTJKvnnWfVqb1j7qcjzXgQ5y54BBcyyZfkTuPNREB3r4UeoD/0/0)",
+   "miniscript_policy": "policy",
+   "founder_keys": [
+    "tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz",
+    "tpubDEXiq2SVhhqALktxfVFgj3C9M3T2G7xL11iezYg2LJAf245YkNyqp2K9TrvHABDCp2232k34UegU4aKEtUZNigit8EEqoLNe2JKMzMiLwYq",
+    "tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD"
+   ],
+   "heir_keys": [
+    "tpubDEeDAFdob3LJDkTRZgpjYWBgUDN5DQTz5VgzrGW2bABWm3cu365PEqTZJfaeTJKvnnWfVqb1j7qcjzXgQ5y54BBcyyZfkTuPNREB3r4UeoD"
+   ],
+   "consent_keys": [],
+   "backup_keys": [
+    "tpubDE4CYsWtymYFQ6vKa1aBYUDn8DQxNCMNBYRXN6LxbPiW2RuQfYsjHnYLeTBsYSsK7Z1LvpjGWPz3YmUL8nEcGpCf9NJcyUoDn7TFSvdUaZJ"
+   ],
+   "second_heir_keys": [],
+   "recovery_after": 0,
+   "inheritance_after": 302560,
+   "second_inheritance_after": null,
+   "status": "compiled",
+   "leaf_scripts": {
+    "founders_now": "aa"
+   },
+   "key_origins": [
+    {
+     "pubkey": "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+     "fingerprint": "00000001",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    },
+    {
+     "pubkey": "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+     "fingerprint": "00000002",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    },
+    {
+     "pubkey": "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a",
+     "fingerprint": "00000003",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    },
+    {
+     "pubkey": "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7",
+     "fingerprint": "00000004",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    },
+    {
+     "pubkey": "03125466b84452ba4be4d788f0328c3f21eab427975915664415d9d327e9c22b2e",
+     "fingerprint": "00000005",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    }
+   ]
+  },
+  "tipCalls": 1
+ },
+ {
+  "label": "second inheritance",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "vault": {
+    "id": "v1",
+    "user_id": "u1",
+    "name": "Family",
+    "network": "signet",
+    "address_type": "tr_multileaf",
+    "status": "compiled",
+    "founder_quorum": 2,
+    "heir_quorum": 1,
+    "recovery_quorum": null,
+    "recovery_after": 276280,
+    "inheritance_after": 302560,
+    "consent_quorum": null,
+    "backup_quorum": null,
+    "second_heir_quorum": 1,
+    "second_inheritance_after": 355120,
+    "planned_founder_count": 3,
+    "planned_heir_count": 1,
+    "address": "tb1p-test-4",
+    "descriptor": "tr([00000001/48'/1'/0'/2']tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz/0/0,[00000002/48'/1'/0'/2']tpubDEXiq2SVhhqALktxfVFgj3C9M3T2G7xL11iezYg2LJAf245YkNyqp2K9TrvHABDCp2232k34UegU4aKEtUZNigit8EEqoLNe2JKMzMiLwYq/0/0,[00000003/48'/1'/0'/2']tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD/0/0,[00000004/48'/1'/0'/2']tpubDEeDAFdob3LJDkTRZgpjYWBgUDN5DQTz5VgzrGW2bABWm3cu365PEqTZJfaeTJKvnnWfVqb1j7qcjzXgQ5y54BBcyyZfkTuPNREB3r4UeoD/0/0)",
+    "miniscript_policy": "policy",
+    "founder_keys": [
+     "tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz",
+     "tpubDEXiq2SVhhqALktxfVFgj3C9M3T2G7xL11iezYg2LJAf245YkNyqp2K9TrvHABDCp2232k34UegU4aKEtUZNigit8EEqoLNe2JKMzMiLwYq",
+     "tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD"
+    ],
+    "heir_keys": [
+     "tpubDEeDAFdob3LJDkTRZgpjYWBgUDN5DQTz5VgzrGW2bABWm3cu365PEqTZJfaeTJKvnnWfVqb1j7qcjzXgQ5y54BBcyyZfkTuPNREB3r4UeoD"
+    ],
+    "consent_keys": [],
+    "backup_keys": [],
+    "second_heir_keys": [
+     "tpubDEQcccXBoxQm48MThCesNn6NSPTTPDibZJVyYyFXAwDAhV79HRVpBodRJpfpAZ3Lwp2DQNHeuPycqVbdgwTiCTykaZLiX2LYTRgTn6s65At"
+    ],
+    "leaf_scripts": {
+     "founders_now": "aa"
+    },
+    "key_origins": [
+     {
+      "pubkey": "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+      "fingerprint": "00000001",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     },
+     {
+      "pubkey": "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+      "fingerprint": "00000002",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     },
+     {
+      "pubkey": "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a",
+      "fingerprint": "00000003",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     },
+     {
+      "pubkey": "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7",
+      "fingerprint": "00000004",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     },
+     {
+      "pubkey": "02e76407c7f6b361ae1e8a3adcd19fe4279d21115de78c17b8fb105bbcb92a8a3e",
+      "fingerprint": "00000006",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     }
+    ]
+   }
+  },
+  "sentToCompiler": {
+   "endpoint": "/compile",
+   "payload": {
+    "name": "Family",
+    "network": "signet",
+    "address_type": "tr_multileaf",
+    "founder_keys": [
+     "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+     "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+     "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a"
+    ],
+    "founder_quorum": 2,
+    "recovery_quorum": null,
+    "heir_keys": [
+     "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7"
+    ],
+    "heir_quorum": 1,
+    "recovery_after": 276280,
+    "inheritance_after": 302560,
+    "second_heir_keys": [
+     "02e76407c7f6b361ae1e8a3adcd19fe4279d21115de78c17b8fb105bbcb92a8a3e"
+    ],
+    "second_heir_quorum": 1,
+    "second_inheritance_after": 355120
+   }
+  },
+  "written": {
+   "address": "tb1p-test-4",
+   "descriptor": "tr([00000001/48'/1'/0'/2']tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz/0/0,[00000002/48'/1'/0'/2']tpubDEXiq2SVhhqALktxfVFgj3C9M3T2G7xL11iezYg2LJAf245YkNyqp2K9TrvHABDCp2232k34UegU4aKEtUZNigit8EEqoLNe2JKMzMiLwYq/0/0,[00000003/48'/1'/0'/2']tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD/0/0,[00000004/48'/1'/0'/2']tpubDEeDAFdob3LJDkTRZgpjYWBgUDN5DQTz5VgzrGW2bABWm3cu365PEqTZJfaeTJKvnnWfVqb1j7qcjzXgQ5y54BBcyyZfkTuPNREB3r4UeoD/0/0)",
+   "miniscript_policy": "policy",
+   "founder_keys": [
+    "tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz",
+    "tpubDEXiq2SVhhqALktxfVFgj3C9M3T2G7xL11iezYg2LJAf245YkNyqp2K9TrvHABDCp2232k34UegU4aKEtUZNigit8EEqoLNe2JKMzMiLwYq",
+    "tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD"
+   ],
+   "heir_keys": [
+    "tpubDEeDAFdob3LJDkTRZgpjYWBgUDN5DQTz5VgzrGW2bABWm3cu365PEqTZJfaeTJKvnnWfVqb1j7qcjzXgQ5y54BBcyyZfkTuPNREB3r4UeoD"
+   ],
+   "consent_keys": [],
+   "backup_keys": [],
+   "second_heir_keys": [
+    "tpubDEQcccXBoxQm48MThCesNn6NSPTTPDibZJVyYyFXAwDAhV79HRVpBodRJpfpAZ3Lwp2DQNHeuPycqVbdgwTiCTykaZLiX2LYTRgTn6s65At"
+   ],
+   "recovery_after": 276280,
+   "inheritance_after": 302560,
+   "second_inheritance_after": 355120,
+   "status": "compiled",
+   "leaf_scripts": {
+    "founders_now": "aa"
+   },
+   "key_origins": [
+    {
+     "pubkey": "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+     "fingerprint": "00000001",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    },
+    {
+     "pubkey": "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+     "fingerprint": "00000002",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    },
+    {
+     "pubkey": "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a",
+     "fingerprint": "00000003",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    },
+    {
+     "pubkey": "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7",
+     "fingerprint": "00000004",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    },
+    {
+     "pubkey": "02e76407c7f6b361ae1e8a3adcd19fe4279d21115de78c17b8fb105bbcb92a8a3e",
+     "fingerprint": "00000006",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    }
+   ]
+  },
+  "tipCalls": 1
+ },
+ {
+  "label": "consent keys",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "vault": {
+    "id": "v1",
+    "user_id": "u1",
+    "name": "Family",
+    "network": "signet",
+    "address_type": "tr_multileaf",
+    "status": "compiled",
+    "founder_quorum": 2,
+    "heir_quorum": 1,
+    "recovery_quorum": null,
+    "recovery_after": 276280,
+    "inheritance_after": 302560,
+    "consent_quorum": 1,
+    "backup_quorum": null,
+    "second_heir_quorum": null,
+    "second_inheritance_after": null,
+    "planned_founder_count": 3,
+    "planned_heir_count": 1,
+    "address": "tb1p-test-4",
+    "descriptor": "tr([00000001/48'/1'/0'/2']tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz/0/0,[00000002/48'/1'/0'/2']tpubDEXiq2SVhhqALktxfVFgj3C9M3T2G7xL11iezYg2LJAf245YkNyqp2K9TrvHABDCp2232k34UegU4aKEtUZNigit8EEqoLNe2JKMzMiLwYq/0/0,[00000003/48'/1'/0'/2']tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD/0/0,[00000004/48'/1'/0'/2']tpubDEeDAFdob3LJDkTRZgpjYWBgUDN5DQTz5VgzrGW2bABWm3cu365PEqTZJfaeTJKvnnWfVqb1j7qcjzXgQ5y54BBcyyZfkTuPNREB3r4UeoD/0/0)",
+    "miniscript_policy": "policy",
+    "founder_keys": [
+     "tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz",
+     "tpubDEXiq2SVhhqALktxfVFgj3C9M3T2G7xL11iezYg2LJAf245YkNyqp2K9TrvHABDCp2232k34UegU4aKEtUZNigit8EEqoLNe2JKMzMiLwYq",
+     "tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD"
+    ],
+    "heir_keys": [
+     "tpubDEeDAFdob3LJDkTRZgpjYWBgUDN5DQTz5VgzrGW2bABWm3cu365PEqTZJfaeTJKvnnWfVqb1j7qcjzXgQ5y54BBcyyZfkTuPNREB3r4UeoD"
+    ],
+    "consent_keys": [
+     "tpubDFmMwTXpkvHSSZdwNYkf8rmq4WBLrn4sgpijxznXLY7NgUtWapXZj8UE4ciG4G5m57X1n4qaFmTi2M7W2ZbrdFL9o2qArr6fBGsbkUSB2JC"
+    ],
+    "backup_keys": [],
+    "second_heir_keys": [],
+    "leaf_scripts": {
+     "founders_now": "aa"
+    },
+    "key_origins": [
+     {
+      "pubkey": "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+      "fingerprint": "00000001",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     },
+     {
+      "pubkey": "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+      "fingerprint": "00000002",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     },
+     {
+      "pubkey": "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a",
+      "fingerprint": "00000003",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     },
+     {
+      "pubkey": "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7",
+      "fingerprint": "00000004",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     },
+     {
+      "pubkey": "02b37b76ccd7eb813dcbf498f6c47cba43728f9586d18310b146fb5425de6f1e9a",
+      "fingerprint": "00000007",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     }
+    ]
+   }
+  },
+  "sentToCompiler": {
+   "endpoint": "/compile",
+   "payload": {
+    "name": "Family",
+    "network": "signet",
+    "address_type": "tr_multileaf",
+    "founder_keys": [
+     "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+     "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+     "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a"
+    ],
+    "founder_quorum": 2,
+    "recovery_quorum": null,
+    "heir_keys": [
+     "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7"
+    ],
+    "heir_quorum": 1,
+    "recovery_after": 276280,
+    "inheritance_after": 302560,
+    "consent_keys": [
+     "02b37b76ccd7eb813dcbf498f6c47cba43728f9586d18310b146fb5425de6f1e9a"
+    ],
+    "consent_quorum": 1
+   }
+  },
+  "written": {
+   "address": "tb1p-test-4",
+   "descriptor": "tr([00000001/48'/1'/0'/2']tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz/0/0,[00000002/48'/1'/0'/2']tpubDEXiq2SVhhqALktxfVFgj3C9M3T2G7xL11iezYg2LJAf245YkNyqp2K9TrvHABDCp2232k34UegU4aKEtUZNigit8EEqoLNe2JKMzMiLwYq/0/0,[00000003/48'/1'/0'/2']tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD/0/0,[00000004/48'/1'/0'/2']tpubDEeDAFdob3LJDkTRZgpjYWBgUDN5DQTz5VgzrGW2bABWm3cu365PEqTZJfaeTJKvnnWfVqb1j7qcjzXgQ5y54BBcyyZfkTuPNREB3r4UeoD/0/0)",
+   "miniscript_policy": "policy",
+   "founder_keys": [
+    "tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz",
+    "tpubDEXiq2SVhhqALktxfVFgj3C9M3T2G7xL11iezYg2LJAf245YkNyqp2K9TrvHABDCp2232k34UegU4aKEtUZNigit8EEqoLNe2JKMzMiLwYq",
+    "tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD"
+   ],
+   "heir_keys": [
+    "tpubDEeDAFdob3LJDkTRZgpjYWBgUDN5DQTz5VgzrGW2bABWm3cu365PEqTZJfaeTJKvnnWfVqb1j7qcjzXgQ5y54BBcyyZfkTuPNREB3r4UeoD"
+   ],
+   "consent_keys": [
+    "tpubDFmMwTXpkvHSSZdwNYkf8rmq4WBLrn4sgpijxznXLY7NgUtWapXZj8UE4ciG4G5m57X1n4qaFmTi2M7W2ZbrdFL9o2qArr6fBGsbkUSB2JC"
+   ],
+   "backup_keys": [],
+   "second_heir_keys": [],
+   "recovery_after": 276280,
+   "inheritance_after": 302560,
+   "second_inheritance_after": null,
+   "status": "compiled",
+   "leaf_scripts": {
+    "founders_now": "aa"
+   },
+   "key_origins": [
+    {
+     "pubkey": "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+     "fingerprint": "00000001",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    },
+    {
+     "pubkey": "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+     "fingerprint": "00000002",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    },
+    {
+     "pubkey": "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a",
+     "fingerprint": "00000003",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    },
+    {
+     "pubkey": "02b8e1a817a280e72928ac5639772b4a49c3d350c7689884f10b12e4d269ca81e7",
+     "fingerprint": "00000004",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    },
+    {
+     "pubkey": "02b37b76ccd7eb813dcbf498f6c47cba43728f9586d18310b146fb5425de6f1e9a",
+     "fingerprint": "00000007",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    }
+   ]
+  },
+  "tipCalls": 1
+ },
+ {
+  "label": "recovery below the floor",
+  "status": 400,
+  "body": {
+   "error": "recovery_after must be >= 26000 blocks (or 0 for no leaf)."
+  },
+  "sentToCompiler": null,
+  "written": null,
+  "tipCalls": 0
+ },
+ {
+  "label": "inheritance above the ceiling",
+  "status": 400,
+  "body": {
+   "error": "inheritance_after must be at most 5256000 blocks (about 100 years)."
+  },
+  "sentToCompiler": null,
+  "written": null,
+  "tipCalls": 0
+ },
+ {
+  "label": "no timelocks at all",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "vault": {
+    "id": "v1",
+    "user_id": "u1",
+    "name": "Family",
+    "network": "signet",
+    "address_type": "tr_multileaf",
+    "status": "compiled",
+    "founder_quorum": 2,
+    "heir_quorum": 0,
+    "recovery_quorum": null,
+    "recovery_after": 0,
+    "inheritance_after": 0,
+    "consent_quorum": null,
+    "backup_quorum": null,
+    "second_heir_quorum": null,
+    "second_inheritance_after": null,
+    "planned_founder_count": 3,
+    "planned_heir_count": 0,
+    "address": "tb1p-test-3",
+    "descriptor": "tr([00000001/48'/1'/0'/2']tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz/0/0,[00000002/48'/1'/0'/2']tpubDEXiq2SVhhqALktxfVFgj3C9M3T2G7xL11iezYg2LJAf245YkNyqp2K9TrvHABDCp2232k34UegU4aKEtUZNigit8EEqoLNe2JKMzMiLwYq/0/0,[00000003/48'/1'/0'/2']tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD/0/0)",
+    "miniscript_policy": "policy",
+    "founder_keys": [
+     "tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz",
+     "tpubDEXiq2SVhhqALktxfVFgj3C9M3T2G7xL11iezYg2LJAf245YkNyqp2K9TrvHABDCp2232k34UegU4aKEtUZNigit8EEqoLNe2JKMzMiLwYq",
+     "tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD"
+    ],
+    "heir_keys": [],
+    "consent_keys": [],
+    "backup_keys": [],
+    "second_heir_keys": [],
+    "leaf_scripts": {
+     "founders_now": "aa"
+    },
+    "key_origins": [
+     {
+      "pubkey": "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+      "fingerprint": "00000001",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     },
+     {
+      "pubkey": "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+      "fingerprint": "00000002",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     },
+     {
+      "pubkey": "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a",
+      "fingerprint": "00000003",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     }
+    ]
+   }
+  },
+  "sentToCompiler": {
+   "endpoint": "/compile",
+   "payload": {
+    "name": "Family",
+    "network": "signet",
+    "address_type": "tr_multileaf",
+    "founder_keys": [
+     "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+     "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+     "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a"
+    ],
+    "founder_quorum": 2,
+    "recovery_quorum": null,
+    "heir_keys": [],
+    "heir_quorum": 0,
+    "recovery_after": 0,
+    "inheritance_after": 0
+   }
+  },
+  "written": {
+   "address": "tb1p-test-3",
+   "descriptor": "tr([00000001/48'/1'/0'/2']tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz/0/0,[00000002/48'/1'/0'/2']tpubDEXiq2SVhhqALktxfVFgj3C9M3T2G7xL11iezYg2LJAf245YkNyqp2K9TrvHABDCp2232k34UegU4aKEtUZNigit8EEqoLNe2JKMzMiLwYq/0/0,[00000003/48'/1'/0'/2']tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD/0/0)",
+   "miniscript_policy": "policy",
+   "founder_keys": [
+    "tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz",
+    "tpubDEXiq2SVhhqALktxfVFgj3C9M3T2G7xL11iezYg2LJAf245YkNyqp2K9TrvHABDCp2232k34UegU4aKEtUZNigit8EEqoLNe2JKMzMiLwYq",
+    "tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD"
+   ],
+   "heir_keys": [],
+   "consent_keys": [],
+   "backup_keys": [],
+   "second_heir_keys": [],
+   "recovery_after": 0,
+   "inheritance_after": 0,
+   "second_inheritance_after": null,
+   "status": "compiled",
+   "leaf_scripts": {
+    "founders_now": "aa"
+   },
+   "key_origins": [
+    {
+     "pubkey": "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+     "fingerprint": "00000001",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    },
+    {
+     "pubkey": "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+     "fingerprint": "00000002",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    },
+    {
+     "pubkey": "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a",
+     "fingerprint": "00000003",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    }
+   ]
+  },
+  "tipCalls": 0
+ },
+ {
+  "label": "not a draft",
+  "status": 400,
+  "body": {
+   "error": "Vault is not in draft status"
+  },
+  "sentToCompiler": null,
+  "written": null,
+  "tipCalls": 0
+ },
+ {
+  "label": "second heirs without primary heirs are ignored",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "vault": {
+    "id": "v1",
+    "user_id": "u1",
+    "name": "Family",
+    "network": "signet",
+    "address_type": "tr_multileaf",
+    "status": "compiled",
+    "founder_quorum": 2,
+    "heir_quorum": 0,
+    "recovery_quorum": null,
+    "recovery_after": 276280,
+    "inheritance_after": 0,
+    "consent_quorum": null,
+    "backup_quorum": null,
+    "second_heir_quorum": 1,
+    "second_inheritance_after": 105120,
+    "planned_founder_count": 3,
+    "planned_heir_count": 0,
+    "address": "tb1p-test-3",
+    "descriptor": "tr([00000001/48'/1'/0'/2']tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz/0/0,[00000002/48'/1'/0'/2']tpubDEXiq2SVhhqALktxfVFgj3C9M3T2G7xL11iezYg2LJAf245YkNyqp2K9TrvHABDCp2232k34UegU4aKEtUZNigit8EEqoLNe2JKMzMiLwYq/0/0,[00000003/48'/1'/0'/2']tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD/0/0)",
+    "miniscript_policy": "policy",
+    "founder_keys": [
+     "tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz",
+     "tpubDEXiq2SVhhqALktxfVFgj3C9M3T2G7xL11iezYg2LJAf245YkNyqp2K9TrvHABDCp2232k34UegU4aKEtUZNigit8EEqoLNe2JKMzMiLwYq",
+     "tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD"
+    ],
+    "heir_keys": [],
+    "consent_keys": [],
+    "backup_keys": [],
+    "second_heir_keys": [
+     "tpubDEQcccXBoxQm48MThCesNn6NSPTTPDibZJVyYyFXAwDAhV79HRVpBodRJpfpAZ3Lwp2DQNHeuPycqVbdgwTiCTykaZLiX2LYTRgTn6s65At"
+    ],
+    "leaf_scripts": {
+     "founders_now": "aa"
+    },
+    "key_origins": [
+     {
+      "pubkey": "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+      "fingerprint": "00000001",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     },
+     {
+      "pubkey": "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+      "fingerprint": "00000002",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     },
+     {
+      "pubkey": "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a",
+      "fingerprint": "00000003",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     },
+     {
+      "pubkey": "02e76407c7f6b361ae1e8a3adcd19fe4279d21115de78c17b8fb105bbcb92a8a3e",
+      "fingerprint": "00000006",
+      "derivation_path": "m/48'/1'/0'/2'/0/0"
+     }
+    ]
+   }
+  },
+  "sentToCompiler": {
+   "endpoint": "/compile",
+   "payload": {
+    "name": "Family",
+    "network": "signet",
+    "address_type": "tr_multileaf",
+    "founder_keys": [
+     "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+     "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+     "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a"
+    ],
+    "founder_quorum": 2,
+    "recovery_quorum": null,
+    "heir_keys": [],
+    "heir_quorum": 0,
+    "recovery_after": 276280,
+    "inheritance_after": 0
+   }
+  },
+  "written": {
+   "address": "tb1p-test-3",
+   "descriptor": "tr([00000001/48'/1'/0'/2']tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz/0/0,[00000002/48'/1'/0'/2']tpubDEXiq2SVhhqALktxfVFgj3C9M3T2G7xL11iezYg2LJAf245YkNyqp2K9TrvHABDCp2232k34UegU4aKEtUZNigit8EEqoLNe2JKMzMiLwYq/0/0,[00000003/48'/1'/0'/2']tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD/0/0)",
+   "miniscript_policy": "policy",
+   "founder_keys": [
+    "tpubDDwf2gdFxFahr9RUtDQCuZmsx34CfdZ7RALAirwC2FGeLBzW1TDiEpqFeRdxLdZD7rfsbZHYwSaT6CLM3TAcYRw6xfRv4U6KCQt4Zuhvjkz",
+    "tpubDEXiq2SVhhqALktxfVFgj3C9M3T2G7xL11iezYg2LJAf245YkNyqp2K9TrvHABDCp2232k34UegU4aKEtUZNigit8EEqoLNe2JKMzMiLwYq",
+    "tpubDEg3kqr2jo5ergkJbFqRHvCpiob7wR7Hi44J7y987G1JZfbzBND77XKTyPZzGvh3uyDf8kexMJnFD9W8FuraJ4wLMsx6YuZVXRSRRcx6QdD"
+   ],
+   "heir_keys": [],
+   "consent_keys": [],
+   "backup_keys": [],
+   "second_heir_keys": [
+    "tpubDEQcccXBoxQm48MThCesNn6NSPTTPDibZJVyYyFXAwDAhV79HRVpBodRJpfpAZ3Lwp2DQNHeuPycqVbdgwTiCTykaZLiX2LYTRgTn6s65At"
+   ],
+   "recovery_after": 276280,
+   "inheritance_after": 0,
+   "second_inheritance_after": 105120,
+   "status": "compiled",
+   "leaf_scripts": {
+    "founders_now": "aa"
+   },
+   "key_origins": [
+    {
+     "pubkey": "02245dd8963d28991e66137afbb42ae75376314c61d278e50e1994d6518ea9e998",
+     "fingerprint": "00000001",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    },
+    {
+     "pubkey": "02d5ff1d4aa86563dfcf335214c9ad4b0028e73652dd5bf3e86066f45e8e870cba",
+     "fingerprint": "00000002",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    },
+    {
+     "pubkey": "0253c16a596be8c9bd7be3abecd7f72d02121e5dbf0096a5a9cd9064267fc6944a",
+     "fingerprint": "00000003",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    },
+    {
+     "pubkey": "02e76407c7f6b361ae1e8a3adcd19fe4279d21115de78c17b8fb105bbcb92a8a3e",
+     "fingerprint": "00000006",
+     "derivation_path": "m/48'/1'/0'/2'/0/0"
+    }
+   ]
+  },
+  "tipCalls": 1
+ }
+]

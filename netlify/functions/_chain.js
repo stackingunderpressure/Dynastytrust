@@ -10,6 +10,16 @@
  * functions; this is now the single source for all of it.
  */
 
+// The pure timelock rules (floor and ceiling, tip floor, tip
+// reconciliation, relative -> absolute) live in packages/vault-rules, ONE
+// copy shared with the downloaded app; re-exported here so every function
+// keeps importing them from ./_chain.js.
+import { TIP_FLOOR, reconcileTips } from "../../packages/vault-rules/src/timelocks.js";
+export {
+  MIN_RECOVERY_BLOCKS, MAX_TIMELOCK_OFFSET_BLOCKS, checkTimelockFloor,
+  TIP_FLOOR, TIP_SOURCE_MAX_DIFF, reconcileTips, relativeToAbsolute,
+} from "../../packages/vault-rules/src/timelocks.js";
+
 export const MEMPOOL = {
   testnet: "https://mempool.space/testnet/api",
   signet:  "https://mempool.space/signet/api",
@@ -28,36 +38,6 @@ export const MEMPOOL = {
 // security audit) and is centralized here so every sibling timelock
 // field gets the identical check rather than each endpoint re-deriving
 // (and, as happened, sometimes forgetting) it (Kimi K3 scan Family D).
-export const MIN_RECOVERY_BLOCKS = 26_000;
-
-// Ceiling on a relative offset (~100 years of blocks). Bitcoin reads an
-// nLockTime of 500,000,000 or more as a calendar DATE, not a height --
-// tip + a huge offset would cross that line and compile a lock that is
-// already open (a date in 1985) while the record says "locked for
-// thousands of years". The Rust compiler refuses such a height too
-// (LOCKTIME_THRESHOLD); this stops it before it gets there.
-export const MAX_TIMELOCK_OFFSET_BLOCKS = 5_256_000;
-
-/**
- * Floor-check a raw relative block offset before conversion. 0/null/
- * undefined means "no leaf at this path" and is always allowed. Any
- * other value must be a safe positive integer >= MIN_RECOVERY_BLOCKS.
- * Returns null when valid, or a human-readable error string.
- */
-export function checkTimelockFloor(value, fieldName) {
-  if (!value) return null;
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
-    return `${fieldName} must be a whole number of blocks.`;
-  }
-  if (value < MIN_RECOVERY_BLOCKS) {
-    return `${fieldName} must be >= ${MIN_RECOVERY_BLOCKS} blocks (or 0 for no leaf).`;
-  }
-  if (value > MAX_TIMELOCK_OFFSET_BLOCKS) {
-    return `${fieldName} must be at most ${MAX_TIMELOCK_OFFSET_BLOCKS} blocks (about 100 years).`;
-  }
-  return null;
-}
-
 /** GET a mempool.space URL and parse the JSON body. Throws on a non-2xx status. */
 export async function mempoolFetch(url) {
   const res = await fetch(url);
@@ -83,7 +63,6 @@ export async function getFeeRate(network) {
 // open at funding. The browser re-checks the heights it gets back
 // against its own tip fetch (timelock-check.ts); this floor is the
 // server's half of the same defense. Raise occasionally; never lower.
-export const TIP_FLOOR = { bitcoin: 900_000, testnet: 5_000_000, signet: 300_000 };
 
 // Second, independent source for the chain tip (Blockstream's Esplora).
 // One feed deciding an irreversible absolute timelock is one feed too
@@ -96,7 +75,6 @@ export const SECOND_SOURCE = {
 
 // Honest sources differ by a block or two while a new block propagates.
 // Mirrors TIP_SOURCE_MAX_DIFF in apps/web/src/lib/timelock-check.ts.
-export const TIP_SOURCE_MAX_DIFF = 6;
 
 async function fetchTipFrom(base, network, sourceName) {
   const res = await fetch(`${base}/blocks/tip/height`);
@@ -120,19 +98,6 @@ export async function fetchTipHeight(network) {
 }
 
 /**
- * Pure: reconcile two independently fetched tips. Throws when they
- * disagree by more than TIP_SOURCE_MAX_DIFF; otherwise returns the
- * HIGHER one -- a tip that is too low compiles a timelock that opens
- * early, so when in doubt the later height is the safe one.
- */
-export function reconcileTips(a, b, maxDiff = TIP_SOURCE_MAX_DIFF) {
-  if (Math.abs(a - b) > maxDiff) {
-    throw new Error(`chain tip sources disagree: ${a} vs ${b} (more than ${maxDiff} blocks apart)`);
-  }
-  return Math.max(a, b);
-}
-
-/**
  * The tip to use for anything irreversible (baking tip + offset into a
  * vault's after() leaves). Both sources must answer and agree; if
  * either is down this FAILS rather than trusting one feed -- compiling
@@ -144,14 +109,4 @@ export async function fetchVerifiedTipHeight(network) {
     fetchTipFrom(SECOND_SOURCE[network] || SECOND_SOURCE.testnet, network, "blockstream.info"),
   ]);
   return reconcileTips(a, b);
-}
-
-/**
- * Given a relative offset in blocks and the chain tip, return the
- * absolute CLTV height. Pass through zero / null so "no timelock"
- * stays "no timelock".
- */
-export function relativeToAbsolute(offsetBlocks, tipHeight) {
-  if (!offsetBlocks || offsetBlocks <= 0) return 0;
-  return tipHeight + offsetBlocks;
 }
