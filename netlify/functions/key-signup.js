@@ -4,8 +4,8 @@
  * POST /api/key-signup   (no auth -- this CREATES an account)
  *   Body: { grant: { attestation }, display_name? }
  *   The attestation answers a challenge from /api/wallet-signin-challenge,
- *   signed in the browser by the person's sign-in key (worked out from
- *   their 24 words -- apps/web/src/lib/key-account.ts).
+ *   signed by the person's Tapit wallet (lib/wallet-signin.ts, mode
+ *   'signup'). Body may carry kind: 'tapit' (default) | 'device'.
  *
  * Proves the key, refuses a key that already has an account, consumes the
  * challenge, creates a confirmed Supabase account at a never-mailed
@@ -44,8 +44,12 @@ export async function handler(event) {
   const userId = created?.user?.id;
   if (createErr || !userId) return json(500, { error: "Could not create the account" });
 
+  // Since 2026-11-13 the sign-in page makes accounts only through a Tapit
+  // wallet (operator: "run your own Tapit wallet, sign in through it");
+  // "device" stays accepted for a key held in this app.
+  const kind = body.kind === "device" ? "device" : "tapit";
   const { error: bindErr } = await supabase.from("wallet_identities").insert({
-    user_id: userId, pubkey: proof.pubkey, kind: "device", label: "Phone key", bound_at: new Date().toISOString(),
+    user_id: userId, pubkey: proof.pubkey, kind, label: kind === "tapit" ? "Tapit wallet" : "Phone key", bound_at: new Date().toISOString(),
   });
   if (bindErr) {
     await supabase.auth.admin.deleteUser(userId);

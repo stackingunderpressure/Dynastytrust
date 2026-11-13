@@ -3,9 +3,8 @@ import { supabase } from '../lib/supabase';
 import { APP_NAME } from '../config';
 import { colors, fonts, radii, space } from '../theme';
 import { Button, Input } from '../components/ui';
-import { startTapitFlow } from '../lib/wallet-signin';
+import { startTapitFlow, rememberSignupName, WALLET_BASE_URL } from '../lib/wallet-signin';
 import { friendlyAuthError } from '../lib/auth-errors';
-import { KeySignIn } from '../components/KeySignIn';
 
 // Set once we've asked Supabase to email a 6-digit code -- 'signup' for
 // account confirmation, 'recovery' for password reset. Identifies which
@@ -26,6 +25,9 @@ export default function Auth() {
   const [codeBusy, setCodeBusy] = useState(false);
   const [codeError, setCodeError] = useState<string | null>(null);
   const [resent, setResent] = useState(false);
+  // Sovereign sign-in with Tapit: creating an account asks only a name.
+  const [tapitCreate, setTapitCreate] = useState(false);
+  const [tapitName, setTapitName] = useState('');
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -100,11 +102,12 @@ export default function Auth() {
 
   // Sign in by proving control of a linked Tapit wallet key. On success this
   // navigates to the wallet, so we only clear busy on failure.
-  async function tapit() {
+  async function tapit(kind: 'signin' | 'signup' = 'signin') {
     setBusy(true);
     setError(null);
     try {
-      await startTapitFlow('signin');
+      if (kind === 'signup') rememberSignupName(tapitName);
+      await startTapitFlow(kind);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Could not start Tapit sign-in');
       setBusy(false);
@@ -265,26 +268,46 @@ export default function Auth() {
               <span style={s.orText}>or</span>
               <span style={s.orLine} />
             </div>
-            <Button
-              variant="ghost"
-              type="button"
-              disabled={busy}
-              onClick={() => void tapit()}
-              style={{ width: '100%', padding: '14px', fontSize: 17 }}
-            >
-              Sign in with Tapit
-            </Button>
-            <p style={s.tapitHint}>
-              Prove control of a wallet key you've linked. New here? Sign in with
-              email first, then link your wallet.
-            </p>
+            {/* Sovereign sign-in (operator, 2026-11-13: "the most sovereign way
+                is run your own Tapit wallet, sign in through it, not email,
+                not enter your words in ... good warnings and education"). */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: space[2], padding: space[3], border: `1px solid ${colors.gold}55`, borderRadius: radii.md }}>
+              <p style={{ ...s.tapitHint, color: colors.text, fontWeight: 600, margin: 0 }}>Sovereign sign-in with Tapit</p>
+              <p style={{ ...s.tapitHint, margin: 0 }}>
+                No email and no password here. Your own Tapit wallet proves it is you; its key never leaves the wallet,
+                and nobody, not even DynastyTrust, can sign in as you without it.
+              </p>
+              <Button
+                type="button"
+                disabled={busy}
+                onClick={() => void tapit('signin')}
+                style={{ width: '100%', padding: '14px', fontSize: 17 }}
+              >
+                Sign in with Tapit
+              </Button>
+              {!tapitCreate ? (
+                <Button variant="ghost" type="button" disabled={busy} onClick={() => setTapitCreate(true)} style={{ width: '100%', padding: '14px', fontSize: 17 }}>
+                  Create an account with Tapit
+                </Button>
+              ) : (
+                <form onSubmit={e => { e.preventDefault(); void tapit('signup'); }} style={{ display: 'flex', flexDirection: 'column', gap: space[2] }}>
+                  <label style={s.label} htmlFor="tapit-name">Your name</label>
+                  <Input id="tapit-name" value={tapitName} onChange={e => setTapitName(e.target.value)} placeholder="What the family calls you" maxLength={40} required />
+                  <Button type="submit" disabled={busy || !tapitName.trim()} style={{ width: '100%', padding: '14px', fontSize: 17 }}>
+                    {busy ? 'Opening Tapit...' : 'Continue in Tapit'}
+                  </Button>
+                </form>
+              )}
+              <p style={{ ...s.tapitHint, margin: 0, color: colors.orange }}>
+                Know this before you choose it: with Tapit there is no email to reset anything. Your Tapit wallet and its
+                backup ARE your account. Lose both and the account is gone for good (money in a vault stays safe with its
+                own keys, and you would be invited back). Keep Tapit's backup somewhere safe, off this phone.
+              </p>
+              <a href={WALLET_BASE_URL} target="_blank" rel="noopener noreferrer" style={{ ...s.tapitHint, margin: 0, color: colors.gold }}>
+                No Tapit wallet yet? Get it here.
+              </a>
+            </div>
           </>
-        )}
-
-        {mode === 'login' && (
-          <div style={{ marginTop: space[4] }}>
-            <KeySignIn />
-          </div>
         )}
 
         {mode === 'login' && (

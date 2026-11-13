@@ -41,7 +41,17 @@ export const WALLET_SIGN_URL =
 // request that makes no sense for someone who has nothing to sign yet.
 export const WALLET_BASE_URL = WALLET_SIGN_URL.replace(/\/sign\/?$/, '') || WALLET_SIGN_URL;
 
-export type TapitMode = 'signin' | 'link';
+export type TapitMode = 'signin' | 'link' | 'signup';
+
+// The name typed before 'signup' leaves for the wallet; read back when it
+// returns (a full-page redirect cannot carry it in memory).
+const SIGNUP_NAME = 'dt:tapitSignupName';
+export function rememberSignupName(name: string): void {
+  try { sessionStorage.setItem(SIGNUP_NAME, name.trim().slice(0, 40)); } catch { /* private mode: no name */ }
+}
+function takeSignupName(): string | null {
+  try { const n = sessionStorage.getItem(SIGNUP_NAME); sessionStorage.removeItem(SIGNUP_NAME); return n; } catch { return null; }
+}
 
 /** Shared by every flow below -- mints a fresh, server-persisted,
  *  single-use challenge. Extracted so startTapitPubkeyConnectRequest
@@ -208,7 +218,8 @@ export function readTapitCallback(): TapitCallback | null {
   const params = new URLSearchParams(window.location.search);
   const raw = params.get('grant');
   if (!raw) return null;
-  const mode: TapitMode = params.get('tapit_mode') === 'link' ? 'link' : 'signin';
+  const m = params.get('tapit_mode');
+  const mode: TapitMode = m === 'link' ? 'link' : m === 'signup' ? 'signup' : 'signin';
   try {
     return { mode, grant: b64Decode<unknown>(raw) };
   } catch {
@@ -253,13 +264,17 @@ export async function completeTapitCallback(cb: TapitCallback): Promise<TapitRes
     return { mode: 'link' };
   }
 
-  const res = await fetch(`${API}/wallet-signin-verify`, {
+  // 'signup' (2026-11-13, operator: "run your own Tapit wallet, sign in
+  // through it, not email"): the Tapit key alone makes the account -- no
+  // email ever (key-signup.js, a never-mailed placeholder underneath).
+  const signup = cb.mode === 'signup';
+  const res = await fetch(`${API}/${signup ? 'key-signup' : 'wallet-signin-verify'}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ grant }),
+    body: JSON.stringify(signup ? { grant, kind: 'tapit', display_name: takeSignupName() } : { grant }),
   });
   const payload = await parseJson(res);
-  if (!res.ok) throw new Error((payload.error as string) ?? 'Tapit sign-in failed');
+  if (!res.ok) throw new Error((payload.error as string) ?? (signup ? 'Could not create the account with Tapit' : 'Tapit sign-in failed'));
 
   const { error } = await supabase.auth.verifyOtp({
     token_hash: payload.token_hash as string,
@@ -269,7 +284,7 @@ export async function completeTapitCallback(cb: TapitCallback): Promise<TapitRes
   // A Tapit key proof earned this session too: record it as key-made.
   await recordKeySession(payload.key_session_claim);
 
-  return { mode: 'signin' };
+  return { mode: signup ? 'signup' : 'signin' };
 }
 
 export function clearTapitCallbackUrl(): void {

@@ -148,7 +148,7 @@ export default function InviteClaimPath({
             <p style={sub}>
               {invite.email_hint
                 ? `First, sign in or create an account with the email address this was sent to (${invite.email_hint}). The link only works for that address.`
-                : 'First, sign in or create an account -- with an email, or with no email using your key. The owner will confirm your key with you before it goes in the vault.'}
+                : 'First, sign in or create an account -- with an email, a username, or your own Tapit wallet. The owner will confirm your key with you before it goes in the vault.'}
             </p>
           </div>
         </div>
@@ -356,7 +356,7 @@ export default function InviteClaimPath({
             <p style={{ ...p, color: colors.red }}>{err}</p>
             {needsTwoStep && (
               <p style={{ ...sub, marginTop: space[2] }}>
-                Sign out and sign back in with your key (No email? Your key is your account), or open the{' '}
+                Sign out and sign back in with your Tapit wallet (Sovereign sign-in with Tapit), or open the{' '}
                 <Link to="/keys" style={{ color: colors.gold }}>Keys page</Link>, turn on two-step sign-in, and sign back in with
                 your code. Then open this link again. Your key stays on this device meanwhile.
               </p>

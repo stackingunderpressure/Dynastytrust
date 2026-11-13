@@ -56,7 +56,10 @@ mock.module(F('_auth.js'), { namedExports: { requireUser: async () => (caller ? 
 mock.module(new URL('../apps/web/src/lib/supabase.ts', import.meta.url).href, { namedExports: { supabase: {} } });
 const H = {};
 for (const f of ['key-signup', 'wallet-signin-challenge', 'wallet-signin-verify', 'wallet-link', 'key-session']) H[f] = (await import(F(f + '.js'))).handler;
-const ka = await import('../apps/web/src/lib/key-account.ts');
+import { createHash } from 'node:crypto';
+// A stand-in for a Tapit wallet's key: any secp256k1 key signs the same
+// TA-1 challenge the wallet does (tapit-attest answerSignInChallenge).
+const walletKey = (words) => createHash('sha256').update('tapit-test-wallet:' + words).digest('hex');
 const { answerSignInChallenge } = await import('tapit-attest');
 const { generateMnemonic } = await import('@scure/bip39');
 const { wordlist } = await import('@scure/bip39/wordlists/english');
@@ -66,19 +69,22 @@ const pass = (l) => { n++; console.log(`  [ok] ${l}`); };
 const call = (fn, body) => H[fn]({ httpMethod: 'POST', headers: {}, body: JSON.stringify(body) });
 const proof = async (mnemonic) => {
   const { body } = await call('wallet-signin-challenge', {});
-  return { attestation: answerSignInChallenge({ challenge: body.challenge, signerPrivateKey: ka.signInPrivateKey(mnemonic) }) };
+  return { attestation: answerSignInChallenge({ challenge: body.challenge, signerPrivateKey: walletKey(mnemonic) }) };
 };
 const WORDS = generateMnemonic(wordlist, 256);
 
-// 1. The sign-in key: same words -> same key; never a vault key; one per words.
-const pkA = ka.signInPrivateKey(WORDS);
-assert.equal(pkA, ka.signInPrivateKey(WORDS));
-assert.notEqual(pkA, ka.signInPrivateKey(generateMnemonic(wordlist, 256)));
-assert.equal(ka.SIGN_IN_PATH, "m/86'/0'/900001'/0/0");
-pass("sign-in key: same words, same key; its own hardened path");
+// 1. Sovereign sign-in: an account made by a Tapit key is recorded as a Tapit key.
+{
+  const s0 = await call('key-signup', { grant: await proof('tapit-only') , display_name: 'Gran' });
+  assert.equal(s0.statusCode, 200, JSON.stringify(s0.body));
+  const row = tables.wallet_identities.at(-1);
+  assert.equal(row.kind, 'tapit'); assert.equal(row.label, 'Tapit wallet');
+  tables.wallet_identities.pop(); users.clear(); tables.wallet_signins.length = 0;
+}
+pass('a Tapit-made account is bound as its Tapit key (no email, no words)');
 
 // 2. Sign up with no email: confirmed placeholder account, key bound, session token.
-const s1 = await call('key-signup', { grant: await proof(WORDS), display_name: '  Dad\u0007 ' });
+const s1 = await call('key-signup', { grant: await proof(WORDS), display_name: '  Dad\u0007 ', kind: 'device' });
 assert.equal(s1.statusCode, 200, JSON.stringify(s1.body));
 const user = users.get(tokens.get(s1.body.token_hash));
 assert.ok(user, 'the token logs into the new account');
@@ -88,13 +94,13 @@ assert.deepEqual(user.user_metadata, { display_name: 'Dad', signin: 'key' });
 assert.equal(tables.wallet_identities.length, 1);
 assert.equal(tables.wallet_identities[0].kind, 'device');
 assert.equal(tables.wallet_signins.length, 1);
-pass('sign up: no email, never-mailed placeholder, key bound as this phone, name cleaned');
+pass('sign up: no email, never-mailed placeholder, key bound with the kind asked, name cleaned');
 
 // 3. The same words sign in to the same account, on any phone.
 const s2 = await call('wallet-signin-verify', { grant: await proof(WORDS) });
 assert.equal(s2.statusCode, 200);
 assert.equal(tokens.get(s2.body.token_hash), user.id);
-pass('the same 24 words sign in to the same account');
+pass('the same key signs in to the same account');
 
 // 4. Refusals.
 const again = await call('key-signup', { grant: await proof(WORDS) });
@@ -131,7 +137,7 @@ const got = await H['wallet-link']({ httpMethod: 'GET', headers: {} });
 assert.equal(got.statusCode, 200, 'reading the Tapit link works with two keys on the account');
 await H['wallet-link']({ httpMethod: 'DELETE', headers: {} });
 assert.deepEqual(tables.wallet_identities.filter(r => r.user_id === user.id).map(r => r.kind), ['device'], 'unlinking Tapit keeps the phone key');
-assert.equal((await call('wallet-signin-verify', { grant: await proof(WORDS) })).statusCode, 200, 'still signs in with the words');
+assert.equal((await call('wallet-signin-verify', { grant: await proof(WORDS) })).statusCode, 200, 'still signs in with the key');
 pass('Tapit link and unlink touch only the Tapit key');
 
 // 7. Key-made sessions (slice 3): a key login comes with a one-time claim;

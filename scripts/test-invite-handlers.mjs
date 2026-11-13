@@ -260,7 +260,7 @@ pass("a person can be invited into a path's must-sign slot (never more than it h
   // ...but never an invite that was made for an email.
   tables.vault_invites.push({ id: 'i-mail', vault_id: 'v1', invited_role: 'heir', invited_label: 'Kim', invited_email: 'kim@example.com', leaf_id: 'kids', token: 'tok-mail', expires_at: new Date(Date.now() + 1e9).toISOString(), claimed_at: null });
   as('u-kim-key', 'k-0022bb@keys.dynastytrust.family');
-  r = await claim(mk(8, TEST, "m/48'/1'/0'/2'"), 'tok-mail'); assert.equal(r.status, 403); assert.match(r.error, /signed in with your key/);
+  r = await claim(mk(8, TEST, "m/48'/1'/0'/2'"), 'tok-mail'); assert.equal(r.status, 403); assert.match(r.error, /signed in without one/);
   // Real bitcoin: a one-step session is refused; a key-made session is let in;
   // a key-made record for SOMEONE ELSE's session does not count.
   tables.vault_invites.push({ id: 'i-main2', vault_id: 'v-main', invited_role: 'heir', invited_label: 'Lee', invited_email: null, leaf_id: 'kids', token: 'tok-main2', expires_at: new Date(Date.now() + 1e9).toISOString(), claimed_at: null });

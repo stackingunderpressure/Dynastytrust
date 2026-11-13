@@ -62,7 +62,7 @@ export function TapitConnectModal({ mode, onClose, onDone }: { mode: TapitMode; 
     void (async () => {
       try {
         const result = await completeTapitCallback({ mode, grant });
-        toast.success(result.mode === 'link' ? 'Tapit wallet linked.' : 'Signed in with your Tapit wallet.');
+        toast.success(result.mode === 'link' ? 'Tapit wallet linked.' : result.mode === 'signup' ? 'Your account is made. Your Tapit wallet is how you sign in.' : 'Signed in with your Tapit wallet.');
         onDone();
       } catch (e) {
         setState({ kind: 'error', message: e instanceof Error ? e.message : 'Could not complete sign-in' });
