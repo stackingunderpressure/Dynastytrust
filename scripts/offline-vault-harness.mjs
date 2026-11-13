@@ -41,6 +41,24 @@ useProtocolWasmBytes(new Uint8Array(readFileSync(new URL('../apps/web/src/lib/wa
 
 const COMPILER = process.env.COMPILER_URL || 'http://127.0.0.1:8899';
 const SECRET = process.env.COMPILER_SECRET || 'testsecret';
+
+// RECORD_COMPILER=<file>: append every request this harness sends to the
+// compiler, with the compiler's exact status and response, one JSON line
+// each. The recording is the reference set scripts/compiler-parity.mjs
+// replays against a reshaped server or the browser module (sovereign slice
+// 1, docs/super-sovereign-build-note.md). Off unless asked for.
+if (process.env.RECORD_COMPILER) {
+  const { appendFileSync } = await import('node:fs');
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    const res = await realFetch(url, init);
+    if (String(url).startsWith(COMPILER) && init.method === 'POST') {
+      const text = await res.clone().text();
+      appendFileSync(process.env.RECORD_COMPILER, JSON.stringify({ endpoint: String(url).slice(COMPILER.length), body: JSON.parse(init.body), status: res.status, response: text }) + '\n');
+    }
+    return res;
+  };
+}
 const NET = 'signet';
 
 // One fixed mnemonic, many accounts -> many distinct signers. Signer N is
