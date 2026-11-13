@@ -15,6 +15,12 @@ leak. Identity is lost through (c) what an account or database exposure
 reveals. The list is ordered by how directly each item stops (a), then (b),
 then (c).
 
+> **2026-11-13:** a stage-by-stage threat model (`docs/threat-model-2026-11-13.md`)
+> found new holes, ranked A-K there. The top one: the `vaults`, `proposals` and
+> `signer_sessions` tables still allow direct writes (`for all` policies from
+> June), which lets an owner session swap a vault's descriptor AND address
+> together, past every server check and past the in-browser address check.
+
 ## Closed
 
 1. ~~**Browser full-transaction gate.**~~ Closed 2026-11-09 (see `HISTORY.md`).
