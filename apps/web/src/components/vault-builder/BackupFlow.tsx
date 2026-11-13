@@ -102,16 +102,8 @@ export function WordGrid({ words }: { words: string[] }) {
           </div>
         ))}
       </div>
-      {vis && (
-        <Button
-          variant="ghost"
-          size="sm"
-          style={{ width: '100%', marginTop: 10, fontSize: 14 }}
-          onClick={() => navigator.clipboard.writeText(words.join(' '))}
-        >
-          Copy all 24 words
-        </Button>
-      )}
+      {/* No copy button: the words go on paper, never onto the clipboard,
+          where other apps can read them (operator, 2026-11-13). */}
     </div>
   );
 }

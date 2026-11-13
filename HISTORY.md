@@ -106,6 +106,16 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
+- **Recovery-phrase screen: "Copy all 24 words" removed -- 2026-11-13,
+  on the branch, NOT on main.** Operator: "Remove the copy all 24 words
+  button". It put the seed words on the phone's clipboard, where other
+  apps can read them, right under the warning never to store them
+  digitally. It was the only place in the app that copied the words
+  (grep for clipboard writes of words/mnemonic/phrase/seed). Walked at
+  375px: no copy button, all 24 words shown, Close and verify still
+  work, no sideways scroll. Gates: lint 0 errors, typecheck 10 (same
+  set), build green, `npm test` green.
+
 - **SeedSigner's animated key QR is read -- BUILT 2026-11-13, on the
   branch, NOT on main.** Operator: "Decode next". SeedSigner's default
   key QR ("Animated (default)") is a BC-UR crypto-account record; the
