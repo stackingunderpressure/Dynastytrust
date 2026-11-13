@@ -64,7 +64,37 @@ async function tryForm(label, email) {
   }
 }
 
+// Username accounts (2026-11-13): made with a password at a never-mailed
+// address, then signed in with Supabase's own password check exactly as
+// the browser does (signInWithPassword -> /token?grant_type=password).
+async function tryPassword() {
+  const email = `u${rand()}@users.dynastytrust.family`;
+  const password = `t-${rand()}-${rand()}`;
+  console.log('\n== username account: <random>@users.dynastytrust.family');
+  let userId = null;
+  try {
+    const c = await call('POST', '/admin/users', { email, password, email_confirm: true, user_metadata: { placeholder_test: true } });
+    if (!c.ok || !c.body?.id) { console.log(`FAIL create username account: HTTP ${c.status} ${c.body?.msg ?? c.body?.message ?? ''}`); return false; }
+    userId = c.body.id;
+    console.log('PASS create username account (confirmed, nothing sent)');
+    const t = await call('POST', '/token?grant_type=password', { email, password }, { apikey: anon, 'content-type': 'application/json' });
+    if (!t.ok || !t.body?.access_token) { console.log(`FAIL password sign-in: HTTP ${t.status} ${t.body?.msg ?? t.body?.error_description ?? ''}`); return false; }
+    const claims = JSON.parse(Buffer.from(t.body.access_token.split('.')[1], 'base64url').toString());
+    if (claims.sub !== userId) { console.log('FAIL session belongs to a different account'); return false; }
+    console.log('PASS password sign-in is that account');
+    const w = await call('POST', '/token?grant_type=password', { email, password: password + 'x' }, { apikey: anon, 'content-type': 'application/json' });
+    console.log(w.ok ? 'FAIL a wrong password signed in' : 'PASS a wrong password is refused');
+    return !w.ok;
+  } finally {
+    if (userId) {
+      const d = await call('DELETE', `/admin/users/${userId}`);
+      console.log(d.ok ? 'PASS throwaway account deleted' : `FAIL could not delete throwaway account ${userId}: HTTP ${d.status} -- delete it by hand`);
+      if (!d.ok) allPass = false;
+    }
+  }
+}
+const pw = await tryPassword();
 const a = await tryForm('own domain, no mailbox', `k-${rand()}@keys.dynastytrust.family`);
 const b = await tryForm('reserved .invalid domain', `k-${rand()}@key.invalid`);
-console.log(`\nRESULT own-domain=${a ? 'PASS' : 'FAIL'} invalid-domain=${b ? 'PASS' : 'FAIL'}`);
-process.exit(allPass && (a || b) ? 0 : 1);
+console.log(`\nRESULT username-password=${pw ? 'PASS' : 'FAIL'} own-domain=${a ? 'PASS' : 'FAIL'} invalid-domain=${b ? 'PASS' : 'FAIL'}`);
+process.exit(allPass && pw && (a || b) ? 0 : 1);
