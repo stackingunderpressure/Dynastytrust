@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { DOWNLOAD } from "../lib/download";
 import {
   api,
   type Vault,
@@ -210,6 +211,19 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
   const [balance, setBalance] = useState<BalanceResult | null>(null);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [tab, setTab] = useState<"overview" | "send" | "history" | "members" | "activity" | "requests" | "messages" | "trust">("overview");
+  // Every in-page "go to that tab" button comes through here. The download
+  // has no Members or Messages tab (they need other people and our
+  // server), so a button that would open them -- "See who can sign" on a
+  // nearing inheritance, an activity row -- shows the spending paths on
+  // the overview instead: who holds which key, the one-person answer.
+  const openTab = useCallback((id: string) => {
+    if (DOWNLOAD && (id === "members" || id === "messages")) {
+      setTab("overview");
+      requestAnimationFrame(() => document.querySelector("[data-dt-spending-paths]")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+      return;
+    }
+    setTab(id as typeof tab);
+  }, []);
   const [archiving, setArchiving] = useState(false);
   const [showRotate, setShowRotate] = useState(false);
   // Bumped when a rotation dialog closes, to remount the overview: its
@@ -635,7 +649,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
               You claimed the <strong>{roleLabel(myMember!.role)}</strong> slot but haven't attached a
               signing key. The vault can't be compiled or signed by you until you do.
             </div>
-            <Button size="sm" onClick={() => setTab("members")}>
+            <Button size="sm" onClick={() => openTab("members")}>
               Add your key
             </Button>
           </div>
@@ -655,8 +669,9 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
           {(vault.status === 'draft'
             ? [
                 { id: "overview", label: "Overview" },
-                { id: "members", label: "Members" },
-                { id: "messages", label: "Messages" },
+                // Members and Messages need other people and our server:
+                // not in the download (lib/download.ts).
+                ...(DOWNLOAD ? [] : [{ id: "members", label: "Members" }, { id: "messages", label: "Messages" }]),
                 { id: "trust", label: "Trust" },
                 { id: "activity", label: "Activity" },
               ]
@@ -665,8 +680,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
                 { id: "send", label: "Send" },
                 { id: "requests", label: "Requests" },
                 { id: "history", label: "History", count: pendingCount },
-                { id: "members", label: "Members" },
-                { id: "messages", label: "Messages" },
+                ...(DOWNLOAD ? [] : [{ id: "members", label: "Members" }, { id: "messages", label: "Messages" }]),
                 { id: "trust", label: "Trust" },
                 { id: "activity", label: "Activity" },
               ]
@@ -722,7 +736,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
             copied={copied}
             onSendPrefill={prefillSend}
             proposals={proposals}
-            onOpenTab={id => setTab(id as typeof tab)}
+            onOpenTab={openTab}
           />
         )}
         {tab === "send" && (
@@ -736,12 +750,12 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
         {tab === "history" && (
           <HistoryTab vault={vault} proposals={proposals} onRefresh={load} />
         )}
-        {tab === "members" && <MembersTab vault={vault} />}
+        {tab === "members" && !DOWNLOAD && <MembersTab vault={vault} />}
         {tab === "activity" && (
-          <ActivityTab vault={vault} onOpenTab={id => setTab(id as typeof tab)} />
+          <ActivityTab vault={vault} onOpenTab={openTab} />
         )}
         {tab === "requests" && <RequestsTab vault={vault} onSendPrefill={prefillSend} />}
-        {tab === "messages" && <MessagesTab vault={vault} />}
+        {tab === "messages" && !DOWNLOAD && <MessagesTab vault={vault} />}
         {tab === "trust" && <TrustTab vault={vault} />}
       </main>
     </div>
@@ -940,6 +954,7 @@ function OverviewTab({
           inheritance_after defaults -- see isLeafList's header comment. */}
       {!isLeafList && (
         <>
+          <span data-dt-spending-paths />
           {paths.map(p => (
             <div
               key={p.num}
@@ -5038,7 +5053,7 @@ function DraftReadinessCard({
                 ? "Compile vault"
                 : `Waiting on ${totalPlanned - totalReady} more member${totalPlanned - totalReady === 1 ? "" : "s"}`}
           </Button>
-          {!slotsFilled && (
+          {!slotsFilled && !DOWNLOAD && (
             <Button
               variant="ghost"
               style={{ padding: "12px 14px" }}
@@ -6033,6 +6048,7 @@ function VaultStructureTree({ vault }: { vault: Vault }) {
 
   return (
     <div
+      data-dt-spending-paths
       style={{
         background: colors.surface,
         border: `1px solid ${colors.border}`,
