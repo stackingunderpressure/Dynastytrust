@@ -7,6 +7,7 @@ import {
   type LocalKey, type Network,
 } from "../lib/keystore";
 import { downloadFile } from "../lib/download-file";
+import { DOWNLOAD } from "../lib/download";
 import { useToast } from "../components/toast";
 import { useConfirm, usePrompt } from "../components/dialog";
 import { colors, fonts, radii, space, personaPalette } from "../theme";
@@ -1131,12 +1132,16 @@ export default function KeyManager() {
 
   return (
     <div style={{ fontFamily: fonts.sans }}>
-      <WalletLinkCard />
+      {/* Tapit sign-in, Face ID sign-in and two-step sign-in all belong to
+          the account; the download has none. Locking keys stays. */}
+      {!DOWNLOAD && <WalletLinkCard />}
       <FaceIdLockAll keysVersion={keys.length + keys.filter(k => k.passkeyMnemonic).length} onChanged={reload} />
-      <FaceIdSignInSetting />
-      <div style={{ marginBottom: 16 }}>
-        <TwoStepCard />
-      </div>
+      {!DOWNLOAD && <FaceIdSignInSetting />}
+      {!DOWNLOAD && (
+        <div style={{ marginBottom: 16 }}>
+          <TwoStepCard />
+        </div>
+      )}
       <div style={{ marginBottom: 16 }}>
         <Link
           to="/recover-descriptor"

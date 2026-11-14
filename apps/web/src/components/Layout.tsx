@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { APP_NAME, NAV_LINKS } from '../config';
 import { supabase } from '../lib/supabase';
 import { accountName } from '../lib/account-name';
+import { DOWNLOAD } from '../lib/download';
 import { FaceIdSignInOffer } from './FaceIdSignIn';
 import { colors, fonts, radii } from '../theme';
 import { useReminderCount } from './RemindersBanner';
@@ -81,7 +82,8 @@ export function Layout({ activeNavId, onSignOut, children }: LayoutProps) {
               </span>
             )}
             <VersionBadge />
-            <button
+            {/* The download has no account to sign out of. */}
+            {!DOWNLOAD && <button
               onClick={onSignOut}
               style={{
                 background: 'none',
@@ -95,7 +97,7 @@ export function Layout({ activeNavId, onSignOut, children }: LayoutProps) {
               }}
             >
               Sign out
-            </button>
+            </button>}
           </div>
         </div>
         <nav className="dt-header-nav">

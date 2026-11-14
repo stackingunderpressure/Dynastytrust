@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api, type Vault, type BalanceResult } from "../lib/api";
 import { useRealtimeRefresh } from "../lib/realtime";
 import { tipHeight } from "../lib/chain";
+import { DOWNLOAD } from "../lib/download";
 import { blocksLeft, durationWords, heirDashboardLine } from "../lib/timelock-words";
 import { colors, fonts, space } from "../theme";
 import { Button, Input, Label } from "../components/ui";
@@ -208,13 +209,16 @@ export default function Dashboard() {
           onChange={e => setSearch(e.target.value)}
           style={{ flex: 1, minWidth: 180, padding: "8px 12px" }}
         />
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setShowTrustCode(true)}
-        >
-          Join with trust code
-        </Button>
+        {/* Joining someone else's vault needs our server; not in the download. */}
+        {!DOWNLOAD && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowTrustCode(true)}
+          >
+            Join with trust code
+          </Button>
+        )}
         <Button variant="ghost" size="sm" onClick={() => navigate("/keys")}>
           Manage keys
         </Button>
@@ -256,14 +260,18 @@ export default function Dashboard() {
           >
             {search
               ? "Try a different name or address."
-              : "A vault is a Bitcoin wallet governed by your trust policy. Build your first one, or join an existing vault with a trust code."}
+              : DOWNLOAD
+                ? "A vault is a Bitcoin wallet governed by your trust policy. Build your first one."
+                : "A vault is a Bitcoin wallet governed by your trust policy. Build your first one, or join an existing vault with a trust code."}
           </p>
           {!search && (
             <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
               <Button onClick={() => navigate("/start")}>Build your first vault</Button>
-              <Button variant="ghost" onClick={() => setShowTrustCode(true)}>
-                Join with trust code
-              </Button>
+              {!DOWNLOAD && (
+                <Button variant="ghost" onClick={() => setShowTrustCode(true)}>
+                  Join with trust code
+                </Button>
+              )}
             </div>
           )}
         </div>
