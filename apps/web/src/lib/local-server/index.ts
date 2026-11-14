@@ -140,6 +140,9 @@ async function vaults(method: string, q: URLSearchParams, body: Record<string, u
     if ('name' in body) patch.name = String(body.name).slice(0, 120);
     if ('trust_doc' in body) patch.trust_doc = body.trust_doc;
     if ('archived' in body) patch.archived = Boolean(body.archived);
+    // Halt signing (HaltVaultBar). The signing gate re-reads this row just
+    // before every signature, so a halt here stops signing on this computer.
+    if ('duress' in body) patch.duress = Boolean(body.duress);
     if ('key_origins' in body && Array.isArray(body.key_origins)) patch.key_origins = body.key_origins;
     // The path list and consent describe the policy compile-leaves turns
     // into an address: only while it is still a draft (vaults.js).
@@ -150,7 +153,11 @@ async function vaults(method: string, q: URLSearchParams, body: Record<string, u
       if ('consent_quorum' in body) patch.consent_quorum = body.consent_quorum;
     }
     if (Object.keys(patch).length === 0) return fail(400, NOT_HERE);
-    return ok({ vault: vaultView(store.update('vaults', id, patch)!) });
+    const updated = store.update('vaults', id, patch)!;
+    if ('duress' in patch && Boolean(patch.duress) !== Boolean(v.duress)) {
+      store.recordEvent(id, patch.duress ? 'halt_on' : 'halt_off', {});
+    }
+    return ok({ vault: vaultView(updated) });
   }
   return fail(405, 'Method not allowed');
 }

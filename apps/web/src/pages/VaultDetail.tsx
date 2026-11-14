@@ -451,7 +451,9 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
           {APP_NAME}
         </span>
         <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-          {vault.status === "compiled" && vault.bloc_policy == null && (
+          {/* Rotating makes the successor vault on our server: not in the
+              download yet (lib/download.ts). */}
+          {vault.status === "compiled" && vault.bloc_policy == null && !DOWNLOAD && (
             <Button
               variant="ghost"
               size="sm"
