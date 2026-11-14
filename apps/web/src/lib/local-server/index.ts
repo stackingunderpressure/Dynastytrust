@@ -13,6 +13,7 @@ import {
   standardKeys, standardCompilePayload, standardCompiledRow,
   spendKeys, inputVbytesFor, selectCoins, spendCompilerRequest, spendSummary,
   checkNumberBounds, MIN_FEE_RATE_SAT_VB, MAX_FEE_RATE_SAT_VB, TIP_FLOOR, pubkeyFromXpub,
+  leavesKeyOrigins, leavesCheck, leavesNeedTip, leavesWire, leavesCompilePayload, leavesCompiledProblem, leavesCompiledRow,
 } from '../../../../../packages/vault-rules/src/index.js';
 import { compileOnDevice } from '../browser-compiler';
 import * as core from './core';
@@ -63,7 +64,20 @@ async function vaults(method: string, q: URLSearchParams, body: Record<string, u
     const address_type = String(body.address_type ?? 'tr_multileaf');
     if (!VALID_NETWORKS.includes(network)) return fail(400, `network must be one of ${VALID_NETWORKS.join(', ')}`);
     if (!VALID_ADDRESS_TYPES.includes(address_type)) return fail(400, `address_type must be one of ${VALID_ADDRESS_TYPES.join(', ')}`);
-    if (body.mode !== 'draft') return fail(400, 'The first download builds the standard vault; the other shapes come next.');
+    if (body.mode === 'leaves-draft') {
+      // The path builder's draft (vaults.js "leaves-draft"): the path list
+      // as configured so far, partial or empty; compile-leaves checks it.
+      const row = store.insert('vaults', {
+        user_id: store.LOCAL_USER, name: body.name || 'Vault', network, address_type,
+        address: null, descriptor: null, miniscript_policy: null,
+        leaves: Array.isArray(body.leaves) ? body.leaves : [],
+        consent_keys: body.consent_keys ?? [], consent_quorum: body.consent_quorum ?? null,
+        status: 'draft', archived: false, trust_doc: null, key_origins: [],
+      });
+      store.recordEvent(row.id, 'draft_created', { address_type, network, shape: 'leaves' });
+      return ok({ vault: vaultView(row) });
+    }
+    if (body.mode !== 'draft') return fail(400, 'This vault shape is not in the downloaded DynastyTrust yet.');
     const planned_founder_count = Number(body.planned_founder_count);
     const planned_heir_count = Number(body.planned_heir_count ?? 0);
     if (!planned_founder_count || planned_founder_count < 1) return fail(400, 'planned_founder_count must be >= 1');
@@ -104,6 +118,14 @@ async function vaults(method: string, q: URLSearchParams, body: Record<string, u
     if ('trust_doc' in body) patch.trust_doc = body.trust_doc;
     if ('archived' in body) patch.archived = Boolean(body.archived);
     if ('key_origins' in body && Array.isArray(body.key_origins)) patch.key_origins = body.key_origins;
+    // The path list and consent describe the policy compile-leaves turns
+    // into an address: only while it is still a draft (vaults.js).
+    if ('leaves' in body || 'consent_keys' in body || 'consent_quorum' in body) {
+      if (v.status !== 'draft') return fail(400, "Leaves can only be changed while the vault is still a draft, before it's compiled.");
+      if ('leaves' in body) patch.leaves = body.leaves;
+      if ('consent_keys' in body) patch.consent_keys = body.consent_keys;
+      if ('consent_quorum' in body) patch.consent_quorum = body.consent_quorum;
+    }
     if (Object.keys(patch).length === 0) return fail(400, NOT_HERE);
     return ok({ vault: vaultView(store.update('vaults', id, patch)!) });
   }
@@ -129,6 +151,30 @@ async function vaultsCompile(body: Record<string, unknown>): Promise<LocalAnswer
   // address has no history to scan).
   try { await core.ensureWatched(core.coreConnFor(String(v.network)), String(saved.descriptor), 'now'); } catch { /* the balance screen will say what is wrong */ }
   store.recordEvent(v.id, 'draft_compiled', { address_type: v.address_type, network: v.network, founder_count: keys.founders.length, heir_count: keys.heirs.length });
+  return ok({ vault: vaultView(saved) });
+}
+
+// --- /compile-leaves (the path builder) ------------------------------------
+async function compileLeaves(body: Record<string, unknown>): Promise<LocalAnswer> {
+  const v = store.get('vaults', String(body.vault_id ?? '')) as Vault | null;
+  if (!body.vault_id) return fail(400, 'Missing: vault_id');
+  if (!v) return fail(404, 'Vault not found');
+  if (v.status !== 'draft') return fail(400, 'Vault is not in draft status');
+  const keyOrigins = leavesKeyOrigins(body.key_origins);
+  const checked = leavesCheck(v);
+  if (checked.ok === false) return fail(checked.status, checked.error);
+  let tip = 0;
+  if (leavesNeedTip(checked.leaves)) {
+    try { tip = await verifiedTip(String(v.network)); } catch (e) { return fail(502, `Could not get the chain tip from Bitcoin Core: ${e instanceof Error ? e.message : e}`); }
+  }
+  const wire = leavesWire(checked.leaves, tip);
+  const c = await compiler('/compile-leaves', leavesCompilePayload(v, wire));
+  if (!c.ok) return c.answer;
+  const problem = leavesCompiledProblem(wire, c.data);
+  if (problem) return fail(problem.status, problem.error);
+  const saved = store.update('vaults', v.id, leavesCompiledRow(c.data, wire, keyOrigins))!;
+  try { await core.ensureWatched(core.coreConnFor(String(v.network)), String(saved.descriptor), 'now'); } catch { /* the balance screen will say what is wrong */ }
+  store.recordEvent(v.id, 'draft_compiled', { address_type: 'tr_multileaf', network: v.network, shape: 'leaves' });
   return ok({ vault: vaultView(saved) });
 }
 
@@ -265,6 +311,7 @@ export async function handleLocal(path: string, init?: RequestInit): Promise<Loc
   switch (url.pathname) {
     case '/vaults': return vaults(method, q, body);
     case '/vaults-compile': return vaultsCompile(body);
+    case '/compile-leaves': return compileLeaves(body);
     case '/balance': return balance(q);
     case '/utxos': return utxos(q);
     case '/psbt-binary': return psbtBinary(body);

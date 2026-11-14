@@ -1,0 +1,1179 @@
+[
+ {
+  "label": "everyday 2 of 3 plus kids after a date",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "vault": {
+    "id": "v1",
+    "user_id": "u1",
+    "name": "Family",
+    "network": "signet",
+    "address_type": "tr_multileaf",
+    "status": "compiled",
+    "leaves": [
+     {
+      "id": "everyday",
+      "label": "everyday",
+      "keys": [
+       "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+       "031958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227bad",
+       "02debb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+      ],
+      "quorum": 2,
+      "unlock": {
+       "type": "immediate"
+      },
+      "decay": null
+     },
+     {
+      "id": "kids",
+      "label": "kids",
+      "keys": [
+       "026861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e3",
+       "036cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+      ],
+      "quorum": 1,
+      "unlock": {
+       "type": "after",
+       "blocks": 302560
+      },
+      "decay": null
+     }
+    ],
+    "consent_keys": [],
+    "consent_quorum": null,
+    "address": "tb1p-test-2",
+    "descriptor": "tr(everyday,kids)",
+    "miniscript_policy": "policy",
+    "leaf_scripts": {
+     "everyday": "bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b31781958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227baddebb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e",
+     "kids": "6861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e36cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+    },
+    "key_origins": []
+   }
+  },
+  "sentToCompiler": {
+   "endpoint": "/compile-leaves",
+   "payload": {
+    "name": "Family",
+    "network": "signet",
+    "leaves": [
+     {
+      "id": "everyday",
+      "label": "everyday",
+      "keys": [
+       "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+       "031958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227bad",
+       "02debb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+      ],
+      "quorum": 2,
+      "unlock": {
+       "type": "immediate"
+      },
+      "decay": null
+     },
+     {
+      "id": "kids",
+      "label": "kids",
+      "keys": [
+       "026861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e3",
+       "036cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+      ],
+      "quorum": 1,
+      "unlock": {
+       "type": "after",
+       "blocks": 302560
+      },
+      "decay": null
+     }
+    ],
+    "consent_keys": [],
+    "consent_quorum": null
+   }
+  },
+  "written": {
+   "address": "tb1p-test-2",
+   "descriptor": "tr(everyday,kids)",
+   "miniscript_policy": "policy",
+   "leaves": [
+    {
+     "id": "everyday",
+     "label": "everyday",
+     "keys": [
+      "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+      "031958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227bad",
+      "02debb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+     ],
+     "quorum": 2,
+     "unlock": {
+      "type": "immediate"
+     },
+     "decay": null
+    },
+    {
+     "id": "kids",
+     "label": "kids",
+     "keys": [
+      "026861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e3",
+      "036cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+     ],
+     "quorum": 1,
+     "unlock": {
+      "type": "after",
+      "blocks": 302560
+     },
+     "decay": null
+    }
+   ],
+   "address_type": "tr_multileaf",
+   "status": "compiled",
+   "leaf_scripts": {
+    "everyday": "bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b31781958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227baddebb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e",
+    "kids": "6861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e36cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+   },
+   "key_origins": []
+  },
+  "tipCalls": 1
+ },
+ {
+  "label": "with key origins (junk entries dropped)",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "vault": {
+    "id": "v1",
+    "user_id": "u1",
+    "name": "Family",
+    "network": "signet",
+    "address_type": "tr_multileaf",
+    "status": "compiled",
+    "leaves": [
+     {
+      "id": "everyday",
+      "label": "everyday",
+      "keys": [
+       "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+       "031958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227bad",
+       "02debb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+      ],
+      "quorum": 2,
+      "unlock": {
+       "type": "immediate"
+      },
+      "decay": null
+     },
+     {
+      "id": "kids",
+      "label": "kids",
+      "keys": [
+       "026861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e3",
+       "036cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+      ],
+      "quorum": 1,
+      "unlock": {
+       "type": "after",
+       "blocks": 302560
+      },
+      "decay": null
+     }
+    ],
+    "consent_keys": [],
+    "consent_quorum": null,
+    "address": "tb1p-test-2",
+    "descriptor": "tr(everyday,kids)",
+    "miniscript_policy": "policy",
+    "leaf_scripts": {
+     "everyday": "bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b31781958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227baddebb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e",
+     "kids": "6861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e36cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+    },
+    "key_origins": [
+     {
+      "pubkey": "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+      "fingerprint": "00000001",
+      "derivation_path": "m/86'/1'/0'/0/0"
+     }
+    ]
+   }
+  },
+  "sentToCompiler": {
+   "endpoint": "/compile-leaves",
+   "payload": {
+    "name": "Family",
+    "network": "signet",
+    "leaves": [
+     {
+      "id": "everyday",
+      "label": "everyday",
+      "keys": [
+       "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+       "031958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227bad",
+       "02debb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+      ],
+      "quorum": 2,
+      "unlock": {
+       "type": "immediate"
+      },
+      "decay": null
+     },
+     {
+      "id": "kids",
+      "label": "kids",
+      "keys": [
+       "026861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e3",
+       "036cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+      ],
+      "quorum": 1,
+      "unlock": {
+       "type": "after",
+       "blocks": 302560
+      },
+      "decay": null
+     }
+    ],
+    "consent_keys": [],
+    "consent_quorum": null
+   }
+  },
+  "written": {
+   "address": "tb1p-test-2",
+   "descriptor": "tr(everyday,kids)",
+   "miniscript_policy": "policy",
+   "leaves": [
+    {
+     "id": "everyday",
+     "label": "everyday",
+     "keys": [
+      "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+      "031958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227bad",
+      "02debb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+     ],
+     "quorum": 2,
+     "unlock": {
+      "type": "immediate"
+     },
+     "decay": null
+    },
+    {
+     "id": "kids",
+     "label": "kids",
+     "keys": [
+      "026861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e3",
+      "036cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+     ],
+     "quorum": 1,
+     "unlock": {
+      "type": "after",
+      "blocks": 302560
+     },
+     "decay": null
+    }
+   ],
+   "address_type": "tr_multileaf",
+   "status": "compiled",
+   "leaf_scripts": {
+    "everyday": "bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b31781958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227baddebb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e",
+    "kids": "6861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e36cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+   },
+   "key_origins": [
+    {
+     "pubkey": "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+     "fingerprint": "00000001",
+     "derivation_path": "m/86'/1'/0'/0/0"
+    }
+   ]
+  },
+  "tipCalls": 1
+ },
+ {
+  "label": "a self-refreshing (older) path is forwarded unchanged",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "vault": {
+    "id": "v1",
+    "user_id": "u1",
+    "name": "Family",
+    "network": "signet",
+    "address_type": "tr_multileaf",
+    "status": "compiled",
+    "leaves": [
+     {
+      "id": "everyday",
+      "label": "everyday",
+      "keys": [
+       "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+       "031958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227bad",
+       "02debb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+      ],
+      "quorum": 2,
+      "unlock": {
+       "type": "immediate"
+      },
+      "decay": null
+     },
+     {
+      "id": "kids",
+      "label": "kids",
+      "keys": [
+       "026861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e3",
+       "036cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+      ],
+      "quorum": 1,
+      "unlock": {
+       "type": "after",
+       "blocks": 302560
+      },
+      "decay": null
+     },
+     {
+      "id": "quiet",
+      "label": "quiet",
+      "keys": [
+       "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+       "031958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227bad",
+       "02debb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+      ],
+      "quorum": 1,
+      "unlock": {
+       "type": "older",
+       "blocks": 52000
+      },
+      "decay": null
+     }
+    ],
+    "consent_keys": [],
+    "consent_quorum": null,
+    "address": "tb1p-test-3",
+    "descriptor": "tr(everyday,kids,quiet)",
+    "miniscript_policy": "policy",
+    "leaf_scripts": {
+     "everyday": "bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b31781958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227baddebb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e",
+     "kids": "6861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e36cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434",
+     "quiet": "bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b31781958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227baddebb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+    },
+    "key_origins": []
+   }
+  },
+  "sentToCompiler": {
+   "endpoint": "/compile-leaves",
+   "payload": {
+    "name": "Family",
+    "network": "signet",
+    "leaves": [
+     {
+      "id": "everyday",
+      "label": "everyday",
+      "keys": [
+       "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+       "031958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227bad",
+       "02debb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+      ],
+      "quorum": 2,
+      "unlock": {
+       "type": "immediate"
+      },
+      "decay": null
+     },
+     {
+      "id": "kids",
+      "label": "kids",
+      "keys": [
+       "026861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e3",
+       "036cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+      ],
+      "quorum": 1,
+      "unlock": {
+       "type": "after",
+       "blocks": 302560
+      },
+      "decay": null
+     },
+     {
+      "id": "quiet",
+      "label": "quiet",
+      "keys": [
+       "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+       "031958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227bad",
+       "02debb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+      ],
+      "quorum": 1,
+      "unlock": {
+       "type": "older",
+       "blocks": 52000
+      },
+      "decay": null
+     }
+    ],
+    "consent_keys": [],
+    "consent_quorum": null
+   }
+  },
+  "written": {
+   "address": "tb1p-test-3",
+   "descriptor": "tr(everyday,kids,quiet)",
+   "miniscript_policy": "policy",
+   "leaves": [
+    {
+     "id": "everyday",
+     "label": "everyday",
+     "keys": [
+      "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+      "031958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227bad",
+      "02debb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+     ],
+     "quorum": 2,
+     "unlock": {
+      "type": "immediate"
+     },
+     "decay": null
+    },
+    {
+     "id": "kids",
+     "label": "kids",
+     "keys": [
+      "026861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e3",
+      "036cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+     ],
+     "quorum": 1,
+     "unlock": {
+      "type": "after",
+      "blocks": 302560
+     },
+     "decay": null
+    },
+    {
+     "id": "quiet",
+     "label": "quiet",
+     "keys": [
+      "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+      "031958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227bad",
+      "02debb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+     ],
+     "quorum": 1,
+     "unlock": {
+      "type": "older",
+      "blocks": 52000
+     },
+     "decay": null
+    }
+   ],
+   "address_type": "tr_multileaf",
+   "status": "compiled",
+   "leaf_scripts": {
+    "everyday": "bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b31781958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227baddebb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e",
+    "kids": "6861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e36cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434",
+    "quiet": "bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b31781958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227baddebb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+   },
+   "key_origins": []
+  },
+  "tipCalls": 1
+ },
+ {
+  "label": "must-sign key honoured by the compiler",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "vault": {
+    "id": "v1",
+    "user_id": "u1",
+    "name": "Family",
+    "network": "signet",
+    "address_type": "tr_multileaf",
+    "status": "compiled",
+    "leaves": [
+     {
+      "id": "everyday",
+      "label": "everyday",
+      "keys": [
+       "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+       "031958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227bad",
+       "02debb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+      ],
+      "quorum": 2,
+      "unlock": {
+       "type": "immediate"
+      },
+      "decay": null,
+      "required_keys": [
+       "02b3a1a45e3b4eba282055fe7a5722347503ec40950b348d8b6a29fab85db99558"
+      ]
+     },
+     {
+      "id": "kids",
+      "label": "kids",
+      "keys": [
+       "026861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e3",
+       "036cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+      ],
+      "quorum": 1,
+      "unlock": {
+       "type": "after",
+       "blocks": 302560
+      },
+      "decay": null
+     }
+    ],
+    "consent_keys": [],
+    "consent_quorum": null,
+    "address": "tb1p-test-2",
+    "descriptor": "tr(everyday,kids)",
+    "miniscript_policy": "policy",
+    "leaf_scripts": {
+     "everyday": "bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b31781958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227baddebb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0eb3a1a45e3b4eba282055fe7a5722347503ec40950b348d8b6a29fab85db99558",
+     "kids": "6861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e36cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+    },
+    "key_origins": []
+   }
+  },
+  "sentToCompiler": {
+   "endpoint": "/compile-leaves",
+   "payload": {
+    "name": "Family",
+    "network": "signet",
+    "leaves": [
+     {
+      "id": "everyday",
+      "label": "everyday",
+      "keys": [
+       "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+       "031958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227bad",
+       "02debb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+      ],
+      "quorum": 2,
+      "unlock": {
+       "type": "immediate"
+      },
+      "decay": null,
+      "required_keys": [
+       "02b3a1a45e3b4eba282055fe7a5722347503ec40950b348d8b6a29fab85db99558"
+      ]
+     },
+     {
+      "id": "kids",
+      "label": "kids",
+      "keys": [
+       "026861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e3",
+       "036cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+      ],
+      "quorum": 1,
+      "unlock": {
+       "type": "after",
+       "blocks": 302560
+      },
+      "decay": null
+     }
+    ],
+    "consent_keys": [],
+    "consent_quorum": null
+   }
+  },
+  "written": {
+   "address": "tb1p-test-2",
+   "descriptor": "tr(everyday,kids)",
+   "miniscript_policy": "policy",
+   "leaves": [
+    {
+     "id": "everyday",
+     "label": "everyday",
+     "keys": [
+      "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+      "031958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227bad",
+      "02debb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+     ],
+     "quorum": 2,
+     "unlock": {
+      "type": "immediate"
+     },
+     "decay": null,
+     "required_keys": [
+      "02b3a1a45e3b4eba282055fe7a5722347503ec40950b348d8b6a29fab85db99558"
+     ]
+    },
+    {
+     "id": "kids",
+     "label": "kids",
+     "keys": [
+      "026861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e3",
+      "036cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+     ],
+     "quorum": 1,
+     "unlock": {
+      "type": "after",
+      "blocks": 302560
+     },
+     "decay": null
+    }
+   ],
+   "address_type": "tr_multileaf",
+   "status": "compiled",
+   "leaf_scripts": {
+    "everyday": "bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b31781958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227baddebb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0eb3a1a45e3b4eba282055fe7a5722347503ec40950b348d8b6a29fab85db99558",
+    "kids": "6861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e36cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+   },
+   "key_origins": []
+  },
+  "tipCalls": 1
+ },
+ {
+  "label": "must-sign key dropped by the compiler: refused, nothing saved",
+  "status": 502,
+  "body": {
+   "error": "The vault builder service did not include the must-sign key for \"everyday\". Nothing was saved and no address was made. Try again in a few minutes."
+  },
+  "sentToCompiler": {
+   "endpoint": "/compile-leaves",
+   "payload": {
+    "name": "drop-must-sign",
+    "network": "signet",
+    "leaves": [
+     {
+      "id": "everyday",
+      "label": "everyday",
+      "keys": [
+       "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+       "031958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227bad",
+       "02debb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+      ],
+      "quorum": 2,
+      "unlock": {
+       "type": "immediate"
+      },
+      "decay": null,
+      "required_keys": [
+       "02b3a1a45e3b4eba282055fe7a5722347503ec40950b348d8b6a29fab85db99558"
+      ]
+     },
+     {
+      "id": "kids",
+      "label": "kids",
+      "keys": [
+       "026861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e3",
+       "036cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+      ],
+      "quorum": 1,
+      "unlock": {
+       "type": "after",
+       "blocks": 302560
+      },
+      "decay": null
+     }
+    ],
+    "consent_keys": [],
+    "consent_quorum": null
+   }
+  },
+  "written": null,
+  "tipCalls": 1
+ },
+ {
+  "label": "must-sign key also among the keys",
+  "status": 400,
+  "body": {
+   "error": "A key on \"everyday\" is listed twice. A must-sign key cannot also be one of the other keys on the same path."
+  },
+  "sentToCompiler": null,
+  "written": null,
+  "tipCalls": 0
+ },
+ {
+  "label": "must-sign key not readable",
+  "status": 400,
+  "body": {
+   "error": "The must-sign keys on \"everyday\" are not readable public keys."
+  },
+  "sentToCompiler": null,
+  "written": null,
+  "tipCalls": 0
+ },
+ {
+  "label": "consent keys and quorum",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "vault": {
+    "id": "v1",
+    "user_id": "u1",
+    "name": "Family",
+    "network": "signet",
+    "address_type": "tr_multileaf",
+    "status": "compiled",
+    "leaves": [
+     {
+      "id": "everyday",
+      "label": "everyday",
+      "keys": [
+       "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+       "031958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227bad",
+       "02debb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+      ],
+      "quorum": 2,
+      "unlock": {
+       "type": "immediate"
+      },
+      "decay": null
+     },
+     {
+      "id": "kids",
+      "label": "kids",
+      "keys": [
+       "026861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e3",
+       "036cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+      ],
+      "quorum": 1,
+      "unlock": {
+       "type": "after",
+       "blocks": 302560
+      },
+      "decay": null
+     }
+    ],
+    "consent_keys": [
+     "03e2652222aecaf08d9b4919177ff46823b101fe5eb3d7632e9891d8388e373286"
+    ],
+    "consent_quorum": 1,
+    "address": "tb1p-test-2",
+    "descriptor": "tr(everyday,kids)",
+    "miniscript_policy": "policy",
+    "leaf_scripts": {
+     "everyday": "bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b31781958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227baddebb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e",
+     "kids": "6861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e36cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+    },
+    "key_origins": []
+   }
+  },
+  "sentToCompiler": {
+   "endpoint": "/compile-leaves",
+   "payload": {
+    "name": "Family",
+    "network": "signet",
+    "leaves": [
+     {
+      "id": "everyday",
+      "label": "everyday",
+      "keys": [
+       "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+       "031958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227bad",
+       "02debb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+      ],
+      "quorum": 2,
+      "unlock": {
+       "type": "immediate"
+      },
+      "decay": null
+     },
+     {
+      "id": "kids",
+      "label": "kids",
+      "keys": [
+       "026861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e3",
+       "036cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+      ],
+      "quorum": 1,
+      "unlock": {
+       "type": "after",
+       "blocks": 302560
+      },
+      "decay": null
+     }
+    ],
+    "consent_keys": [
+     "03e2652222aecaf08d9b4919177ff46823b101fe5eb3d7632e9891d8388e373286"
+    ],
+    "consent_quorum": 1
+   }
+  },
+  "written": {
+   "address": "tb1p-test-2",
+   "descriptor": "tr(everyday,kids)",
+   "miniscript_policy": "policy",
+   "leaves": [
+    {
+     "id": "everyday",
+     "label": "everyday",
+     "keys": [
+      "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+      "031958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227bad",
+      "02debb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+     ],
+     "quorum": 2,
+     "unlock": {
+      "type": "immediate"
+     },
+     "decay": null
+    },
+    {
+     "id": "kids",
+     "label": "kids",
+     "keys": [
+      "026861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e3",
+      "036cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+     ],
+     "quorum": 1,
+     "unlock": {
+      "type": "after",
+      "blocks": 302560
+     },
+     "decay": null
+    }
+   ],
+   "address_type": "tr_multileaf",
+   "status": "compiled",
+   "leaf_scripts": {
+    "everyday": "bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b31781958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227baddebb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e",
+    "kids": "6861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e36cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+   },
+   "key_origins": []
+  },
+  "tipCalls": 1
+ },
+ {
+  "label": "private key among the consent keys",
+  "status": 400,
+  "body": {
+   "error": "Refusing to accept a private extended key (xprv/tprv/uprv/vprv) -- only public xpubs may be sent to the server"
+  },
+  "sentToCompiler": null,
+  "written": null,
+  "tipCalls": 0
+ },
+ {
+  "label": "private key among a path's keys",
+  "status": 400,
+  "body": {
+   "error": "Refusing to accept a private extended key (xprv/tprv/uprv/vprv) -- only public xpubs may be sent to the server"
+  },
+  "sentToCompiler": null,
+  "written": null,
+  "tipCalls": 0
+ },
+ {
+  "label": "quorum 0",
+  "status": 400,
+  "body": {
+   "error": "Leaf 'everyday' quorum must be between 1 and 3."
+  },
+  "sentToCompiler": null,
+  "written": null,
+  "tipCalls": 0
+ },
+ {
+  "label": "quorum above the key count",
+  "status": 400,
+  "body": {
+   "error": "Leaf 'everyday' quorum must be between 1 and 3."
+  },
+  "sentToCompiler": null,
+  "written": null,
+  "tipCalls": 0
+ },
+ {
+  "label": "quorum not a whole number",
+  "status": 400,
+  "body": {
+   "error": "Leaf 'everyday' quorum must be a whole number."
+  },
+  "sentToCompiler": null,
+  "written": null,
+  "tipCalls": 0
+ },
+ {
+  "label": "a path with no id",
+  "status": 400,
+  "body": {
+   "error": "Every leaf needs a non-empty id"
+  },
+  "sentToCompiler": null,
+  "written": null,
+  "tipCalls": 0
+ },
+ {
+  "label": "a path with no keys",
+  "status": 400,
+  "body": {
+   "error": "Leaf 'kids' has no keys"
+  },
+  "sentToCompiler": null,
+  "written": null,
+  "tipCalls": 0
+ },
+ {
+  "label": "date below the floor",
+  "status": 400,
+  "body": {
+   "error": "Leaf 'kids' unlock.blocks must be >= 26000 blocks (or 0 for no leaf)."
+  },
+  "sentToCompiler": null,
+  "written": null,
+  "tipCalls": 0
+ },
+ {
+  "label": "date above the ceiling",
+  "status": 400,
+  "body": {
+   "error": "Leaf 'kids' unlock.blocks must be at most 5256000 blocks (about 100 years)."
+  },
+  "sentToCompiler": null,
+  "written": null,
+  "tipCalls": 0
+ },
+ {
+  "label": "immediate only: no tip needed",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "vault": {
+    "id": "v1",
+    "user_id": "u1",
+    "name": "Family",
+    "network": "signet",
+    "address_type": "tr_multileaf",
+    "status": "compiled",
+    "leaves": [
+     {
+      "id": "everyday",
+      "label": "everyday",
+      "keys": [
+       "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+       "031958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227bad",
+       "02debb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+      ],
+      "quorum": 2,
+      "unlock": {
+       "type": "immediate"
+      },
+      "decay": null
+     }
+    ],
+    "consent_keys": [],
+    "consent_quorum": null,
+    "address": "tb1p-test-1",
+    "descriptor": "tr(everyday)",
+    "miniscript_policy": "policy",
+    "leaf_scripts": {
+     "everyday": "bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b31781958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227baddebb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+    },
+    "key_origins": []
+   }
+  },
+  "sentToCompiler": {
+   "endpoint": "/compile-leaves",
+   "payload": {
+    "name": "Family",
+    "network": "signet",
+    "leaves": [
+     {
+      "id": "everyday",
+      "label": "everyday",
+      "keys": [
+       "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+       "031958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227bad",
+       "02debb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+      ],
+      "quorum": 2,
+      "unlock": {
+       "type": "immediate"
+      },
+      "decay": null
+     }
+    ],
+    "consent_keys": [],
+    "consent_quorum": null
+   }
+  },
+  "written": {
+   "address": "tb1p-test-1",
+   "descriptor": "tr(everyday)",
+   "miniscript_policy": "policy",
+   "leaves": [
+    {
+     "id": "everyday",
+     "label": "everyday",
+     "keys": [
+      "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+      "031958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227bad",
+      "02debb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+     ],
+     "quorum": 2,
+     "unlock": {
+      "type": "immediate"
+     },
+     "decay": null
+    }
+   ],
+   "address_type": "tr_multileaf",
+   "status": "compiled",
+   "leaf_scripts": {
+    "everyday": "bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b31781958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227baddebb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+   },
+   "key_origins": []
+  },
+  "tipCalls": 0
+ },
+ {
+  "label": "no paths at all",
+  "status": 400,
+  "body": {
+   "error": "Draft has no leaves configured"
+  },
+  "sentToCompiler": null,
+  "written": null,
+  "tipCalls": 0
+ },
+ {
+  "label": "not a draft",
+  "status": 400,
+  "body": {
+   "error": "Vault is not in draft status"
+  },
+  "sentToCompiler": null,
+  "written": null,
+  "tipCalls": 0
+ },
+ {
+  "label": "decay carried through",
+  "status": 200,
+  "body": {
+   "ok": true,
+   "vault": {
+    "id": "v1",
+    "user_id": "u1",
+    "name": "Family",
+    "network": "signet",
+    "address_type": "tr_multileaf",
+    "status": "compiled",
+    "leaves": [
+     {
+      "id": "everyday",
+      "label": "everyday",
+      "keys": [
+       "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+       "031958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227bad",
+       "02debb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+      ],
+      "quorum": 2,
+      "unlock": {
+       "type": "immediate"
+      },
+      "decay": null
+     },
+     {
+      "id": "kids",
+      "label": "kids",
+      "keys": [
+       "026861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e3",
+       "036cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+      ],
+      "quorum": 1,
+      "unlock": {
+       "type": "after",
+       "blocks": 302560
+      },
+      "decay": {
+       "step_blocks": 26280,
+       "floor_quorum": 1
+      }
+     }
+    ],
+    "consent_keys": [],
+    "consent_quorum": null,
+    "address": "tb1p-test-2",
+    "descriptor": "tr(everyday,kids)",
+    "miniscript_policy": "policy",
+    "leaf_scripts": {
+     "everyday": "bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b31781958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227baddebb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e",
+     "kids": "6861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e36cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+    },
+    "key_origins": []
+   }
+  },
+  "sentToCompiler": {
+   "endpoint": "/compile-leaves",
+   "payload": {
+    "name": "Family",
+    "network": "signet",
+    "leaves": [
+     {
+      "id": "everyday",
+      "label": "everyday",
+      "keys": [
+       "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+       "031958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227bad",
+       "02debb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+      ],
+      "quorum": 2,
+      "unlock": {
+       "type": "immediate"
+      },
+      "decay": null
+     },
+     {
+      "id": "kids",
+      "label": "kids",
+      "keys": [
+       "026861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e3",
+       "036cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+      ],
+      "quorum": 1,
+      "unlock": {
+       "type": "after",
+       "blocks": 302560
+      },
+      "decay": {
+       "step_blocks": 26280,
+       "floor_quorum": 1
+      }
+     }
+    ],
+    "consent_keys": [],
+    "consent_quorum": null
+   }
+  },
+  "written": {
+   "address": "tb1p-test-2",
+   "descriptor": "tr(everyday,kids)",
+   "miniscript_policy": "policy",
+   "leaves": [
+    {
+     "id": "everyday",
+     "label": "everyday",
+     "keys": [
+      "03bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b3178",
+      "031958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227bad",
+      "02debb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e"
+     ],
+     "quorum": 2,
+     "unlock": {
+      "type": "immediate"
+     },
+     "decay": null
+    },
+    {
+     "id": "kids",
+     "label": "kids",
+     "keys": [
+      "026861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e3",
+      "036cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+     ],
+     "quorum": 1,
+     "unlock": {
+      "type": "after",
+      "blocks": 302560
+     },
+     "decay": {
+      "step_blocks": 26280,
+      "floor_quorum": 1
+     }
+    }
+   ],
+   "address_type": "tr_multileaf",
+   "status": "compiled",
+   "leaf_scripts": {
+    "everyday": "bf17af65bed8cc20e82b0f1aa6aafe53bfa70f2e17cfa46ab421ede27b7b31781958c38e2242bbb51eff218153ee30ca1500d1cf18516ddc28cc32a0d1227baddebb33e56a39d5f60b25a96fcb6463d3c56f068c101843ddce61c0dfc3e66a0e",
+    "kids": "6861581c918322439cab08880e0d024a22896a4a8909ce9e560e29cc570c96e36cfcc302e67eeb09d02bff90aa2b31474199b181e1e57aaeeb5a88855f8dd434"
+   },
+   "key_origins": []
+  },
+  "tipCalls": 1
+ }
+]

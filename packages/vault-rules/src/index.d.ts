@@ -47,3 +47,12 @@ export function checkNumberBounds(value: unknown, opts: { field: string; min?: n
 
 export function assertNotPrivateExtendedKey(s: string): void;
 export function pubkeyFromXpub(xpub: string): string;
+
+export function mustSignPathsNotInScripts(leaves: unknown, leafScripts: unknown): string[];
+export function leavesKeyOrigins(raw: unknown): { pubkey: string; fingerprint: string; derivation_path: string }[];
+export function leavesCheck(vault: Vaultish): Refusal | { ok: true; leaves: Vaultish[] };
+export function leavesNeedTip(leaves: Vaultish[]): boolean;
+export function leavesWire(leaves: Vaultish[], tipHeight: number): Vaultish[];
+export function leavesCompilePayload(vault: Vaultish, wireLeaves: Vaultish[]): Record<string, unknown>;
+export function leavesCompiledProblem(wireLeaves: Vaultish[], compiled: Record<string, unknown>): Refusal | null;
+export function leavesCompiledRow(compiled: Record<string, unknown>, wireLeaves: Vaultish[], keyOrigins: unknown): Record<string, unknown>;

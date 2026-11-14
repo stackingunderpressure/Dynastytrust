@@ -29,20 +29,27 @@
  *   5. log 'draft_compiled' event
  */
 
-import { mustSignPathsNotInScripts } from "./_must-sign-check.js";
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 import { realBitcoinFinalizeProblem } from "./_finalize-guard.js";
 import { recordEvent } from "./_ledger.js";
-import { fetchVerifiedTipHeight, relativeToAbsolute, checkTimelockFloor } from "./_chain.js";
-import { checkNumberBounds } from "./_numeric.js";
+import { fetchVerifiedTipHeight } from "./_chain.js";
 import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
-import { assertNotPrivateExtendedKey } from "./_xpub.js";
 import { unconfirmedMemberKeys } from "./_invite-rules.js";
+import {
+  leavesKeyOrigins, leavesCheck, leavesNeedTip, leavesWire,
+  leavesCompilePayload, leavesCompiledProblem, leavesCompiledRow,
+} from "../../packages/vault-rules/src/leaves.js";
 
 const COMPILER_URL = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
 
+// The compile rules themselves -- each path's checks, the tip conversion,
+// the compiler request, the must-sign backstop and the stored row -- are
+// ONE copy in packages/vault-rules, shared with the downloaded app
+// (scripts/test-vault-rules-leaves.mjs holds this handler to its recorded
+// behaviour). What stays here is what only the website's server does:
+// sign-in, the database, the finalize guard, invited people's keys.
 export async function handler(event) {
   if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
 
@@ -59,21 +66,9 @@ export async function handler(event) {
   const vaultId = body.vault_id;
   if (!vaultId) return json(400, { error: "Missing: vault_id" });
 
-  // BIP32 origins for hardware-wallet signing (2026-08-25 fix). Every
-  // other compile path (vaults-compile.js's standard shape, the Bloc
-  // shape via bloc_policy.key_origins) writes this at compile time --
-  // the leaf-list shape never did, so no leaf-list vault ever got
-  // BIP371 tap_key_origins attached to its PSBT inputs, and a real
-  // hardware wallet correctly refused to sign it ("Signing with this
-  // seed did not add a valid signature" -- it has no derivation info to
-  // match its key against). The caller (VaultWizard.tsx) already builds
-  // this via buildPsbtKeyOrigins, the same helper the Bloc shape uses;
-  // filtered defensively here the same way vaults-compile.js filters
-  // its own keyOrigins, since this is trusted input from the caller's
-  // own browser, not re-derived server-side.
-  const keyOrigins = Array.isArray(body.key_origins)
-    ? body.key_origins.filter((o) => o && typeof o.pubkey === "string" && typeof o.fingerprint === "string" && typeof o.derivation_path === "string")
-    : [];
+  // BIP32 origins for hardware-wallet signing (2026-08-25 fix): without
+  // them a hardware wallet cannot recognise its own key on a leaf.
+  const keyOrigins = leavesKeyOrigins(body.key_origins);
 
   if (!COMPILER_URL) {
     return json(503, { error: "Compiler service not configured.", hint: "Set COMPILER_URL in Netlify env vars." });
@@ -96,72 +91,9 @@ export async function handler(event) {
     if (strong) return json(403, { error: strong, needs_two_step: true });
   }
 
-  const leaves = Array.isArray(vault.leaves) ? vault.leaves : [];
-  if (!leaves.length) return json(400, { error: "Draft has no leaves configured" });
-
-  for (const leaf of leaves) {
-    if (!leaf || typeof leaf.id !== "string" || !leaf.id) {
-      return json(400, { error: "Every leaf needs a non-empty id" });
-    }
-    if (!Array.isArray(leaf.keys) || !leaf.keys.length) {
-      return json(400, { error: `Leaf '${leaf.id}' has no keys` });
-    }
-    // leaf.quorum was forwarded to the Rust compiler with zero
-    // validation of any kind -- Rust's own verify_leaf_policy DOES
-    // bound it (quorum == 0 || quorum > keys.len()), so this was
-    // defense-in-depth-only, not an active bypass, but it means this
-    // endpoint added none of its own protection: a future refactor of
-    // that one Rust check would leave this path unguarded with nothing
-    // else to catch it (Kimi K3 scan Family D).
-    const quorumErr = checkNumberBounds(leaf.quorum, { field: `Leaf '${leaf.id}' quorum`, min: 1, max: leaf.keys.length, integer: true });
-    if (quorumErr) return json(400, { error: quorumErr });
-    for (const k of leaf.keys) {
-      try {
-        assertNotPrivateExtendedKey(k);
-      } catch (e) {
-        return json(400, { error: e.message });
-      }
-    }
-    // Floor-check an After leaf's raw relative offset BEFORE tip+offset
-    // conversion below -- Rust's own verify_leaf_policy check only ever
-    // sees the already-absolute value by the time it runs and is a
-    // structural no-op on any live network (same reason compile.js
-    // checks recovery_after/inheritance_after here; this generic
-    // leaf-list path never got the equivalent check at all -- Kimi K3
-    // scan Family D). OlderThan leaves are a duration forwarded
-    // unchanged, not converted, so Rust's own MAX_RELATIVE_BLOCKS check
-    // against the raw value is already effective there -- no gap.
-    if (leaf.unlock?.type === "after") {
-      const err = checkTimelockFloor(leaf.unlock.blocks, `Leaf '${leaf.id}' unlock.blocks`);
-      if (err) return json(400, { error: err });
-    }
-    // Must-sign keys (protocol::Leaf::required_keys): each must sign on
-    // top of the quorum of `keys`. Plain public keys only, never also in
-    // `keys` -- the Rust compiler refuses that too (one signature would
-    // count twice); checked here so the owner gets a sentence, not a
-    // compiler error.
-    if (leaf.required_keys !== undefined) {
-      if (!Array.isArray(leaf.required_keys) || leaf.required_keys.some((k) => typeof k !== "string" || !/^0[23][0-9a-fA-F]{64}$/.test(k))) {
-        return json(400, { error: `The must-sign keys on "${leaf.label || leaf.id}" are not readable public keys.` });
-      }
-      const x = (k) => k.slice(2).toLowerCase();
-      const pool = new Set(leaf.keys.filter((k) => typeof k === "string").map(x));
-      const seen = new Set();
-      for (const k of leaf.required_keys) {
-        if (pool.has(x(k)) || seen.has(x(k))) {
-          return json(400, { error: `A key on "${leaf.label || leaf.id}" is listed twice. A must-sign key cannot also be one of the other keys on the same path.` });
-        }
-        seen.add(x(k));
-      }
-    }
-  }
-  for (const k of vault.consent_keys ?? []) {
-    try {
-      assertNotPrivateExtendedKey(k);
-    } catch (e) {
-      return json(400, { error: e.message });
-    }
-  }
+  const checked = leavesCheck(vault);
+  if (!checked.ok) return json(checked.status, { error: checked.error });
+  const { leaves } = checked;
 
   // A key that belongs to an invited person goes into the vault only
   // after the owner has confirmed it by its fingerprint (operator's
@@ -179,14 +111,8 @@ export async function handler(event) {
     }
   }
 
-  // Only AFTER leaves carry a relative-offset-that-needs-a-tip; OLDER
-  // leaves' block count is already the exact BIP68 duration the caller
-  // wants and must be forwarded unchanged (see compiler/src/main.rs's
-  // /compile-leaves doc comment for the same rule stated on the Rust
-  // side). Fetch the tip only if at least one AFTER leaf needs it.
-  const needsTip = leaves.some((l) => l.unlock?.type === "after");
   let tipHeight = 0;
-  if (needsTip) {
+  if (leavesNeedTip(leaves)) {
     try {
       tipHeight = await fetchVerifiedTipHeight(vault.network);
     } catch (e) {
@@ -194,32 +120,11 @@ export async function handler(event) {
     }
   }
 
-  const wireLeaves = leaves.map((leaf) => {
-    const unlock = leaf.unlock?.type === "after"
-      ? { type: "after", blocks: relativeToAbsolute(leaf.unlock.blocks, tipHeight) }
-      : leaf.unlock;
-    return {
-      id: leaf.id,
-      label: leaf.label || leaf.id,
-      keys: leaf.keys,
-      quorum: leaf.quorum,
-      unlock,
-      decay: leaf.decay ?? null,
-      // Only present on a path that has them, so every other vault's
-      // stored paths keep the exact shape they always had.
-      ...(Array.isArray(leaf.required_keys) && leaf.required_keys.length > 0 ? { required_keys: leaf.required_keys } : {}),
-    };
-  });
+  const wireLeaves = leavesWire(leaves, tipHeight);
 
   let compiled;
   try {
-    const res = await fetchCompiler(COMPILER_URL, "/compile-leaves", {
-      name: vault.name,
-      network: vault.network,
-      leaves: wireLeaves,
-      consent_keys: vault.consent_keys ?? [],
-      consent_quorum: vault.consent_quorum,
-    }, { compilerSecret: COMPILER_SECRET });
+    const res = await fetchCompiler(COMPILER_URL, "/compile-leaves", leavesCompilePayload(vault, wireLeaves), { compilerSecret: COMPILER_SECRET });
     const text = await res.text();
     let data;
     try {
@@ -233,13 +138,8 @@ export async function handler(event) {
     if (!res.ok || !data.ok) {
       return json(400, { error: data.error || "Compiler returned an error" });
     }
-    // Fail closed if the compiler did not honour the must-sign keys. A
-    // compiler build from before they existed ignores the list and
-    // returns a valid, WEAKER vault; nothing is saved in that case.
-    const missing = mustSignPathsNotInScripts(wireLeaves, data.leaf_scripts);
-    if (missing.length > 0) {
-      return json(502, { error: `The vault builder service did not include the must-sign ${missing.length === 1 ? 'key' : 'keys'} for "${missing.join('", "')}". Nothing was saved and no address was made. Try again in a few minutes.` });
-    }
+    const problem = leavesCompiledProblem(wireLeaves, data);
+    if (problem) return json(problem.status, { error: problem.error });
     compiled = data;
   } catch (err) {
     return json(502, { error: `Compiler unreachable: ${compilerFailureReason(err)}` });
@@ -247,29 +147,7 @@ export async function handler(event) {
 
   const { data: saved, error: saveErr } = await supabase
     .from("vaults")
-    .update({
-      address: compiled.address,
-      descriptor: compiled.descriptor,
-      miniscript_policy: compiled.miniscript_policy,
-      // Store the leaf list with the AFTER entries' absolute heights now
-      // baked in -- same reason vaults-compile.js overwrites
-      // recovery_after/inheritance_after with absolute values post-compile:
-      // this must match what the compiled tree actually bakes in, not the
-      // relative offsets the draft started with.
-      leaves: wireLeaves,
-      address_type: "tr_multileaf",
-      status: "compiled",
-      // Per-leaf tapscript bytes, keyed by leaf id (compiler/src/main.rs's
-      // compile_leaves handler). Was never persisted here -- the column
-      // (026_leaf_scripts.sql) has existed since the named-field path
-      // started writing it, but this handler never read compiled.leaf_scripts
-      // off the compiler response at all, so every leaf-list vault compiled
-      // to date has `leaf_scripts: null`, which is what silently breaks
-      // Tapit circle-membership invites for this vault shape (see
-      // circle-membership-delivery.ts / VaultMembershipSetup.tsx).
-      leaf_scripts: compiled.leaf_scripts ?? null,
-      key_origins: keyOrigins,
-    })
+    .update(leavesCompiledRow(compiled, wireLeaves, keyOrigins))
     .eq("id", vaultId)
     .select("id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, status, leaves, leaf_scripts, consent_keys, consent_quorum, key_origins")
     .single();
