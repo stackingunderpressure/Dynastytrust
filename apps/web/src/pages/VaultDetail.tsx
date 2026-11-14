@@ -217,7 +217,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
   // nearing inheritance, an activity row -- shows the spending paths on
   // the overview instead: who holds which key, the one-person answer.
   const openTab = useCallback((id: string) => {
-    if (DOWNLOAD && (id === "members" || id === "messages")) {
+    if (DOWNLOAD && (id === "members" || id === "messages" || id === "requests" || id === "trust")) {
       setTab("overview");
       requestAnimationFrame(() => document.querySelector("[data-dt-spending-paths]")?.scrollIntoView({ behavior: "smooth", block: "start" }));
       return;
@@ -671,17 +671,18 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
                 { id: "overview", label: "Overview" },
                 // Members and Messages need other people and our server:
                 // not in the download (lib/download.ts).
-                ...(DOWNLOAD ? [] : [{ id: "members", label: "Members" }, { id: "messages", label: "Messages" }]),
-                { id: "trust", label: "Trust" },
+                // Trust (members' signed agreements, proof of life) and
+                // Requests (a beneficiary asking for funds) need other
+                // people and our server too.
+                ...(DOWNLOAD ? [] : [{ id: "members", label: "Members" }, { id: "messages", label: "Messages" }, { id: "trust", label: "Trust" }]),
                 { id: "activity", label: "Activity" },
               ]
             : [
                 { id: "overview", label: "Overview" },
                 { id: "send", label: "Send" },
-                { id: "requests", label: "Requests" },
+                ...(DOWNLOAD ? [] : [{ id: "requests", label: "Requests" }]),
                 { id: "history", label: "History", count: pendingCount },
-                ...(DOWNLOAD ? [] : [{ id: "members", label: "Members" }, { id: "messages", label: "Messages" }]),
-                { id: "trust", label: "Trust" },
+                ...(DOWNLOAD ? [] : [{ id: "members", label: "Members" }, { id: "messages", label: "Messages" }, { id: "trust", label: "Trust" }]),
                 { id: "activity", label: "Activity" },
               ]
           ).map(t => (
@@ -754,9 +755,9 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
         {tab === "activity" && (
           <ActivityTab vault={vault} onOpenTab={openTab} />
         )}
-        {tab === "requests" && <RequestsTab vault={vault} onSendPrefill={prefillSend} />}
+        {tab === "requests" && !DOWNLOAD && <RequestsTab vault={vault} onSendPrefill={prefillSend} />}
         {tab === "messages" && !DOWNLOAD && <MessagesTab vault={vault} />}
-        {tab === "trust" && <TrustTab vault={vault} />}
+        {tab === "trust" && !DOWNLOAD && <TrustTab vault={vault} />}
       </main>
     </div>
   );
@@ -940,8 +941,10 @@ function OverviewTab({
       {!plain && <VaultPhaseCard vault={vault} />}
       {!plain && <VaultStructureTree vault={vault} />}
       <TrustDocSection vault={vault} />
-      <StipendsSection vault={vault} onSendPrefill={onSendPrefill} />
-      <DistributionWalletsSection vault={vault} onSendPrefill={onSendPrefill} />
+      {/* Stipends and distribution wallets are kept by our server and
+          paid to other people: not in the download (lib/download.ts). */}
+      {!DOWNLOAD && <StipendsSection vault={vault} onSendPrefill={onSendPrefill} />}
+      {!DOWNLOAD && <DistributionWalletsSection vault={vault} onSendPrefill={onSendPrefill} />}
       {vault.status !== "draft" && (
         <UtxosSection vault={vault} onSendPrefill={onSendPrefill} />
       )}
@@ -1061,18 +1064,23 @@ function OverviewTab({
             >
               Download backup
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              style={{ padding: "3px 9px", fontSize: 15, whiteSpace: "normal" }}
-              disabled={vault.status !== "compiled"}
-              onClick={async () => {
-                const url = await api.pdfUrl(vault.id);
-                window.open(url, "_blank");
-              }}
-            >
-              Download PDF
-            </Button>
+            {/* The PDFs, tax summary, activity export and sealed record are
+                made by our server; Legacy recovery looks the address up on a
+                public explorer. None of them in the download yet. */}
+            {!DOWNLOAD && (
+              <Button
+                variant="ghost"
+                size="sm"
+                style={{ padding: "3px 9px", fontSize: 15, whiteSpace: "normal" }}
+                disabled={vault.status !== "compiled"}
+                onClick={async () => {
+                  const url = await api.pdfUrl(vault.id);
+                  window.open(url, "_blank");
+                }}
+              >
+                Download PDF
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="sm"
@@ -1082,72 +1090,82 @@ function OverviewTab({
             >
               {showDescriptorQr ? "Hide QR" : "Show descriptor QR"}
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              style={{ padding: "3px 9px", fontSize: 15, whiteSpace: "normal" }}
-              disabled={!vault.descriptor}
-              onClick={() => navigate(`/vaults/${vault.id}/legacy-recovery`)}
-            >
-              Legacy recovery setup
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              style={{ padding: "3px 9px", fontSize: 15, whiteSpace: "normal" }}
-              onClick={() => navigate(`/vaults/${vault.id}/record`, { state: { vaultName: vault.name } })}
-            >
-              Sealed record
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              style={{ padding: "3px 9px", fontSize: 15, whiteSpace: "normal" }}
-              onClick={async () => {
-                const url = await api.auditPdfUrl(vault.id);
-                window.open(url, "_blank");
-              }}
-            >
-              Audit PDF
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              style={{ padding: "3px 9px", fontSize: 15, whiteSpace: "normal" }}
-              onClick={async () => {
-                // Default to last completed tax year. The server
-                // accepts any year between 2020 and 2099.
-                const lastYear = new Date().getUTCFullYear() - 1;
-                const yearStr = await askPrompt({
-                  title: "Tax summary",
-                  message: "Which tax year should this summary cover?",
-                  defaultValue: String(lastYear),
-                  placeholder: String(lastYear),
-                  confirmLabel: "Generate",
-                });
-                if (!yearStr) return;
-                const year = Number(yearStr);
-                if (!Number.isInteger(year) || year < 2020 || year > 2099) {
-                  toast.error("Enter a valid 4-digit year between 2020 and 2099.");
-                  return;
-                }
-                const url = await api.taxSummaryUrl(vault.id, year);
-                window.open(url, "_blank");
-              }}
-            >
-              Tax summary
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              style={{ padding: "3px 9px", fontSize: 15, whiteSpace: "normal" }}
-              onClick={async () => {
-                const url = await api.activityExportUrl(vault.id);
-                window.open(url, "_blank");
-              }}
-            >
-              Activity JSON
-            </Button>
+            {!DOWNLOAD && (
+              <Button
+                variant="ghost"
+                size="sm"
+                style={{ padding: "3px 9px", fontSize: 15, whiteSpace: "normal" }}
+                disabled={!vault.descriptor}
+                onClick={() => navigate(`/vaults/${vault.id}/legacy-recovery`)}
+              >
+                Legacy recovery setup
+              </Button>
+            )}
+            {!DOWNLOAD && (
+              <Button
+                variant="ghost"
+                size="sm"
+                style={{ padding: "3px 9px", fontSize: 15, whiteSpace: "normal" }}
+                onClick={() => navigate(`/vaults/${vault.id}/record`, { state: { vaultName: vault.name } })}
+              >
+                Sealed record
+              </Button>
+            )}
+            {!DOWNLOAD && (
+              <Button
+                variant="ghost"
+                size="sm"
+                style={{ padding: "3px 9px", fontSize: 15, whiteSpace: "normal" }}
+                onClick={async () => {
+                  const url = await api.auditPdfUrl(vault.id);
+                  window.open(url, "_blank");
+                }}
+              >
+                Audit PDF
+              </Button>
+            )}
+            {!DOWNLOAD && (
+              <Button
+                variant="ghost"
+                size="sm"
+                style={{ padding: "3px 9px", fontSize: 15, whiteSpace: "normal" }}
+                onClick={async () => {
+                  // Default to last completed tax year. The server
+                  // accepts any year between 2020 and 2099.
+                  const lastYear = new Date().getUTCFullYear() - 1;
+                  const yearStr = await askPrompt({
+                    title: "Tax summary",
+                    message: "Which tax year should this summary cover?",
+                    defaultValue: String(lastYear),
+                    placeholder: String(lastYear),
+                    confirmLabel: "Generate",
+                  });
+                  if (!yearStr) return;
+                  const year = Number(yearStr);
+                  if (!Number.isInteger(year) || year < 2020 || year > 2099) {
+                    toast.error("Enter a valid 4-digit year between 2020 and 2099.");
+                    return;
+                  }
+                  const url = await api.taxSummaryUrl(vault.id, year);
+                  window.open(url, "_blank");
+                }}
+              >
+                Tax summary
+              </Button>
+            )}
+            {!DOWNLOAD && (
+              <Button
+                variant="ghost"
+                size="sm"
+                style={{ padding: "3px 9px", fontSize: 15, whiteSpace: "normal" }}
+                onClick={async () => {
+                  const url = await api.activityExportUrl(vault.id);
+                  window.open(url, "_blank");
+                }}
+              >
+                Activity JSON
+              </Button>
+            )}
         </div>
         <div
           style={{
