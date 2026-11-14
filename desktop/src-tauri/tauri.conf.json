@@ -8,7 +8,15 @@
   },
   "app": {
     "windows": [
-      { "title": "DynastyTrust", "width": 1100, "height": 800, "minWidth": 375, "minHeight": 600 }
+      {
+        "title": "DynastyTrust",
+        "width": 1100,
+        "height": 800,
+        "minWidth": 375,
+        "minHeight": 600,
+        "create": false,
+        "label": "main"
+      }
     ],
     "security": {
       "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ipc: http://ipc.localhost; font-src 'self' data:; object-src 'none'; base-uri 'self'"
@@ -17,6 +25,12 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
   }
 }

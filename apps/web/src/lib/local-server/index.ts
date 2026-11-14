@@ -29,8 +29,31 @@ const NOT_HERE = 'This is not part of the downloaded DynastyTrust yet: it needs 
 
 type Vault = store.Row & Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
+// What the website's database fills in for a column a row does not set
+// (supabase/migrations: the vaults table and every later add column).
+// Pages read these without checking -- a path-builder vault's
+// founder_keys is [] there, never missing -- so the local records carry
+// the same, on write and on read (older local rows included).
+const VAULT_DEFAULTS: Record<string, unknown> = {
+  name: 'Vault', address_type: 'tr', status: 'compiled', archived: false, duress: false,
+  founder_quorum: 2, heir_quorum: 2, recovery_after: 26000, inheritance_after: 52560,
+  founder_keys: [], heir_keys: [], consent_keys: [], backup_keys: [], second_heir_keys: [], protector_keys: [],
+  key_labels: [], key_origins: [], trust_doc: {},
+  recovery_quorum: null, consent_quorum: null, backup_quorum: null, second_heir_quorum: null,
+  second_inheritance_after: null, protector_quorum: null, protector_after: null,
+  planned_founder_count: null, planned_heir_count: null, predecessor_id: null,
+  bloc_policy: null, leaves: null, leaf_scripts: null,
+};
+function insertVault(row: Record<string, unknown>): store.Row {
+  return store.insert('vaults', { ...VAULT_DEFAULTS, ...row });
+}
+function getVault(id: string): Vault | null {
+  const v = store.get('vaults', id);
+  return v ? ({ ...VAULT_DEFAULTS, ...v } as Vault) : null;
+}
+
 function vaultView(v: store.Row): store.Row {
-  return { ...v, my_role: 'owner' };
+  return { ...VAULT_DEFAULTS, ...v, my_role: 'owner' };
 }
 
 async function compiler(endpoint: Parameters<typeof compileOnDevice>[0], request: unknown): Promise<{ ok: true; data: Record<string, unknown> } | { ok: false; answer: LocalAnswer }> {
@@ -67,12 +90,12 @@ async function vaults(method: string, q: URLSearchParams, body: Record<string, u
     if (body.mode === 'leaves-draft') {
       // The path builder's draft (vaults.js "leaves-draft"): the path list
       // as configured so far, partial or empty; compile-leaves checks it.
-      const row = store.insert('vaults', {
+      const row = insertVault({
         user_id: store.LOCAL_USER, name: body.name || 'Vault', network, address_type,
         address: null, descriptor: null, miniscript_policy: null,
         leaves: Array.isArray(body.leaves) ? body.leaves : [],
         consent_keys: body.consent_keys ?? [], consent_quorum: body.consent_quorum ?? null,
-        status: 'draft', archived: false, trust_doc: null, key_origins: [],
+        status: 'draft', archived: false, key_origins: [],
       });
       store.recordEvent(row.id, 'draft_created', { address_type, network, shape: 'leaves' });
       return ok({ vault: vaultView(row) });
@@ -82,7 +105,7 @@ async function vaults(method: string, q: URLSearchParams, body: Record<string, u
     const planned_heir_count = Number(body.planned_heir_count ?? 0);
     if (!planned_founder_count || planned_founder_count < 1) return fail(400, 'planned_founder_count must be >= 1');
     if (planned_heir_count < 0) return fail(400, 'planned_heir_count cannot be negative');
-    const row = store.insert('vaults', {
+    const row = insertVault({
       user_id: store.LOCAL_USER, name: body.name || 'Vault', network, address_type,
       address: null, descriptor: null, miniscript_policy: null,
       founder_quorum: body.founder_quorum ?? planned_founder_count,
@@ -95,13 +118,13 @@ async function vaults(method: string, q: URLSearchParams, body: Record<string, u
       second_heir_keys: [], second_heir_quorum: body.second_heir_quorum ?? null,
       second_inheritance_after: body.second_inheritance_after ?? null,
       founder_keys: [], heir_keys: [], status: 'draft', archived: false,
-      planned_founder_count, planned_heir_count, trust_doc: null, key_origins: [],
+      planned_founder_count, planned_heir_count, key_origins: [],
     });
     store.recordEvent(row.id, 'draft_created', { address_type, network, planned_founder_count, planned_heir_count });
     return ok({ vault: vaultView(row) });
   }
   const id = q.get('id') ?? '';
-  const v = store.get('vaults', id) as Vault | null;
+  const v = getVault(id);
   if (!v) return fail(404, 'Vault not found');
   if (method === 'DELETE') {
     store.remove('vaults', id);
@@ -134,7 +157,7 @@ async function vaults(method: string, q: URLSearchParams, body: Record<string, u
 
 // --- /vaults-compile (the standard vault) -----------------------------------
 async function vaultsCompile(body: Record<string, unknown>): Promise<LocalAnswer> {
-  const v = store.get('vaults', String(body.vault_id ?? '')) as Vault | null;
+  const v = getVault(String(body.vault_id ?? ''));
   if (!v) return fail(404, 'Vault not found');
   if (v.status !== 'draft') return fail(400, 'Vault is not in draft status');
   if (!(body.direct_keys && typeof body.direct_keys === 'object')) return fail(400, 'Every key must be on this computer or a hardware wallet in the download.');
@@ -156,7 +179,7 @@ async function vaultsCompile(body: Record<string, unknown>): Promise<LocalAnswer
 
 // --- /compile-leaves (the path builder) ------------------------------------
 async function compileLeaves(body: Record<string, unknown>): Promise<LocalAnswer> {
-  const v = store.get('vaults', String(body.vault_id ?? '')) as Vault | null;
+  const v = getVault(String(body.vault_id ?? ''));
   if (!body.vault_id) return fail(400, 'Missing: vault_id');
   if (!v) return fail(404, 'Vault not found');
   if (v.status !== 'draft') return fail(400, 'Vault is not in draft status');
@@ -180,7 +203,8 @@ async function compileLeaves(body: Record<string, unknown>): Promise<LocalAnswer
 
 // --- balances and coins ------------------------------------------------------
 function vaultByAddress(address: string): Vault | null {
-  return (store.list('vaults').find(v => v.address === address) as Vault | undefined) ?? null;
+  const row = store.list('vaults').find(v => v.address === address);
+  return row ? getVault(row.id) : null;
 }
 async function balance(q: URLSearchParams): Promise<LocalAnswer> {
   const address = q.get('address') ?? '';
@@ -198,7 +222,7 @@ async function balance(q: URLSearchParams): Promise<LocalAnswer> {
   });
 }
 async function utxos(q: URLSearchParams): Promise<LocalAnswer> {
-  const v = store.get('vaults', q.get('vault_id') ?? '') as Vault | null;
+  const v = getVault(q.get('vault_id') ?? '');
   if (!v?.descriptor) return fail(404, 'Vault not found');
   const conn = core.coreConnFor(String(v.network));
   try {
@@ -226,7 +250,7 @@ async function psbtBinary(body: Record<string, unknown>): Promise<LocalAnswer> {
     const e = checkNumberBounds(fee_rate, { field: 'fee_rate', min: MIN_FEE_RATE_SAT_VB, max: MAX_FEE_RATE_SAT_VB });
     if (e) return fail(400, e);
   }
-  const v = store.get('vaults', String(vault_id)) as Vault | null;
+  const v = getVault(String(vault_id));
   if (!v?.descriptor) return fail(404, 'Vault not found');
   let keys;
   try { keys = spendKeys(v, pubkeyFromXpub); } catch (e) { return fail(500, 'Could not derive /0/0 pubkey from vault xpubs: ' + (e instanceof Error ? e.message : e)); }
@@ -271,7 +295,7 @@ async function proposals(method: string, q: URLSearchParams, body: Record<string
     return ok({ proposals: rows.map(p => ({ ...p, signer_sessions: [] })) });
   }
   if (method === 'POST') {
-    if (!store.get('vaults', String(body.vault_id ?? ''))) return fail(404, 'Vault not found');
+    if (!getVault(String(body.vault_id ?? ''))) return fail(404, 'Vault not found');
     const amount = checkNumberBounds(body.amount_sats, { field: 'amount_sats', min: 1, max: Number.MAX_SAFE_INTEGER, integer: true });
     if (amount) return fail(400, amount);
     const row = store.insert('proposals', {

@@ -9,6 +9,7 @@ import {
   type SelectedKey,
 } from '../lib/descriptor-keys';
 import { api, type Vault, type VaultProposal, type BlocPolicy, type TrustDoc, type VaultInvite, type VaultMember } from '../lib/api';
+import { DOWNLOAD } from '../lib/download';
 import { hydrateSlots, mustSlot } from '../lib/path-people';
 import { PathInvites } from '../components/vault-builder/PathInvites';
 import { KeySafety } from '../components/KeySafety';
@@ -2357,8 +2358,9 @@ function KeysStep({
               mustSlot(leaf.id), `${leaf.label} -- must-sign ${leaf.plannedRequired === 1 ? 'key' : 'keys'}`, leaf.plannedRequired, myMust, setMustSelected, colors.orange,
               `${leaf.plannedRequired === 1 ? 'This key has' : 'Each of these keys has'} to sign every spend on "${leaf.label}", on top of `
                 + `${leaf.quorum} of the ${leaf.plannedKeys} other ${leaf.plannedKeys === 1 ? 'key' : 'keys'} below. A hardware wallet belongs here. `
-                + 'Pick a key you hold, or invite the person who should hold it.',
-              <PathInvites
+                + (DOWNLOAD ? 'Pick a key you hold.' : 'Pick a key you hold, or invite the person who should hold it.'),
+              // Inviting another person needs our server; not in the download.
+              DOWNLOAD ? null : <PathInvites
                 vaultId={vaultId}
                 network={network}
                 ownerUserId={ownerUserId}
@@ -2376,7 +2378,7 @@ function KeysStep({
               leaf.id, leaf.plannedRequired > 0 ? `${leaf.label} -- the other keys` : `${leaf.label} keys`, leaf.plannedKeys, mySelected, setLeafSelected, i === 0 ? colors.gold : colors.blue, description,
               <>
               {notes.length > 0 && <div style={{ marginTop: 10 }}>{notes.map(noteBox)}</div>}
-              <PathInvites
+              {!DOWNLOAD && <PathInvites
                 vaultId={vaultId}
                 network={network}
                 ownerUserId={ownerUserId}
@@ -2386,7 +2388,7 @@ function KeysStep({
                 invites={people.invites}
                 members={people.members}
                 reload={reloadPeople}
-              />
+              />}
               </>,
               pickable,
             )];

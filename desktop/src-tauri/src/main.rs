@@ -153,9 +153,56 @@ async fn bitcoin_rpc(conn: CoreConn, method: String, params: Value, wallet: Opti
         .map_err(|e| format!("internal error: {e}"))?
 }
 
+/// Where a file the page downloads (the vault backup, PDFs, exports) is
+/// saved: the person's Downloads folder, under the name the page chose
+/// reduced to a bare file name, never overwriting a file already there
+/// ("name (2).txt", "name (3).txt", ...). Without this the webview saves
+/// into whatever folder the app happened to be started from -- for the
+/// vault backup, the one file a family needs if this app is gone.
+fn download_destination(downloads: &std::path::Path, suggested: &std::path::Path) -> PathBuf {
+    let name = suggested
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .filter(|n| !n.is_empty() && n != "." && n != "..")
+        .unwrap_or_else(|| "dynastytrust-download".into());
+    let first = downloads.join(&name);
+    if !first.exists() {
+        return first;
+    }
+    let p = std::path::Path::new(&name);
+    let stem = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| name.clone());
+    let ext = p.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+    (2..).map(|i| downloads.join(format!("{stem} ({i}){ext}"))).find(|c| !c.exists()).expect("a free name")
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![bitcoin_rpc])
+        .setup(|app| {
+            use tauri::Manager;
+            // The window is made here, not from the config alone, so its
+            // downloads can be sent to the Downloads folder.
+            // The system's Downloads folder; where the desktop does not say
+            // (a Linux machine without its user-folder settings), the usual
+            // ~/Downloads, made if missing -- never a silent drop.
+            let downloads = app.path().download_dir().ok()
+                .or_else(|| app.path().home_dir().ok().map(|h| h.join("Downloads")));
+            let config = app.config().app.windows.first().cloned().ok_or("no window in tauri.conf.json")?;
+            tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?
+                .on_download(move |_webview, event| {
+                    if let tauri::webview::DownloadEvent::Requested { destination, .. } = event {
+                        match &downloads {
+                            Some(dir) if std::fs::create_dir_all(dir).is_ok() => *destination = download_destination(dir, destination),
+                            // No home folder at all: refuse rather than drop
+                            // the file somewhere nobody will look.
+                            _ => return false,
+                        }
+                    }
+                    true
+                })
+                .build()?;
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running DynastyTrust");
 }
@@ -163,6 +210,23 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn downloads_land_in_downloads_and_never_overwrite() {
+        let dir = std::env::temp_dir().join(format!("dt-dl-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let name = std::path::Path::new("/some/where/else/vault-backup.txt");
+        let first = download_destination(&dir, name);
+        assert_eq!(first, dir.join("vault-backup.txt"), "only the bare file name is kept");
+        std::fs::write(&first, "a").unwrap();
+        let second = download_destination(&dir, name);
+        assert_eq!(second, dir.join("vault-backup (2).txt"));
+        std::fs::write(&second, "b").unwrap();
+        assert_eq!(download_destination(&dir, name), dir.join("vault-backup (3).txt"));
+        assert_eq!(download_destination(&dir, std::path::Path::new("..")), dir.join("dynastytrust-download"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn only_listed_methods_pass() {
