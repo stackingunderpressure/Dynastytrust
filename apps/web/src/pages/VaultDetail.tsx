@@ -219,7 +219,13 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
   const openTab = useCallback((id: string) => {
     if (DOWNLOAD && (id === "members" || id === "messages" || id === "requests" || id === "trust")) {
       setTab("overview");
-      requestAnimationFrame(() => document.querySelector("[data-dt-spending-paths]")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+      // Land the heading BELOW the sticky top bar, not under it.
+      requestAnimationFrame(() => {
+        const target = document.querySelector("[data-dt-spending-paths]");
+        if (!target) return;
+        const bar = document.querySelector("header")?.getBoundingClientRect().height ?? 0;
+        window.scrollTo({ top: window.scrollY + target.getBoundingClientRect().top - bar - 12, behavior: "smooth" });
+      });
       return;
     }
     setTab(id as typeof tab);
