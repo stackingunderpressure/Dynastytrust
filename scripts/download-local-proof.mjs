@@ -72,6 +72,17 @@ core.saveCoreConn({ network: 'regtest' });
 const { handleLocal } = await import('../apps/web/src/lib/local-server/index.ts');
 const { signPsbtWithMnemonic, mergePsbts } = await import('../apps/web/src/lib/psbt-signer.ts');
 
+// The screens' own chain calls (lib/chain.ts and the send buttons' fetch to
+// config.ts broadcastTxUrl), with the download's stand-in installed exactly
+// as main.tsx installs it. Any request that would still leave the computer
+// is caught here and fails the run.
+const leaked = [];
+globalThis.fetch = async (input) => { leaked.push(String(input)); throw new Error(`left the computer: ${input}`); };
+const { installChainFetch } = await import('../apps/web/src/lib/local-server/chain-fetch.ts');
+installChainFetch();
+const chain = await import('../apps/web/src/lib/chain.ts');
+const { broadcastTxUrl, EXPLORER } = await import('../apps/web/src/config.ts');
+
 const call = async (path, method = 'GET', body) => handleLocal(path, { method, ...(body ? { body: JSON.stringify(body) } : {}) });
 const must = async (...a) => {
   const r = await call(...a);
@@ -147,17 +158,41 @@ const prop = (await must('/proposals', 'POST', { vault_id: v.id, path: 'founders
 const signed = [];
 for (const i of [0, 1]) signed.push((await signPsbtWithMnemonic(built.psbt_hex, MNEMONIC, key(i).derivation_path, 'testnet')).psbt_hex);
 const fin = await must('/psbt-finalize', 'POST', { psbt_hex: mergePsbts(signed) });
-const txid = await core.broadcast(core.coreConnFor('signet'), fin.raw_tx_hex);
+// The send button's exact request (VaultDetail.tsx / ProposalDetail.tsx).
+const res = await fetch(broadcastTxUrl('signet'), { method: 'POST', body: fin.raw_tx_hex, headers: { 'Content-Type': 'text/plain' } });
+const txid = (await res.text()).trim();
+assert.ok(res.ok && txid.length === 64, `broadcast refused: ${txid}`);
 assert.equal(txid, fin.txid);
 await must(`/proposals?id=${prop.id}`, 'PATCH', { status: 'broadcast', txid });
+assert.equal(await chain.txConfirmations('signet', txid), 0, 'in the mempool: 0 confirmations');
+// Sending the same transaction again: Core's own answer, not a silent success.
+const again = await fetch(broadcastTxUrl('signet'), { method: 'POST', body: fin.raw_tx_hex });
+assert.equal(again.ok, true, 'Core accepts a re-send of a transaction already in its mempool');
+const bad = await fetch(broadcastTxUrl('signet'), { method: 'POST', body: fin.raw_tx_hex.slice(0, 40) });
+assert.equal(bad.ok, false);
 mine(1);
-const st = await core.txStatus(core.coreConnFor('signet'), String(v.descriptor), txid);
-assert.equal(st.confirmed, true);
+assert.equal(await chain.txConfirmations('signet', txid), 1, 'one block later: 1 confirmation');
 const paid = cli(null, 'getrawtransaction', txid, true, cli(wname, 'gettransaction', txid).blockhash).vout.find(o => o.scriptPubKey.hex === destSpk);
 assert.equal(Math.round(paid.value * 1e8), 10_000_000);
 bal = await must(`/balance?address=${v.address}`);
 assert.equal(bal.confirmed_sats, 50_000_000 - 10_000_000 - built.summary.fee_sats, 'change came back to the vault');
 pass(`spend of 10,000,000 sats built and finalized on the device, signed by two founders, accepted and mined by Core (txid ${txid.slice(0, 16)}...); vault holds ${bal.confirmed_sats} sats`);
+
+// 5b. The chain screens' other questions, from Core: the countdown tip,
+// the two-source tip check (both from your node), and a refusal -- never a
+// trip to the internet -- for anything else an explorer would be asked.
+const coreTip = cli(null, 'getblockcount');
+// The countdown tip is cached 60 s by design (lib/chain.ts), so it may be
+// the height read a block ago; the irreversible-timelock check is uncached
+// and must be the live one.
+const countdownTip = await chain.tipHeight('signet');
+assert.ok(coreTip - countdownTip >= 0 && coreTip - countdownTip <= 1, `countdown tip ${countdownTip} vs node ${coreTip}`);
+assert.equal(await chain.verifiedTipHeight('signet'), coreTip);
+const other = await fetch(`${EXPLORER.signet.api}/address/${destSignet}/txs`);
+assert.equal(other.status, 404);
+assert.match(await other.text(), /asks only your own node/);
+assert.equal(leaked.length, 0, `requests left the computer: ${leaked.join(', ')}`);
+pass(`chain screens answered by Core: tip ${coreTip} (countdowns and the two-source check), confirmations 0 then 1, the send button's broadcast; an unsupported explorer question refused; 0 requests left the computer`);
 
 // 6. The record and the activity list stayed on this computer.
 const props = (await must(`/proposals?vault_id=${v.id}`)).proposals;
