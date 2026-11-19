@@ -64,6 +64,12 @@ pass(`${docs} generated trust documents never describe a fixed date as resetting
 // 2. Sage: the fact sheet leads the prompt; the template digest is clean.
 const src = readFileSync(new URL('../netlify/functions/assistant.js', import.meta.url), 'utf8');
 assert.match(src, /return `\$\{FACT_SHEET\}/, 'the fact sheet must open the system prompt');
+// The page paths Sage is told about must be exactly the ones the chat links.
+const { SAGE_PAGES } = await import('../apps/web/src/lib/sage-text.ts');
+const style = src.slice(src.indexOf('const REPLY_STYLE'), src.indexOf('function buildSystemPrompt'));
+const told = [...new Set(style.match(/(?<![\w/])\/[a-z][a-z-]*(?![\w/-])/g))].sort();
+assert.deepEqual(told, [...SAGE_PAGES].sort(), `Sage is told about ${told} but the chat links ${SAGE_PAGES}`);
+assert.match(src, /\$\{FACT_SHEET\}\n\$\{REPLY_STYLE\}/, 'reply style must follow the fact sheet');
 assert.match(src, /NOTHING moves it/, 'fact sheet must say a fixed date never moves');
 assert.match(src, /everyday path \(spend right away\) CAN be forced/, 'fact sheet must say the everyday path can be forced');
 assert.match(src, /call emergency services/, 'fact sheet must lead with emergency services');

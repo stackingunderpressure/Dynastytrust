@@ -2327,6 +2327,21 @@ signers" as not yet verified. Item 1 above postdates it.
 
 **Recently closed:**
 
+- **Sage's replies: format, length, links (2026-11-19).** From the same live
+  test: every answer showed literal asterisks, ran long, nearly always ended
+  in a question, and never pointed to a page. The chat now renders Sage's
+  text through `lib/sage-text.ts`: **bold** kept, other markdown symbols
+  dropped, and ONLY the app's own pages (/policy, /vaults, a vault's page,
+  /keys, /recover-descriptor) become in-app links -- never HTML, never an
+  outside address. Sage's prompt gains REPLY_STYLE right after the fact
+  sheet: plain sentences, about 120 words unless asked for depth, a direct
+  question gets a direct answer with no habitual question back, and those
+  exact page paths. Tests: `test-sage-text.mjs` (formatting, links, look-
+  alike paths and markup stay plain), and `test-timelock-wording.mjs` now
+  also fails if the pages Sage is told about drift from the ones the chat
+  links. NOT walked: the chat needs the deployed assistant function. Left
+  for later: streaming (the 9-15 s wait).
+
 - **Sage and the presets said fixed dates reset (2026-11-19).** The operator
   tested Sage live: he said the inheritance "clock keeps resetting, so the
   inheritance door never opens while you're still here", and his duress
