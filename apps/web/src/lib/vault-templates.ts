@@ -240,7 +240,7 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
     title: 'Family Inheritance',
     tagline: '2-of-3 trustees . 2-of-3 heirs . 6mo / 2yr',
     useCase:
-      'Classic multi-generational setup. Three trustees share signing duty; after 6 months of trustee silence the same trustees can recover with a reduced quorum; after 2 years the heirs take over. Best starter shape for most families.',
+      'Classic multi-generational setup. Three trustees share signing duty; from a fixed date about 6 months after the vault is built the same trustees can recover with a reduced quorum; from a fixed date about 2 years out the heirs can take over. Those dates do not move with activity. Best starter shape for most families.',
     config: {
       mode: 'inheritance',
       plannedFounders: 3,
@@ -285,10 +285,10 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
         severity: 'info',
       },
       {
-        title: 'All trustees go silent for 2 years',
-        trigger: "No trustee has acted (or can be reached) for 2 years.",
+        title: 'The inheritance date arrives',
+        trigger: "The fixed date set when the vault was built (~2 years out) arrives -- whether or not the trustees are still active.",
         outcome:
-          "The inheritance path unlocks: 2 of 3 heirs can move funds to a fresh vault under their control.",
+          "The inheritance path opens: 2 of 3 heirs can move funds to a fresh vault under their control. Trustee activity does not delay it; to push it later, the trustees rotate to a new vault before the date.",
         actions: [
           "Any two heirs sign on the inheritance path to sweep the vault.",
           "Recompile a new vault with the heirs as new trustees.",
@@ -309,11 +309,11 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
     ],
     trustDoc: {
       purpose:
-        "Multi-generational family Bitcoin trust. Three trustees manage distributions to beneficiaries during the grantor's lifetime. After a prolonged trustee silence (6 months the trustee quorum drops for recovery, 2 years the heir successors take over), on-chain paths unlock to ensure funds reach the next generation.",
+        "Multi-generational family Bitcoin trust. Three trustees manage distributions to beneficiaries during the grantor's lifetime. On fixed dates set when the vault is built (about 6 months: the trustee quorum drops for recovery; about 2 years: the heir successors can take over), on-chain paths unlock to ensure funds reach the next generation.",
       distribution_rules:
         "Trustees (2-of-3) may approve distributions consistent with the purposes below. Every proposal must cite a rule and include a memo. Distributions outside the listed rules require written justification and logging in the audit trail.",
       succession_notes:
-        "Trustees are expected to meet at least annually to confirm signing keys are still accessible and to rotate any member who has become unreachable. If all trustees go silent for 2 years, the heir quorum will automatically inherit via the inheritance path. Trustees should replace themselves BEFORE relying on the timelock -- the on-chain inheritance is a backstop, not the primary mechanism.",
+        "Trustees are expected to meet at least annually to confirm signing keys are still accessible and to rotate any member who has become unreachable. From a fixed date about 2 years after the vault is built, the heir quorum can inherit via the inheritance path whether or not the trustees are active -- to push that date later, the trustees rotate to a new vault before it arrives. Trustees should replace themselves BEFORE relying on the timelock -- the on-chain inheritance is a backstop, not the primary mechanism.",
       rules: [
         {
           id: 'living-expenses',
@@ -396,10 +396,10 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
         severity: 'info',
       },
       {
-        title: 'All silent for 3 years',
-        trigger: "No trustee or beneficiary activity for 3 years.",
+        title: 'The inheritance date arrives',
+        trigger: "The fixed date set when the vault was built (~3 years out) arrives -- activity does not delay it.",
         outcome:
-          "Inheritance path unlocks. Successor heirs (2 of 3) take over.",
+          "Inheritance path opens. Successor heirs (2 of 3) can take over. To push the date later, the trustees rotate to a new vault before it arrives.",
         actions: [
           "Heirs sweep to a fresh vault that they control as the new trustees.",
         ],
@@ -408,11 +408,11 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
     ],
     trustDoc: {
       purpose:
-        "Institutional-grade multi-generational Bitcoin trust. Five independent trustees manage day-to-day distributions (3 signatures required), with a beneficiary-consent gate on every normal spend. After 3 years of trustee silence, the heir quorum inherits.",
+        "Institutional-grade multi-generational Bitcoin trust. Five independent trustees manage day-to-day distributions (3 signatures required), with a beneficiary-consent gate on every normal spend. From a fixed date about 3 years after the vault is built, the heir quorum can inherit.",
       distribution_rules:
         "Every day-to-day distribution requires the trustee quorum (3-of-5) AND at least one beneficiary signature (consent gate). If a beneficiary refuses to cosign, normal spends are frozen -- trustees may only fall back to the recovery path (1 year). All proposals must cite a rule and include a memo for the audit trail.",
       succession_notes:
-        "Trustees must hold quarterly video calls to confirm keys are accessible and to rotate any departing member. If an independent overseer is wanted, seat them as one of the 5 trustee keys rather than a separate role -- their signature is then required for any 3-of-5 quorum. After 3 years with no activity, the heir successors will inherit via the on-chain timelock.",
+        "Trustees must hold quarterly video calls to confirm keys are accessible and to rotate any departing member. If an independent overseer is wanted, seat them as one of the 5 trustee keys rather than a separate role -- their signature is then required for any 3-of-5 quorum. From a fixed date about 3 years after the vault is built, the heir successors can inherit via the on-chain timelock -- the date does not move with activity; to push it later, the trustees rotate to a new vault before then.",
       rules: [
         {
           id: 'scheduled',
@@ -523,7 +523,7 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
     title: 'Lost-Device Insurance',
     tagline: '2-of-3 . 6mo recovery',
     useCase:
-      'Same-person multisig: you hold all three keys on three different devices. Need 2 to spend normally; after 6 months of silence you can spend with just 1. Saves the stack if one device is lost or destroyed.',
+      'Same-person multisig: you hold all three keys on three different devices. Need 2 to spend normally; from a fixed date about 6 months after the vault is built you can also spend with just 1. Saves the stack if one device is lost or destroyed.',
     config: {
       mode: 'inheritance',
       plannedFounders: 3,
@@ -581,7 +581,7 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
     ],
     trustDoc: {
       purpose:
-        "Same-person 2-of-3 multisig for device-loss insurance. The holder keeps all three keys on three different devices kept in geographically separated locations. Normal spends require any 2 keys; after 6 months of silence, any 1 key can spend via the recovery path.",
+        "Same-person 2-of-3 multisig for device-loss insurance. The holder keeps all three keys on three different devices kept in geographically separated locations. Normal spends require any 2 keys; from a fixed date about 6 months after the vault is built, any 1 key can also spend via the recovery path (the date does not move with activity).",
       distribution_rules:
         "Holder spends at their discretion using any 2 of 3 devices. No distributions to third parties by design.",
       succession_notes:
@@ -594,7 +594,7 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
     title: 'Self-Custody + Social Recovery',
     tagline: '2-of-3 you . 3-of-5 peers after 1yr',
     useCase:
-      'You alone control the coins day to day with your own multisig (for example two hardware wallets plus one software key, 2-of-3). If you are ever locked out or go silent for a long time, a quorum of people you trust can rescue the funds -- but only after the timelock, and only as a group. Start with small amounts and a handful of close peers; the large-crowd version of this circle belongs off-chain as a FROST aggregate and is the later climb.',
+      'You alone control the coins day to day with your own multisig (for example two hardware wallets plus one software key, 2-of-3). If you are ever locked out, a quorum of people you trust can rescue the funds -- but only from a fixed date (about a year after the vault is built), and only as a group. That date does not move while you are active; to keep it ahead of you, rotate to a new vault before it arrives. Start with small amounts and a handful of close peers; the large-crowd version of this circle belongs off-chain as a FROST aggregate and is the later climb.',
     config: {
       mode: 'inheritance',
       plannedFounders: 3,
@@ -612,7 +612,7 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
           'Your 2-of-3 signs on Path 1 instantly. No peer is involved and no one but you can move the coins.',
         actions: [
           'Spend with any two of your three keys.',
-          'Moving the coins also refreshes the timelock -- see "You come back".',
+          'Spending does NOT move the peers\' date -- it is fixed when the vault is built. See "Keep the date ahead of you".',
         ],
         severity: 'info',
       },
@@ -628,11 +628,11 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
         severity: 'warn',
       },
       {
-        title: 'You are locked out or go silent',
+        title: 'You are locked out or incapacitated',
         trigger:
-          'You lose enough of your own keys, are incapacitated, or simply stop touching the vault for a long time.',
+          'You lose enough of your own keys, or are incapacitated, and the peers\' date has arrived.',
         outcome:
-          'After ~1 year with no activity, the social-recovery leg unlocks and a 3-of-5 quorum of your trusted peers can move the funds to rescue them.',
+          'From the fixed date (~1 year after the vault was built) the social-recovery leg is open, and a 3-of-5 quorum of your trusted peers can move the funds to rescue them.',
         actions: [
           'Your peers gather and sign 3-of-5 on the social-recovery path after the timelock.',
           'They sweep the funds to the destination named in your trust doc.',
@@ -646,30 +646,30 @@ export const VAULT_TEMPLATES: VaultTemplate[] = [
         outcome:
           'They cannot act: the social leg needs 3 of 5 AND stays locked until the ~1-year timelock passes, giving you a long window to react before any peer quorum could move a sat.',
         actions: [
-          'While you are active the social leg is simply unspendable -- the timelock is your safety margin.',
-          'If you distrust the circle, move the coins (which resets the clock) and rebuild with a new peer set.',
+          'Before the fixed date the social leg is simply unspendable -- the timelock is your safety margin.',
+          'If you distrust the circle, rotate to a new vault with a new peer set and move the coins there.',
         ],
         severity: 'danger',
       },
       {
-        title: 'You come back before the timelock',
-        trigger: 'You were away but return before the social leg unlocks.',
+        title: 'Keep the date ahead of you',
+        trigger: "The peers' date is getting close and you are still here and in control.",
         outcome:
-          'Nothing was ever at risk. Moving the coins to a fresh vault output pushes the timelock back out ahead of you -- this is how the deadman stays armed without ever firing while you are alive.',
+          "The date is fixed in this vault's script -- spending, or moving the coins back to the same vault, does not push it out. Rotating to a NEW vault (a new build, with a new date a year from then) and moving the coins into it does: the old vault is left empty, so its date no longer matters.",
         actions: [
-          'Spend or re-anchor the vault periodically to refresh the timelock.',
-          'Treat a refresh like checking the batteries in a smoke detector.',
+          'Before the date, use Rotate on the vault page to build the successor, then move the coins into it.',
+          'Put the rotation on your calendar like checking the batteries in a smoke detector.',
         ],
         severity: 'info',
       },
     ],
     trustDoc: {
       purpose:
-        "Self-custody vault under the holder's sole control day to day (2-of-3 across the holder's own keys), with a timelocked social-recovery path that lets a 3-of-5 quorum of trusted peers rescue the funds only after a long period of holder inactivity. The peers cannot spend while the holder is active.",
+        "Self-custody vault under the holder's sole control day to day (2-of-3 across the holder's own keys), with a timelocked social-recovery path that lets a 3-of-5 quorum of trusted peers rescue the funds only from a fixed date set when the vault was built. The peers cannot spend before that date; the date does not move with the holder's activity.",
       distribution_rules:
         'The holder spends at will using any 2 of their 3 keys on Path 1. The social-recovery quorum (3 of 5 peers) may spend ONLY after the social-recovery timelock elapses, and only to move funds to the recovery destination named below -- not for ordinary distributions.',
       succession_notes:
-        'This template uses peers-spend-alone-after-timelock: once the social leg unlocks, the peer quorum can move funds without the holder. Pick peers who will still be reachable in years, and pick more than the quorum so a few being unavailable does not strand the recovery. The timelock is a safety margin against peer collusion, not an inheritance trigger; while active, the holder keeps it armed by periodically moving / re-anchoring the coins, which pushes the unlock height back out. Name the destination the peers should sweep to, and review the peer set whenever a relationship changes. The large-crowd version of this circle belongs off-chain as a FROST aggregate -- one on-chain key with many people behind it -- so start small and on-chain and climb to FROST as value grows.',
+        'This template uses peers-spend-alone-after-timelock: once the social leg unlocks, the peer quorum can move funds without the holder. Pick peers who will still be reachable in years, and pick more than the quorum so a few being unavailable does not strand the recovery. The timelock is a safety margin against peer collusion, not an inheritance trigger; the unlock height is fixed when the vault is built, so while active the holder keeps it ahead of them by rotating to a new vault (and moving the coins into it) before the date arrives. Name the destination the peers should sweep to, and review the peer set whenever a relationship changes. The large-crowd version of this circle belongs off-chain as a FROST aggregate -- one on-chain key with many people behind it -- so start small and on-chain and climb to FROST as value grows.',
     },
   },
 

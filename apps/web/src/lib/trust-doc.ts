@@ -80,10 +80,10 @@ export function buildStandardTrustDoc(opts: {
       );
     } else {
       successionParts.push(
-        `If the founders go silent for ${when(c.recoveryAfter)}, the same ${c.founderQ}-of-${c.plannedFounders} founder quorum can still spend -- this rescues funds if a founder key goes missing without waiting for full inheritance.`,
+        `From a fixed date ${when(c.recoveryAfter)} after this vault was built, the same ${c.founderQ}-of-${c.plannedFounders} founder quorum can also spend on the recovery path -- this rescues funds if a founder key goes missing without waiting for full inheritance. The date does not move with activity.`,
       );
       successionParts.push(
-        `If nobody spends at all for ${when(c.inheritanceAfter)}, ${c.heirQ} of ${c.plannedHeirs} successor key${c.plannedHeirs === 1 ? '' : 's'} can act without the founders. Name who holds those successor keys and how they should be reached below.`,
+        `From a fixed date ${when(c.inheritanceAfter)} after this vault was built, ${c.heirQ} of ${c.plannedHeirs} successor key${c.plannedHeirs === 1 ? '' : 's'} can act without the founders -- whether or not the founders are still active. To push that date later, the founders rotate to a new vault before it arrives. Name who holds those successor keys and how they should be reached below.`,
       );
     }
   } else {
@@ -253,7 +253,7 @@ export function buildBlocTrustDoc(opts: {
       `Either parent can also act with ${c.kidsWithParentQ} of the ${c.plannedKids} kids alongside them -- useful once the kids are old enough to co-sign but a parent is still present.`,
     );
     rules.push(
-      `A single parent, alone, can spend after ${when(c.parentSoloAfter)} of the other parent's inactivity -- the co-parent recovery path.`,
+      `From a fixed date ${when(c.parentSoloAfter)} after this vault was built, a single parent can spend alone -- the co-parent recovery path. The date does not move with activity.`,
     );
   }
   rules.push(

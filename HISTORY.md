@@ -2327,6 +2327,40 @@ signers" as not yet verified. Item 1 above postdates it.
 
 **Recently closed:**
 
+- **Sage and the presets said fixed dates reset (2026-11-19).** The operator
+  tested Sage live: he said the inheritance "clock keeps resetting, so the
+  inheritance door never opens while you're still here", and his duress
+  advice left out that the everyday path can be forced. Root cause was not
+  improvisation -- the words were in the source. DynastyTrust has two kinds
+  of timelock: "after a fixed date" (after(), nothing moves it; every
+  preset uses only this, through the standard builder that never emits
+  older()) and "if left untouched" (older(), restarts when coins move; path
+  builder only, capped at 60,000 blocks, never the only fallback). Sage's
+  Social Recovery digest, five places in the Social Recovery template, the
+  Family Inheritance, Generational Trust and Lost-Device Insurance wording,
+  the Revocable Trust preset's third path, and three lines of the generated
+  trust document (`trust-doc.ts`: founders "go silent", "if nobody spends
+  at all", a Bloc parent's "inactivity") all described fixed dates as
+  waiting on silence or refreshing with activity. Fixed: all of that
+  wording now says the date is fixed and that rotating to a new vault is
+  how to push it out; the "if left untouched" wording (trust-doc line for
+  older() paths, the education page) was already right and is unchanged.
+  Sage now opens with a FACT_SHEET that wins over the rest of his prompt:
+  the two kinds of timelock, what can and cannot be forced (everyday path
+  CAN be; Tapit Circle duress phrase and Halt signing are the real
+  protections, grounded in vault-templates.ts and circle-phrase-delivery),
+  Tapit preset details as "by default", and a first sentence of "call
+  emergency services" for danger right now, with no stalling or bluffing
+  advice. Mechanism: `test-timelock-wording.mjs` (in npm test) fails if any
+  preset, any preset's generated trust document, or Sage's template digest
+  describes a fixed date as resetting, and if the fact sheet stops leading
+  the prompt; it failed on the old wording at each step. NOT verified: Sage's
+  live answers (needs the deployed function and its key) -- ask him the two
+  questions again after release. Trust documents already saved on existing
+  vaults keep their old sentences; untouched by choice.
+  Gates: lint 0 errors / 11 warnings, typecheck 10 pre-existing, npm test
+  exit 0, website + download builds green.
+
 - **Hardware signing walk: wrong-network warning (2026-11-19).** The
   operator walked hardware signing end to end with throwaway seeds on a
   private test chain: SeedSigner fork + this app, every vault path, QR
