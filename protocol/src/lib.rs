@@ -1,6 +1,7 @@
 pub mod governance;
 pub mod policy_compiler;
 pub mod psbt_builder;
+pub mod ranged;
 
 pub use governance::{
     GovernanceAudit, GovernanceRule, GovernanceViolation, NextAction, ProposedSpend,
