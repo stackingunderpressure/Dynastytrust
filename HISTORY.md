@@ -2368,6 +2368,17 @@ signers" as not yet verified. Item 1 above postdates it.
     failure, so no change).
   Gates: lint 0 errors / 11 warnings, typecheck 10 pre-existing, npm test
   exit 0, website and download builds green.
+  Second signet walk (operator, on c49b5ab): Open vault, the check mark
+  and the signet default held. Still partly wrong, fixed after: the add-key
+  dropdowns said "+ Add path_1 key..." (now the path name); the owner's
+  member row said "no key yet" on a compiled vault whose keys were all on
+  the device (now "keys set in the vault"); and a new dated path starts
+  with no date -- on purpose, never a guess -- but the only reason given
+  sat above the whole path list, so Continue looked greyed out for no
+  reason. The path itself now says to pick when it opens, and the line by
+  Continue names what is missing. Walked in the desktop window: notes
+  show with no date and clear with one; dropdowns read the path names. The
+  member row is not walkable here (Members is website-only) -- UNVERIFIED.
 
 - **Threat-model audit follow-up: descriptor-swap pinning + a CSP
   (2026-08-29).** Operator, after a long discussion of where DynastyTrust

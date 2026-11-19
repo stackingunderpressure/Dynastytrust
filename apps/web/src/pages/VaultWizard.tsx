@@ -1248,8 +1248,12 @@ function ConfigureStep({
       {err && <p style={{ color: colors.red, fontSize: 17 }}>{err}</p>}
       {leafShapeBlocked && (
         <p style={{ color: colors.red, fontSize: 17 }}>
-          Fix the path warning above before continuing -- Keys and Compile have no way back to
-          change a path's timing.
+          {leafIssues.hasUnsetAfter
+            ? 'A path set to "After a fixed date" has no date yet -- pick one on that path to continue.'
+            : !leafIssues.hasImmediate
+              ? 'One path needs to open right away before you can continue.'
+              : 'A dated path opens too soon -- it needs at least about 6 months.'}{' '}
+          Keys and Compile have no way back to change a path's timing.
         </p>
       )}
       {(stdShapeBlocked || blocShapeBlocked) && (
@@ -1986,6 +1990,15 @@ function LeafCard({
               </p>
             ) : leaf.unlockType === 'after' ? (
               <>
+                {/* Right on the path that needs it: a new dated path starts
+                    with no date on purpose (never a guess), and the owner
+                    saw Continue greyed out with no reason why (signet walk
+                    2026-11-19). */}
+                {leaf.afterBlocks <= 0 && (
+                  <p style={{ fontSize: 17, color: colors.orange, margin: '0 0 8px', lineHeight: 1.5 }}>
+                    Pick when this path opens -- tap a length below or choose a date. Continue stays off until you do.
+                  </p>
+                )}
                 <TimelockField label="" value={leaf.afterBlocks} onChange={v => onChange(l => ({ ...l, afterBlocks: v }))} minBlocks={MIN_RECOVERY_BLOCKS} />
                 <p style={{ fontSize: 18, fontWeight: 450, color: colors.text, lineHeight: 1.5, marginTop: 4 }}>
                   A fixed deadline. Once set, it never moves no matter what happens to the vault before
@@ -2273,7 +2286,7 @@ function KeysStep({
             if (k) setSelected(p => [...p, toSelected(k)]);
           }}
           onRemove={id => setSelected(p => p.filter(k => k.keyId !== id))}
-          role={key}
+          role={leafDrafts.find(l => l.id === key || mustSlot(l.id) === key)?.label ?? key}
           accentColor={accent}
           allKeys={allKeys}
         />

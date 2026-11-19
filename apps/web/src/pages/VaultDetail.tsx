@@ -3379,6 +3379,7 @@ function MembersTab({ vault }: { vault: Vault }) {
             member={m}
             tapitName={m.pubkey ? memberTapitNames.get(m.pubkey) : undefined}
             stale={staleMembers.some(sm => sm.id === m.id)}
+            vaultCompiled={vault.status !== "draft"}
             onRemove={() => void removeMember(m)}
           />
         ))}
@@ -3730,9 +3731,13 @@ function MemberRow({
   member: m,
   tapitName,
   stale,
+  vaultCompiled,
   onRemove,
 }: {
   member: VaultMember;
+  /** The owner's own row carries no key when the keys went straight into
+   *  the vault, so on a compiled vault it is not "no key yet". */
+  vaultCompiled?: boolean;
   /** The person's own chosen identity from their Tapit wallet's kind-0
    *  profile, if their key resolved to one. Leads the row when present;
    *  m.label (the owner-typed local label) follows as a parenthetical. */
@@ -3793,7 +3798,13 @@ function MemberRow({
         </div>
         <div style={{ fontSize: 15, color: colors.muted }}>
           {roleLabel(m.role)}
-          {m.fingerprint ? ` / ${m.fingerprint}` : " / no key yet"}
+          {m.fingerprint
+            ? ` / ${m.fingerprint}`
+            : m.role === "owner" && vaultCompiled
+              // Signet walk 2026-11-19: "Primary trustee / no key yet" on a
+              // vault whose 3 keys were all on this device.
+              ? " / keys set in the vault"
+              : " / no key yet"}
         </div>
       </div>
       {m.role !== "owner" && (
