@@ -2327,6 +2327,28 @@ signers" as not yet verified. Item 1 above postdates it.
 
 **Recently closed:**
 
+- **Hardware signing walk: wrong-network warning (2026-11-19).** The
+  operator walked hardware signing end to end with throwaway seeds on a
+  private test chain: SeedSigner fork + this app, every vault path, QR
+  round-trips unchanged, the device's transaction code matching the app,
+  timelocked spends refused by a real Core node until their height. The
+  most important finding: a SeedSigner left on its default Mainnet signs
+  a signet spend showing bc1 addresses and no warning. Fixed in two
+  places: the fork warns before review when the verified signing keys'
+  coin type does not match the device setting (operator: warn, let them
+  continue -- the signature is identical, only the shown addresses are
+  wrong; fork commit f1d03189 on dev), and this app's hardware-signing
+  QR (proposal page and the vault page's send panel) tells test-coin
+  signers to set SeedSigner to Testnet (`SeedSignerNetworkHint.tsx`).
+  Walked: the hint under the signing QR in the desktop window. The fork's
+  warning is proven by two tests that fail on the old code; full fork
+  suite 463 passed, 5 failed (the same 5 locale tests as dev).
+  Decided, not built: change keeps going to the vault's one fixed address
+  (by design -- see the non-ranged descriptor entry); the fork's label for
+  it, the Taproot export case, the "4 keys" count and the older xpub
+  prefixes are the next slice. An animated setup QR for big vaults waits
+  for a vault that size.
+
 - **Signet walk findings (2026-11-19).** The operator walked the live site
   on signet as a fresh account: a path-builder vault with a founder path,
   recovery after 1 year and inheritance after 2 years, compiled, then a

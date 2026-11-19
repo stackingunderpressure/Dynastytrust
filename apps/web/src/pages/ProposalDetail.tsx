@@ -32,6 +32,7 @@ import { PsbtQrScanner } from "../components/PsbtQrScanner";
 import { useRealtimeRefresh } from "../lib/realtime";
 import { normalizePsbt } from "../lib/psbt-format";
 import { colors, fonts, radii, space } from "../theme";
+import { SeedSignerNetworkHint } from "../components/SeedSignerNetworkHint";
 
 type Session = Awaited<ReturnType<typeof api.signerSessions.list>>["sessions"][number];
 
@@ -553,6 +554,7 @@ export default function ProposalDetail() {
           <ExternalPsbt
             proposalId={proposal.id}
             psbtToSign={signablePsbt}
+            network={vault.network}
             onImported={() => void load()}
           />
         </ActionCard>
@@ -853,10 +855,12 @@ function ActionCard({ children }: { children: React.ReactNode }) {
 function ExternalPsbt({
   proposalId,
   psbtToSign,
+  network,
   onImported,
 }: {
   proposalId: string;
   psbtToSign: string;
+  network: string;
   onImported: () => void;
 }) {
   const toast = useToast();
@@ -944,6 +948,7 @@ function ExternalPsbt({
           <div style={{ fontSize: 15, color: colors.muted, marginTop: 6, textAlign: "center" }}>
             UR `crypto-psbt` animated. Stateless -- no pairing needed. Point your air-gapped signer at the screen.
           </div>
+          <SeedSignerNetworkHint network={network} />
         </div>
       )}
       {showQrScanner && (

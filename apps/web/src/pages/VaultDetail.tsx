@@ -78,6 +78,7 @@ import { MessagingKeyBackupPanel } from "../components/MessagingKeyBackupPanel";
 import { tipHeight, txConfirmations, blocksToApproxLabel } from "../lib/chain";
 import { opensWords, durationWords, rotateDateWords, pathMoments, ROTATE_EXTENSIONS } from "../lib/timelock-words";
 import { buildStandardTrustDoc, standardConfigFromCompiledVault } from "../lib/trust-doc";
+import { SeedSignerNetworkHint } from "../components/SeedSignerNetworkHint";
 
 
 function satsToBtc(sats: number): string {
@@ -2476,6 +2477,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
               <div style={{ fontSize: 15, color: colors.muted, marginTop: 6, textAlign: "center" }}>
                 UR `crypto-psbt` animated. Stateless -- no pairing needed. Point your air-gapped signer at the screen.
               </div>
+              <SeedSignerNetworkHint network={vault.network} />
             </div>
           )}
           {showQrScanner && (
