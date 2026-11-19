@@ -98,7 +98,11 @@ export function WordGrid({ words }: { words: string[] }) {
                 userSelect: vis ? 'text' : 'none',
               }}
             >
-              {w}
+              {/* The words are not in the page at all until revealed --
+                  hiding them with colour alone left all 24 in the page
+                  text, readable by anything that reads the page (signet
+                  walk 2026-11-19). */}
+              {vis ? w : '*******'}
             </span>
           </div>
         ))}

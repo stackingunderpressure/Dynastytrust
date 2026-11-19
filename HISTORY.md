@@ -2375,6 +2375,46 @@ signers" as not yet verified. Item 1 above postdates it.
 
 **Recently closed:**
 
+- **Signet walk findings (2026-11-19).** The operator walked the live site
+  on signet as a fresh account: a path-builder vault with a founder path,
+  recovery after 1 year and inheritance after 2 years, compiled, then a
+  send that correctly stopped on an unfunded balance. Findings and fixes:
+  - *Crash after the wizard ("TypeError: e is not iterable", reload did
+    not help).* Root cause: `compile-leaves.js` and `vaults-compile-bloc.js`
+    returned a short column list (no founder/heir/backup key arrays), and
+    VaultWizard's "Open vault" hands that row to VaultDetail as router
+    state, which survives a reload. Opening from the dashboard used the
+    full list and worked. Fix: one shared list, `_vault-fields.js`
+    (`vaults.js`'s, byte for byte), used by both compile routes and by
+    `vaults.js`. `vaults-compile.js` and `vaults-rotate.js` keep their own
+    (already differing) copies -- not touched. Reproduced in the desktop
+    window by handing the page exactly compile-leaves' columns (crash) and
+    then the full list (opens). Mechanism: `test-vault-rules-leaves.mjs`
+    now fails if a compiled case is returned with anything but
+    `VAULT_FIELDS` (fails on the old code, passes on the new).
+  - *"No key yet" and "look like they came from Tapit" for keys made in
+    this browser.* The owner's member row carries no key when keys go
+    straight into the vault; the Members card now counts the vault's keys
+    held on this device instead. `getTapitCircleMembers` treated every bare
+    pubkey as Tapit-origin, and the path builder stores every key bare; a
+    pubkey held here as an ordinary key is no longer counted. NOT walked:
+    the Members tab is hidden in the download and the website needs our
+    server -- UNVERIFIED on a real surface.
+  - *Keys step showed "path_1".* Slot counts say "key(s)" under the path's
+    own heading, the create button and a new key's name use the path name.
+  - *All 24 seed words in the page text before "Reveal words".* WordGrid
+    now renders masks until revealed (walked: 24 masks, no words, then the
+    words on reveal).
+  - *Done screen showed the word "check".* Now a check mark emoji.
+  - *Key dialogs defaulted to testnet.* Generate and import default to
+    signet, as the vault builder does.
+  - Left as found: Trust/Activity "Loading..." for 1-3 s and a new vault's
+    "-- BTC" (the live balance call answered correctly in 2.4 s for the
+    walked address -- the dash is the loading state; no evidence yet of a
+    failure, so no change).
+  Gates: lint 0 errors / 11 warnings, typecheck 10 pre-existing, npm test
+  exit 0, website and download builds green.
+
 - **Threat-model audit follow-up: descriptor-swap pinning + a CSP
   (2026-08-29).** Operator, after a long discussion of where DynastyTrust
   could be tricked into signing something malicious: "Anything we can do

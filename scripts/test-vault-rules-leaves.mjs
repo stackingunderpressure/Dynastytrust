@@ -68,10 +68,12 @@ const CASES = [
 
 // Stand-ins. The compiler answers deterministically from what it was sent,
 // so the recording captures the request without needing a real compiler.
-let current, sentToCompiler, written, tipCalls;
+let current, sentToCompiler, written, tipCalls, savedSelect;
 const q = (table) => {
   const o = {
-    select: () => o, eq: () => o,
+    // After an update, the columns asked for are what the app is handed
+    // back as "the vault" -- recorded to check below.
+    select: (cols) => { if (written) savedSelect = cols; return o; }, eq: () => o,
     maybeSingle: async () => ({ data: current.vault, error: null }),
     update: (row) => { written = row; return o; },
     single: async () => ({ data: { ...current.vault, ...written }, error: null }),
@@ -102,11 +104,13 @@ mock.module(F('_compiler.js'), { namedExports: {
 const { handler } = await import(F('compile-leaves.js'));
 
 const results = [];
+const selects = [];
 for (const c of CASES) {
   current = { vault: { ...BASE, ...c.vault } };
-  sentToCompiler = null; written = null; tipCalls = 0;
+  sentToCompiler = null; written = null; tipCalls = 0; savedSelect = null;
   const r = await handler({ httpMethod: 'POST', headers: {}, body: JSON.stringify({ vault_id: 'v1', ...(c.body ?? {}) }) });
   results.push({ label: c.label, status: r.statusCode, body: r.body, sentToCompiler, written, tipCalls });
+  selects.push({ label: c.label, status: r.statusCode, savedSelect });
 }
 
 if (process.env.RECORD) {
@@ -117,6 +121,14 @@ if (process.env.RECORD) {
   const before = JSON.parse(readFileSync(FIXTURE, 'utf8'));
   assert.equal(results.length, before.length);
   for (let i = 0; i < results.length; i++) assert.deepEqual(results[i], before[i], `case "${before[i].label}" behaves differently`);
+  // A compiled vault comes back with every column the vault page reads.
+  // A short list crashed the page right after the wizard (live signet
+  // walk, 2026-11-19: "TypeError: e is not iterable").
+  const { VAULT_FIELDS } = await import(F('_vault-fields.js'));
+  for (const s of selects.filter(s => s.status === 200)) {
+    assert.equal(s.savedSelect, VAULT_FIELDS, `case "${s.label}" returns a short vault row`);
+  }
+  console.log(`  [ok] every compiled case returns the full vault row (${selects.filter(s => s.status === 200).length} cases)`);
   const ok = results.filter(r => r.status === 200).length;
   console.log(`  [ok] ${results.length} cases identical to the recording (${ok} compiled, ${results.length - ok} refused)`);
   console.log('vault-rules-leaves tests passed (1 cases)');

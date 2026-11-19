@@ -28,6 +28,7 @@
  */
 
 import { getSupabaseAdmin } from "./_supabase.js";
+import { VAULT_FIELDS } from "./_vault-fields.js";
 import { requireUser, json } from "./_auth.js";
 import { realBitcoinFinalizeProblem } from "./_finalize-guard.js";
 import { recordEvent } from "./_ledger.js";
@@ -187,7 +188,7 @@ export async function handler(event) {
       status: "compiled",
     })
     .eq("id", vaultId)
-    .select("id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, status, bloc_policy")
+    .select(VAULT_FIELDS)
     .single();
   if (saveErr) return json(500, { error: saveErr.message });
 

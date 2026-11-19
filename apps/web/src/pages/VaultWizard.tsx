@@ -596,8 +596,18 @@ export default function VaultWizard() {
     })();
   }, [location.state]);
 
+  // What a key slot is called on screen and in a new key's name: a path
+  // builder's slot ids are internal ("path_1", "path_1#must"), so a key is
+  // named after the path the owner named instead (signet walk 2026-11-19:
+  // "Recovery" showed up as "path_1").
+  function slotName(role: string): string {
+    const leaf = leafDrafts.find(l => l.id === role || mustSlot(l.id) === role);
+    if (leaf) return leaf.label;
+    return `${role[0].toUpperCase()}${role.slice(1)}`;
+  }
+
   async function onGenerateKey(role: string, mode: 'test' | 'secure', password?: string) {
-    const label = `${role[0].toUpperCase()}${role.slice(1)} ${Date.now().toString().slice(-4)}`;
+    const label = `${slotName(role)} ${Date.now().toString().slice(-4)}`;
     const netForKey = network === 'bitcoin' ? 'mainnet' : network;
     if (mode === 'test') {
       const { key, mnemonic } = generateTestKey({ label, network: netForKey, persona: role });
@@ -613,7 +623,7 @@ export default function VaultWizard() {
 
   function onImportXpub(role: string, xpub: string, derivationPath: string, masterFingerprint?: string) {
     const netForKey = network === 'bitcoin' ? 'mainnet' : network;
-    const key = importXpub({ label: `${role[0].toUpperCase()}${role.slice(1)} (imported)`, network: netForKey, xpub, derivationPath, persona: role, masterFingerprint });
+    const key = importXpub({ label: `${slotName(role)} (imported)`, network: netForKey, xpub, derivationPath, persona: role, masterFingerprint });
     refreshKeys();
     addKeyToRole(role, key);
     setGenRole(null);
@@ -621,7 +631,7 @@ export default function VaultWizard() {
 
   function onImportTapitKey(role: string, xOnlyPubkey: string) {
     const netForKey = network === 'bitcoin' ? 'mainnet' : network;
-    const key = importTapitPubkey({ label: `${role[0].toUpperCase()}${role.slice(1)} (Tapit)`, network: netForKey, xOnlyPubkey, persona: role });
+    const key = importTapitPubkey({ label: `${slotName(role)} (Tapit)`, network: netForKey, xOnlyPubkey, persona: role });
     refreshKeys();
     addKeyToRole(role, key);
     setGenRole(null);
@@ -1076,7 +1086,7 @@ export default function VaultWizard() {
       {step === 'done' && compiledVault && (
         <Card>
           <div style={{ padding: 24, textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 14, alignItems: 'center' }}>
-            <div style={{ fontSize: 32 }}>check</div>
+            <div style={{ fontSize: 32 }} aria-hidden="true">✅</div>
             <div style={{ fontSize: 18, fontWeight: 600, color: colors.text }}>Your vault is ready</div>
             <Button onClick={() => navigate(`/vaults/${compiledVault.id}`, { state: { vault: compiledVault } })}>
               Open vault
@@ -2252,7 +2262,9 @@ function KeysStep({
             {description}
           </p>
         )}
-        <SlotHint targetCount={target} filledCount={selected.length} role={key} />
+        {/* A path's slot ids are internal (path_1); its card is already
+            headed with the path's own name, so the count just says keys. */}
+        <SlotHint targetCount={target} filledCount={selected.length} role={leafDrafts.some(l => l.id === key || mustSlot(l.id) === key) ? 'key' : key} />
         <KeyPicker
           selected={selected}
           available={available}
@@ -2270,7 +2282,7 @@ function KeysStep({
         </div>
         {genRole === key && (
           <InlineKeyCreate
-            role={key}
+            role={leafDrafts.find(l => l.id === key || mustSlot(l.id) === key)?.label ?? key}
             network={network}
             onGenerate={(mode, pw) => onGenerateKey(key, mode, pw)}
             onImport={(xpub, path, fp) => onImportXpub(key, xpub, path, fp)}

@@ -114,7 +114,9 @@ function Modal({
 // whatever that label is, so there's no separate concept to expose here.
 function GenerateKeyModal({ onDone, onClose }: { onClose: () => void; onDone: (key: LocalKey, mnemonic: string) => void }) {
   const [label, setLabel] = useState("");
-  const [network, setNetwork] = useState<Network>("testnet");
+  // Signet, as the vault builder defaults to: a key on another network
+  // cannot go into a signet vault (signet walk 2026-11-19).
+  const [network, setNetwork] = useState<Network>("signet");
   const [pw, setPw] = useState<PasswordProtectState>(DEFAULT_PASSWORD_PROTECT_STATE);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -615,7 +617,9 @@ function ChangePasswordModal({ keyData, onDone, onClose }: { keyData: LocalKey; 
 
 function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => void }) {
   const [label, setLabel] = useState("");
-  const [network, setNetwork] = useState<Network>("testnet");
+  // Signet, as the vault builder defaults to: a key on another network
+  // cannot go into a signet vault (signet walk 2026-11-19).
+  const [network, setNetwork] = useState<Network>("signet");
   const [xpub, setXpub] = useState("");
   const [path, setPath] = useState("m/48'/1'/0'/2'");
   // The ONLY trustworthy source of the master fingerprint hardware-wallet
