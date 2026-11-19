@@ -2327,6 +2327,39 @@ signers" as not yet verified. Item 1 above postdates it.
 
 **Recently closed:**
 
+- **v2 ranged addresses, slice 2: database and address issuing
+  (2026-11-19).** Plan: `docs/ranged-addresses-slice2-build-note.md`,
+  covering the operator's seven asks. `supabase/migrations/20261119000000_ranged_addresses.sql`
+  is additive only (no update/delete/rename of existing rows or columns;
+  existing vaults become version 1 by column default): `descriptor_version`
+  plus the v2 descriptors and `ranged_format` with a shape check;
+  `vault_address_branches` (receive and change counters, one row each);
+  `vault_addresses` (every issued address with its descriptor checksum;
+  guard refuses a wrong checksum, an unreserved index, any change but the
+  label); `reserve_vault_address_index` (one row-locked statement,
+  server role only); and `vaults_freeze_compiled`, a trigger that refuses
+  any change to a compiled vault's address, descriptors or keys for every
+  caller, and lets key_origins fill once but never be replaced (vaults.js's
+  repair now refuses the same in words, 409). Rollback:
+  `supabase/rollbacks/...down.sql`, by hand only, refuses while any v2
+  vault or issued address exists. `netlify/functions/vault-addresses.js`
+  issues the next receive address (owner or active member; v1 and drafts
+  refused; the stored descriptors must rebuild the vault's own address
+  before anything is reserved), deriving with the compiler wasm via
+  `_ranged-wasm.js` (sha256-checked against its manifest; shipped with
+  `included_files`) through a new service.rs `/ranged-address` route over
+  `RangedVault::from_stored`. Proven on a real Postgres 16 with all 58
+  earlier migrations replayed (`scripts/ranged-migration-pg.sh`, 45/45):
+  existing rows byte-for-byte unchanged, second apply changes nothing, the
+  lock, 50 simultaneous reservations -> 50 distinct gap-free indexes,
+  the guard, permissions, an interrupted run leaves nothing, rollback
+  refused then clean. npm test adds `test-ranged-migration.mjs`,
+  `test-vault-addresses.mjs` (real wasm; addresses equal Bitcoin Core's
+  vectors) and 2 more Rust tests (9). NOT verified: the function on real
+  Netlify (the bundled loader was run locally from the site root and
+  refuses cleanly without the files). Not added this slice, on purpose:
+  the new columns in `_vault-fields.js` (deploy race; see the build note).
+
 - **v2 ranged addresses, slice 1: the Rust core (2026-11-19).** From the
   operator's build note and proof of concept (poc/ranged-descriptors,
   c1ce948, merged here). `protocol/src/ranged.rs` is now production code:

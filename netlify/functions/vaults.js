@@ -475,6 +475,11 @@ export async function handler(event) {
       if (!Array.isArray(existing.leaves) || !existing.leaves.length) {
         return json(400, { error: "key_origins can only be repaired on a leaf-list vault -- every other shape sets it at compile time" });
       }
+      // Filled once, never replaced (operator, 2026-11-19). The database
+      // enforces the same (vaults_freeze_compiled); this says it in words.
+      if (Array.isArray(existing.key_origins) && existing.key_origins.length > 0) {
+        return json(409, { error: "This vault already has its signing key paths. They are filled once and never replaced." });
+      }
 
       const { data, error } = await supabase
         .from("vaults")

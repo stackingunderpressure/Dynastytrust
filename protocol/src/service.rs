@@ -80,6 +80,7 @@ pub fn handle(endpoint: &str, body: &str) -> (u16, String) {
         "/governance/status" => run(body, governance_status),
         "/governance/audit" => run(body, governance_audit),
         "/validate-address" => run(body, validate_address),
+        "/ranged-address" => run(body, ranged_address),
         other => (404, refusal(&format!("unknown endpoint {other}"))),
     }
 }
@@ -1359,6 +1360,52 @@ pub fn governance_audit(req: GovernanceAuditRequest) -> Result<serde_json::Value
 // endpoint closes the simplest and most dangerous form of it -- a
 // malformed, wrong-network, or outright garbage address string being
 // persisted with literally zero validation.
+
+// -- /ranged-address: one address of a v2 (ranged) vault, derived from the
+// descriptors the database stores (ranged.rs RangedVault::from_stored).
+// Used by netlify/functions/vault-addresses.js through the compiler wasm,
+// so the server issues addresses with the same Rust that was checked
+// against Bitcoin Core (protocol/tests/vectors/ranged.json). Not routed on
+// the Fly compiler: nothing there needs it.
+
+#[derive(Deserialize)]
+pub struct RangedAddressRequest {
+    pub multipath: String,
+    pub receive: String,
+    pub change: String,
+    pub network: String,
+    /// 0 = receive, 1 = change.
+    pub branch: u8,
+    pub index: u32,
+}
+
+#[derive(Serialize)]
+pub struct RangedAddressResponse {
+    pub ok: bool,
+    pub address: String,
+    pub script_pubkey: String,
+    /// Checksum of the branch descriptor that derived it.
+    pub descriptor_checksum: String,
+}
+
+pub fn ranged_address(req: RangedAddressRequest) -> Result<RangedAddressResponse, ServiceError> {
+    use crate::ranged::{Branch, RangedVault};
+    let network = parse_network(&req.network).map_err(|e| api_err(400, e))?;
+    let branch = match req.branch {
+        0 => Branch::Receive,
+        1 => Branch::Change,
+        b => return Err(api_err(400, format!("branch must be 0 (receive) or 1 (change), got {b}"))),
+    };
+    let vault = RangedVault::from_stored(&req.multipath, &req.receive, &req.change, network).map_err(|e| api_err(422, e))?;
+    let definite = vault.definite(branch, req.index).map_err(|e| api_err(400, e))?;
+    let address = definite.address(network).map_err(|e| api_err(422, e))?.to_string();
+    Ok(RangedAddressResponse {
+        ok: true,
+        address,
+        script_pubkey: hex::encode(definite.script_pubkey().as_bytes()),
+        descriptor_checksum: vault.branch_checksum(branch),
+    })
+}
 
 #[derive(Deserialize)]
 pub struct ValidateAddressRequest { pub address: String, pub network: String }

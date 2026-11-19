@@ -264,3 +264,59 @@ fn a_ranged_first_path_hides_a_tapit_only_path_from_other_spends() {
     // carries the circle hash at every address.
     assert!(p0[1].contains(&circle_hash) && p5[1].contains(&circle_hash), "mixed spend still shows the circle");
 }
+
+// 7. Rebuilding from what the database stores gives the same addresses, and
+//    anything tampered or mismatched is refused.
+#[test]
+fn from_stored_reproduces_and_refuses_tampering() {
+    for s in vectors()["shapes"].as_array().unwrap() {
+        let (m, r, c) = (s["multipath_descriptor"].as_str().unwrap(), s["receive_descriptor"].as_str().unwrap(), s["change_descriptor"].as_str().unwrap());
+        let v = RangedVault::from_stored(m, r, c, Network::Regtest).unwrap();
+        assert_eq!(v.addresses(Branch::Receive, 0, 10).unwrap(), strs(&s["receive"]));
+        assert_eq!(v.addresses(Branch::Change, 0, 10).unwrap(), strs(&s["change"]));
+        assert_eq!(v.branch_checksum(Branch::Receive), r.rsplit('#').next().unwrap());
+    }
+    let s = shape("family");
+    let (m, r, c) = (s["multipath_descriptor"].as_str().unwrap(), s["receive_descriptor"].as_str().unwrap(), s["change_descriptor"].as_str().unwrap());
+    let other = shape("poc");
+    // Halves from another vault.
+    assert!(RangedVault::from_stored(m, other["receive_descriptor"].as_str().unwrap(), c, Network::Regtest).is_err());
+    // Receive and change swapped.
+    assert!(RangedVault::from_stored(m, c, r, Network::Regtest).is_err());
+    // A wrong checksum, and none at all.
+    let bad = format!("{}#qqqqqqqq", m.split('#').next().unwrap());
+    assert!(RangedVault::from_stored(&bad, r, c, Network::Regtest).is_err());
+    assert!(RangedVault::from_stored(m.split('#').next().unwrap(), r, c, Network::Regtest).is_err());
+    // A fixed (v1) descriptor is not a ranged vault.
+    let v1 = s["template_descriptor"].as_str().unwrap();
+    let v1 = format!("{}", miniscript::Descriptor::<miniscript::DescriptorPublicKey>::from_str(v1).unwrap());
+    assert_eq!(RangedVault::from_stored(&v1, &v1, &v1, Network::Regtest).unwrap_err(), RangedError::NothingRanged);
+}
+
+// 8. The /ranged-address route (what the address-issuing function calls,
+//    through the compiler wasm) returns the vector's script and the branch
+//    descriptor's checksum, and refuses a bad branch.
+#[test]
+fn ranged_address_route_matches_the_vectors() {
+    use dynastytrust_protocol::service::handle;
+    let s = shape("family");
+    let req = |branch: u8, index: u32| serde_json::json!({
+        "multipath": s["multipath_descriptor"], "receive": s["receive_descriptor"], "change": s["change_descriptor"],
+        "network": "signet", "branch": branch, "index": index,
+    }).to_string();
+    for (branch, key) in [(0u8, "receive"), (1, "change")] {
+        for i in [0u32, 4, 9] {
+            let (status, body) = handle("/ranged-address", &req(branch, i));
+            assert_eq!(status, 200, "{body}");
+            let v: Value = serde_json::from_str(&body).unwrap();
+            // Signet and regtest share the witness program; compare scripts.
+            let want = bitcoin::Address::from_str(s[key][i as usize].as_str().unwrap()).unwrap().assume_checked().script_pubkey();
+            assert_eq!(v["script_pubkey"].as_str().unwrap(), hex::encode(want.as_bytes()), "{key}/{i}");
+            assert!(v["address"].as_str().unwrap().starts_with("tb1p"));
+            let desc = s[format!("{key}_descriptor")].as_str().unwrap();
+            assert_eq!(v["descriptor_checksum"].as_str().unwrap(), desc.rsplit('#').next().unwrap());
+        }
+    }
+    assert_eq!(handle("/ranged-address", &req(2, 0)).0, 400);
+    assert_eq!(handle("/ranged-address", &req(0, MAX_INDEX + 1)).0, 400);
+}

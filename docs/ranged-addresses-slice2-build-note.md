@@ -1,6 +1,13 @@
 # Build note: ranged addresses, slice 2 -- database and address issuing
 
-Status: plan for the operator's OK. Nothing below is built yet.
+Status: BUILT 2026-11-19 on the working branch (operator chose: key paths
+fill-once; Rust as wasm in the function; counters in their own table; no
+v2 creation yet). One deviation, for safety: the new columns are NOT added
+to `_vault-fields.js` in this slice. Every vault read selects that list,
+and the website build and the database job start from the same push --
+if the site went live a moment before the migration, every vault read
+would fail. Nothing needs the columns until v2 vaults can be created; the
+compile slice adds them after the migration is live.
 Base: working branch `claude/dynasty-unify-2026-11` @ `1d7d993` (slice 1, the
 Rust core in `protocol/src/ranged.rs`, Core-checked vectors). Parent plan:
 the operator's `dynastytrust-ranged-addresses-build-note.md` (sections 5 and 7).

@@ -215,6 +215,47 @@ impl RangedVault {
         Ok(vault)
     }
 
+    /// Rebuild a vault from what the database stores: the multipath
+    /// descriptor and its two halves, all with checksums. Every address the
+    /// server issues is derived from THIS, so an issued address can always
+    /// be reproduced from the stored vault. Refuses a non-NUMS internal key,
+    /// anything but two branches, a bad checksum, and stored halves that are
+    /// not exactly the multipath descriptor's own halves.
+    pub fn from_stored(multipath: &str, receive: &str, change: &str, network: Network) -> RResult<Self> {
+        let parse = |s: &str| -> RResult<Descriptor<DescriptorPublicKey>> {
+            if !s.contains('#') {
+                return Err(RangedError::Descriptor("stored descriptor has no checksum".into()));
+            }
+            // from_str verifies a trailing checksum.
+            Descriptor::<DescriptorPublicKey>::from_str(s).map_err(|e| RangedError::Descriptor(e.to_string()))
+        };
+        let multipath = parse(multipath)?;
+        let nums = XOnlyPublicKey::from_slice(&hex::decode(NUMS_HEX).expect("NUMS hex")).expect("NUMS point");
+        match &multipath {
+            Descriptor::Tr(tr) if x_only(tr.internal_key()) == Some(nums) => {}
+            _ => return Err(RangedError::InternalKeyNotNums),
+        }
+        if !multipath.is_multipath() {
+            return Err(RangedError::NothingRanged);
+        }
+        let mut halves = multipath.clone().into_single_descriptors().map_err(|e| RangedError::Descriptor(e.to_string()))?;
+        if halves.len() != 2 {
+            return Err(RangedError::Descriptor(format!("expected a receive and a change branch, got {}", halves.len())));
+        }
+        let change_d = halves.pop().expect("two halves");
+        let receive_d = halves.pop().expect("two halves");
+        if receive_d.to_string() != parse(receive)?.to_string() || change_d.to_string() != parse(change)?.to_string() {
+            return Err(RangedError::Descriptor("the stored receive/change descriptors are not the multipath descriptor's own halves".into()));
+        }
+        Ok(RangedVault { network, multipath, receive: receive_d, change: change_d })
+    }
+
+    /// The checksum of one branch's descriptor -- recorded with every issued
+    /// address, so a row always names the descriptor that derived it.
+    pub fn branch_checksum(&self, branch: Branch) -> String {
+        self.branch_descriptor(branch).rsplit('#').next().unwrap_or_default().to_string()
+    }
+
     pub fn network(&self) -> Network {
         self.network
     }

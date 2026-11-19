@@ -35,6 +35,15 @@
 [functions."ledger-anchor"]
   schedule = "17 9 * * *"
 
+# The v2 address-issuing function derives addresses with the compiler
+# WebAssembly (netlify/functions/_ranged-wasm.js), checked against its
+# manifest before use; both files must ship with the function.
+[functions."vault-addresses"]
+  included_files = [
+    "apps/web/src/lib/wasm/dynastytrust_compiler_wasm.wasm",
+    "apps/web/src/lib/wasm/compiler-wasm.manifest.json",
+  ]
+
 [[plugins]]
   package = "@netlify/plugin-functions-install-core"
 
