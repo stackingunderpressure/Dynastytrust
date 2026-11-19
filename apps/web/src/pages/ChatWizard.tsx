@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { sagePieces } from '../lib/sage-text';
 import { api, type VaultProposal } from '../lib/api';
 import { colors, fonts, radii, space } from '../theme';
 import { Button, Textarea } from '../components/ui';
@@ -271,7 +272,10 @@ function Bubble({
         >
           {isUser ? 'You' : 'Sage'}
         </div>
-        {text}
+        {isUser ? text : sagePieces(text).map((p, i) =>
+          p.kind === 'bold' ? <strong key={i}>{p.text}</strong>
+            : p.kind === 'link' ? <Link key={i} to={p.path} style={{ color: colors.gold }}>{p.text}</Link>
+            : <span key={i}>{p.text}</span>)}
       </div>
     </div>
   );
