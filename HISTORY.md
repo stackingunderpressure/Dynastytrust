@@ -106,54 +106,6 @@ signers" as not yet verified. Item 1 above postdates it.
 
 ## Security backlog (2026-11-09)
 
-- **A spend with 1-545 sats of change could not be signed -- FIXED
-  2026-11-13, on the branch, NOT on main.** Found by a code-reading agent
-  mapping the one-person flows for the download build; confirmed by
-  reading both sides, then reproduced before fixing (operator chose
-  "Reproduce, then fix"). When leftover change is below the 546-sat
-  floor, the compiler (protocol/src/psbt_builder.rs) correctly adds it to
-  the fee, but psbt-binary.js, psbt-binary-bloc.js and
-  psbt-binary-tranche.js still reported the smaller estimated fee, so the
-  phone's check (real fee == fee shown, verifyPsbtMatchesRequest) refused
-  to sign: "The PSBT's real fee is 711 sats, not the 411 sats shown". It
-  failed safe -- no money could be lost -- but a legitimate send was
-  blocked. Fix: in each builder, positive sub-floor change is added to
-  finalFee before the compiler call, the summary and the activity record;
-  a real shortfall still reaches the insufficient-funds refusal. New
-  scripts/test-dust-change.mjs (npm test): the REAL psbt-binary.js
-  handler with the browser compiler module answering its compiler call,
-  then the phone's own check -- normal change, 300-sat change, exactly 0,
-  and a 10-sat shortfall; fails on the old code with the refusal above.
-  NOT run end to end: the Bloc and tranche builders (same three lines,
-  order checked by reading). Gates: npm test green, lint 0 errors / 11
-  warnings, typecheck 10 (same set), build green.
-
-- **Super Sovereign slice 1: the whole vault compiler runs in the browser
-  -- groundwork, 2026-11-13, on the branch, NOT on main.** Operator asked
-  whether the sovereign package (DynastyTrust over Nostr, no hosted
-  servers) was ever built; it was design only (docs/super-sovereign-
-  mode.md). Re-grounded in docs/super-sovereign-build-note.md; chips:
-  groundwork only, own-node slice next, load only when building, and --
-  after the code showed ~2,000 lines of logic inside the server's handlers
-  -- move it into the shared library rather than copy it. Step 1:
-  protocol/src/service.rs (the 12 handlers, unchanged logic), server keeps
-  same-named wrappers. Step 2: compiler-wasm/ + lib/browser-compiler.ts.
-  Proof: a reference of 231 server answers recorded BEFORE the move
-  (offline harness RECORD_COMPILER + 23 hand-made: merge, governance,
-  address validation), replayed: reshaped server 231/231, browser module
-  231/231 (181 byte-identical, 50 identical JSON with the leaf_scripts
-  HashMap reordered -- measured: the server itself reorders it run to run,
-  54 then 51); every PSBT and finalize answer byte-identical. cargo test
-  39 + 130 (same as before) + 2; offline harness OK; Bitcoin Core 32.1
-  proof 14/14 with NO compiler server running. New npm test
-  test-compiler-wasm (fails if protocol/ or compiler-wasm/ changes without
-  a rebuild -- checked by changing a file). Gates: npm test green, lint 0
-  errors / 11 warnings, typecheck 10 (same set), build green. NOT done:
-  the live site still uses Fly (by choice); the module is not in the site
-  build yet (nothing imports it); not walked in a real browser (Node runs
-  the same loader and bytes). Fly redeploys the reshaped compiler next
-  time compiler/ or protocol/ reaches main.
-
 - **Threat model 2026-11-13: holes A, B, C, D, F, H, I, J closed on the
   branch, NOT on main.** Operator: "help me understand where an attacker
   could find vulnerabilities of each stage of a vault ... we're not leaving
@@ -2389,9 +2341,11 @@ signers" as not yet verified. Item 1 above postdates it.
     `vaults.js`. `vaults-compile.js` and `vaults-rotate.js` keep their own
     (already differing) copies -- not touched. Reproduced in the desktop
     window by handing the page exactly compile-leaves' columns (crash) and
-    then the full list (opens). Mechanism: `test-vault-rules-leaves.mjs`
-    now fails if a compiled case is returned with anything but
-    `VAULT_FIELDS` (fails on the old code, passes on the new).
+    then the full list (opens). Mechanism: `test-compile-full-row.mjs`
+    runs the real compile-leaves handler and fails if the vault comes back
+    with anything but `VAULT_FIELDS` (fails on the old code, passes on the
+    new). The Bloc route has no such test yet. On the download branch,
+    `test-vault-rules-leaves.mjs` checks the same for all 7 compiled cases.
   - *"No key yet" and "look like they came from Tapit" for keys made in
     this browser.* The owner's member row carries no key when keys go
     straight into the vault; the Members card now counts the vault's keys
