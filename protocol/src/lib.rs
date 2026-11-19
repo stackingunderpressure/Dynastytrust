@@ -1,6 +1,7 @@
 pub mod governance;
 pub mod policy_compiler;
 pub mod psbt_builder;
+pub mod ranged;
 pub mod service;
 
 pub use governance::{
