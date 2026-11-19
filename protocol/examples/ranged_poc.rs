@@ -1,6 +1,7 @@
 // cargo run -q -p dynastytrust_protocol --example ranged_poc < in.json
 use std::io::Read;
 use std::str::FromStr;
+use bitcoin::bip32::{DerivationPath, Fingerprint, Xpub};
 use bitcoin::{Network, PublicKey};
 use dynastytrust_protocol::ranged::*;
 use dynastytrust_protocol::{build_leaf_multileaf, Leaf, LeafPolicy, Unlock};
@@ -29,14 +30,18 @@ fn main() {
     // 1. compile the policy ONCE with the /0/0 keys -> template
     let tmpl = build_leaf_multileaf(&leaves_from(&v, "keys")).unwrap();
     let compile_ms = t0.elapsed().as_secs_f64() * 1000.0;
-    let keys: Vec<KeyExpr> = v["key_exprs"].as_array().unwrap().iter().map(|k| KeyExpr {
-        template_pubkey: k["pubkey"].as_str().unwrap().into(), fingerprint: k["fp"].as_str().unwrap().into(),
-        account_path: k["path"].as_str().unwrap().into(), xpub: k["xpub"].as_str().unwrap().into() }).collect();
-    let ranged = ranged_from_template(&tmpl.descriptor, &keys).unwrap();
+    // "pubkey" in each key_expr is no longer needed: from_template checks
+    // that each xpub's /0/0 child is a key the compiled vault contains.
+    let keys: Vec<KeyOrigin> = v["key_exprs"].as_array().unwrap().iter().map(|k| KeyOrigin {
+        fingerprint: Fingerprint::from_str(k["fp"].as_str().unwrap()).unwrap(),
+        account_path: DerivationPath::from_str(k["path"].as_str().unwrap()).unwrap(),
+        xpub: Xpub::from_str(k["xpub"].as_str().unwrap()).unwrap() }).collect();
+    let vault = RangedVault::from_template(&tmpl.descriptor, &keys, network).unwrap();
+    let ranged = vault.multipath_descriptor();
     let n = v["count"].as_u64().unwrap_or(5) as u32;
     let t1 = std::time::Instant::now();
-    let recv = derive_addresses(&ranged, network, 0, 0, n).unwrap();
-    let chg = derive_addresses(&ranged, network, 1, 0, n).unwrap();
+    let recv = vault.addresses(Branch::Receive, 0, n).unwrap();
+    let chg = vault.addresses(Branch::Change, 0, n).unwrap();
     let derive_ms = t1.elapsed().as_secs_f64() * 1000.0;
     // 2. cross-check: recompiling the whole policy with the index-i child keys gives the same address
     let mut recompile = vec![];
@@ -53,8 +58,8 @@ fn main() {
     if let Some(sp) = v.get("spend") {
         let ins: Vec<RangedInput> = sp["inputs"].as_array().unwrap().iter().map(|i| RangedInput {
             txid: i["txid"].as_str().unwrap().into(), vout: i["vout"].as_u64().unwrap() as u32, value_sats: i["value"].as_u64().unwrap(),
-            branch: i["branch"].as_u64().unwrap() as usize, index: i["index"].as_u64().unwrap() as u32 }).collect();
-        let p = build_ranged_spend_psbt(&ranged, network, &ins, sp["dest"].as_str().unwrap(), sp["amount"].as_u64().unwrap(),
+            branch: if i["branch"].as_u64().unwrap() == 1 { Branch::Change } else { Branch::Receive }, index: i["index"].as_u64().unwrap() as u32 }).collect();
+        let p = vault.build_spend_psbt(&ins, sp["dest"].as_str().unwrap(), sp["amount"].as_u64().unwrap(),
             sp["fee"].as_u64().unwrap(), sp["change_index"].as_u64().unwrap() as u32, sp["lock_time"].as_u64().unwrap_or(0) as u32).unwrap();
         res["psbt_hex"] = json!(hex::encode(p.serialize()));
     }

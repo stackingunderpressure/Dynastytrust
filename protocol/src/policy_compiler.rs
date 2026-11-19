@@ -20,7 +20,7 @@ pub const MIN_RECOVERY_BLOCKS: u32 = 26_000;
 /// coin sits untouched for 12 months"). See LeafPolicy/Unlock below.
 pub const MAX_RELATIVE_BLOCKS: u32 = 60_000;
 
-const NUMS_HEX: &str =
+pub(crate) const NUMS_HEX: &str =
     "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

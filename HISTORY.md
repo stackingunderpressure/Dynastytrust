@@ -2327,6 +2327,33 @@ signers" as not yet verified. Item 1 above postdates it.
 
 **Recently closed:**
 
+- **v2 ranged addresses, slice 1: the Rust core (2026-11-19).** From the
+  operator's build note and proof of concept (poc/ranged-descriptors,
+  c1ce948, merged here). `protocol/src/ranged.rs` is now production code:
+  `RangedVault::from_template` swaps each key for its `<0;1>/*` multipath
+  form by walking the parsed descriptor (miniscript Translator), not by
+  replacing text; refuses an xpub whose /0/0 key is not in the compiled
+  vault, a duplicate, a wrong-network xpub, a non-NUMS internal key, or no
+  xpubs at all; and requires receive/0 to equal the compiled v1 address.
+  Typed errors, bounded indexes, checked arithmetic. Bare (Tapit) keys stay
+  fixed. Proven: `protocol/tests/vectors/ranged.json` holds receive and
+  change 0-9 for four shapes (PoC, family with shared keys, an older()
+  path, a Tapit shape) from Bitcoin Core 32.1 `deriveaddresses`, confirmed
+  by embit and by the crate -- 80 addresses, all three agree
+  (`scripts/ranged-vectors/generate.py`). `tests/ranged.rs` (7 tests, in
+  npm test via cargo) checks them, recompile-at-index equality at 1/3/9/250,
+  every refusal, and a 3-input PSBT. Measured on a throwaway regtest node:
+  coins on receive/1, receive/7 and change/2 spent in one transaction,
+  change to change/4, signed by Core from the vault's keys, mined (1.0 out,
+  0.1998 change). Tapit, measured not assumed: a Tapit-only path has the
+  same script at every address; with it first in the tree, a spend through
+  ANY other path shows its hash in the proof, so every spend links
+  addresses; moved last, an owner spend hides it but its neighbour's spend
+  still shows it. Not done: SeedSigner signing a multi-input v2 spend,
+  older() spends from a ranged vault, and everything past the Rust core
+  (database, scanning, compiler endpoint, UI, backup). The compiler wasm was
+  rebuilt (its source hash covers protocol/); replay tests pass.
+
 - **Sage's replies: format, length, links (2026-11-19).** From the same live
   test: every answer showed literal asterisks, ran long, nearly always ended
   in a question, and never pointed to a page. The chat now renders Sage's
