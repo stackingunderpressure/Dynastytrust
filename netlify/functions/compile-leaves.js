@@ -31,6 +31,7 @@
 
 import { mustSignPathsNotInScripts } from "./_must-sign-check.js";
 import { getSupabaseAdmin } from "./_supabase.js";
+import { VAULT_FIELDS } from "./_vault-fields.js";
 import { requireUser, json } from "./_auth.js";
 import { realBitcoinFinalizeProblem } from "./_finalize-guard.js";
 import { recordEvent } from "./_ledger.js";
@@ -271,7 +272,7 @@ export async function handler(event) {
       key_origins: keyOrigins,
     })
     .eq("id", vaultId)
-    .select("id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, status, leaves, leaf_scripts, consent_keys, consent_quorum, key_origins")
+    .select(VAULT_FIELDS)
     .single();
   if (saveErr) return json(500, { error: saveErr.message });
 

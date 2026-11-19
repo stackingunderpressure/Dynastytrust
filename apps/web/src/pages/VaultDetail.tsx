@@ -3432,6 +3432,35 @@ function MembersTab({ vault }: { vault: Vault }) {
   );
 }
 
+// The vault's own signing keys (as pubkey hex) that this browser holds a
+// local key for. The owner's member row carries no key of its own when the
+// keys went straight into the vault (the path builder, and the standard
+// wizard's direct keys), so "no key on your row" is not "you can't sign":
+// what decides it is whether any of the vault's keys are here.
+function vaultKeysHeldHere(vault: Vault): { held: number; total: number } {
+  const all = new Set<string>();
+  const add = (x: unknown) => {
+    if (typeof x !== "string") return;
+    if (/^0[23][0-9a-fA-F]{64}$/.test(x)) { all.add(x.toLowerCase()); return; }
+    try { all.add(pubkeyFromXpub(x).toLowerCase()); } catch { /* not a key */ }
+  };
+  for (const leaf of vault.leaves ?? []) {
+    leaf.keys.forEach(add);
+    (leaf.required_keys ?? []).forEach(add);
+  }
+  for (const list of [vault.founder_keys, vault.heir_keys, vault.backup_keys, vault.second_heir_keys, vault.consent_keys]) {
+    (list ?? []).forEach(add);
+  }
+  vault.bloc_policy?.parent_pubkeys.forEach(add);
+  vault.bloc_policy?.kid_pubkeys.forEach(add);
+  const here = new Set(
+    listKeys().filter(k => k.status === "active" && k.origin !== "tapit").map(k => k.pubkey.toLowerCase()),
+  );
+  let held = 0;
+  for (const pk of all) if (here.has(pk)) held++;
+  return { held, total: all.size };
+}
+
 // YourMembershipCard -- shown at the top of the Members tab for the
 // current user. Makes it unambiguous which member row is "you" and
 // gives a one-click path to update the xpub when a member claimed
@@ -3447,6 +3476,37 @@ function YourMembershipCard({
 }) {
   const hasKey = !!me.xpub && !!me.fingerprint && !!me.pubkey && !!me.derivation_path;
   const netLabel = vault.network.toUpperCase();
+  // The owner who put the keys straight into the vault: say how many of
+  // them are on this device instead of "no key yet" (signet walk
+  // 2026-11-19: the dashboard said "You can sign now" while this card said
+  // the opposite, for keys generated in this very browser).
+  const ownerKeys = !hasKey && me.role === "owner" ? vaultKeysHeldHere(vault) : null;
+  if (ownerKeys) {
+    const some = ownerKeys.held > 0;
+    return (
+      <div
+        style={{
+          background: colors.surface,
+          border: `1px solid ${colors.border}`,
+          borderLeft: `3px solid ${some ? colors.green : colors.orange}`,
+          borderRadius: 12,
+          padding: "14px 16px",
+        }}
+      >
+        <div style={{ fontSize: 15, fontWeight: 700, color: colors.gold, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+          Your slot
+        </div>
+        <div style={{ fontSize: 17, color: colors.text, marginTop: 2 }}>
+          {me.label ?? "Unnamed"} <span style={{ color: colors.muted }}>({roleLabel(me.role)})</span>
+        </div>
+        <div style={{ fontSize: 16, color: some ? colors.sub : colors.orange, marginTop: 4 }}>
+          {some
+            ? `${ownerKeys.held} of this vault's ${ownerKeys.total} keys ${ownerKeys.held === 1 ? "is" : "are"} on this device -- you can sign with ${ownerKeys.held === 1 ? "it" : "them"} here.`
+            : `None of this vault's ${ownerKeys.total} keys are on this device. To sign here, restore one in Keys, or sign with the hardware wallet that holds it.`}
+        </div>
+      </div>
+    );
+  }
   return (
     <div
       style={{

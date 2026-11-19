@@ -28,13 +28,21 @@ export interface TapitCircleMembers {
 }
 
 export function getTapitCircleMembers(keyArray: string[]): TapitCircleMembers {
+  // A bare pubkey this browser already holds as an ordinary (non-Tapit)
+  // key is known not to be a Tapit key. The path builder stores EVERY key
+  // bare, so without this a vault built from keys generated right here was
+  // reported as "keys that look like they came from Tapit" (signet walk,
+  // 2026-11-19).
+  const heldHere = new Set(
+    listKeys().filter(k => k.status === 'active' && k.origin !== 'tapit').map(k => k.pubkey.toLowerCase()),
+  );
   const signerPubkeys = new Set<string>();
   const barePubkeys: string[] = [];
   for (const x of keyArray) {
     if (typeof x !== 'string') continue;
     if (x.length === 66) {
       signerPubkeys.add(x);
-      barePubkeys.push(x);
+      if (!heldHere.has(x.toLowerCase())) barePubkeys.push(x);
       continue;
     }
     try {
