@@ -33,6 +33,7 @@ import {
   type TransportEventHandler,
 } from '@dynastytrust/nostr-transport';
 import { decryptFrom } from '@dynastytrust/nip44';
+import { openTapitAnswer, GIFT_WRAP_KIND } from './tapit-gift-wrap';
 
 export const CIRCLE_PHRASE_ACK_KIND = 9581;
 
@@ -72,10 +73,13 @@ export function subscribeCirclePhraseAcks(
     byPubkey.set(toHex(schnorr.getPublicKey(priv)), priv);
   }
   const pubkeys = [...byPubkey.keys()];
-  const handler: TransportEventHandler = (event) => {
-    void handleIncoming(event, byPubkey, onAck);
+  const handler: TransportEventHandler = (wire) => {
+    void openTapitAnswer(wire, CIRCLE_PHRASE_ACK_KIND, p => byPubkey.get(p)).then((event) => {
+      if (event) void handleIncoming(event, byPubkey, onAck);
+    });
   };
-  return transport.subscribe({ kinds: [CIRCLE_PHRASE_ACK_KIND], '#p': pubkeys }, handler);
+  // Both forms: the plain answer and the gift-wrapped one (tapit-gift-wrap.ts).
+  return transport.subscribe({ kinds: [CIRCLE_PHRASE_ACK_KIND, GIFT_WRAP_KIND], '#p': pubkeys }, handler);
 }
 
 async function handleIncoming(

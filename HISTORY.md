@@ -2327,6 +2327,27 @@ signers" as not yet verified. Item 1 above postdates it.
 
 **Recently closed:**
 
+- **Tapit answers can arrive gift-wrapped, hiding which wallet answered
+  (2026-11-23).** From the Tapit privacy review: DynastyTrust's own requests
+  to a Tapit wallet already used a throwaway sender key, but Tapit's four
+  answers (spend 9579, invite ack 9580, phrase ack 9581, sign-in 9582) were
+  signed by the wallet's real key in the clear, so a relay could see which
+  family member approved a spend and when. New `lib/tapit-gift-wrap.ts`
+  opens the NIP-17-style wrap (throwaway-key wrap -> wallet-signed seal ->
+  the exact signed answer as before) and hands the inner answer to each
+  channel's existing, unchanged checks; plain answers still pass through.
+  It refuses a stolen answer re-sealed by another wallet (inner signer must
+  equal seal signer), the wrong reply key, wrong kind and tampering. All
+  four channels now listen for both kinds. Test: `test-tapit-gift-wrap.mjs`
+  opens a REAL wrapped answer built by tapit-wallet's `wrapSignedEvent`
+  (`scripts/fixtures/tapit-gift-wrapped-answer.json`, same file in both
+  repos) and runs one through the real spend channel. Plan:
+  tapit-wallet `docs/NOSTR_METADATA_PLAN.md`, Phase 1 -- this side ships
+  first; Tapit switches to sending wrapped only after this is live. Gates:
+  lint 0 errors (11 warnings, same as before), typecheck 10 errors (all
+  pre-existing, none in touched files), build OK, npm test exit 0. NOT
+  walked against live relays.
+
 - **Sage's replies: format, length, links (2026-11-19).** From the same live
   test: every answer showed literal asterisks, ran long, nearly always ended
   in a question, and never pointed to a page. The chat now renders Sage's

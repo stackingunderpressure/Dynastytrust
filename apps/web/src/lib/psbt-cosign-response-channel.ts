@@ -23,6 +23,7 @@ import {
   type TransportEventHandler,
 } from '@dynastytrust/nostr-transport';
 import { decryptFrom } from '@dynastytrust/nip44';
+import { openTapitAnswer, GIFT_WRAP_KIND } from './tapit-gift-wrap';
 import { fromHex, toHex } from '@dynastytrust/bip341-psbt-signer';
 
 export const PSBT_COSIGN_RESPONSE_KIND = 9579;
@@ -67,14 +68,18 @@ export function subscribePsbtCosignResponses(
   const handler: TransportEventHandler = (event) => {
     void handleIncoming(event, replyPrivateKey, onResponse);
   };
-  return transport.subscribe({ kinds: [PSBT_COSIGN_RESPONSE_KIND], '#p': [replyPublicKey] }, handler);
+  // Both forms: the plain answer and the gift-wrapped one (tapit-gift-wrap.ts).
+  return transport.subscribe({ kinds: [PSBT_COSIGN_RESPONSE_KIND, GIFT_WRAP_KIND], '#p': [replyPublicKey] }, handler);
 }
 
 async function handleIncoming(
-  event: TransportEvent,
+  wire: TransportEvent,
   replyPrivateKey: string,
   onResponse: PsbtCosignResponseHandler,
 ): Promise<void> {
+  const replyPublicKey = toHex(schnorr.getPublicKey(fromHex(replyPrivateKey)));
+  const event = await openTapitAnswer(wire, PSBT_COSIGN_RESPONSE_KIND, p => (p === replyPublicKey ? replyPrivateKey : undefined));
+  if (!event) return;
   if (!(await verifyEvent(event))) return;
   let plaintext: string;
   try {

@@ -23,6 +23,7 @@ import {
   type TransportEventHandler,
 } from '@dynastytrust/nostr-transport';
 import { decryptFrom } from '@dynastytrust/nip44';
+import { openTapitAnswer, GIFT_WRAP_KIND } from './tapit-gift-wrap';
 import { DEFAULT_RELAYS } from './tapit-nostr-cosign';
 
 export const SIGN_IN_RESPONSE_KIND = 9582;
@@ -69,10 +70,13 @@ export function subscribeSignInResponses(
   relays: readonly string[] = DEFAULT_RELAYS,
 ): { subscription: Subscription; transport: NostrTransport } {
   const transport = new NostrTransport({ relays });
-  const handler: TransportEventHandler = event => {
-    void handleIncoming(event, replyPrivateKey, onResponse);
+  const handler: TransportEventHandler = wire => {
+    void openTapitAnswer(wire, SIGN_IN_RESPONSE_KIND, p => (p === replyPublicKey.toLowerCase() ? replyPrivateKey : undefined)).then(event => {
+      if (event) void handleIncoming(event, replyPrivateKey, onResponse);
+    });
   };
-  const subscription = transport.subscribe({ kinds: [SIGN_IN_RESPONSE_KIND], '#p': [replyPublicKey] }, handler);
+  // Both forms: the plain answer and the gift-wrapped one (tapit-gift-wrap.ts).
+  const subscription = transport.subscribe({ kinds: [SIGN_IN_RESPONSE_KIND, GIFT_WRAP_KIND], '#p': [replyPublicKey] }, handler);
   return { subscription, transport };
 }
 
