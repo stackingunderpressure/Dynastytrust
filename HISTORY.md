@@ -2327,6 +2327,11 @@ signers" as not yet verified. Item 1 above postdates it.
 
 **Recently closed:**
 
+- **Released to main 2026-11-24 (operator: "Ship it, I'll test"):** Z4
+  accounts without identity, below. Owed: the operator's iPhone walk --
+  create a Face ID account, sign out and back in, then sign in on a second
+  Apple device with the same Apple ID (the recovery proof).
+
 - **Z4: accounts without identity (2026-11-24).** Operator: "I like z4";
   chips: synced passkey only, offer to remove email, name on the phone,
   email behind "Other ways". Build note:
