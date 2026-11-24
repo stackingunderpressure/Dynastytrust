@@ -105,3 +105,5 @@ exact-bytes check makes today.
 - After both ship: resend My Vault's membership request from the Members
   tab, accept in Tapit, then retry the spend. Not walked on a phone yet.
 Shipped to main 2026-11-24 with the Electrum coin lookups (operator: "Ship both now").
+
+Walked 2026-11-24 by the operator on signet: Tapit (after d970934, resend shown) co-signed My Vault; broadcast as 1be29ee383816bc05126ad0de4582ff5b6bed0918ae2279f59c7fa446437c4db (1,000 sats out, 8,810 change to a never-used address, fee 190); confirmed, and the change shows on the coins card.
