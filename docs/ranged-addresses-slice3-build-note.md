@@ -82,12 +82,15 @@ let real bitcoin reach those addresses (decision 2).
 Converting existing vaults (they keep their one address); `older()` spends;
 gap-limit warnings (need slice 4).
 
-## Decisions -- the operator's
+## Decisions (operator's chips, 2026-11-24)
 
-1. New vaults: fresh addresses by default, or a choice the owner ticks.
-2. Real bitcoin before slices 4-5: test coins only, or allowed.
-3. Paths that wait "if left untouched": refuse in a multi-address vault for
-   now, or build that spend support first.
-4. A path held only by Tapit keys (same script at every address, so those
-   addresses link together on-chain): allow with a plain warning, or require
-   keys with an xpub.
+1. New vaults: **fresh addresses by default** (a single fixed address stays
+   available as a choice).
+2. Real bitcoin: **allowed now**. To keep "no money lands where the app
+   cannot see it" true, slices 3, 4 and 5 ship to main TOGETHER, not one by
+   one: nothing that can hand out receive/1+ goes live before coin-finding
+   and spending do.
+3. "If left untouched" paths: **build that spend support first** (per-coin
+   relative lock in the spend slice) rather than refuse them.
+4. Tapit-only paths: **allowed, with a plain warning** that their addresses
+   can be linked.
