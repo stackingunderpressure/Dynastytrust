@@ -40,7 +40,12 @@ async function vaultBalance(event, vaultId) {
   const network = vault.network || 'testnet';
   try {
     const watched = watchedAddresses(vault, vault.descriptor_version === 2 ? await nextIndexes(supabase, vault.id) : undefined);
-    const coins = await coinsAt(network, watched);
+    // One scan serves both the balance and the coins card (2026-11-24: two
+    // scans per page view got the server refused by mempool.space).
+    const [coins, tip] = await Promise.all([
+      coinsAt(network, watched),
+      mempoolFetch(`${MEMPOOL[network] || MEMPOOL.testnet}/blocks/tip/height`).catch(() => null),
+    ]);
     const confirmed_sats = coins.filter(c => c.status?.confirmed).reduce((n, c) => n + (c.value || 0), 0);
     const unconfirmed_sats = coins.filter(c => !c.status?.confirmed).reduce((n, c) => n + (c.value || 0), 0);
     const total_sats = confirmed_sats + unconfirmed_sats;
@@ -61,6 +66,18 @@ async function vaultBalance(event, vaultId) {
       mempool_url: `${(MEMPOOL[network] || MEMPOOL.testnet).replace(/\/api$/, '')}/address/${vault.address}`,
       tx_count: coins.length,
       addresses_watched: watched.length,
+      tip: typeof tip === 'number' ? tip : null,
+      // The same shape utxos.js answers, so the coins card needs no second scan.
+      coins: coins.map(c => {
+        const confirmed = !!c.status?.confirmed;
+        const block_height = c.status?.block_height ?? null;
+        return {
+          txid: c.txid, vout: c.vout, value_sats: c.value, confirmed,
+          block_height, block_time: c.status?.block_time ?? null,
+          confirmations: confirmed && block_height != null && typeof tip === 'number' ? Math.max(0, tip - block_height + 1) : 0,
+          address: c.address, branch: c.branch, index: c.index,
+        };
+      }).sort((a, b) => b.value_sats - a.value_sats),
     });
   } catch (err) {
     console.error('Vault balance error:', err);

@@ -593,6 +593,15 @@ export interface BalanceResult {
   confirmed_utxos: number;
   mempool_url: string;
   tx_count: number;
+  /** Fresh-address vaults only (balance by vault): the coins the balance was
+   *  summed from, and the chain height -- the coins card uses these instead
+   *  of scanning every address a second time. */
+  tip?: number | null;
+  coins?: {
+    txid: string; vout: number; value_sats: number; confirmed: boolean;
+    block_height: number | null; block_time: number | null; confirmations: number;
+    address?: string; branch?: number; index?: number;
+  }[];
 }
 
 // Multi-member vault types (B1 schema in db/migrations/003_members.sql).

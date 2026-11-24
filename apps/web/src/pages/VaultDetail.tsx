@@ -760,6 +760,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
             proposals={proposals}
             onOpenTab={openTab}
             coinsKey={`${balance?.total_sats ?? ""}:${balance?.utxo_count ?? ""}`}
+            balance={balance}
           />
         )}
         {tab === "send" && (
@@ -796,6 +797,7 @@ function OverviewTab({
   proposals,
   onOpenTab,
   coinsKey,
+  balance,
 }: {
   vault: Vault;
   copy: (text: string, id: string) => void;
@@ -805,6 +807,7 @@ function OverviewTab({
   onOpenTab: (id: string) => void;
   /** Changes when the balance reloads, so the coins card refreshes too. */
   coinsKey?: string;
+  balance?: BalanceResult | null;
 }) {
   // Ranged slice 6: a vault with a new address every time shows, copies and
   // QR-codes the descriptor of EVERY address (<0;1>/*) -- what a wallet or
@@ -977,7 +980,7 @@ function OverviewTab({
       {/* Operator, 2026-11-24: the coins, and when each path opens for each
           one, right under the balance (docs/coin-unlock-view-build-note.md). */}
       {vault.status !== "draft" && (
-        <UtxosSection vault={vault} onSendPrefill={onSendPrefill} refreshKey={coinsKey} />
+        <UtxosSection vault={vault} onSendPrefill={onSendPrefill} refreshKey={coinsKey} balance={balance} />
       )}
       <RemindersBanner vaultId={vault.id} />
       <SuccessionBanner vault={vault} onSendPrefill={onSendPrefill} />
@@ -2609,7 +2612,7 @@ function SendTab({ vault, balance, onDone, prefill, onPickCoins }: {
         each one; picking coins is optional -- the app picks the fewest. */}
     {vault.status !== "draft" && onPickCoins && (
       <div style={{ marginBottom: 14, maxWidth: 480 }}>
-        <UtxosSection vault={vault} onSendPrefill={p => onPickCoins({ ...(prefill ?? {}), ...p })} refreshKey={`${balance?.total_sats ?? ""}:${balance?.utxo_count ?? ""}`} />
+        <UtxosSection vault={vault} onSendPrefill={p => onPickCoins({ ...(prefill ?? {}), ...p })} refreshKey={`${balance?.total_sats ?? ""}:${balance?.utxo_count ?? ""}`} balance={balance} />
       </div>
     )}
     <form
@@ -8724,11 +8727,15 @@ function UtxosSection({
   vault,
   onSendPrefill,
   refreshKey,
+  balance,
 }: {
   vault: Vault;
   onSendPrefill: (p: SendPrefill) => void;
   /** Reloads the list when this changes (the balance reloaded). */
   refreshKey?: string;
+  /** A fresh-address vault's balance already carries its coins (one scan
+   *  for both, 2026-11-24); then the card shows those and does not scan. */
+  balance?: BalanceResult | null;
 }) {
   const toast = useToast();
   const [utxos, setUtxos] = useState<Array<{
@@ -8748,7 +8755,14 @@ function UtxosSection({
   const [copied, setCopied] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
 
+  const fromBalance = balance?.coins ?? null;
   const load = useCallback(async () => {
+    if (fromBalance) {
+      setUtxos(fromBalance);
+      setTip(balance?.tip ?? null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const res = await api.utxos(vault.id);
@@ -8759,7 +8773,7 @@ function UtxosSection({
     } finally {
       setLoading(false);
     }
-  }, [vault.id, toast]);
+  }, [vault.id, toast, fromBalance, balance?.tip]);
 
   useEffect(() => { void load(); }, [load, refreshKey]);
 

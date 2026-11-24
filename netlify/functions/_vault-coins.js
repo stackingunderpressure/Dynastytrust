@@ -13,8 +13,17 @@
 import { callWasm } from "./_ranged-wasm.js";
 import { MEMPOOL, mempoolFetch } from "./_chain.js";
 
-/** Unused addresses watched past the last reserved index, per branch. */
-export const LOOK_AHEAD = { 0: 10, 1: 5 };
+/** Unused addresses watched past the last reserved index, per branch.
+ *  Every address the app ever handed out is always watched; this margin is
+ *  only for an address another wallet holding the descriptor gave out.
+ *  Was 10/5 until 2026-11-24, when mempool.space started refusing ("429 too
+ *  many requests") the scans of a fresh-address vault's page (measured:
+ *  views 3-6 of 6 all refused). */
+export const LOOK_AHEAD = { 0: 5, 1: 2 };
+/** Lookups in flight at once, and how often a refused one is retried. */
+const PARALLEL = 3;
+const RETRIES = 2;
+const RETRY_WAIT_MS = 1200;
 const MAX_PER_BRANCH = 200; // the wasm route's own cap
 
 /** Reserved-index counters for a v2 vault: { 0: n, 1: m } (0 when unset). */
@@ -60,15 +69,30 @@ export function watchedAddresses(vault, next = { 0: 0, 1: 0 }, call = callWasm) 
   return out;
 }
 
+/** A lookup that mempool.space refused for load (429) or a connection that
+ *  dropped is retried after a short wait; anything else fails at once. */
+async function withRetry(fn, wait = RETRY_WAIT_MS) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      const msg = String(e?.message || e);
+      const retryable = /\b429\b|fetch failed|ECONNRESET|socket hang up|ETIMEDOUT/i.test(msg);
+      if (!retryable || attempt >= RETRIES) throw e;
+      await new Promise((r) => setTimeout(r, wait * (attempt + 1)));
+    }
+  }
+}
+
 /** Unspent coins on every watched address, each tagged with where it sits. */
-export async function coinsAt(network, watched, fetchJson = mempoolFetch, parallel = 6) {
+export async function coinsAt(network, watched, fetchJson = mempoolFetch, parallel = PARALLEL, retryWaitMs = RETRY_WAIT_MS) {
   const base = MEMPOOL[network] || MEMPOOL.testnet;
   const out = [];
   let next = 0;
   async function worker() {
     while (next < watched.length) {
       const w = watched[next++];
-      const raw = await fetchJson(`${base}/address/${w.address}/utxo`);
+      const raw = await withRetry(() => fetchJson(`${base}/address/${w.address}/utxo`), retryWaitMs);
       for (const u of raw || []) out.push({ ...u, address: w.address, branch: w.branch, index: w.index });
     }
   }

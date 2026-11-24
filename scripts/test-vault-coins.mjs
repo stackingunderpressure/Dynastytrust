@@ -57,7 +57,7 @@ mock.module(F('_auth.js'), { namedExports: {
   json: (statusCode, body) => ({ statusCode, body }),
 } });
 
-const { watchedAddresses, LOOK_AHEAD } = await import(F('_vault-coins.js'));
+const { watchedAddresses, coinsAt, LOOK_AHEAD } = await import(F('_vault-coins.js'));
 
 // 1. v1: its one address.
 assert.deepEqual(watchedAddresses(V1), [{ branch: 0, index: 0, address: V1.address }]);
@@ -69,7 +69,7 @@ const rec = w.filter(a => a.branch === 0), chg = w.filter(a => a.branch === 1);
 assert.equal(rec.length, 1 + LOOK_AHEAD[0]); assert.equal(chg.length, 1 + LOOK_AHEAD[1]);
 rec.slice(0, 10).forEach((a, i) => assert.equal(prog(a.address), prog(shape.receive[i])));
 chg.forEach((a, i) => assert.equal(prog(a.address), prog(shape.change[i])));
-pass("a fresh vault watches receive 0-10 and change 0-5, each Bitcoin Core's");
+pass(`a fresh vault watches receive 0-${LOOK_AHEAD[0]} and change 0-${LOOK_AHEAD[1]}, each Bitcoin Core's`);
 
 // 3. Watches every reserved index plus the look-ahead.
 w = watchedAddresses(V2, { 0: 30, 1: 7 });
@@ -125,5 +125,37 @@ chain = { [V1.address]: [coin(700, true)] };
 r = await utxos({ httpMethod: 'GET', headers: {}, queryStringParameters: { vault_id: V1.id } });
 assert.equal(r.body.utxos.length, 1); assert.equal(r.body.utxos[0].index, 0); assert.equal(r.body.utxos[0].value_sats, 700);
 pass('a one-address vault lists its coins as before');
+
+// 9. mempool.space refusing for load (429) or a dropped connection: the
+// lookup is retried after a wait; refused every time, the scan fails
+// honestly (2026-11-24: page views 3-6 of 6 were all refused).
+{
+  let calls = 0;
+  const flaky = async (url) => { calls++; if (calls <= 2) throw new Error('mempool.space 429: ' + url); return []; };
+  const r = await coinsAt('signet', [{ branch: 0, index: 0, address: V2.address }], flaky, 1, 1);
+  assert.deepEqual(r, []); assert.equal(calls, 3);
+  const always = async () => { throw new Error('mempool.space 429: x'); };
+  await assert.rejects(() => coinsAt('signet', [{ branch: 0, index: 0, address: V2.address }], always, 1, 1), /429/);
+  const notRetried = async () => { throw new Error('mempool.space 400: x'); };
+  let tried = 0;
+  await assert.rejects(() => coinsAt('signet', [{ branch: 0, index: 0, address: V2.address }], async (u) => { tried++; return notRetried(u); }, 1, 1), /400/);
+  assert.equal(tried, 1);
+}
+pass('a refused (429) lookup is retried and succeeds; refused every time it fails honestly; other errors are not retried');
+
+// 10. The vault balance carries its coins and the tip: one scan per page view.
+{
+  user = 'owner-1';
+  chain = { [V2.address]: [{ txid: 'c'.repeat(64), vout: 1, value: 4000, status: { confirmed: true, block_height: 991 } }] };
+  db = { vaults: [V2], members: [], next: { 0: 1, 1: 0 } };
+  fetched = [];
+  const r = await balance({ httpMethod: 'GET', headers: {}, queryStringParameters: { vault_id: V2.id } });
+  assert.equal(r.statusCode, 200, JSON.stringify(r.body));
+  assert.equal(r.body.tip, 1000);
+  assert.equal(r.body.coins.length, 1);
+  assert.deepEqual(r.body.coins[0], { txid: 'c'.repeat(64), vout: 1, value_sats: 4000, confirmed: true, block_height: 991, block_time: null, confirmations: 10, address: V2.address, branch: 0, index: 0 });
+  assert.equal(fetched.filter(u => u.endsWith('/utxo')).length, r.body.addresses_watched);
+}
+pass('the vault balance answers with its coins and the chain height, so the coins card does not scan again');
 
 console.log(`vault-coins tests passed (${n} cases)`);
