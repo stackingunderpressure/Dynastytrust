@@ -2327,6 +2327,45 @@ signers" as not yet verified. Item 1 above postdates it.
 
 **Recently closed:**
 
+- **A new address every time (ranged addresses, slices 3-6, 2026-11-24).**
+  Operator: "Yes start the multiple addresses work" -- "a new change address
+  each time and fresh receive address each time". Chips: fresh by default
+  (one fixed address stays a choice); real bitcoin allowed now, so slices 3-6
+  shipped in ONE release; "if left untouched" spends built, not refused, and
+  only coins whose own wait is over are used; Tapit-only paths allowed with a
+  plain warning; backups ship in the same release; a spend that combines
+  addresses says so. Root cause of the old behaviour: every vault was one
+  fixed address (`[fp/path]xpub/0/0`, entry of 2026-08-06 below), because the
+  compiler could only build a spend for the exact /0/0 keys. Now a vault
+  compiles exactly as before, then the compiler wasm builds the same vault in
+  `<0;1>/*` form (refusing any xpub whose /0/0 key is not the vault's and
+  unless receive/0 equals the compiled address), stored in the same update
+  that marks it compiled; the database's freeze trigger then never lets it
+  change. Coins are found on every reserved receive and change index plus a
+  look-ahead; spends are built in-process by the Rust (`build_path_spend_psbt`:
+  the path named by its leaf script at receive/0, the lock read from the leaf
+  itself, `older()` as each input's sequence), change to a never-used change
+  address recorded before the PSBT is handed out; the phone signs each coin
+  with its key's child at that coin's address and refuses any input or change
+  that is not an address it derives itself from the stored descriptors
+  (which must start at the phone-pinned address). Backups, the PDF, Legacy
+  Recovery and the descriptor QR carry the `<0;1>/*` descriptor and refuse to
+  be made without it. Release order: migration
+  `20261119000000_ranged_addresses.sql` pushed alone first (e9fd19a), the app
+  after it. Evidence: Postgres 16 migration proof 45/45; Rust ranged 13
+  passed (every path of four vector shapes signed and finalized from three
+  addresses); JS ranged-compile 8, vault-addresses 7, vault-coins 9,
+  ranged-spend 8, ranged-sign 6 (two seed phrases, end to end),
+  recovery-instructions 5; Bitcoin Core 32.1 proof
+  (`scripts/bitcoin-core-ranged-proof.mjs`) 7/7 including the "if left
+  untouched" path by Core alone. Left undone on purpose: existing vaults keep
+  their one address (no conversion); the Bloc shape and rotation stay fixed;
+  the downloaded app's local server still reads one address; Tapit
+  co-signing keeps the one-address descriptor as the vault's name tag; no
+  gap-limit warning. Not walked on a phone or signet before release
+  (operator walks signet first); no hardware wallet seen registering the
+  `<0;1>/*` descriptor.
+
 - **SeedSigner fork caught up with stock SeedSigner again (2026-11-24).**
   Operator: "SeedSigner first". Correcting an older entry here: the fork is
   NOT 123 commits behind -- stock dev (995ce5c) was already merged in
