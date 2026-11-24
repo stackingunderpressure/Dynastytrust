@@ -5,6 +5,8 @@ on:
   push:
     paths:
       - "scripts/electrum-probe.mjs"
+      - "scripts/electrum-live.mjs"
+      - "netlify/functions/_electrum.js"
       - ".github/workflows/electrum-probe.yml"
   workflow_dispatch: {}
 jobs:
@@ -15,4 +17,5 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
-      - run: node scripts/electrum-probe.mjs
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: node scripts/electrum-live.mjs
