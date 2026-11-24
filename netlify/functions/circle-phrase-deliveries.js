@@ -31,8 +31,14 @@
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 
+// A sealed reply key (lib/reply-key-seal.ts) is an EncryptedMessage the
+// server cannot open; shape-checked only.
+const validSealed = (w) => !!w && typeof w === "object" && typeof w.sender_pubkey === "string"
+  && typeof w.nonce === "string" && typeof w.ciphertext === "string" && w.ciphertext.length <= 4096
+  && Array.isArray(w.recipients) && w.recipients.length === 1;
+
 const SELECT_COLS =
-  "id, recipient_key_id, recipient_label, recipient_persona, status, delivered_at, reply_pubkey, reply_privkey, confirmed_at, created_at, updated_at";
+  "id, recipient_key_id, recipient_label, recipient_persona, status, delivered_at, reply_pubkey, reply_privkey, reply_privkey_sealed, confirmed_at, created_at, updated_at";
 
 export async function handler(event) {
   const u = await requireUser(event);
@@ -59,7 +65,8 @@ export async function handler(event) {
     try { body = JSON.parse(event.body || "{}"); }
     catch { return json(400, { error: "Invalid JSON body" }); }
 
-    const { vault_id, recipient_key_id, recipient_label, recipient_persona, status, reply_pubkey, reply_privkey } = body;
+    const { vault_id, recipient_key_id, recipient_label, recipient_persona, status, reply_pubkey, reply_privkey, reply_privkey_sealed } = body;
+    if (reply_privkey_sealed && !validSealed(reply_privkey_sealed)) return json(400, { error: "Invalid reply_privkey_sealed" });
     if (!vault_id) return json(400, { error: "Missing: vault_id" });
     if (!recipient_key_id) return json(400, { error: "Missing: recipient_key_id" });
     if (!recipient_label) return json(400, { error: "Missing: recipient_label" });
@@ -105,7 +112,9 @@ export async function handler(event) {
           // recipient hasn't acked THIS phrase yet, even if they acked
           // an earlier one for the same slot.
           reply_pubkey: reply_pubkey ?? null,
-          reply_privkey: reply_privkey ?? null,
+          // New rows keep only the sealed copy (zero-knowledge plan Z0).
+          reply_privkey: reply_privkey_sealed ? null : reply_privkey ?? null,
+          reply_privkey_sealed: reply_privkey_sealed ?? null,
           confirmed_at: null,
           updated_at: new Date().toISOString(),
         },

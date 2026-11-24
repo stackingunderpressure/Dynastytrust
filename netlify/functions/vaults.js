@@ -353,8 +353,10 @@ export async function handler(event) {
         user_id: u.userId,
         event_type: "terms_accepted",
         metadata: {
+          // Z4: the browser's user agent is no longer recorded (it says
+          // which phone and browser a person uses, in a ledger that can't
+          // be rewritten).
           terms_version: String(body.terms_accepted_version),
-          user_agent: event.headers?.["user-agent"] || null,
         },
       });
     }
@@ -389,7 +391,9 @@ export async function handler(event) {
       } catch (e) {
         return json(400, { error: e.message });
       }
-      if (label != null && (typeof label !== "string" || label.length > 60)) {
+      // A label sealed with the vault key (zero-knowledge storage) is longer.
+      const labelMax = typeof label === "string" && label.startsWith("zk1:") ? 300 : 60;
+      if (label != null && (typeof label !== "string" || label.length > labelMax)) {
         return json(400, { error: "key_label.label must be a string of 60 characters or fewer, or null to clear it" });
       }
       const cleanPubkey = normalizeKeyIdentifier(pubkey);

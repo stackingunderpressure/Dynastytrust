@@ -28,19 +28,19 @@ export const KEY_LESSONS: readonly KeyLesson[] = [
   },
   {
     title: 'A key in a browser is a hot key',
-    body: 'It lives on a phone or computer that is online. That makes it convenient, and it means a tampered website, a bad browser add-on or malware on the device could take it at the moment you unlock it. No password changes that. A hardware wallet keeps its key in a separate device that never goes online.',
+    body: 'It lives on a phone or computer that is online. That makes it convenient, and it means a tampered website, a bad browser add-on or malware on the device could take it at the moment you unlock it. No password changes that, and neither does Face ID. A hardware wallet keeps its key in a separate device that never goes online.',
   },
   {
-    title: 'The password locks the words on this device',
-    body: 'It protects them if the phone is lost, stolen or copied. Four or more unrelated words, used nowhere else, is a good password. If you forget it, the 24 words still bring the key back.',
+    title: 'Face ID locks the words on this device',
+    body: 'It keeps them shut if the phone is lost, stolen or copied, with nothing to type or forget. On a device without Face ID, a password does the same job: four or more unrelated words, used nowhere else. Either way, if this device is gone, the 24 words bring the key back.',
+  },
+  {
+    title: 'Lost is not the same as stolen',
+    body: 'Lost: the 24 words bring back the same key, and it signs as before. A key kept in Tapit can also be rebuilt from its backup with your Tapit circle. Stolen: bringing it back changes nothing -- the thief has the same key, and nobody can cancel a Bitcoin key. Move the coins to a new vault with a fresh key (Rotate vault, on the vault page) before they can gather the other keys.',
   },
   {
     title: 'Why a vault with several keys helps',
-    body: 'A vault needs more than one key to move coins, so one stolen hot key is not enough on its own. That only holds if the keys are truly separate: for savings that matter, make at least one key on each path a hardware wallet.',
-  },
-  {
-    title: 'Want to make your own seed with dice?',
-    body: 'Do that on a signing device built for it, such as a SeedSigner, and bring only its public key here with Import xpub. A browser is the wrong place for that ceremony.',
+    body: 'A vault needs more than one key to move coins, so one stolen hot key is not enough on its own -- that is what gives you time to replace the vault. It only holds if the keys are truly separate: for savings that matter, make at least one key on each path a hardware wallet. Making a seed with dice? Do it on a signing device such as a SeedSigner and bring only its public key here.',
   },
 ];
 

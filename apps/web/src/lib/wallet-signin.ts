@@ -22,6 +22,7 @@
 import { schnorr } from '@noble/curves/secp256k1';
 import { supabase } from './supabase';
 import { recordKeySession } from './key-account';
+import { rememberAccountName } from './account-name';
 import { signInScreenCode } from 'tapit-attest';
 
 // -- Threat model G (docs/tapit-signin-binding-build-note.md) --------------
@@ -329,10 +330,12 @@ export async function completeTapitCallback(cb: TapitCallback): Promise<TapitRes
   // through it, not email"): the Tapit key alone makes the account -- no
   // email ever (key-signup.js, a never-mailed placeholder underneath).
   const signup = cb.mode === 'signup';
+  // Z4: the name stays on this phone; the server is never told it.
+  const signupName = signup ? takeSignupName() : null;
   const res = await fetch(`${API}/${signup ? 'key-signup' : 'wallet-signin-verify'}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(signup ? { grant, kind: 'tapit', display_name: takeSignupName() } : { grant }),
+    body: JSON.stringify(signup ? { grant, kind: 'tapit' } : { grant }),
   });
   const payload = await parseJson(res);
   if (!res.ok) throw new Error((payload.error as string) ?? (signup ? 'Could not create the account with Tapit' : 'Tapit sign-in failed'));
@@ -342,6 +345,10 @@ export async function completeTapitCallback(cb: TapitCallback): Promise<TapitRes
     type: 'magiclink',
   });
   if (error) throw new Error(error.message);
+  if (signupName) {
+    const { data: me } = await supabase.auth.getUser();
+    if (me.user) rememberAccountName(me.user.id, signupName);
+  }
   // A Tapit key proof earned this session too: record it as key-made.
   await recordKeySession(payload.key_session_claim);
 

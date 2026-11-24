@@ -40,6 +40,14 @@ import { rotatedLeaves } from "./_rotate.js";
 const VAULT_FIELDS =
   "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc, predecessor_id, leaves, bloc_policy, key_labels";
 
+// A sealed name (zero-knowledge storage) is copied as it is -- the server
+// cannot read it to add " v2". The owner's browser re-seals the successor's
+// name under its own key straight after (lib/api.ts vaults.rotate).
+function successorName(name) {
+  if (typeof name === "string" && name.startsWith("zk1:")) return name;
+  return `${name} v2`;
+}
+
 export async function handler(event) {
   if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
 
@@ -105,7 +113,7 @@ export async function handler(event) {
     // with every path's keys already in place. compile-leaves.js turns
     // it into a vault exactly as it does any other leaves draft.
     user_id: u.userId,
-    name: overrides.name || `${src.name} v2`,
+    name: overrides.name || successorName(src.name),
     network: src.network,
     address_type: src.address_type,
     address: null,
@@ -120,7 +128,7 @@ export async function handler(event) {
     predecessor_id: src.id,
   } : {
     user_id: u.userId,
-    name: overrides.name || `${src.name} v2`,
+    name: overrides.name || successorName(src.name),
     network: src.network,
     address_type: src.address_type,
     address: null,

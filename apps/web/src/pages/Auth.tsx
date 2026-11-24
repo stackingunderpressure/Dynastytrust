@@ -8,6 +8,7 @@ import { friendlyAuthError } from '../lib/auth-errors';
 import { signInAddress, usernameProblem, normalizeUsername } from '../lib/username';
 import { passwordProblem } from '../lib/password-rules';
 import { offerFaceIdFor, declineFaceIdOffer, savedFaceIdSignIn, signInWithFaceId } from '../lib/faceid-signin';
+import { createFaceIdAccount, faceIdAccountsPossible, signInWithFaceIdAccount } from '../lib/passkey-account';
 
 // Set once we've asked Supabase to email a 6-digit code -- 'signup' for
 // account confirmation, 'recovery' for password reset. Identifies which
@@ -38,6 +39,21 @@ export default function Auth() {
   // future proof of getting locked out".
   const [withUsername, setWithUsername] = useState(false);
   const faceSaved = savedFaceIdSignIn();
+  // Z4 (operator, 2026-11-24): Face ID and Tapit first; email and username
+  // stay available behind "Other ways".
+  const [otherWays, setOtherWays] = useState(false);
+  const faceAccounts = faceIdAccountsPossible();
+  async function faceAccount(kind: 'create' | 'signin') {
+    setBusy(true);
+    setError(null);
+    try {
+      await (kind === 'create' ? createFaceIdAccount() : signInWithFaceIdAccount());
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Face ID did not work');
+    } finally {
+      setBusy(false);
+    }
+  }
   async function faceId() {
     setBusy(true);
     setError(null);
@@ -268,6 +284,26 @@ export default function Auth() {
           </button>
         </div>
 
+        {faceAccounts && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: space[2], marginBottom: space[4] }}>
+            <Button type="button" disabled={busy} onClick={() => void faceAccount(mode === 'signup' ? 'create' : 'signin')} style={{ width: '100%', padding: '14px', fontSize: 17 }}>
+              {busy ? 'Waiting for Face ID...' : mode === 'signup' ? 'Create account with Face ID' : 'Sign in with Face ID'}
+            </Button>
+            <p style={{ ...s.tapitHint, margin: 0 }}>
+              {mode === 'signup'
+                ? 'No email, no password, nothing to write down. Your phone keeps the key, and your Apple or Google account carries it to a new phone. DynastyTrust never learns who you are.'
+                : 'For an account made with Face ID. A new phone signed into the same Apple or Google account works too.'}
+            </p>
+            {mode === 'signup' && (
+              <p style={{ ...s.tapitHint, margin: 0, color: colors.orange }}>
+                Lose this phone AND your Apple or Google account, and the account is gone for good. Money in a vault stays
+                safe with its own keys, and you would be invited back.
+              </p>
+            )}
+            {!otherWays && error && <p style={s.error}>{error}</p>}
+          </div>
+        )}
+
         {mode === 'login' && faceSaved && (
           <div style={{ marginBottom: space[4] }}>
             <Button type="button" disabled={busy} onClick={() => void faceId()} style={{ width: '100%', padding: '14px', fontSize: 17 }}>
@@ -275,6 +311,12 @@ export default function Auth() {
             </Button>
           </div>
         )}
+        {!otherWays && (
+          <button type="button" style={{ ...s.link, marginBottom: space[4], fontSize: 17 }} onClick={() => { setOtherWays(true); setError(null); }}>
+            Other ways: email or username
+          </button>
+        )}
+        {otherWays && (
         <form onSubmit={submit} style={s.form}>
           {mode === 'signup' && (
             <div style={{ ...s.tabs, marginBottom: space[2] }}>
@@ -290,7 +332,7 @@ export default function Auth() {
             <p style={{ ...s.tapitHint, margin: 0, color: withUsername ? colors.orange : colors.sub }}>
               {withUsername
                 ? 'No email means no reset. If you forget this password the account is gone for good (money in a vault stays safe with its own keys, and you would be invited back). Turn on Face ID after, and keep the password written down somewhere safe.'
-                : 'Recommended: if you are ever locked out, a code to this email gets you back in. We send nothing else.'}
+                : 'Only if you want a reset by email: if you are ever locked out, a code to this address gets you back in. We send nothing else. It is also the one thing here that says who you are, and you can remove it later.'}
             </p>
           )}
           <label style={s.label} htmlFor="auth-email">{mode === 'login' ? 'Email or username' : withUsername && mode === 'signup' ? 'Username' : 'Email'}</label>
@@ -331,6 +373,7 @@ export default function Auth() {
             {busy ? 'Working…' : mode === 'login' ? 'Sign in' : 'Create account'}
           </Button>
         </form>
+        )}
 
         {mode === 'login' && (
           <>
@@ -397,7 +440,7 @@ export default function Auth() {
           </>
         )}
 
-        {mode === 'login' && (
+        {mode === 'login' && otherWays && (
           <button
             style={{ ...s.link, marginTop: space[4], fontSize: 17 }}
             onClick={() => { setMode('reset'); setError(null); }}

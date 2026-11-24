@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { openSealedDeep } from '../lib/sealed-fields';
 import { api } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { downloadTextFile } from '../lib/download-file';
@@ -47,10 +48,12 @@ const STANDING: Record<'bitcoin' | 'receipt' | 'waiting', { label: string; color
 };
 
 /** The sealed details, laid out to read; if they are not readable as
- *  JSON the exact sealed text is shown instead of guessing. */
+ *  JSON the exact sealed text is shown instead of guessing. Names stored
+ *  scrambled with the vault key (zero-knowledge storage) are opened for
+ *  display only -- the hash check above always uses the stored bytes. */
 function sealedDetails(e: LedgerEntry): string {
   try {
-    return JSON.stringify(e.payload ?? JSON.parse(e.payload_canon), null, 2);
+    return JSON.stringify(openSealedDeep(e.vault_id, e.payload ?? JSON.parse(e.payload_canon)), null, 2);
   } catch {
     return e.payload_canon;
   }

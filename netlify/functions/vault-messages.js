@@ -62,8 +62,12 @@ export async function handler(event) {
 
     const {
       vault_id, sender_pubkey, nonce, ciphertext,
-      recipients, subject = null, thread_id = null,
+      recipients, thread_id = null,
     } = body;
+    // A subject is never stored readable (zero-knowledge storage): it belongs
+    // inside the encrypted message. The app has never sent one; this keeps
+    // any other caller from leaving one in the clear.
+    const subject = null;
     if (!vault_id) return json(400, { error: "Missing: vault_id" });
     if (!sender_pubkey) return json(400, { error: "Missing: sender_pubkey" });
     if (!nonce) return json(400, { error: "Missing: nonce" });
@@ -96,7 +100,7 @@ export async function handler(event) {
       vault_id,
       user_id: u.userId,
       event_type: "message_sent",
-      metadata: { message_id: data.id, recipient_count: recipients.length, subject },
+      metadata: { message_id: data.id, recipient_count: recipients.length },
     });
 
     return json(201, { ok: true, message: data });

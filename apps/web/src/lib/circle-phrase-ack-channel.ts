@@ -33,12 +33,16 @@ import {
   type TransportEventHandler,
 } from '@dynastytrust/nostr-transport';
 import { decryptFrom } from '@dynastytrust/nip44';
+import { openTapitAnswer, GIFT_WRAP_KIND } from './tapit-gift-wrap';
 
 export const CIRCLE_PHRASE_ACK_KIND = 9581;
 
 export interface CirclePhraseAck {
   /** Which delivery this ack confirms -- the reply pubkey it was addressed to. */
   replyPubkey: string;
+  /** The ack's real signer (inner event author). The caller must check it is
+   *  the recipient's own Tapit key: the reply pubkey is public in the request. */
+  signerPubkey: string;
   eventId: string;
   receivedAt: number;
 }
@@ -72,10 +76,13 @@ export function subscribeCirclePhraseAcks(
     byPubkey.set(toHex(schnorr.getPublicKey(priv)), priv);
   }
   const pubkeys = [...byPubkey.keys()];
-  const handler: TransportEventHandler = (event) => {
-    void handleIncoming(event, byPubkey, onAck);
+  const handler: TransportEventHandler = (wire) => {
+    void openTapitAnswer(wire, CIRCLE_PHRASE_ACK_KIND, p => byPubkey.get(p)).then((event) => {
+      if (event) void handleIncoming(event, byPubkey, onAck);
+    });
   };
-  return transport.subscribe({ kinds: [CIRCLE_PHRASE_ACK_KIND], '#p': pubkeys }, handler);
+  // Both forms: the plain answer and the gift-wrapped one (tapit-gift-wrap.ts).
+  return transport.subscribe({ kinds: [CIRCLE_PHRASE_ACK_KIND, GIFT_WRAP_KIND], '#p': pubkeys }, handler);
 }
 
 async function handleIncoming(
@@ -100,5 +107,5 @@ async function handleIncoming(
     return;
   }
   if (!isAckPayload(parsed)) return;
-  onAck({ replyPubkey: pTag, eventId: event.id, receivedAt: event.created_at });
+  onAck({ replyPubkey: pTag, signerPubkey: event.pubkey, eventId: event.id, receivedAt: event.created_at });
 }

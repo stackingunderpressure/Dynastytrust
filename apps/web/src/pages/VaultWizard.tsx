@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
-  listKeys, generateTestKey, generateSoftwareKey, importXpub, importTapitPubkey, parseXpubText,
+  listKeys, generateTestKey, generateSoftwareKey, generatePasskeyKey, importXpub, importTapitPubkey, parseXpubText,
   type LocalKey,
 } from '../lib/keystore';
 import {
@@ -33,7 +33,7 @@ import { XpubQrScanner } from '../components/XpubQrScanner';
 import {
   QuorumPicker, CountStepper, KeyPicker, SlotHint, CopyField, BackupFlow, KeyCreatedPrompt, FundingStep,
   BehaviorTimeline, type SpendLeg,
-  PasswordProtectFields, validatePasswordProtection, DEFAULT_PASSWORD_PROTECT_STATE,
+  PasswordProtectFields, validatePasswordProtection, defaultProtection,
   type PasswordProtectState,
 } from '../components/vault-builder';
 import {
@@ -606,10 +606,14 @@ export default function VaultWizard() {
     return `${role[0].toUpperCase()}${role.slice(1)}`;
   }
 
-  async function onGenerateKey(role: string, mode: 'test' | 'secure', password?: string) {
+  async function onGenerateKey(role: string, mode: 'test' | 'secure' | 'faceid', password?: string) {
     const label = `${slotName(role)} ${Date.now().toString().slice(-4)}`;
     const netForKey = network === 'bitcoin' ? 'mainnet' : network;
-    if (mode === 'test') {
+    if (mode === 'faceid') {
+      const { key, mnemonic } = await generatePasskeyKey({ label, network: netForKey, persona: role });
+      refreshKeys();
+      setPendingBackup({ key, mnemonic, role });
+    } else if (mode === 'test') {
       const { key, mnemonic } = generateTestKey({ label, network: netForKey, persona: role });
       refreshKeys();
       setPendingBackup({ key, mnemonic, role });
@@ -1032,6 +1036,7 @@ export default function VaultWizard() {
           onImportXpub={onImportXpub}
           onImportTapitKey={onImportTapitKey}
           vaultId={draftVault.id}
+          vaultName={name.trim() || draftVault.name}
           ownerUserId={draftVault.user_id}
           people={people}
           reloadPeople={reloadPeople}
@@ -2173,7 +2178,7 @@ function KeysStep({
   backupKeys, setBackupKeys, secondHeirKeys, setSecondHeirKeys,
   parentKeys, setParentKeys, kidKeys, setKidKeys,
   network, onChangeNetwork, networkBusy, genRole, setGenRole, onGenerateKey, onImportXpub, onImportTapitKey,
-  vaultId, ownerUserId, people, reloadPeople,
+  vaultId, vaultName, ownerUserId, people, reloadPeople,
   slotsReady, onContinue, onSaveForLater,
 }: {
   shape: Shape; stdConfig: StandardConfig; blocConfig: BlocConfig;
@@ -2191,10 +2196,11 @@ function KeysStep({
   onChangeNetwork: (n: NetworkChoice) => void;
   networkBusy: boolean;
   genRole: string | null; setGenRole: (r: string | null) => void;
-  onGenerateKey: (role: string, mode: 'test' | 'secure', password?: string) => void;
+  onGenerateKey: (role: string, mode: 'test' | 'secure' | 'faceid', password?: string) => void;
   onImportXpub: (role: string, xpub: string, derivationPath: string, masterFingerprint?: string) => void;
   onImportTapitKey: (role: string, xOnlyPubkey: string) => void;
   vaultId: string;
+  vaultName: string;
   ownerUserId: string;
   people: { members: VaultMember[]; invites: VaultInvite[] };
   reloadPeople: () => Promise<void>;
@@ -2395,6 +2401,7 @@ function KeysStep({
                 invites={people.invites}
                 members={people.members}
                 reload={reloadPeople}
+                vaultName={vaultName}
                 mustSign
               />,
               pickable,
@@ -2413,6 +2420,7 @@ function KeysStep({
                 invites={people.invites}
                 members={people.members}
                 reload={reloadPeople}
+                vaultName={vaultName}
               />}
               </>,
               pickable,
@@ -2516,13 +2524,13 @@ function InlineKeyCreate({
 }: {
   role: string;
   network: NetworkChoice;
-  onGenerate: (mode: 'test' | 'secure', password?: string) => void;
+  onGenerate: (mode: 'test' | 'secure' | 'faceid', password?: string) => void;
   onImport: (xpub: string, derivationPath: string, masterFingerprint?: string) => void;
   onImportTapit: (xOnlyPubkey: string) => void;
   onCancel: () => void;
 }) {
   const [tab, setTab] = useState<'generate' | 'import' | 'tapit'>('generate');
-  const [pw, setPw] = useState<PasswordProtectState>(DEFAULT_PASSWORD_PROTECT_STATE);
+  const [pw, setPw] = useState<PasswordProtectState>(defaultProtection);
   const [pwErr, setPwErr] = useState<string | null>(null);
   const [xpub, setXpub] = useState('');
   const [path, setPath] = useState("m/48'/1'/0'/2'");
@@ -2584,7 +2592,7 @@ function InlineKeyCreate({
             onClick={() => {
               const validationError = validatePasswordProtection(pw, network);
               if (validationError) { setPwErr(validationError); return; }
-              onGenerate(pw.enabled ? 'secure' : 'test', pw.enabled ? pw.password : undefined);
+              onGenerate(pw.method === 'faceid' ? 'faceid' : pw.method === 'password' ? 'secure' : 'test', pw.method === 'password' ? pw.password : undefined);
             }}
           >
             Generate {role} key

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { openReplyKey, sealReplyKey } from '../lib/reply-key-seal';
 import { Link } from 'react-router-dom';
 import { getTapitCircleMembers } from '../lib/tapit-circle-members';
 import {
@@ -202,7 +203,7 @@ export function VaultMembershipSetup({
   // list). No `since` cutoff, so an ack that arrived while this page was
   // closed still gets caught on the next mount -- same resilience pattern
   // vaultMembershipChannel.ts uses on the Tapit side.
-  const pendingReplyKeys = grants.filter(g => g.status === 'sent').map(g => g.reply_privkey);
+  const pendingReplyKeys = grants.filter(g => g.status === 'sent').map(openReplyKey).filter((k): k is string => !!k);
   const pendingKeysSignature = pendingReplyKeys.slice().sort().join(',');
   useEffect(() => {
     if (pendingReplyKeys.length === 0) return;
@@ -247,7 +248,7 @@ export function VaultMembershipSetup({
   // the leave-vault soft disconnect) -- there's nothing else left to answer.
   // Kept separate from the 'sent'-scoped listener above rather than merged,
   // since the two watch disjoint reply-key sets that change independently.
-  const acceptedReplyKeys = grants.filter(g => g.status === 'accepted').map(g => g.reply_privkey);
+  const acceptedReplyKeys = grants.filter(g => g.status === 'accepted').map(openReplyKey).filter((k): k is string => !!k);
   const acceptedKeysSignature = acceptedReplyKeys.slice().sort().join(',');
   useEffect(() => {
     if (acceptedReplyKeys.length === 0) return;
@@ -435,7 +436,8 @@ export function VaultMembershipSetup({
         recipient_pubkey: xOnlyPubkey,
         request_event_id: result.eventId,
         reply_pubkey: result.replyPublicKey,
-        reply_privkey: result.replyPrivateKey,
+        // Wrapped to this browser's own messaging key, never stored readable.
+        reply_privkey_sealed: sealReplyKey(result.replyPrivateKey),
       });
       setGrants(prev => [...prev.filter(g => g.id !== saved.grant.id), saved.grant]);
       toast.success(

@@ -11,10 +11,37 @@ export function isPlaceholderEmail(email: string | null | undefined): boolean {
   return !!e && (e.endsWith('@' + PLACEHOLDER_DOMAIN) || e.endsWith('@' + USERNAME_DOMAIN));
 }
 
-type UserLike = { email?: string | null; user_metadata?: Record<string, unknown> | null } | null | undefined;
+type UserLike = { id?: string; email?: string | null; user_metadata?: Record<string, unknown> | null } | null | undefined;
 
-/** A short friendly name: the chosen name, else the email's first part. */
+// Z4 (operator's chip, 2026-11-24): the name a person goes by stays on
+// their phone. Accounts made before keep the name the server had.
+const LOCAL_NAME = 'dt:accountName:v1';
+
+/** Keep the chosen name on this phone, for this account. */
+export function rememberAccountName(userId: string, name: string | null | undefined): void {
+  const n = (name ?? '').trim().slice(0, 40);
+  if (!n) return;
+  try {
+    const all = JSON.parse(localStorage.getItem(LOCAL_NAME) ?? '{}') as Record<string, string>;
+    localStorage.setItem(LOCAL_NAME, JSON.stringify({ ...all, [userId]: n }));
+  } catch { /* storage blocked: no greeting name */ }
+}
+
+function localName(userId: string | undefined): string | null {
+  if (!userId) return null;
+  try {
+    const n = (JSON.parse(localStorage.getItem(LOCAL_NAME) ?? '{}') as Record<string, string>)[userId];
+    return typeof n === 'string' && n.trim() ? n.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A short friendly name: the name kept on this phone, else the one an
+ *  older account has on the server, else the email's first part. */
 export function accountName(user: UserLike): string | null {
+  const here = localName(user?.id);
+  if (here) return here;
   const chosen = user?.user_metadata?.display_name;
   if (typeof chosen === 'string' && chosen.trim()) return chosen.trim();
   const email = user?.email;

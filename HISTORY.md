@@ -2327,6 +2327,262 @@ signers" as not yet verified. Item 1 above postdates it.
 
 **Recently closed:**
 
+- **SeedSigner fork caught up with stock SeedSigner again (2026-11-24).**
+  Operator: "SeedSigner first". Correcting an older entry here: the fork is
+  NOT 123 commits behind -- stock dev (995ce5c) was already merged in
+  (fork commit 02897591, "keep vault script-path signing"), and an image
+  WAS built on 2026-11-19 from f1d03189 (build run 44522089514, success).
+  Today: stock dev moved on by 7 commits (SeedSigner/seedsigner#1073:
+  change and self-transfer outputs checked against the inputs' derivation
+  paths, mixed base paths refused on single-sig v0, a "Distant Address"
+  warning, every warning through one PSBTWarningView). Merged on the fork
+  as 11c57910 and fast-forwarded onto its dev: 13 conflict blocks in 4
+  files resolved keeping both sides (the fork's script-path signing state
+  and script-tree change; stock's split held findings; the fork's
+  fingerprint, spending-path, key-path-bypass and wrong-network screens,
+  with stock's warnings routed through PSBTWarningView). Stock's five new
+  warning-flow tests gained the fork's fingerprint step. Checked on the
+  merged parser: a DynastyTrust multi-leaf spend with change back to the
+  vault's fixed address raises no warning and holds no finding. MEASURED:
+  491 passed, 5 failed -- the same five locale tests that fail in a sandbox
+  without compiled translations. The 2026-11-19 CI failure on f1d03189 was
+  GitHub's runner unable to reach Ubuntu's package mirror, not the code.
+  NOT done: the image. Actions is disabled on the fork repository, so the
+  pi0 build (the operator's board) was refused; it needs Actions switched
+  back on. NOT seen: a physical device on the merged code.
+
+- **Released to main 2026-11-24 (operator: "Ok push to main"):** Face ID
+  locks a new key by default; the lost-vs-stolen lesson, below. Owed: the
+  operator makes a new key on the iPhone (Face ID, not a password, then the
+  words to write down).
+
+- **Face ID locks a new key; lost vs stolen is taught where keys are made
+  (2026-11-24).** Operator: "We don't need a password creating a key if Face
+  ID signs ... Password is just weight on user", then "Yes do both".
+  `keystore.generatePasskeyKey` makes a key whose words are locked with the
+  device passkey from the first moment (never saved readable or under a
+  password first; same self-check as before saving); `restoreKeyFromWords`
+  takes `faceId` the same way, and Face ID counts as a lock for real
+  bitcoin. The one shared control (`PasswordProtectFields` + new
+  `key-protection.ts`) is now a choice: Face ID (default where the device
+  has it), a password (fallback), no lock (test coins only, refused for real
+  bitcoin) -- used by New key, Restore and the vault builder. The written
+  24-word backup still follows every new key. The key lesson
+  (`key-education.ts`): the password lesson became "Face ID locks the words
+  on this device"; new "Lost is not the same as stolen" (lost: the words, or
+  a Tapit key's circle with its backup, bring back the same key; stolen:
+  nobody can cancel a Bitcoin key -- Rotate vault before the thief gathers
+  the others); the dice advice folded into the multisig lesson to stay at
+  six. Read from Tapit first: its circle splits the BACKUP's key, never the
+  signing key, so the lesson says "rebuilt from its backup with your Tapit
+  circle". Tests: keystore-passkey gains the Face ID make/restore case
+  (words never in storage, a failing passkey saves nothing, same key
+  restored); password-rules pins the new lesson's hard lines. Gates: lint 0
+  errors (9 warnings, down from 11), typecheck the same 10 pre-existing
+  errors, build OK, npm test exit 0. NOT walked: the key forms sit behind
+  sign-in and no real Face ID prompt can run here.
+
+- **Released to main 2026-11-24 (operator: "Ship it, I'll test"):** Z4
+  accounts without identity, below. Owed: the operator's iPhone walk --
+  create a Face ID account, sign out and back in, then sign in on a second
+  Apple device with the same Apple ID (the recovery proof).
+
+- **Z4: accounts without identity (2026-11-24).** Operator: "I like z4";
+  chips: synced passkey only, offer to remove email, name on the phone,
+  email behind "Other ways". Build note:
+  `docs/z4-accounts-without-identity-build-note.md`. A Face ID account
+  (`lib/passkey-account.ts`): a discoverable passkey's PRF, at one fixed
+  salt, becomes a BIP 340 sign-in key that answers the existing challenge
+  (sign-in number filled in, since a passkey cannot be used off this site)
+  and goes through the existing `key-signup` (kind device) and
+  `wallet-signin-verify` -- no email, no password, no words, no name. The
+  sign-in screen leads with Face ID and Tapit; email and username sit
+  behind "Other ways" (and the email option no longer says
+  "Recommended"). An existing account adds Face ID sign-in
+  (`wallet-link` kind device, beside any Tapit link) and may then remove
+  its email (`account-email.js`: refused until a key exists, swaps in a
+  never-mailed placeholder and marks the account so the placeholder guard
+  lets it act; `AccountPrivacyCard.tsx` on the Keys page). Hygiene: no name
+  is stored at sign-up (it stays on the phone, `account-name.ts`); vault
+  creation no longer records the browser's user agent; rate-limit buckets
+  hold a keyed hash of the connection address, never the address. Tests:
+  `test-faceid-account.mjs` (4 checks, a stand-in passkey against the REAL
+  key-signup, verify, wallet-link and account-email handlers; the lockout
+  guard proven by removing it on purpose), rate-limit gains the no-address
+  check, key-account and username-signup expect no stored name. Sign-in
+  screens looked at in a production build at 375px: no sideways scroll.
+  Gates: lint 0 errors (11 warnings, as before), typecheck the same 10
+  pre-existing errors, build OK, npm test exit 0. NOT done: no real
+  passkey has been used, and the second-device recovery is unproven until
+  the operator tries it.
+
+- **Released to main 2026-11-24 (operator: one push when the plan is
+  done):** Tapit answers gift-wrapped (Phase 1) and zero-knowledge storage
+  Z1 slices 1-5, below. Owed by hand straight after: the operator runs
+  `scripts/reset-test-data.sql` once in the Supabase SQL editor; then the
+  two-account walk in a browser, which has not happened yet.
+
+- **Zero-knowledge storage, slice 5: Sage stores nothing and asks first
+  (2026-11-24).** Decision 3: the browser shows what goes to the AI and the
+  person says yes. Reading the code first: the chat already held the whole
+  conversation on screen, and the server-side vault lookup (`vault_id`)
+  was never reached by any screen -- and would now have put sealed text in
+  the prompt. `assistant.js` is now a stateless relay: no threads, no
+  messages, no database at all; the browser sends the conversation it
+  shows (bounded: last 20 turns, 8,000 characters each, ending on the
+  person); every message the person wrote is checked for a seed phrase or
+  private key before the model is called (it used to check only the
+  newest). The dead vault-context path is removed. `ChatWizard.tsx` asks
+  once per browser session, before the first message: "this conversation
+  goes to Anthropic; DynastyTrust stores none of it". The teaching prompt
+  is unchanged (its rung and timelock-wording tests still pass). The old
+  `assistant_threads` / `assistant_messages` tables are left in place,
+  unused (the reset empties them; dropping tables is not this slice).
+  Tests: `test-assistant-relay.mjs` (3 checks, the REAL handler with the
+  database mocked to throw if touched). Gates: lint 0 errors (11 warnings,
+  as before), typecheck the same 10 pre-existing errors, build OK, npm test
+  exit 0. NOT walked in a browser.
+
+- **Zero-knowledge storage, slice 4: reports are built on the device
+  (2026-11-24).** The server could no longer read the names, notes and
+  comments its four reports printed, so it no longer renders them. The PDF
+  drawing code moved unchanged from `vault-pdf.js`, `vault-audit-pdf.js` and
+  `vault-tax-summary.js` into `apps/web/src/lib/reports/` (plain JS as
+  before, typed by a `.d.ts` beside each; Node's crypto and Buffer swapped
+  for @noble/hashes and plain bytes), and those three functions are gone.
+  `vault-activity-export.js` is now the one data source: every row of the
+  vault, redacted as before, still sealed, plus attestations, fetched with
+  the normal Authorization header. `lib/reports/index.ts` opens every sealed
+  value with the vault key (including comments, sealed per proposal) and
+  draws the backup sheet, audit trail, tax summary or readable activity JSON
+  locally; pdf-lib (1.17.1, the version the functions already pinned) is
+  loaded only when a report is asked for (its own 428 KB chunk). With no
+  report link left, `requireUser` lost its `?token=` fallback: a session
+  token no longer travels in a URL (access logs, history, Referer). The
+  backup sheet used to be owner-only because its endpoint filtered by owner;
+  it is now built from the same export any member already receives, so a
+  member can download it too -- no data they could not already read.
+  Tests: `test-api-sealing.mjs` gains the report check (a sealed export
+  opens with nothing sealed left; the backup sheet, audit and tax PDFs build
+  to real `%PDF-` files with no server) and its leak check now ignores
+  chance matches inside sealed base64 (a short word like "Sam" can appear in
+  random base64; seen once in 41 runs). Gates: lint 0 errors (11 warnings,
+  as before), typecheck the same 10 pre-existing errors, build OK, npm test
+  exit 0. NOT walked in a browser: no PDF was opened on a phone.
+
+- **Zero-knowledge storage, slice 3: the history shows names it can no
+  longer read (2026-11-24).** Reading the code first: after slice 2 every
+  history entry that carried a name already copies it SEALED from the row
+  (rename from/to, key and member labels, invite labels, stipend and wallet
+  names, request recipient and note, the rotate names), so nothing new had
+  to be scrambled on the server -- the work was showing them. The activity
+  log (`api.vaultEvents.list`) and the ledger page (`VaultLedger.tsx`) open
+  sealed values on the device for display (`openSealedDeep` in
+  `lib/sealed-fields.ts`: each field is tried, the seal's associated data
+  still decides). The ledger's hash check never sees the opened copy -- it
+  runs on the stored bytes, and the ledger download stays the raw,
+  independently checkable record. New `test-api-sealing.mjs` drives the
+  REAL `lib/api.ts` against a fake network and fails if any request body
+  carries a plain name, label, memo or trust document (checked by breaking
+  the stipend seal on purpose: the test caught it). Left out: amounts,
+  destinations and fees in history are money fields (Z2); the
+  `terms_accepted` entry still records the browser's user agent (identity,
+  Z4). Gates: lint 0 errors (11 warnings, as before), typecheck the same 10
+  pre-existing errors, build OK, npm test exit 0. NOT walked in a browser.
+
+- **Zero-knowledge storage, slice 2: names and labels sealed, invites
+  without email (2026-11-24).** Operator: finish Z1, one push at the end.
+  Every name and label the server never computes on is now sealed with the
+  vault key in the browser before it is sent, and opened when it comes back,
+  in ONE place: `lib/api.ts`, using `lib/vault-keyring.ts` (this browser's
+  keys; seal refuses rather than ever sending plain text) and
+  `lib/sealed-fields.ts` (which field of which row, and the openers). Pages
+  still read plain `vault.name`. Sealed: vault name, per-key labels, the
+  trust document (as `{zk}`), member labels and key labels, invite labels,
+  request rule/recipient/reason/note, stipend name/recipient, distribution
+  wallet name/beneficiary, sent-secret label and recipient labels,
+  attestation `target_data` (trust-document snapshots, declaration notes),
+  proposal memo, signer labels. The field name is part of the seal's
+  associated data, so one value cannot be replayed as another. A value
+  without its key reads "Locked", never ciphertext. A new vault is created
+  under the placeholder "Vault" (it has no id, so no key, until it exists)
+  and renamed sealed straight after; if that can't happen it waits on the
+  device (`lib/sealed-pending.ts`) and is sealed on the next open -- the same
+  path a new member's own label takes, since they get the key only after
+  joining. A replacement vault opens the values it copied through
+  `predecessor_id` and re-seals its name under its own key; the server adds
+  " v2" only to a readable name. Invites store no email any more (decision
+  4): `invites.js` always stores null; the invited person sees the vault's
+  name and their own from the invite link's fragment (`lib/invite-link.ts`),
+  which browsers never send to a server. Older email invites keep their gate.
+  `GET /api/vault-keys` with no vault returns every wrap addressed to the
+  caller, so a list opens many names in one call. Saving sealed text asks
+  for Face ID when the messaging key is locked. Server error messages never
+  quote a sealed name. `vault-messages.js` no longer accepts a readable
+  subject (the app never sent one). Left out, on purpose: path (leaf) labels
+  and tranche labels are vault structure (Z3); the history ledger, PDFs and
+  exports, and the assistant still receive sealed text until slices 3-5.
+  Tests: `test-sealed-fields.mjs` (6 checks: seal/open, field and vault
+  binding, every row opener, predecessor fallback, key versions, pending
+  text, the invite fragment); `test-vault-key.mjs` gains the all-vaults
+  fetch; invite tests now assert no email is stored and a sealed name may be
+  longer. Gates: lint 0 errors (11 warnings, as before), typecheck the same
+  10 pre-existing errors, build OK, npm test exit 0. NOT walked in a browser.
+
+- **Zero-knowledge storage, slice 1: the vault key, sealed comments and votes
+  (2026-11-24).** From docs/zero-knowledge-storage-plan.md (operator: Z0 + Z1,
+  devices do the checks, start clean). Each vault now gets a random key made
+  in the owner's browser (`lib/vault-key.ts`), wrapped to every member's
+  X25519 messaging key with the same scheme messages use, one row per member
+  per key version in the new `vault_keys` table (`vault-keys.js`). The owner
+  publishes a check value per version, so a member rejects a key slipped to
+  them by anyone else; wraps must come from the caller's own published key
+  and go only to active members; only the owner creates or replaces the key;
+  members whose messaging key changed since it was pinned are not given it;
+  a member on a new device gets it shared again; removing a member replaces
+  the key on the owner's next open (`use-vault-key.ts`, run on every vault
+  open). Proposal comments and votes are now sealed before they leave the
+  device (`proposal_comments.sealed`); the server stores ciphertext only, and
+  the activity log says "commented" instead of `voted_approve` /
+  `voted_decline`, which used to leak the vote. Z0: the Nostr ack reply keys
+  are stored wrapped to the owner's own messaging key
+  (`lib/reply-key-seal.ts`), never readable; old rows still open. Reading the
+  code first re-rated Z0 from "security bug" to hygiene (a leaked reply key
+  only opens accept/decline acks whose status the server already has) and
+  found a real small gap: circle-phrase "received" acks weren't checked
+  against the recipient's key -- now they are. `scripts/reset-test-data.sql`
+  is the operator's one-time clean start (run by hand, never a migration).
+  Tests: `test-vault-key.mjs` (sealing, key sharing across simulated devices,
+  the plan cases, the reply-key seal, and the REAL vault-keys and
+  proposal-comments handlers); `scripts/test-zk-db.sh` replays all 59
+  migrations on a real Postgres, checks the new constraints and the browser
+  write ban, and runs the reset (vault, comment and ledger entry to zero,
+  accounts kept, ledger triggers back on). Gates: lint 0 errors (11 warnings,
+  same as before), typecheck 10 pre-existing errors in the same files, build
+  OK, npm test exit 0. NOT walked in a browser with two real accounts.
+  Left for later slices: names and labels, history payloads, PDFs in the
+  browser, the assistant.
+
+- **Tapit answers can arrive gift-wrapped, hiding which wallet answered
+  (2026-11-23).** From the Tapit privacy review: DynastyTrust's own requests
+  to a Tapit wallet already used a throwaway sender key, but Tapit's four
+  answers (spend 9579, invite ack 9580, phrase ack 9581, sign-in 9582) were
+  signed by the wallet's real key in the clear, so a relay could see which
+  family member approved a spend and when. New `lib/tapit-gift-wrap.ts`
+  opens the NIP-17-style wrap (throwaway-key wrap -> wallet-signed seal ->
+  the exact signed answer as before) and hands the inner answer to each
+  channel's existing, unchanged checks; plain answers still pass through.
+  It refuses a stolen answer re-sealed by another wallet (inner signer must
+  equal seal signer), the wrong reply key, wrong kind and tampering. All
+  four channels now listen for both kinds. Test: `test-tapit-gift-wrap.mjs`
+  opens a REAL wrapped answer built by tapit-wallet's `wrapSignedEvent`
+  (`scripts/fixtures/tapit-gift-wrapped-answer.json`, same file in both
+  repos) and runs one through the real spend channel. Plan:
+  tapit-wallet `docs/NOSTR_METADATA_PLAN.md`, Phase 1 -- this side ships
+  first; Tapit switches to sending wrapped only after this is live. Gates:
+  lint 0 errors (11 warnings, same as before), typecheck 10 errors (all
+  pre-existing, none in touched files), build OK, npm test exit 0. NOT
+  walked against live relays.
 - **v2 ranged addresses, slice 2: database and address issuing
   (2026-11-19).** Plan: `docs/ranged-addresses-slice2-build-note.md`,
   covering the operator's seven asks. `supabase/migrations/20261119000000_ranged_addresses.sql`

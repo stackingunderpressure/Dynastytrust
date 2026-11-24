@@ -5,6 +5,7 @@ import { api, type VaultProposal } from '../lib/api';
 import { colors, fonts, radii, space } from '../theme';
 import { Button, Textarea } from '../components/ui';
 import { useToast } from '../components/toast';
+import { useConfirm } from '../components/dialog';
 
 /**
  * ChatWizard.tsx -- the education bot ("Sage"), slice 1.
@@ -65,14 +66,25 @@ function looksLikeSecretMaterial(text: string): boolean {
   return false;
 }
 
+// Asked once per browser session, before anything goes to the model
+// (zero-knowledge storage, decision 3: the person sees what is sent, and
+// says yes). Nothing of the chat is stored by DynastyTrust.
+const CONSENT_KEY = 'dt-sage-consent';
+function hasConsent(): boolean {
+  try { return sessionStorage.getItem(CONSENT_KEY) === 'yes'; } catch { return false; }
+}
+function rememberConsent(): void {
+  try { sessionStorage.setItem(CONSENT_KEY, 'yes'); } catch { /* asked again next time */ }
+}
+
 const INTRO =
   "Hi, I'm Sage. I'll help you understand Bitcoin vaults and build one that fits your life -- one step at a time, in plain language. I have no control over your money: I only suggest, you decide with a tap. I never see or ask for your seed words, private keys, or passwords -- those live only in your browser. To start, tell me in your own words: who is this Bitcoin for, and who should be able to reach it if something happens to you?";
 
 export default function ChatWizard() {
   const navigate = useNavigate();
   const toast = useToast();
+  const confirm = useConfirm();
   const [mode, setMode] = useState<Mode>('guided');
-  const [threadId, setThreadId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([
     { sender: 'wizard', content: INTRO },
   ]);
@@ -97,16 +109,25 @@ export default function ChatWizard() {
       );
       return;
     }
+    if (!hasConsent()) {
+      const ok = await confirm({
+        title: 'Before Sage answers',
+        message:
+          "Sage runs on Anthropic's Claude. To answer, this conversation -- what you see on this screen, including what you are about to send -- goes to Anthropic. DynastyTrust stores none of it, and it is gone when you leave this page. Leave out names or details you would rather not share.",
+        confirmLabel: 'Send to Sage',
+      });
+      if (!ok) return;
+      rememberConsent();
+    }
     setDraft('');
+    // Exactly what is on screen (minus Sage's opening line, which the
+    // model wrote no part of) is what is sent.
+    const conversation = [...messages.slice(1), { sender: 'user' as const, content: text }]
+      .map(m => ({ role: m.sender === 'wizard' ? ('assistant' as const) : ('user' as const), content: m.content }));
     setMessages(prev => [...prev, { sender: 'user', content: text }]);
     setSending(true);
     try {
-      const res = await api.assistant.chat({
-        thread_id: threadId,
-        message: text,
-        mode,
-      });
-      setThreadId(res.thread.id);
+      const res = await api.assistant.chat({ messages: conversation, mode });
       setMessages(prev => [
         ...prev,
         { sender: 'wizard', content: res.reply, proposal: res.proposed_values },

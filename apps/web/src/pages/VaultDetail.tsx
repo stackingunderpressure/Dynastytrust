@@ -63,6 +63,9 @@ function psbtBindingHash(psbtHex: string): string {
 }
 import { ledgerEventWords } from "../lib/ledger-verify";
 import { VaultAddressGate } from "../components/VaultAddressGate";
+import { useVaultKey } from "../lib/use-vault-key";
+import { inviteLink } from "../lib/invite-link";
+import { downloadActivityJson, downloadAuditPdf, downloadTaxSummary, downloadVaultPdf } from "../lib/reports";
 import { encryptMessage, decryptMessage, getMessagingPubkey, messagingKeyLocked, messagingKeyUsesFaceId, unlockMessagingKey, lockMessagingKey, unlockMessagingKeyForGood, regenerateMessagingKey } from "../lib/messaging";
 import { passkeysAvailable } from "../lib/passkey";
 import { TrustTab } from "../components/TrustTab";
@@ -313,6 +316,10 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
     if (!origins.length) return;
     void api.vaults.repairKeyOrigins(vault.id, origins).catch(() => {});
   }, [vault]);
+
+  // Vault key housekeeping on every open (zero-knowledge plan Z1): the owner
+  // creates or replaces it, members share it with whoever lacks it.
+  useVaultKey(vault.id);
 
   // Publish this browser's X25519 messaging pubkey to the user's
   // vault_members row on first visit so other members can send
@@ -790,6 +797,20 @@ function OverviewTab({
   onOpenTab: (id: string) => void;
 }) {
   const toast = useToast();
+  // Reports are built on this device from the vault's rows, opened with the
+  // vault key (zero-knowledge storage); the server never renders them.
+  const [reportBusy, setReportBusy] = useState(false);
+  async function runReport(make: () => Promise<boolean>) {
+    if (reportBusy) return;
+    setReportBusy(true);
+    try {
+      await make();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not build the report");
+    } finally {
+      setReportBusy(false);
+    }
+  }
   const askPrompt = usePrompt();
   const navigate = useNavigate();
   const isBloc = vault.bloc_policy != null;
@@ -1073,8 +1094,8 @@ function OverviewTab({
             >
               Download backup
             </Button>
-            {/* The PDFs, tax summary, activity export and sealed record are
-                made by our server; Legacy recovery looks the address up on a
+            {/* The PDFs, tax summary, activity export and sealed record read
+                their data from our server; Legacy recovery looks the address up on a
                 public explorer. None of them in the download yet. */}
             {!DOWNLOAD && (
               <Button
@@ -1082,10 +1103,7 @@ function OverviewTab({
                 size="sm"
                 style={{ padding: "3px 9px", fontSize: 15, whiteSpace: "normal" }}
                 disabled={vault.status !== "compiled"}
-                onClick={async () => {
-                  const url = await api.pdfUrl(vault.id);
-                  window.open(url, "_blank");
-                }}
+                onClick={() => void runReport(() => downloadVaultPdf(vault.id))}
               >
                 Download PDF
               </Button>
@@ -1125,10 +1143,7 @@ function OverviewTab({
                 variant="ghost"
                 size="sm"
                 style={{ padding: "3px 9px", fontSize: 15, whiteSpace: "normal" }}
-                onClick={async () => {
-                  const url = await api.auditPdfUrl(vault.id);
-                  window.open(url, "_blank");
-                }}
+                onClick={() => void runReport(() => downloadAuditPdf(vault.id))}
               >
                 Audit PDF
               </Button>
@@ -1155,8 +1170,7 @@ function OverviewTab({
                     toast.error("Enter a valid 4-digit year between 2020 and 2099.");
                     return;
                   }
-                  const url = await api.taxSummaryUrl(vault.id, year);
-                  window.open(url, "_blank");
+                  await runReport(() => downloadTaxSummary(vault.id, year));
                 }}
               >
                 Tax summary
@@ -1167,10 +1181,7 @@ function OverviewTab({
                 variant="ghost"
                 size="sm"
                 style={{ padding: "3px 9px", fontSize: 15, whiteSpace: "normal" }}
-                onClick={async () => {
-                  const url = await api.activityExportUrl(vault.id);
-                  window.open(url, "_blank");
-                }}
+                onClick={() => void runReport(() => downloadActivityJson(vault.id))}
               >
                 Activity JSON
               </Button>
@@ -3436,7 +3447,7 @@ function MembersTab({ vault }: { vault: Vault }) {
               key={inv.id}
               invite={inv}
               onCopyLink={() => {
-                const url = `${window.location.origin}/invite/${inv.token}`;
+                const url = inviteLink(inv.token, { vaultName: vault.name, label: inv.invited_label ?? undefined });
                 navigator.clipboard.writeText(url);
                 toast.success("Link copied");
               }}
@@ -3456,7 +3467,7 @@ function MembersTab({ vault }: { vault: Vault }) {
           onClose={() => setShowInvite(false)}
           onCreated={invite => {
             setShowInvite(false);
-            setRecentLink(`${window.location.origin}/invite/${invite.token}`);
+            setRecentLink(inviteLink(invite.token, { vaultName: vault.name, label: invite.invited_label ?? undefined }));
             void load();
           }}
         />
@@ -3625,7 +3636,7 @@ function MyKeyModal({
         pubkey: chosen.pubkey,
         derivation_path: chosen.derivationPath,
         key_label: chosen.label,
-      });
+      }, vault.id);
       toast.success("Key attached to your slot");
       onSaved();
     } catch (e) {
@@ -4957,11 +4968,11 @@ function DraftReadinessCard({
     }
   }
 
-  async function copyInviteLink(token: string) {
+  async function copyInviteLink(token: string, label?: string | null) {
     // The route is /invite/:token (App.tsx). This built /invite?token=...,
     // which fell through to the catch-all and dropped the invited person
     // on the vault builder.
-    const url = `${window.location.origin}/invite/${token}`;
+    const url = inviteLink(token, { vaultName: vault.name, label: label ?? undefined });
     await navigator.clipboard.writeText(url);
     setCopied(token);
     setTimeout(() => setCopied(null), 1600);
@@ -5116,7 +5127,7 @@ function DraftReadinessCard({
                     variant="ghost"
                     size="sm"
                     style={{ fontSize: 15, padding: "4px 8px" }}
-                    onClick={() => void copyInviteLink(s.invite!.token)}
+                    onClick={() => void copyInviteLink(s.invite!.token, s.invite!.invited_label)}
                   >
                     {copied === s.invite.token ? "Copied" : "Copy link"}
                   </Button>
@@ -6849,7 +6860,7 @@ function StipendEditor({
           amount_sats: amountSats,
           interval_kind: interval,
           next_due_at: new Date(startsAt + "T00:00:00Z").toISOString(),
-        });
+        }, stipend.vault_id);
         toast.success("Stipend updated");
       } else if (vault) {
         await api.stipends.create({
@@ -7170,7 +7181,7 @@ function RequestsTab({ vault, onSendPrefill }: { vault: Vault; onSendPrefill: (p
       await api.vaultRequests.update(r.id, {
         status,
         resolution_note: note,
-      });
+      }, r.vault_id);
       toast.success(`Request ${status}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");

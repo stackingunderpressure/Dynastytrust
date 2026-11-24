@@ -5,7 +5,7 @@
  * and Tapit doors).
  *
  * POST /api/username-signup   (no auth -- this CREATES an account)
- *   Body: { username, password, display_name? }
+ *   Body: { username, password } (no display name is stored since Z4)
  *
  * The account is made confirmed at <username>@users.dynastytrust.family,
  * an address with no mailbox that nothing ever writes to (proven live
@@ -18,7 +18,6 @@
 import { getSupabaseAdmin } from "./_supabase.js";
 import { json } from "./_auth.js";
 import { overLimit, TOO_MANY } from "./_rate-limit.js";
-import { cleanDisplayName } from "./_key-account.js";
 import { USERNAME_DOMAIN, madeByUs } from "./_placeholder-guard.js";
 
 export { USERNAME_DOMAIN };
@@ -59,7 +58,8 @@ export async function handler(event) {
     email,
     password: body.password,
     email_confirm: true,
-    user_metadata: { display_name: cleanDisplayName(body.display_name) ?? username, username, signin: "username" },
+    // Z4: no separate display name is stored (the username is the login).
+    user_metadata: { username, signin: "username" },
     app_metadata: madeByUs("username-signup"),
   });
   let { data, error } = await create();

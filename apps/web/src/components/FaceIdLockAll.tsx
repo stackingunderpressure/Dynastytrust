@@ -81,7 +81,8 @@ export function FaceIdLockAll({ keysVersion, onChanged }: { keysVersion: number;
       ) : null}
       {notBackedUp.length > 0 && (
         <p style={{ ...sub, fontSize: 16 }}>
-          Not yet: {notBackedUp.map(k => k.label).join(', ')}. Verify {notBackedUp.length === 1 ? 'its' : 'each one\'s'} written
+          {/* Names are quoted: a key called "November" read as a date (operator, 2026-11-24). */}
+          Not yet: {notBackedUp.length === 1 ? 'your key ' : 'your keys '}{notBackedUp.map(k => `"${k.label}"`).join(', ')}. Verify {notBackedUp.length === 1 ? 'its' : 'each one\'s'} written
           recovery phrase first (open the key, then Verify backup), because after Face ID that phrase is the only way back.
         </p>
       )}

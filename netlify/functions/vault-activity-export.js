@@ -1,14 +1,15 @@
 /**
- * GET /api/vault-activity-export?vault_id=<uuid>
+ * GET /api/vault-activity-export?vault_id=<uuid>             (active member)
  *
- * Returns a structured JSON file of every vault event, proposal,
- * request, signer session, comment, stipend, and distribution
- * wallet for a single vault. Intended for inspection, attorney
- * review, or long-term archival alongside the PDF audit.
+ * Every row of one vault -- the vault, members, invites, proposals, signer
+ * sessions, comments, requests, stipends, distribution wallets, events and
+ * attestations -- as JSON, redacted exactly as the regular endpoints redact.
  *
- * The client triggers a download by hitting this URL with a
- * ?token=<jwt> query param so <a href> works without custom
- * headers.
+ * Zero-knowledge storage (Z1 slice 4): names, labels, notes and comments in
+ * these rows are sealed with the vault key, so this is the ONE data source
+ * the browser builds every report from (lib/reports/: the backup sheet, the
+ * audit PDF, the tax summary and the readable activity JSON), opening the
+ * sealed values on the device. The server renders nothing readable.
  */
 
 import { requireUser, json } from "./_auth.js";
@@ -20,7 +21,10 @@ export async function handler(event) {
     return { statusCode: 405, body: "Method not allowed" };
   }
 
-  const u = await requireUser(event, { allowQueryToken: true }); // opened as a plain link (window.open / <a href>), needs the ?token= fallback
+  // Fetched by the app with its normal Authorization header (zero-knowledge
+  // storage: the browser opens the sealed names and builds the reports), so
+  // the ?token= fallback for plain links is no longer needed here.
+  const u = await requireUser(event);
   if (u.error) return json(401, { error: u.error });
 
   const id = event.queryStringParameters?.vault_id ?? event.queryStringParameters?.id;
@@ -44,6 +48,7 @@ export async function handler(event) {
   const [
     vaultRes, membersRes, invitesRes, proposalsRes,
     requestsRes, stipendsRes, walletsRes, eventsRes,
+    attestationsRes,
   ] = await Promise.all([
     supabase.from("vaults").select("*").eq("id", id).single(),
     supabase.from("vault_members").select("*").eq("vault_id", id).order("created_at"),
@@ -53,6 +58,7 @@ export async function handler(event) {
     supabase.from("scheduled_stipends").select("*").eq("vault_id", id).order("next_due_at"),
     supabase.from("distribution_wallets").select("*").eq("vault_id", id).order("created_at"),
     supabase.from("vault_events").select("*").eq("vault_id", id).order("created_at"),
+    supabase.from("vault_attestations").select("*").eq("vault_id", id).order("signed_at"),
   ]);
 
   if (vaultRes.error || !vaultRes.data) return json(404, { error: "Vault not found" });
@@ -81,17 +87,9 @@ export async function handler(event) {
     scheduled_stipends: stipendsRes.data ?? [],
     distribution_wallets: walletsRes.data ?? [],
     events: eventsRes.data ?? [],
+    attestations: attestationsRes.data ?? [],
   };
 
-  const safeName = (vaultRes.data.name || "vault").replace(/[^a-z0-9]/gi, "_").toLowerCase();
-  const ts = new Date().toISOString().replace(/[:.]/g, "-");
-
-  return {
-    statusCode: 200,
-    headers: {
-      "content-type": "application/json",
-      "content-disposition": `attachment; filename="dynastytrust_${safeName}_activity_${ts}.json"`,
-    },
-    body: JSON.stringify(payload, null, 2),
-  };
+  // The vault's name is sealed, so the file name is chosen in the browser.
+  return json(200, { ok: true, ...payload });
 }

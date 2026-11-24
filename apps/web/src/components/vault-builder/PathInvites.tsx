@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { inviteLink } from '../../lib/invite-link';
 import { api, type VaultInvite, type VaultMember } from '../../lib/api';
 import type { SelectedKey } from '../../lib/descriptor-keys';
 import { memberToSelected, openSlots, peopleOnPath } from '../../lib/path-people';
@@ -11,7 +12,7 @@ import { useToast } from '../toast';
 // Sits under the path's own key picker in the builder's Keys step. The
 // owner can still fill any slot from their own device exactly as
 // before; this adds "someone else holds this key, on their device":
-//   invite (name + the email they sign in with)  ->  they join with a
+//   invite (their name; link-only, no email stored)  ->  they join with a
 //   key made on their phone  ->  the owner checks the fingerprint with
 //   them by voice and confirms  ->  the key fills the slot.
 // The server refuses to finalize a vault holding an unconfirmed member
@@ -33,8 +34,11 @@ export function PathInvites({
   members,
   reload,
   mustSign = false,
+  vaultName,
 }: {
   vaultId: string;
+  /** Shown to the invited person from the link itself (lib/invite-link.ts). */
+  vaultName?: string;
   network: string;
   ownerUserId: string;
   leaf: { id: string; label: string; plannedKeys: number };
@@ -49,14 +53,13 @@ export function PathInvites({
   const toast = useToast();
   const [formOpen, setFormOpen] = useState(false);
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
   const people = peopleOnPath(leaf.id, invites, members, ownerUserId, selected, new Date(), mustSign);
   const free = openSlots(leaf.plannedKeys, selected, people);
-  const linkFor = (i: VaultInvite) => `${window.location.origin}/invite/${i.token}`;
+  const linkFor = (i: VaultInvite) => inviteLink(i.token, { vaultName, label: i.invited_label ?? undefined });
 
   async function copyLink(i: VaultInvite) {
     try {
@@ -74,11 +77,10 @@ export function PathInvites({
     setErr(null);
     try {
       await api.invites.create({
-        vault_id: vaultId, leaf_id: leaf.id, invited_label: name.trim(), invited_email: email.trim(),
+        vault_id: vaultId, leaf_id: leaf.id, invited_label: name.trim(),
         ...(mustSign ? { must_sign: true } : {}),
       });
       setName('');
-      setEmail('');
       setFormOpen(false);
       await reload();
     } catch (e) {
@@ -162,9 +164,7 @@ export function PathInvites({
             <div key={p.invite.id} style={row}>
               <strong>{p.invite.invited_label}</strong> -- waiting for them to join
               <div style={sub}>
-                {p.invite.invited_email
-                  ? <>Send them this link yourself. It only works when they sign in as {p.invite.invited_email}, and it expires on {new Date(p.invite.expires_at).toLocaleDateString()}.</>
-                  : <>Send them this link yourself, privately: anyone who has it can ask to join, so you will confirm their key with them before it can go in the vault. It expires on {new Date(p.invite.expires_at).toLocaleDateString()}.</>}
+                Send them this link yourself, privately: anyone who has it can ask to join, so you will confirm their key with them before it can go in the vault. It expires on {new Date(p.invite.expires_at).toLocaleDateString()}.
               </div>
               <div style={{ fontFamily: fonts.mono, fontSize: 16, color: colors.muted, wordBreak: 'break-all', marginBottom: space[2] }}>
                 {linkFor(p.invite)}
@@ -230,21 +230,9 @@ export function PathInvites({
             <Label>Their name</Label>
             <Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Anna" required maxLength={80} />
           </div>
-          <div>
-            <Label>The email they sign in with (optional)</Label>
-            <Input
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="Leave empty if they use a username or Tapit"
-              autoCapitalize="none"
-              autoCorrect="off"
-            />
-          </div>
           <div style={{ fontSize: 17, color: colors.sub, lineHeight: 1.55 }}>
-            You get a link to send them. With an email, only that address can use it. Without one, anyone with the
-            link can ask to join -- send it privately. Either way, their key goes into the vault only after you confirm
-            it with them.
+            You get a link to send them. Anyone with the link can ask to join, so send it privately. Their key goes
+            into the vault only after you confirm it with them. DynastyTrust never stores their email.
             {mustSign ? ' Their invite page tells them nothing on this path can move without them, and recommends a hardware wallet.' : ''}
           </div>
           {err && <div style={{ fontSize: 17, color: colors.red }}>{err}</div>}

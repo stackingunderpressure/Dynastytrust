@@ -33,6 +33,8 @@ import { useRealtimeRefresh } from "../lib/realtime";
 import { normalizePsbt } from "../lib/psbt-format";
 import { colors, fonts, radii, space } from "../theme";
 import { SeedSignerNetworkHint } from "../components/SeedSignerNetworkHint";
+import { useVaultKey } from "../lib/use-vault-key";
+import { openField, sealField } from "../lib/vault-key";
 
 type Session = Awaited<ReturnType<typeof api.signerSessions.list>>["sessions"][number];
 
@@ -179,7 +181,7 @@ export default function ProposalDetail() {
       const [{ proposals }, { members: ms }, { sessions: ss }] = await Promise.all([
         api.proposals.list(vaultId),
         api.members.list(vaultId),
-        api.signerSessions.list(proposalId),
+        api.signerSessions.list(proposalId, vaultId),
       ]);
       const p = proposals.find(x => x.id === proposalId) ?? null;
       if (!p) throw new Error("Proposal not found");
@@ -353,7 +355,7 @@ export default function ProposalDetail() {
         proposal_id: proposal.id,
         psbt_partial_hex: merged,
         label,
-      });
+      }, proposal.vault_id);
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to save signature");
@@ -396,7 +398,7 @@ export default function ProposalDetail() {
         psbt_partial_hex: result.psbt_hex,
         fingerprint: key.fingerprint,
         label: key.label,
-      });
+      }, proposal.vault_id);
       toast.success("Signed with " + key.label);
       await load();
     } catch (e) {
@@ -492,7 +494,7 @@ export default function ProposalDetail() {
 
       <MembersSection members={members} sessions={sessions} />
 
-      <DiscussionSection proposalId={proposal.id} members={members} />
+      <DiscussionSection proposalId={proposal.id} vaultId={vault.id} members={members} />
 
       {!terminal && !isTrancheClaim && signableKeys.length > 0 && (
         <ActionCard>
@@ -553,6 +555,7 @@ export default function ProposalDetail() {
           </div>
           <ExternalPsbt
             proposalId={proposal.id}
+            vaultId={proposal.vault_id}
             psbtToSign={signablePsbt}
             network={vault.network}
             onImported={() => void load()}
@@ -854,11 +857,13 @@ function ActionCard({ children }: { children: React.ReactNode }) {
 
 function ExternalPsbt({
   proposalId,
+  vaultId,
   psbtToSign,
   network,
   onImported,
 }: {
   proposalId: string;
+  vaultId: string;
   psbtToSign: string;
   network: string;
   onImported: () => void;
@@ -901,7 +906,7 @@ function ExternalPsbt({
         proposal_id: proposalId,
         psbt_partial_hex: merged,
         label: "Hardware wallet",
-      });
+      }, vaultId);
       setHex("");
       toast.success("Signature added");
       onImported();
@@ -993,14 +998,32 @@ function ExternalPsbt({
 
 function DiscussionSection({
   proposalId,
+  vaultId,
   members,
 }: {
   proposalId: string;
+  vaultId: string;
   members: VaultMember[];
 }) {
   const toast = useToast();
   const confirm = useConfirm();
-  const [comments, setComments] = useState<ProposalComment[]>([]);
+  const vk = useVaultKey(vaultId);
+  const [rawComments, setComments] = useState<ProposalComment[]>([]);
+  // Comments and votes are sealed with the vault key (zero-knowledge plan
+  // Z1); open them here. One this member can't open yet shows as such.
+  const sealedField = `comment:${proposalId}`;
+  const comments: ProposalComment[] = rawComments.map(c => {
+    if (!c.sealed) return c;
+    const plain = openField(vk.keys, vaultId, sealedField, c.sealed);
+    if (plain === null) return { ...c, body: "(Sealed. Waiting for the vault key on this device.)", vote: null };
+    try {
+      const v = JSON.parse(plain) as { body?: string | null; vote?: ProposalVote | null };
+      const vote = v.vote === "approve" || v.vote === "abstain" || v.vote === "decline" ? v.vote : null;
+      return { ...c, body: typeof v.body === "string" ? v.body : null, vote };
+    } catch {
+      return { ...c, body: "(Could not open this comment.)", vote: null };
+    }
+  });
   const [loading, setLoading] = useState(true);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
@@ -1043,12 +1066,20 @@ function DiscussionSection({
       setErr("Write a message or pick a vote (or both).");
       return;
     }
+    const key = vk.keys.get(vk.version);
+    if (vk.status !== "ready" || !key) {
+      setErr(
+        vk.status === "locked"
+          ? "Unlock your messages (Face ID) first: comments are scrambled before they leave this device."
+          : "This device doesn't have the vault key yet. Another member shares it when they next open the vault.",
+      );
+      return;
+    }
     setBusy(true);
     try {
       await api.proposalComments.create({
         proposal_id: proposalId,
-        body: body.trim() || undefined,
-        vote: vote || undefined,
+        sealed: sealField(key, vk.version, vaultId, sealedField, JSON.stringify({ body: body.trim() || null, vote: vote || null })),
       });
       setBody("");
       setVote("");

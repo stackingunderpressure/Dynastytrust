@@ -2,7 +2,11 @@
  * wallet-link.js -- bind a Tapit wallet key to the CURRENT logged-in account.
  *
  * POST /api/wallet-link   (JWT required). Body: { grant: SignInGrant }.
- * GET  /api/wallet-link   (JWT required). Returns the current binding, if any.
+ *   Body may carry kind: 'device' (Z4, 2026-11-24) -- a Face ID sign-in key
+ *   made on the person's phone (lib/passkey-account.ts) -- added beside any
+ *   Tapit link instead of replacing it.
+ * GET  /api/wallet-link   (JWT required). Returns the current Tapit binding,
+ *   if any, and how many Face ID sign-in keys the account holds.
  * DELETE /api/wallet-link (JWT required). Removes the current binding.
  *
  * The "bind once while logged in" half of the link model: an already
@@ -38,7 +42,12 @@ export async function handler(event) {
       .eq("kind", "tapit")
       .maybeSingle();
     if (error) return json(500, { error: error.message });
-    return json(200, { ok: true, pubkey: data?.pubkey ?? null, bound_at: data?.bound_at ?? null });
+    const { count: deviceKeys } = await supabase
+      .from("wallet_identities")
+      .select("pubkey", { count: "exact", head: true })
+      .eq("user_id", u.userId)
+      .eq("kind", "device");
+    return json(200, { ok: true, pubkey: data?.pubkey ?? null, bound_at: data?.bound_at ?? null, device_keys: deviceKeys ?? 0 });
   }
 
   if (event.httpMethod === "DELETE") {
@@ -104,6 +113,17 @@ export async function handler(event) {
     .select("nonce");
   if (consumeErr) return json(500, { error: consumeErr.message });
   if (!consumed || consumed.length === 0) return json(401, { error: "Challenge already used" });
+
+  // A Face ID sign-in key is added beside the others (one per synced
+  // passkey); it never replaces the Tapit link.
+  if (body.kind === "device") {
+    if (existing && existing.user_id === u.userId) return json(200, { ok: true, pubkey });
+    const { error: devErr } = await supabase
+      .from("wallet_identities")
+      .insert({ user_id: u.userId, pubkey, kind: "device", label: "Face ID", bound_at: new Date().toISOString() });
+    if (devErr) return json(500, { error: devErr.message });
+    return json(200, { ok: true, pubkey });
+  }
 
   // Replace this account's Tapit link (one Tapit wallet per account).
   // Since 2026-11-13 an account can also hold other sign-in keys (a phone

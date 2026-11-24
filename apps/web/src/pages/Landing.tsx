@@ -111,7 +111,8 @@ function Bullet({ children }: { children: React.ReactNode }) {
 // shows). This card used to carry its own email-only form, so it never
 // offered a username or Tapit and told people their email was how they
 // sign back in (operator, 2026-11-13: make sure nothing still describes
-// the old way in). It now names the three ways in and opens that screen.
+// the old way in). It now names the ways in, in the sign-in screen's own
+// order since Z4 (2026-11-24): Face ID and Tapit first, email optional.
 function InlineAuthForm() {
   const navigate = useNavigate();
   const line: CSSProperties = { margin: 0, fontSize: 17, lineHeight: 1.55, color: colors.sub };
@@ -119,9 +120,9 @@ function InlineAuthForm() {
     <div style={s.authCard}>
       <div style={s.authHeading}>Sign in or create an account</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: space[2], marginBottom: space[3] }}>
-        <p style={line}><strong style={{ color: colors.text }}>Email and password.</strong> Recommended: if you are ever locked out, a code to your email gets you back in.</p>
-        <p style={line}><strong style={{ color: colors.text }}>Username and password.</strong> No email at all, so no reset: keep the password safe, and turn on Face ID after.</p>
+        <p style={line}><strong style={{ color: colors.text }}>Face ID.</strong> No email, no password, nothing to write down. Your Apple or Google account carries it to a new phone.</p>
         <p style={line}><strong style={{ color: colors.text }}>Sovereign sign-in with Tapit.</strong> Your own Tapit wallet proves it is you. No email, no password here.</p>
+        <p style={line}><strong style={{ color: colors.text }}>Other ways.</strong> A username and password, or an email if you want a reset by email.</p>
       </div>
       <Button style={{ width: '100%', padding: '14px', fontSize: 17 }} onClick={() => navigate('/vaults')}>
         Continue
@@ -187,7 +188,7 @@ function Modes() {
             still enforces.
           </p>
           <ul style={s.modeList}>
-            <ModeBullet>Sign in with email, a username, or your own Tapit wallet</ModeBullet>
+            <ModeBullet>Sign in with Face ID or your own Tapit wallet -- no email needed</ModeBullet>
             <ModeBullet>Attorney PDF export included</ModeBullet>
             <ModeBullet>Realtime governance across family members</ModeBullet>
             <ModeBullet>Optional stipend + distribution-wallet automation</ModeBullet>

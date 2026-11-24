@@ -68,28 +68,17 @@ export async function hasVerifiedFactor(userId) {
 }
 
 /**
- * Verify the Bearer token in the event headers. Pass
- * `{ allowQueryToken: true }` to also fall back to a `?token=`
- * query-string param when there's no Authorization header -- needed
- * for endpoints opened as a plain navigation/link (window.open,
- * <a href>), which can't set custom request headers. Only the four
- * endpoints apps/web/src/lib/api.ts builds a `?token=`-bearing URL for
- * -- vault-pdf.js, vault-tax-summary.js, vault-audit-pdf.js, and
- * vault-activity-export.js -- opt in.
- *
- * This must stay opt-in, not the default: a query-string token ends up
- * in server access logs, browser history, and Referer headers wherever
- * it's followed from, and requireUser is imported by every one of this
- * app's ~40 Netlify functions -- most of which are called with fetch()
- * and never need this fallback at all.
+ * Verify the Bearer token in the event headers. Only the Authorization
+ * header is read: a `?token=` fallback for plain links used to exist for
+ * the four report downloads, and went away when the browser started
+ * building them itself (zero-knowledge storage, Z1 slice 4) -- a token in a
+ * URL ends up in access logs, browser history and Referer headers.
  * Returns { userId } on success or { error } on failure.
  */
-export async function requireUser(event, { allowQueryToken = false } = {}) {
+export async function requireUser(event) {
   const auth =
     event.headers?.authorization || event.headers?.Authorization || "";
-  const token = auth.startsWith("Bearer ")
-    ? auth.slice(7)
-    : (allowQueryToken ? (event.queryStringParameters?.token || null) : null);
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
 
   if (!token) {
     return { error: "Missing Authorization: Bearer <token>" };

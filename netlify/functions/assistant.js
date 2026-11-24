@@ -1,11 +1,9 @@
 /**
- * assistant.js -- the education bot ("Wizard"), slice 1.
+ * assistant.js -- the education bot ("Sage").
  *
  * POST /api/assistant
- *   body: { thread_id: string|null, message: string,
- *           mode: 'guided'|'express', vault_id?: string }
- *   -> { ok: true, thread: { id, mode, vault_id }, reply,
- *        proposed_values: object|null }
+ *   body: { messages: [{ role: 'user'|'assistant', content }], mode: 'guided'|'express' }
+ *   -> { ok: true, reply, proposed_values: object|null }
  *
  * A warm, guided conversation that teaches a newcomer and walks them
  * toward building ONE vault. The bot PROPOSES values; the human
@@ -14,18 +12,22 @@
  * proposal that the frontend renders as a tap-to-confirm card, which
  * then hands off to the EXISTING VaultWizard compile + save path.
  *
+ * ZERO-KNOWLEDGE STORAGE (Z1 slice 5, docs/zero-knowledge-storage-plan.md):
+ * this function stores NOTHING. The conversation lives in the person's
+ * browser, which sends it each turn after they have been told it goes to
+ * Anthropic to be answered (ChatWizard.tsx); the server only checks it for
+ * secrets and relays it. It never reads a vault: the old vault-context path
+ * was never reached by any screen, and vault names are sealed now anyway.
+ *
  * SECURITY RAIL -- READ THIS:
  *   No key material (private key, mnemonic, password, or encrypted
  *   key blob) is EVER placed in the model context, logged, or
- *   accepted in the request. The model context is assembled
- *   server-side from public/safe vault fields only. See the
- *   context-assembly comment below.
+ *   accepted in the request. Every person-written message is checked
+ *   (looksLikeSecretMaterial) before anything is sent to the model.
  */
 
-import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 import { askClaude } from "./_anthropic.js";
-import { isLeafListVault, getSpendingPaths } from "./_vault-shape.js";
 import { wordlist as BIP39_WORDLIST } from "@scure/bip39/wordlists/english";
 
 // Same canonical list apps/web/src/lib/keystore.ts already imports from
@@ -92,13 +94,9 @@ function looksLikeSecretMaterial(text) {
 }
 
 // How many prior messages to feed back to the model for continuity.
+// The browser sends the conversation; this bounds what one turn can carry.
 const HISTORY_LIMIT = 20;
-
-// Safe, public vault columns only -- NO key columns. Slice 1 doesn't
-// need any key material; this list deliberately omits founder_keys,
-// heir_keys, consent_keys, and every other secret.
-const VAULT_SAFE_FIELDS =
-  "name, network, address, descriptor, miniscript_policy, founder_quorum, heir_quorum, recovery_after, inheritance_after, second_heir_quorum, second_inheritance_after, leaves";
+const MAX_MESSAGE_CHARS = 8000;
 
 // // -- Plain-text digest of the vault templates.
 // Kept in sync by hand with apps/web/src/lib/vault-templates.ts's
@@ -482,7 +480,7 @@ HOW YOUR REPLIES LOOK (follow every time):
   these paths -- never invent a page or a web address.
 `;
 
-function buildSystemPrompt(vaultContext, mode) {
+function buildSystemPrompt(mode) {
   return `${FACT_SHEET}
 ${REPLY_STYLE}
 You are Sage, the education guide inside DynastyTrust -- a Bitcoin
@@ -565,8 +563,27 @@ Rules for the proposal block:
 - NEVER put keys, names of seed words, or any secret in the proposal.
 - summary is one or two plain-English sentences a person can confirm by tapping.
 - Include the block ONLY when you are ready to recommend building. Otherwise omit
-  it entirely and keep teaching or asking. Never include more than one block.
-${vaultContext}`;
+  it entirely and keep teaching or asking. Never include more than one block.`;
+}
+
+/** The conversation the browser sent, checked: well-formed, bounded, ending
+ *  on the person's turn. Returns { messages } or { error }. */
+export function checkConversation(raw) {
+  if (!Array.isArray(raw) || raw.length === 0) return { error: "Missing: messages" };
+  const recent = raw.slice(-HISTORY_LIMIT);
+  const messages = [];
+  for (const m of recent) {
+    if (!m || (m.role !== "user" && m.role !== "assistant")) return { error: "Invalid message role" };
+    if (typeof m.content !== "string" || m.content.trim().length === 0) return { error: "Invalid message content" };
+    if (m.content.length > MAX_MESSAGE_CHARS) return { error: "That message is too long" };
+    messages.push({ role: m.role, content: m.content });
+  }
+  // The API requires the conversation to start on a person's turn.
+  while (messages.length && messages[0].role !== "user") messages.shift();
+  if (messages.length === 0 || messages[messages.length - 1].role !== "user") {
+    return { error: "The last message must be yours" };
+  }
+  return { messages };
 }
 
 export async function handler(event) {
@@ -584,160 +601,28 @@ export async function handler(event) {
     return json(400, { error: "Invalid JSON body" });
   }
 
-  const message = body.message;
-  if (typeof message !== "string" || message.trim().length === 0) {
-    return json(400, { error: "Missing: message (non-empty string)" });
-  }
-  // Checked before ANYTHING else -- no DB write, no Supabase persist, no
-  // call to the Anthropic API -- see looksLikeSecretMaterial's header
-  // comment for why this exists.
-  if (looksLikeSecretMaterial(message)) {
+  const checked = checkConversation(body.messages);
+  if (checked.error) return json(400, { error: checked.error });
+  // Checked before ANYTHING is sent to the model -- every message the
+  // person wrote, not just the newest -- see looksLikeSecretMaterial's
+  // header comment for why this exists.
+  if (checked.messages.some((m) => m.role === "user" && looksLikeSecretMaterial(m.content))) {
     return json(400, {
       error: "That looks like it might contain a seed phrase or private key -- never type or paste one here. Nothing you sent was saved or transmitted. If you're trying to add a key to a vault, use the Keys step in the vault wizard instead, which keeps it in your browser only.",
     });
   }
   const mode = body.mode === "express" ? "express" : "guided";
-  const threadId = typeof body.thread_id === "string" ? body.thread_id : null;
-  const vaultId = typeof body.vault_id === "string" ? body.vault_id : null;
-
-  const supabase = getSupabaseAdmin();
 
   try {
-    // -- Load or create the thread, always scoped to this user. --
-    let thread;
-    if (threadId) {
-      const { data, error } = await supabase
-        .from("assistant_threads")
-        .select("id, mode, vault_id")
-        .eq("id", threadId)
-        .eq("user_id", u.userId)
-        .maybeSingle();
-      if (error) return json(500, { error: "Could not load thread" });
-      if (!data) return json(404, { error: "Thread not found" });
-      thread = data;
-    } else {
-      const { data, error } = await supabase
-        .from("assistant_threads")
-        .insert({ user_id: u.userId, mode, vault_id: vaultId })
-        .select("id, mode, vault_id")
-        .single();
-      if (error) return json(500, { error: "Could not create thread" });
-      thread = data;
-    }
-
-    // ============================================================
-    // CONTEXT ASSEMBLY -- SECURITY ASSERTION:
-    // No key material is ever placed in the model context. We read
-    // ONLY public/safe vault fields (VAULT_SAFE_FIELDS) -- never
-    // founder_keys, heir_keys, mnemonics, passwords, or any secret.
-    // The request body is also never trusted to carry keys; we ignore
-    // everything except the typed message + mode + ids.
-    // ============================================================
-    let vaultContext = "";
-    const ctxVaultId = vaultId || thread.vault_id;
-    if (ctxVaultId) {
-      const { data: vault } = await supabase
-        .from("vaults")
-        .select(VAULT_SAFE_FIELDS)
-        .eq("id", ctxVaultId)
-        .eq("user_id", u.userId)
-        .maybeSingle();
-      if (vault) {
-        // Only public/safe descriptive fields reach the model.
-        // 2026-08-25 fix: founder_quorum/heir_quorum/recovery_after/
-        // inheritance_after sit at bare DB defaults for a leaf-list vault
-        // (its real paths live in `leaves`) -- interpolating them
-        // unconditionally would teach the model, and then the user, wrong
-        // numbers for that vault shape. Currently dormant (no live route
-        // passes vault_id to this function yet) but fixed for correctness
-        // ahead of that surface being wired up.
-        const pathLines = isLeafListVault(vault)
-          ? getSpendingPaths(vault)
-              .map(p => `${p.label}: ${p.requiredKeys.length > 0 ? `${p.requiredKeys.length} must-sign key(s) that every spend on this path needs, plus ` : ''}${p.quorum} of ${p.keyCount}${p.requiredKeys.length > 0 ? ' others' : ''}, ${
-                p.unlockType === 'immediate' ? 'no waiting' :
-                p.unlockType === 'after' ? `unlocks at block ${p.unlockBlocks}` :
-                `relative timelock of ${p.unlockBlocks} blocks`
-              }`)
-              .join('\n')
-          : `founder quorum: ${vault.founder_quorum}
-heir quorum: ${vault.heir_quorum}
-recovery unlock height: ${vault.recovery_after}
-inheritance unlock height: ${vault.inheritance_after}${
-              vault.second_inheritance_after > 0
-                ? `\nsecond inheritance (deeper backstop) quorum: ${vault.second_heir_quorum}, unlock height: ${vault.second_inheritance_after}`
-                : ''
-            }`;
-        vaultContext = `\nThe person is looking at an existing vault. Safe public details only (NO keys):
-name: ${vault.name}
-network: ${vault.network}
-${pathLines}
-You may reference this to teach, but you still propose changes, never apply them.`;
-      }
-    }
-
-    // -- Persist the user's message. Plain text only; no keys. --
-    {
-      const { error } = await supabase.from("assistant_messages").insert({
-        thread_id: thread.id,
-        sender: "user",
-        content: message,
-      });
-      if (error) return json(500, { error: "Could not save message" });
-    }
-
-    // -- Load recent history (oldest-first) for model continuity. --
-    const { data: recent } = await supabase
-      .from("assistant_messages")
-      .select("sender, content")
-      .eq("thread_id", thread.id)
-      .order("created_at", { ascending: false })
-      .limit(HISTORY_LIMIT);
-    const history = (recent || []).slice().reverse();
-
-    const messages = history.map((m) => ({
-      role: m.sender === "wizard" ? "assistant" : "user",
-      content: m.content,
-    }));
-    // Ensure the conversation starts on a user turn (the API requires it).
-    while (messages.length && messages[0].role !== "user") messages.shift();
-
-    // -- Ask Claude. --
     const raw = await askClaude({
-      system: buildSystemPrompt(vaultContext, mode),
-      messages,
+      system: buildSystemPrompt(mode),
+      messages: checked.messages,
       maxTokens: 1024,
     });
-
-    // -- Extract the optional vault-proposal block, strip it from the
-    //    visible reply, and parse it defensively. --
+    // Extract the optional vault-proposal block, strip it from the visible
+    // reply, and parse it defensively. Nothing is stored.
     const { reply, proposed_values } = extractProposal(raw);
-
-    // -- Persist the wizard's VISIBLE reply (no proposal JSON). --
-    await supabase.from("assistant_messages").insert({
-      thread_id: thread.id,
-      sender: "wizard",
-      content: reply,
-    });
-
-    // -- Bump the thread; record a light next_step/checklist when a
-    //    proposal was made (kept simple -- no secrets). --
-    const threadPatch = { updated_at: new Date().toISOString() };
-    if (proposed_values) {
-      threadPatch.next_step = "confirm_proposal";
-      threadPatch.checklist = { last_proposal: proposed_values };
-    }
-    await supabase
-      .from("assistant_threads")
-      .update(threadPatch)
-      .eq("id", thread.id)
-      .eq("user_id", u.userId);
-
-    return json(200, {
-      ok: true,
-      thread: { id: thread.id, mode: thread.mode, vault_id: thread.vault_id },
-      reply,
-      proposed_values,
-    });
+    return json(200, { ok: true, reply, proposed_values });
   } catch (err) {
     // Never leak secrets or internals; askClaude throws clean messages.
     const msg =

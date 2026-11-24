@@ -14,6 +14,7 @@ import { XpubQrScanner } from '../components/XpubQrScanner';
 import { pubkeyFromXpub } from '../lib/xpub';
 import Auth from './Auth';
 import InviteClaimPath, { type PathInviteInfo } from './InviteClaimPath';
+import { readInviteHint } from '../lib/invite-link';
 
 type InvitableRole = Exclude<VaultRole, 'owner'>;
 
@@ -93,7 +94,7 @@ export default function InviteClaim() {
       return;
     }
     api.invites
-      .lookup(token)
+      .lookup(token, readInviteHint(token))
       .then(res => {
         setInvite(res.invite);
         setVault(res.vault ?? null);

@@ -1,3 +1,9 @@
+// Moved from netlify/functions/vault-audit-pdf.js (zero-knowledge storage, Z1 slice 4,
+// docs/zero-knowledge-storage-plan.md): the server can no longer read the
+// names, labels and notes this report prints, so the browser builds it from
+// data it has opened with the vault key. The drawing code is unchanged; only
+// its imports and its return value (bytes, not a Node Buffer) differ.
+// Plain JavaScript like the original -- typed by the .d.ts beside it.
 /**
  * GET /api/vault-audit-pdf?id=<vault-uuid>
  *
@@ -12,11 +18,8 @@
  * reservation and resumes on a fresh page with the same header.
  */
 
-import { whoSignsShort } from "./_path-words.js";
+import { whoSignsShort } from '../path-words';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
-import { requireUser } from './_auth.js';
-import { isVaultOwner, redactMember, redactInvite } from './_authz.js';
-import { getSupabaseAdmin } from './_supabase.js';
 
 const GOLD      = rgb(0.788, 0.659, 0.298);
 const GOLD_DIM  = rgb(0.545, 0.412, 0.078);
@@ -76,7 +79,7 @@ function wrapMono(str, maxChars) {
   return lines;
 }
 
-async function buildAuditPdf(data) {
+export async function buildAuditPdf(data) {
   const { vault, trustDoc, members, invites, proposals, signerSessions,
           comments, requests, stipends, distributionWallets, events,
           attestations } = data;
@@ -513,112 +516,5 @@ async function buildAuditPdf(data) {
 
   if (page) footer(page);
   const bytes = await doc.save();
-  return Buffer.from(bytes);
-}
-
-export async function handler(event) {
-  if (event.httpMethod !== 'GET') {
-    return { statusCode: 405, body: 'Method not allowed' };
-  }
-
-  // The auth helper reads Authorization header or the `token` query
-  // param (the client passes the JWT in the query since <a href> can't
-  // send headers).
-  const u = await requireUser(event, { allowQueryToken: true }); // opened as a plain link (window.open / <a href>), needs the ?token= fallback
-  if (u.error) {
-    return { statusCode: 401, body: JSON.stringify({ error: u.error }),
-             headers: { 'content-type': 'application/json' } };
-  }
-
-  const id = event.queryStringParameters?.id;
-  if (!id) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Missing id' }),
-             headers: { 'content-type': 'application/json' } };
-  }
-
-  const supabase = getSupabaseAdmin();
-
-  // Caller must be an active member of the vault.
-  const { data: mem } = await supabase
-    .from('vault_members')
-    .select('id')
-    .eq('vault_id', id)
-    .eq('user_id', u.userId)
-    .eq('status', 'active')
-    .maybeSingle();
-  if (!mem) {
-    return { statusCode: 403, body: JSON.stringify({ error: 'Not a member' }),
-             headers: { 'content-type': 'application/json' } };
-  }
-
-  const [
-    vaultRes, membersRes, invitesRes, proposalsRes,
-    requestsRes, stipendsRes, walletsRes, eventsRes,
-    attestationsRes,
-  ] = await Promise.all([
-    supabase.from('vaults').select('*').eq('id', id).single(),
-    supabase.from('vault_members').select('*').eq('vault_id', id).order('created_at'),
-    supabase.from('vault_invites').select('*').eq('vault_id', id).order('created_at'),
-    supabase.from('proposals').select('*').eq('vault_id', id).order('created_at'),
-    supabase.from('vault_requests').select('*').eq('vault_id', id).order('created_at'),
-    supabase.from('scheduled_stipends').select('*').eq('vault_id', id).order('next_due_at'),
-    supabase.from('distribution_wallets').select('*').eq('vault_id', id).order('created_at'),
-    supabase.from('vault_events').select('*').eq('vault_id', id).order('created_at'),
-    supabase.from('vault_attestations').select('*').eq('vault_id', id).order('signed_at'),
-  ]);
-
-  if (vaultRes.error || !vaultRes.data) {
-    return { statusCode: 404, body: JSON.stringify({ error: 'Vault not found' }),
-             headers: { 'content-type': 'application/json' } };
-  }
-
-  // Same redaction as the member list endpoint: full xpubs only for the
-  // owner and the member themselves; invite tokens never leave.
-  const callerIsOwner = await isVaultOwner(supabase, id, u.userId);
-
-  const proposalIds = (proposalsRes.data ?? []).map(p => p.id);
-  const [signerSessionsRes, commentsRes] = await Promise.all([
-    proposalIds.length > 0
-      ? supabase.from('signer_sessions').select('*').in('proposal_id', proposalIds).order('signed_at')
-      : Promise.resolve({ data: [] }),
-    proposalIds.length > 0
-      ? supabase.from('proposal_comments').select('*').in('proposal_id', proposalIds).order('created_at')
-      : Promise.resolve({ data: [] }),
-  ]);
-
-  try {
-    const pdf = await buildAuditPdf({
-      vault: vaultRes.data,
-      trustDoc: vaultRes.data.trust_doc || {},
-      members: (membersRes.data ?? []).map(m => redactMember(m, { callerIsOwner, callerUserId: u.userId })),
-      invites: (invitesRes.data ?? []).filter(i => !i.claimed_at).map(i => redactInvite(i, { callerIsOwner })),
-      proposals: proposalsRes.data ?? [],
-      signerSessions: signerSessionsRes.data ?? [],
-      comments: commentsRes.data ?? [],
-      requests: requestsRes.data ?? [],
-      stipends: stipendsRes.data ?? [],
-      distributionWallets: walletsRes.data ?? [],
-      events: eventsRes.data ?? [],
-      attestations: attestationsRes.data ?? [],
-    });
-
-    const safeName = (vaultRes.data.name || 'vault').replace(/[^a-z0-9]/gi, '_').toLowerCase();
-    return {
-      statusCode: 200,
-      headers: {
-        'content-type': 'application/pdf',
-        'content-disposition': `attachment; filename="dynastytrust_audit_${safeName}.pdf"`,
-        'content-length': String(pdf.length),
-      },
-      body: pdf.toString('base64'),
-      isBase64Encoded: true,
-    };
-  } catch (err) {
-    console.error('Audit PDF error:', err);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: 'Audit PDF generation failed: ' + err.message }),
-      headers: { 'content-type': 'application/json' },
-    };
-  }
+  return bytes;
 }
