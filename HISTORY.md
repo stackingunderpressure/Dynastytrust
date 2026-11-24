@@ -4965,3 +4965,18 @@ signers" as not yet verified. Item 1 above postdates it.
   fix is permanently broken vs. Nunchuk -- the descriptor + address
   pair was wrong and is immutable. Recompile from a fresh draft.**
 
+
+## 2026-11-24 -- Tapit refused to co-sign a fresh-address vault's coins
+
+Operator's phone: Tapit "This key is not a known signer for any recognized
+leaf in this transaction" on My Vault (new address every time). Root cause:
+the vault-membership request listed only the first address's scripts; a
+path with a Tapit key next to an xpub key has a different script at every
+address, so every coin off receive/0 (and all change) was refused. Missed
+because no test co-signed a fresh-address coin with a Tapit key. Fix: the
+request carries the member's xpub keys (rangedKeysForScripts); Tapit
+derives them at the address each input names and requires an exact
+rebuild of the vault's own script (Tapit freshAddressLeaf.ts). Left undone:
+Tapit checking the change destination. Gates at the time: npm test exit 0,
+lint 0 errors, typecheck the same 10 pre-existing errors, build ok; Tapit
+1049/1049. docs/tapit-fresh-address-cosign-build-note.md.

@@ -36,6 +36,7 @@
  */
 
 import { schnorr } from '@noble/curves/secp256k1';
+import { HDKey } from '@scure/bip32';
 import { buildEvent, NostrTransport } from '@dynastytrust/nostr-transport';
 import { encryptTo } from '@dynastytrust/nip44';
 import { DEFAULT_RELAYS } from './tapit-nostr-cosign';
@@ -125,6 +126,12 @@ export interface VaultMembershipRequestPayload {
    *  vaultTrail.ts's readVaultMembership expects in the `leaf_scripts`
    *  claim field. */
   leaf_scripts: string[];
+  /** A vault with a new address every time: each xpub key that appears in
+   *  `leaf_scripts`, with the key it is at the first address (x-only hex),
+   *  so Tapit can recognise this member's path at the vault's other
+   *  addresses (Tapit freshAddressLeaf.ts; docs/tapit-fresh-address-cosign-
+   *  build-note.md). Absent for a one-address vault. */
+  ranged_keys?: RangedKey[];
   /** Decimal sats string; absent means "always require the callback"
    *  (vaultTrail.ts's requiresCallbackConfirmation fail-closed default). */
   high_value_threshold_sats?: string;
@@ -182,6 +189,35 @@ export function leafScriptsForRole(
   return typeof hex === 'string' && hex.length > 0 ? [hex] : [];
 }
 
+export interface RangedKey { xpub: string; key00: string }
+
+const TEST_VERSIONS = { private: 0x04358394, public: 0x043587cf };
+const MULTIPATH_KEY = /\[[0-9a-fA-F]{8}(?:\/\d+['h]?)*\]([tx]pub[1-9A-HJ-NP-Za-km-z]{100,112})\/<0;1>\/\*/g;
+
+/**
+ * The xpub keys of a fresh-address vault's multipath descriptor that appear
+ * in `leafScripts` (as their first-address key, xpub/0/0), for Tapit's
+ * ranged_keys. Only keys in the member's own scripts are sent: Tapit refuses
+ * a key that appears in none of them.
+ */
+export function rangedKeysForScripts(multipath: string | null | undefined, leafScripts: readonly string[]): RangedKey[] {
+  if (!multipath) return [];
+  const scripts = leafScripts.map(s => s.toLowerCase());
+  const out: RangedKey[] = [];
+  const seen = new Set<string>();
+  for (const m of multipath.matchAll(MULTIPATH_KEY)) {
+    const xpub = m[1];
+    if (seen.has(xpub)) continue;
+    seen.add(xpub);
+    const hd = xpub.startsWith('tpub') ? HDKey.fromExtendedKey(xpub, TEST_VERSIONS) : HDKey.fromExtendedKey(xpub);
+    const pub = hd.deriveChild(0).deriveChild(0).publicKey;
+    if (!pub) continue;
+    const key00 = Array.from(pub.slice(1)).map(b => b.toString(16).padStart(2, '0')).join('');
+    if (scripts.some(s => s.includes('20' + key00))) out.push({ xpub, key00 });
+  }
+  return out;
+}
+
 /**
  * Encrypt and durably queue a vault-membership request for one circle
  * member's real Tapit pubkey. Call once per member (fan-out is the
@@ -193,6 +229,8 @@ export async function sendVaultMembershipRequestOverNostr(opts: {
   role: VaultMembershipRole;
   roleLabel?: string;
   leafScripts: string[];
+  /** Fresh-address vaults: rangedKeysForScripts(multipath, leafScripts). */
+  rangedKeys?: RangedKey[];
   highValueThresholdSats?: bigint;
   recipientXOnlyPubkey: string;
   relays?: readonly string[];
@@ -206,6 +244,7 @@ export async function sendVaultMembershipRequestOverNostr(opts: {
     role: opts.role,
     ...(opts.roleLabel ? { role_label: opts.roleLabel.slice(0, 80) } : {}),
     leaf_scripts: opts.leafScripts,
+    ...(opts.rangedKeys?.length ? { ranged_keys: opts.rangedKeys } : {}),
     ...(opts.highValueThresholdSats !== undefined
       ? { high_value_threshold_sats: opts.highValueThresholdSats.toString() }
       : {}),

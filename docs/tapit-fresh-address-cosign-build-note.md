@@ -1,6 +1,6 @@
 # Build note: Tapit co-signs a fresh-address vault's coins
 
-Status: NOTE ONLY. No code until the operator says go.
+Status: BUILT on the working branches (operator: "Build it", "Resend once", "Wait for the fix"). Held for the ship word.
 
 ## The ask (operator, 2026-11-24, in his words)
 
@@ -87,3 +87,20 @@ exact-bytes check makes today.
   Worth doing; a separate slice.
 - One-address vaults: unchanged.
 - The Electrum slice waiting for its ship word is separate and unaffected.
+
+## Built (2026-11-24), held for the ship word
+
+- Tapit 6f002fd (branch claude/dynasty-trust-last-work-clryy9):
+  `freshAddressLeaf.ts`, wired into the request guard, accept and sign;
+  signer copy brought level with this repo's; `@scure/bip32` 1.7.0.
+  Test on a real vault and spend made by this repo's compiler wasm
+  (`scripts/make-tapit-fresh-fixture.mjs`): before, 1 of 3 inputs signed
+  (receive/0 only); after, 3 of 3 (receive/0, receive/5, change/2), each
+  signature verified. Forged xpub, moved index, past-cap index, wrong
+  branch and another vault's script are refused. 1049/1049 Tapit tests.
+- DynastyTrust: `rangedKeysForScripts` (circle-membership-delivery.ts) puts
+  each xpub key in the member's scripts on the request;
+  `scripts/test-membership-ranged-keys.mjs` checks it yields exactly the
+  list Tapit's fixture signs with.
+- After both ship: resend My Vault's membership request from the Members
+  tab, accept in Tapit, then retry the spend. Not walked on a phone yet.

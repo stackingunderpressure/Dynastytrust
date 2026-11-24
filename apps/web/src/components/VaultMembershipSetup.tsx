@@ -5,6 +5,7 @@ import { getTapitCircleMembers } from '../lib/tapit-circle-members';
 import {
   leafScriptsForRole,
   sendVaultMembershipRequestOverNostr,
+  rangedKeysForScripts,
   type VaultMembershipRole,
 } from '../lib/circle-membership-delivery';
 import { getNostrRelays } from '../lib/nostrRelayPrefs';
@@ -111,6 +112,7 @@ export function VaultMembershipSetup({
   secondHeirKeys,
   leaves,
   leafScripts,
+  vaultMultipath,
   keyLabels,
   isOwner,
 }: {
@@ -127,6 +129,10 @@ export function VaultMembershipSetup({
    *  of the five named-field arrays above, one "role" per leaf id. */
   leaves?: { id: string; label: string; keys: string[] }[] | null;
   leafScripts: Record<string, string> | null;
+  /** A vault with a new address every time: its <0;1>/* descriptor, so the
+   *  request carries the xpub keys Tapit needs to co-sign coins on the
+   *  vault's other addresses. Null for a one-address vault. */
+  vaultMultipath?: string | null;
   /** Custom per-key display labels (041_vault_key_labels.sql) -- see
    *  VaultStructureTree's identical mechanism in VaultDetail.tsx. Shown
    *  here in place of the raw technical role name (2026-08-15, operator:
@@ -426,6 +432,7 @@ export function VaultMembershipSetup({
         // A path-builder vault's role is a path id; send its name too.
         roleLabel: ROLE_LABELS[role as keyof typeof ROLE_LABELS] ? undefined : leafLabelById.get(role),
         leafScripts: roleLeaves,
+        rangedKeys: rangedKeysForScripts(vaultMultipath, roleLeaves),
         recipientXOnlyPubkey: xOnlyPubkey,
         relays: getNostrRelays(),
       });
