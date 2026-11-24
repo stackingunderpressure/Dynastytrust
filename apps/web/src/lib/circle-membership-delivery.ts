@@ -115,6 +115,11 @@ export interface VaultMembershipRequestPayload {
   vault_descriptor: string;
   vault_name: string;
   role: VaultMembershipRole;
+  /** A path-builder vault's role is its path id; this is the path's own
+   *  name, so Tapit can say "Everyday" instead of "path_2" (2026-11-24,
+   *  Tapit accepts path ids since then). Display only; inside the
+   *  NIP-44-encrypted request, so it reaches only the member. */
+  role_label?: string;
   /** Hex-encoded tapscript leaf bytes this signer's key is known to
    *  appear in -- JSON-stringified array, matching the shape
    *  vaultTrail.ts's readVaultMembership expects in the `leaf_scripts`
@@ -186,6 +191,7 @@ export async function sendVaultMembershipRequestOverNostr(opts: {
   vaultDescriptor: string;
   vaultName: string;
   role: VaultMembershipRole;
+  roleLabel?: string;
   leafScripts: string[];
   highValueThresholdSats?: bigint;
   recipientXOnlyPubkey: string;
@@ -198,6 +204,7 @@ export async function sendVaultMembershipRequestOverNostr(opts: {
     vault_descriptor: opts.vaultDescriptor,
     vault_name: opts.vaultName,
     role: opts.role,
+    ...(opts.roleLabel ? { role_label: opts.roleLabel.slice(0, 80) } : {}),
     leaf_scripts: opts.leafScripts,
     ...(opts.highValueThresholdSats !== undefined
       ? { high_value_threshold_sats: opts.highValueThresholdSats.toString() }

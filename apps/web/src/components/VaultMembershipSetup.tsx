@@ -423,6 +423,8 @@ export function VaultMembershipSetup({
         vaultDescriptor,
         vaultName,
         role,
+        // A path-builder vault's role is a path id; send its name too.
+        roleLabel: ROLE_LABELS[role as keyof typeof ROLE_LABELS] ? undefined : leafLabelById.get(role),
         leafScripts: roleLeaves,
         recipientXOnlyPubkey: xOnlyPubkey,
         relays: getNostrRelays(),
