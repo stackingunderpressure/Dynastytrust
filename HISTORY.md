@@ -2327,6 +2327,12 @@ signers" as not yet verified. Item 1 above postdates it.
 
 **Recently closed:**
 
+- **Released to main 2026-11-24 (operator: one push when the plan is
+  done):** Tapit answers gift-wrapped (Phase 1) and zero-knowledge storage
+  Z1 slices 1-5, below. Owed by hand straight after: the operator runs
+  `scripts/reset-test-data.sql` once in the Supabase SQL editor; then the
+  two-account walk in a browser, which has not happened yet.
+
 - **Zero-knowledge storage, slice 5: Sage stores nothing and asks first
   (2026-11-24).** Decision 3: the browser shows what goes to the AI and the
   person says yes. Reading the code first: the chat already held the whole
