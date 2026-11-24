@@ -27,18 +27,20 @@ const draft = { status: 'draft', leaves: [
   { id: 'everyday', label: 'Everyday signers', keys: [], quorum: 2, unlock: { type: 'immediate' } },
   { id: 'kids', label: 'The kids', keys: [], quorum: 2, unlock: { type: 'after', blocks: 262800 } },
   { id: 'stale', label: 'If untouched', keys: [], quorum: 1, unlock: { type: 'older', blocks: 30000 } } ] };
-assert.deepEqual(r.checkPathInvite(draft, { leaf_id: 'kids', invited_label: '  Anna ', invited_email: ' Anna@Example.com ' }), { role: 'heir', label: 'Anna', email: 'anna@example.com', mustSign: false });
+assert.deepEqual(r.checkPathInvite(draft, { leaf_id: 'kids', invited_label: '  Anna ', invited_email: ' Anna@Example.com ' }), { role: 'heir', label: 'Anna', mustSign: false });
 assert.equal(r.checkPathInvite(draft, { leaf_id: 'everyday', invited_label: 'Mum', invited_email: 'mum@example.com' }).role, 'founder');
 assert.equal(r.checkPathInvite(draft, { leaf_id: 'stale', invited_label: 'Mum', invited_email: 'mum@example.com' }).role, 'heir');
 const inv = (o, v = draft) => () => r.checkPathInvite(v, { leaf_id: 'kids', invited_label: 'Anna', invited_email: 'anna@example.com', ...o });
 assert.throws(inv({ leaf_id: 'nope' }), /not part of this vault/);
 assert.throws(inv({ invited_label: '  ' }), /person's name/);
 assert.throws(inv({ invited_label: 'x'.repeat(81) }), /person's name/);
-for (const bad of ['anna', 'anna@', '@x.com', 'a b@x.com', 'anna@x']) assert.throws(inv({ invited_email: bad }), /email address/, String(bad));
-// Since 2026-11-13: no email at all is a link-only invite (owner confirms the key).
-for (const none of ['', '   ', undefined, null, 7]) assert.equal(inv({ invited_email: none })().email, null, String(none));
+// Since 2026-11-24 (zero-knowledge storage) an invite carries no email at all.
+for (const any of ['anna', 'anna@example.com', '', undefined]) assert.equal('email' in inv({ invited_email: any })(), false, String(any));
+// A name sealed with the vault key is longer than 80 characters and allowed.
+assert.equal(inv({ invited_label: 'zk1:1:' + 'A'.repeat(200) })().label.length, 206);
+assert.throws(inv({ invited_label: 'zk1:1:' + 'A'.repeat(400) }), /person's name/);
 assert.throws(inv({}, { ...draft, status: 'compiled' }), /only be invited while the vault is still being set up/);
-pass('a path invite needs a real path and a name on a vault still being set up; an email is optional but must be real if given; the role follows the path');
+pass('a path invite needs a real path and a name (sealed or plain) on a vault still being set up; it stores no email; the role follows the path');
 
 // 1b. An invite into a path's must-sign group.
 {

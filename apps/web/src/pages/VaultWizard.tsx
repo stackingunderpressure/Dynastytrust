@@ -1031,6 +1031,7 @@ export default function VaultWizard() {
           onImportXpub={onImportXpub}
           onImportTapitKey={onImportTapitKey}
           vaultId={draftVault.id}
+          vaultName={name.trim() || draftVault.name}
           ownerUserId={draftVault.user_id}
           people={people}
           reloadPeople={reloadPeople}
@@ -2172,7 +2173,7 @@ function KeysStep({
   backupKeys, setBackupKeys, secondHeirKeys, setSecondHeirKeys,
   parentKeys, setParentKeys, kidKeys, setKidKeys,
   network, onChangeNetwork, networkBusy, genRole, setGenRole, onGenerateKey, onImportXpub, onImportTapitKey,
-  vaultId, ownerUserId, people, reloadPeople,
+  vaultId, vaultName, ownerUserId, people, reloadPeople,
   slotsReady, onContinue, onSaveForLater,
 }: {
   shape: Shape; stdConfig: StandardConfig; blocConfig: BlocConfig;
@@ -2194,6 +2195,7 @@ function KeysStep({
   onImportXpub: (role: string, xpub: string, derivationPath: string, masterFingerprint?: string) => void;
   onImportTapitKey: (role: string, xOnlyPubkey: string) => void;
   vaultId: string;
+  vaultName: string;
   ownerUserId: string;
   people: { members: VaultMember[]; invites: VaultInvite[] };
   reloadPeople: () => Promise<void>;
@@ -2393,6 +2395,7 @@ function KeysStep({
                 invites={people.invites}
                 members={people.members}
                 reload={reloadPeople}
+                vaultName={vaultName}
                 mustSign
               />,
               pickable,
@@ -2411,6 +2414,7 @@ function KeysStep({
                 invites={people.invites}
                 members={people.members}
                 reload={reloadPeople}
+                vaultName={vaultName}
               />
               </>,
               pickable,

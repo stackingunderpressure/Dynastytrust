@@ -389,7 +389,9 @@ export async function handler(event) {
       } catch (e) {
         return json(400, { error: e.message });
       }
-      if (label != null && (typeof label !== "string" || label.length > 60)) {
+      // A label sealed with the vault key (zero-knowledge storage) is longer.
+      const labelMax = typeof label === "string" && label.startsWith("zk1:") ? 300 : 60;
+      if (label != null && (typeof label !== "string" || label.length > labelMax)) {
         return json(400, { error: "key_label.label must be a string of 60 characters or fewer, or null to clear it" });
       }
       const cleanPubkey = normalizeKeyIdentifier(pubkey);

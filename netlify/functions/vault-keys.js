@@ -4,6 +4,11 @@
  * ever sees wraps it cannot open (lib/messaging.ts EncryptedMessage to one
  * member's X25519 messaging key) and a public check value.
  *
+ * GET  /api/vault-keys                                       (signed in)
+ *   -> { vaults: [{ vault_id, version, checks, mine }] } -- every wrap
+ *   addressed to the caller. A removed member keeps the OLD versions they
+ *   were given (they already saw that data); they never get new ones.
+ *
  * GET  /api/vault-keys?vault_id=<uuid>                       (active member)
  *   -> { version, owner_user_id, checks, mine: [{version, wrap}],
  *        current_holders: [{user_id, pubkey}], members: [{user_id, messaging_pubkey}] }
@@ -54,7 +59,28 @@ export async function handler(event) {
 
   if (event.httpMethod === "GET") {
     const vaultId = event.queryStringParameters?.vault_id;
-    if (!vaultId) return json(400, { error: "Missing: vault_id" });
+    if (!vaultId) {
+      // Every wrap addressed to the caller, across all their vaults (for
+      // lists: the dashboard opens many vault names at once). No
+      // housekeeping data -- that comes per vault, when one is opened.
+      const { data: rows } = await supabase
+        .from("vault_keys")
+        .select("vault_id, version, wrap")
+        .eq("recipient_user_id", u.userId);
+      const ids = [...new Set((rows ?? []).map((r) => r.vault_id))];
+      const { data: vaults } = ids.length
+        ? await supabase.from("vaults").select("id, vault_key_version, vault_key_checks").in("id", ids)
+        : { data: [] };
+      return json(200, {
+        ok: true,
+        vaults: (vaults ?? []).map((v) => ({
+          vault_id: v.id,
+          version: v.vault_key_version ?? 0,
+          checks: v.vault_key_checks ?? {},
+          mine: (rows ?? []).filter((r) => r.vault_id === v.id).map((r) => ({ version: r.version, wrap: r.wrap })),
+        })),
+      });
+    }
     const members = await activeMembers(supabase, vaultId);
     if (!members.some((m) => m.user_id === u.userId)) return json(403, { error: "Not a member of this vault" });
     const { data: vault } = await supabase

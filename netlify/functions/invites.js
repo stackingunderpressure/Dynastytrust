@@ -74,8 +74,8 @@ export async function handler(event) {
     const { vault_id } = body;
     let { invited_role } = body;
     if (!vault_id) return json(400, { error: "Missing: vault_id" });
-    // A path invite (path-builder vaults) names the path, the person and
-    // their email; the role follows from the path. See _invite-rules.js.
+    // A path invite (path-builder vaults) names the path and the person;
+    // the role follows from the path. See _invite-rules.js.
     const isPathInvite = body.leaf_id != null;
     if (!isPathInvite && !["founder", "heir", "beneficiary", "viewer"].includes(invited_role)) {
       return json(400, { error: "Invalid invited_role" });
@@ -114,7 +114,9 @@ export async function handler(event) {
       invited_by: u.userId,
       invited_role,
       invited_label: pathInvite ? pathInvite.label : body.invited_label || null,
-      invited_email: pathInvite ? pathInvite.email : body.invited_email || null,
+      // No email is stored (zero-knowledge storage, decision 4): the link is
+      // the invite, and the owner confirms the key before it is used.
+      invited_email: null,
       ...(pathInvite ? { leaf_id: body.leaf_id, must_sign: pathInvite.mustSign } : {}),
       token: newToken(),
     };

@@ -2327,6 +2327,45 @@ signers" as not yet verified. Item 1 above postdates it.
 
 **Recently closed:**
 
+- **Zero-knowledge storage, slice 2: names and labels sealed, invites
+  without email (2026-11-24).** Operator: finish Z1, one push at the end.
+  Every name and label the server never computes on is now sealed with the
+  vault key in the browser before it is sent, and opened when it comes back,
+  in ONE place: `lib/api.ts`, using `lib/vault-keyring.ts` (this browser's
+  keys; seal refuses rather than ever sending plain text) and
+  `lib/sealed-fields.ts` (which field of which row, and the openers). Pages
+  still read plain `vault.name`. Sealed: vault name, per-key labels, the
+  trust document (as `{zk}`), member labels and key labels, invite labels,
+  request rule/recipient/reason/note, stipend name/recipient, distribution
+  wallet name/beneficiary, sent-secret label and recipient labels,
+  attestation `target_data` (trust-document snapshots, declaration notes),
+  proposal memo, signer labels. The field name is part of the seal's
+  associated data, so one value cannot be replayed as another. A value
+  without its key reads "Locked", never ciphertext. A new vault is created
+  under the placeholder "Vault" (it has no id, so no key, until it exists)
+  and renamed sealed straight after; if that can't happen it waits on the
+  device (`lib/sealed-pending.ts`) and is sealed on the next open -- the same
+  path a new member's own label takes, since they get the key only after
+  joining. A replacement vault opens the values it copied through
+  `predecessor_id` and re-seals its name under its own key; the server adds
+  " v2" only to a readable name. Invites store no email any more (decision
+  4): `invites.js` always stores null; the invited person sees the vault's
+  name and their own from the invite link's fragment (`lib/invite-link.ts`),
+  which browsers never send to a server. Older email invites keep their gate.
+  `GET /api/vault-keys` with no vault returns every wrap addressed to the
+  caller, so a list opens many names in one call. Saving sealed text asks
+  for Face ID when the messaging key is locked. Server error messages never
+  quote a sealed name. `vault-messages.js` no longer accepts a readable
+  subject (the app never sent one). Left out, on purpose: path (leaf) labels
+  and tranche labels are vault structure (Z3); the history ledger, PDFs and
+  exports, and the assistant still receive sealed text until slices 3-5.
+  Tests: `test-sealed-fields.mjs` (6 checks: seal/open, field and vault
+  binding, every row opener, predecessor fallback, key versions, pending
+  text, the invite fragment); `test-vault-key.mjs` gains the all-vaults
+  fetch; invite tests now assert no email is stored and a sealed name may be
+  longer. Gates: lint 0 errors (11 warnings, as before), typecheck the same
+  10 pre-existing errors, build OK, npm test exit 0. NOT walked in a browser.
+
 - **Zero-knowledge storage, slice 1: the vault key, sealed comments and votes
   (2026-11-24).** From docs/zero-knowledge-storage-plan.md (operator: Z0 + Z1,
   devices do the checks, start clean). Each vault now gets a random key made

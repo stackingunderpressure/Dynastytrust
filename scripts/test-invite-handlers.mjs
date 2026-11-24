@@ -83,18 +83,24 @@ as('u-mallory', 'mallory@example.com');
 let r = await call('invites', 'POST', { body: { vault_id: 'v1', leaf_id: 'kids', invited_label: 'Anna', invited_email: 'anna@example.com' } });
 assert.equal(r.status, 403);
 as(OWNER, 'dad@example.com');
-r = await call('invites', 'POST', { body: { vault_id: 'v1', leaf_id: 'kids', invited_label: 'Anna', invited_email: 'not-an-email' } });
-assert.equal(r.status, 400); assert.equal(tables.vault_invites.length, 0);
 r = await call('invites', 'POST', { body: { vault_id: 'v1', leaf_id: 'kids', invited_label: 'Anna', invited_email: 'Anna@Example.com' } });
 assert.equal(r.status, 201, JSON.stringify(r));
 const invite = tables.vault_invites[0];
-assert.deepEqual([invite.leaf_id, invite.invited_role, invite.invited_label, invite.invited_email, invite.invited_by], ['kids', 'heir', 'Anna', 'anna@example.com', OWNER]);
+// Zero-knowledge storage (2026-11-24): an email sent with a new invite is not stored.
+assert.deepEqual([invite.leaf_id, invite.invited_role, invite.invited_label, invite.invited_email, invite.invited_by], ['kids', 'heir', 'Anna', null, OWNER]);
+// A sealed name (the browser seals it with the vault key) may be longer than 80.
+r = await call('invites', 'POST', { body: { vault_id: 'v1', leaf_id: 'kids', invited_label: 'zk1:1:' + 'A'.repeat(150) } });
+assert.equal(r.status, 201, JSON.stringify(r));
+tables.vault_invites.pop();
+// The rest of this walk uses an invite made BEFORE that change, which carried
+// an email; its email gate must still hold.
+invite.invited_email = 'anna@example.com';
 assert.ok(invite.token.length >= 40);
 assert.ok(!JSON.stringify(tables.events).includes('anna@example.com'), 'the email address is not sealed into the record');
 // the older role-based invite still works as before
 r = await call('invites', 'POST', { body: { vault_id: 'v1', invited_role: 'viewer' } });
 assert.equal(r.status, 201); assert.equal(tables.vault_invites[1].leaf_id, undefined);
-pass('only the owner can invite; a path invite stores the path, the role it implies, the name and the email');
+pass('only the owner can invite; a path invite stores the path, the role it implies and the name, never an email');
 
 // 2. What the invite page shows before sign-in: her path, nothing else.
 as(null);

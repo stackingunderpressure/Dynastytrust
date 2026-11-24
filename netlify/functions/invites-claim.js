@@ -70,7 +70,7 @@ export async function handler(event) {
     return json(409, {
       error:
         "You are already a member of this vault (as " +
-        (existing.label || existing.role) +
+        (existing.label && !existing.label.startsWith("zk1:") ? existing.label : existing.role) +
         "). Share this invite link with the intended recipient; they must " +
         "be logged in as themselves -- not you -- to claim it.",
       already_member: true,

@@ -137,6 +137,7 @@ function from(table) {
     single: async () => { if (op === 'insert') { const nr = { id: `${table}-${++seq}`, created_at: 'now', ...payload }; rows.push(nr); return { data: nr, error: null }; } const d = run()[0]; return { data: d ?? null, error: d ? null : { message: 'no rows' } }; },
     upsert: (p, o) => { op = 'upsert'; payload = p; opts = o; return q; },
     eq: (k, v) => { filters.push(r => r[k] === v); return q; },
+    in: (k, vs) => { filters.push(r => vs.includes(r[k])); return q; },
     maybeSingle: async () => ({ data: run()[0] ?? null, error: null }),
     then: (res) => res({ data: run(), error: null }),
   };
@@ -195,6 +196,15 @@ tables.vault_members.push(
   // Replaying version 1 creation is refused; skipping ahead is refused.
   useDevice('dad');
   assert.equal((await call('u-dad', 'POST', { body: { vault_id: V, version: 3, check, wraps } })).status, 409);
+  // Z1 slice 2: every wrap addressed to me across all my vaults, in one call
+  // (the dashboard opens many vault names at once) -- and nobody else's.
+  r = await call('u-anna', 'GET');
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.vaults.map(v => [v.vault_id, v.version, v.mine.length]), [[V, 1, 1]]);
+  useDevice('anna');
+  assert.deepEqual(vk.unwrapVaultKeys(r.vaults[0].mine, V, 'u-anna', r.vaults[0].checks).get(1), key);
+  assert.deepEqual((await call('u-stranger', 'GET')).vaults, []);
+  assert.equal((await call(null, 'GET')).status, 401);
   pass('vault-keys: members only; only the owner creates or replaces; wraps must come from the caller and go to active members; stored rows hold no key');
 }
 

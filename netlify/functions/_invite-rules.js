@@ -26,7 +26,6 @@
  */
 import { assertNotPrivateExtendedKey, pubkeyFromXpub } from "./_xpub.js";
 
-const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/;
 
 /** A person on an everyday path acts like a trustee; on a path that
  *  opens later, like a successor. Reuses the roles the rest of the app
@@ -52,7 +51,7 @@ export function mustSignSlots(leaf) {
  * into one -- so a path is never offered to more people than it has
  * must-sign slots.
  */
-export function checkPathInvite(vault, { leaf_id, invited_label, invited_email, must_sign }, mustSignTaken = 0) {
+export function checkPathInvite(vault, { leaf_id, invited_label, must_sign }, mustSignTaken = 0) {
   if (vault?.status !== "draft") throw new Error("People can only be invited while the vault is still being set up.");
   const leaf = (vault.leaves ?? []).find((l) => l && l.id === leaf_id);
   if (!leaf) throw new Error("That path is not part of this vault.");
@@ -64,11 +63,14 @@ export function checkPathInvite(vault, { leaf_id, invited_label, invited_email, 
       throw new Error(`Every must-sign slot on "${leaf.label || leaf.id}" is already taken or promised to someone.`);
     }
   }
+  // The name arrives sealed with the vault key (zero-knowledge storage), so a
+  // sealed value is allowed its longer length. Invites store no email any more
+  // (docs/zero-knowledge-storage-plan.md decision 4): every new invite is
+  // link-only and the owner confirms the key.
   const label = typeof invited_label === "string" ? invited_label.trim() : "";
-  if (!label || label.length > 80) throw new Error("Give the person's name (up to 80 characters).");
-  const typed = typeof invited_email === "string" ? invited_email.trim().toLowerCase() : "";
-  if (typed && !EMAIL.test(typed)) throw new Error("That email address does not look right. Fix it, or leave it empty for a link-only invite.");
-  return { role: roleForPath(leaf), label, email: typed || null, mustSign };
+  const max = label.startsWith("zk1:") ? 400 : 80;
+  if (!label || label.length > max) throw new Error("Give the person's name (up to 80 characters).");
+  return { role: roleForPath(leaf), label, mustSign };
 }
 
 /** The signed-in account must BE the invited address. */
@@ -136,7 +138,8 @@ export function unconfirmedMemberKeys(leaves, members, ownerUserId) {
   for (const leaf of leaves ?? []) {
     for (const k of [...(leaf?.keys ?? []), ...(leaf?.required_keys ?? [])]) {
       const m = byKey.get(xOnly(k));
-      if (m && !m.key_confirmed_at) out.push({ member: m.label || "a member", path: leaf.label || leaf.id });
+      // A sealed name (zero-knowledge storage) is never quoted back.
+      if (m && !m.key_confirmed_at) out.push({ member: m.label && !m.label.startsWith("zk1:") ? m.label : "a member", path: leaf.label || leaf.id });
     }
   }
   return out;

@@ -14,6 +14,8 @@ import { supabase } from './supabase';
 import { getMessagingPubkey, messagingKeyLocked } from './messaging';
 import { peerKeyStatus } from './messaging-safety';
 import { newVaultKey, planVaultKeySync, unwrapVaultKeys, vaultKeyCheck, wrapVaultKey } from './vault-key';
+import { setVaultKeys } from './vault-keyring';
+import { clearPending, loadPending } from './sealed-pending';
 
 export type VaultKeyStatus = 'loading' | 'ready' | 'waiting' | 'locked' | 'error';
 
@@ -64,7 +66,39 @@ async function syncOnce(vaultId: string): Promise<{ keys: Map<number, Uint8Array
     });
   }
   const version = keys.has(state.version) ? state.version : 0;
+  setVaultKeys(vaultId, keys, version);
+  if (version > 0) await applyPending(vaultId, me?.id ?? null);
   return { keys, version, status: version > 0 ? 'ready' : 'waiting' };
+}
+
+/** Text that waited on this device for the key (sealed-pending.ts) is
+ *  sealed and saved now. A failure leaves it waiting for the next open. */
+async function applyPending(vaultId: string, myMemberId: string | null): Promise<void> {
+  const pending = loadPending(vaultId);
+  if (!pending) return;
+  try {
+    if (pending.name) await api.vaults.rename(vaultId, pending.name);
+    if (myMemberId && (pending.label || pending.key_label)) {
+      await api.members.update(myMemberId, {
+        ...(pending.label ? { label: pending.label } : {}),
+        ...(pending.key_label ? { key_label: pending.key_label } : {}),
+      });
+    }
+    clearPending(vaultId);
+  } catch {
+    /* stays pending */
+  }
+}
+
+/** Sync this vault's key now (creating it if this is the owner and none
+ *  exists yet) and put it in the keyring. Shares the in-flight run. */
+export function ensureVaultKey(vaultId: string): Promise<{ keys: Map<number, Uint8Array>; version: number; status: VaultKeyStatus }> {
+  let p = inFlight.get(vaultId);
+  if (!p) {
+    p = syncOnce(vaultId).finally(() => inFlight.delete(vaultId));
+    inFlight.set(vaultId, p);
+  }
+  return p;
 }
 
 export function useVaultKey(vaultId: string | null | undefined): VaultKeyHandle {
@@ -79,12 +113,7 @@ export function useVaultKey(vaultId: string | null | undefined): VaultKeyHandle 
   useEffect(() => {
     if (!vaultId) return;
     let cancelled = false;
-    let p = inFlight.get(vaultId);
-    if (!p) {
-      p = syncOnce(vaultId).finally(() => inFlight.delete(vaultId));
-      inFlight.set(vaultId, p);
-    }
-    p.then(r => { if (!cancelled) setState(r); })
+    ensureVaultKey(vaultId).then(r => { if (!cancelled) setState(r); })
       .catch(() => { if (!cancelled) setState({ keys: new Map(), version: 0, status: 'error' }); });
     return () => { cancelled = true; };
   }, [vaultId, tick]);

@@ -181,7 +181,7 @@ export default function ProposalDetail() {
       const [{ proposals }, { members: ms }, { sessions: ss }] = await Promise.all([
         api.proposals.list(vaultId),
         api.members.list(vaultId),
-        api.signerSessions.list(proposalId),
+        api.signerSessions.list(proposalId, vaultId),
       ]);
       const p = proposals.find(x => x.id === proposalId) ?? null;
       if (!p) throw new Error("Proposal not found");
@@ -355,7 +355,7 @@ export default function ProposalDetail() {
         proposal_id: proposal.id,
         psbt_partial_hex: merged,
         label,
-      });
+      }, proposal.vault_id);
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to save signature");
@@ -398,7 +398,7 @@ export default function ProposalDetail() {
         psbt_partial_hex: result.psbt_hex,
         fingerprint: key.fingerprint,
         label: key.label,
-      });
+      }, proposal.vault_id);
       toast.success("Signed with " + key.label);
       await load();
     } catch (e) {
@@ -555,6 +555,7 @@ export default function ProposalDetail() {
           </div>
           <ExternalPsbt
             proposalId={proposal.id}
+            vaultId={proposal.vault_id}
             psbtToSign={signablePsbt}
             network={vault.network}
             onImported={() => void load()}
@@ -856,11 +857,13 @@ function ActionCard({ children }: { children: React.ReactNode }) {
 
 function ExternalPsbt({
   proposalId,
+  vaultId,
   psbtToSign,
   network,
   onImported,
 }: {
   proposalId: string;
+  vaultId: string;
   psbtToSign: string;
   network: string;
   onImported: () => void;
@@ -903,7 +906,7 @@ function ExternalPsbt({
         proposal_id: proposalId,
         psbt_partial_hex: merged,
         label: "Hardware wallet",
-      });
+      }, vaultId);
       setHex("");
       toast.success("Signature added");
       onImported();
