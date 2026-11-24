@@ -375,3 +375,162 @@ fn ranged_compile_route_makes_the_vectors_descriptors() {
     let too_many = serde_json::json!({ "multipath": v["multipath"], "receive": v["receive"], "change": v["change"], "network": "signet", "branch": 0, "start": 0, "count": 201 }).to_string();
     assert_eq!(handle("/ranged-addresses", &too_many).0, 400);
 }
+
+// 10. Spending by ONE path from several addresses (slice 5): every path of
+//     every vector shape is built, signed with the real test keys (seeds
+//     [n; 32], as protocol/examples/ranged_vectors.rs made them), and
+//     finalized by miniscript -- which checks each signature AND that the
+//     transaction's lock time / each input's sequence satisfies the leaf.
+//     Each input must keep only the chosen path's leaf, at its own index.
+mod path_spend {
+    use super::*;
+    use bitcoin::bip32::Xpriv;
+    use bitcoin::key::Keypair;
+    use bitcoin::secp256k1::{Message, SecretKey};
+    use bitcoin::sighash::{Prevouts, SighashCache, TapSighashType};
+    use bitcoin::taproot::Signature;
+    use bitcoin::hashes::Hash;
+    use bitcoin::ScriptBuf;
+    use miniscript::psbt::PsbtExt;
+
+    fn secret_for(xonly: &bitcoin::key::XOnlyPublicKey, origin: &(Fingerprint, DerivationPath)) -> Option<SecretKey> {
+        let secp = Secp256k1::new();
+        for n in 1u8..=60 {
+            let master = Xpriv::new_master(Network::Regtest, &[n; 32]).unwrap();
+            if !origin.1.is_empty() && master.fingerprint(&secp) == origin.0 {
+                let k = master.derive_priv(&secp, &origin.1).unwrap().private_key;
+                if k.x_only_public_key(&secp).0 == *xonly { return Some(k); }
+            }
+            let bare = SecretKey::from_slice(&[n; 32]).unwrap();
+            if bare.x_only_public_key(&secp).0 == *xonly { return Some(bare); }
+        }
+        None
+    }
+
+    fn sign_all(psbt: &mut bitcoin::psbt::Psbt) {
+        let secp = Secp256k1::new();
+        let prevouts: Vec<_> = psbt.inputs.iter().map(|i| i.witness_utxo.clone().unwrap()).collect();
+        let tx = psbt.unsigned_tx.clone();
+        let mut cache = SighashCache::new(&tx);
+        for n in 0..psbt.inputs.len() {
+            let origins = psbt.inputs[n].tap_key_origins.clone();
+            for (xonly, (hashes, origin)) in origins {
+                let Some(sk) = secret_for(&xonly, &origin) else { continue };
+                for h in hashes {
+                    let sighash = cache.taproot_script_spend_signature_hash(n, &Prevouts::All(&prevouts), h, TapSighashType::Default).unwrap();
+                    let kp = Keypair::from_secret_key(&secp, &sk);
+                    let sig = secp.sign_schnorr_no_aux_rand(&Message::from_digest(sighash.to_byte_array()), &kp);
+                    psbt.inputs[n].tap_script_sigs.insert((xonly, h), Signature { sig, hash_ty: TapSighashType::Default });
+                }
+            }
+        }
+    }
+
+    fn leaf_script_at(vlt: &RangedVault, branch: Branch, index: u32, position: usize) -> ScriptBuf {
+        let d = vlt.definite(branch, index).unwrap();
+        let tr = match d { Descriptor::Tr(t) => t, _ => panic!("tr") };
+        let s = tr.iter_scripts().nth(position).unwrap().1.encode();
+        s
+    }
+
+    #[test]
+    fn every_path_of_every_shape_signs_and_finalizes_from_many_addresses() {
+        let txid = |n: u8| format!("{:064x}", n);
+        let ins = vec![
+            RangedInput { txid: txid(1), vout: 0, value_sats: 40_000, branch: Branch::Receive, index: 0 },
+            RangedInput { txid: txid(2), vout: 1, value_sats: 50_000, branch: Branch::Receive, index: 7 },
+            RangedInput { txid: txid(3), vout: 0, value_sats: 30_000, branch: Branch::Change, index: 2 },
+        ];
+        let mut checked = 0;
+        for s in vectors()["shapes"].as_array().unwrap() {
+            let vlt = vault(s);
+            let compiled = build_leaf_multileaf(&policy(s)).unwrap();
+            let dest = vlt.address(Branch::Receive, 3).unwrap();
+            for leaf in policy(s).leaves.iter() {
+                let at_zero = compiled.leaf_scripts.iter().find(|(id, _)| id == &leaf.id).unwrap().1.clone();
+                let mut psbt = vlt.build_path_spend_psbt(&ins, &dest, 100_000, 1_000, 5, &at_zero).unwrap();
+                let position = vlt.leaf_position(&at_zero).unwrap();
+                // The lock follows the leaf.
+                let unlock = &s["policy"]["leaves"].as_array().unwrap().iter().find(|l| l["id"] == leaf.id.as_str()).unwrap()["unlock"];
+                let blocks = unlock["blocks"].as_u64().unwrap_or(0) as u32;
+                match unlock["type"].as_str().unwrap() {
+                    "after" => {
+                        assert_eq!(psbt.unsigned_tx.lock_time.to_consensus_u32(), blocks, "{}/{}", s["name"], leaf.id);
+                        assert!(psbt.unsigned_tx.input.iter().all(|i| i.sequence == bitcoin::Sequence::ENABLE_RBF_NO_LOCKTIME));
+                    }
+                    "older" => {
+                        assert_eq!(psbt.unsigned_tx.lock_time.to_consensus_u32(), 0);
+                        assert!(psbt.unsigned_tx.input.iter().all(|i| i.sequence == bitcoin::Sequence::from_height(blocks as u16)), "{}/{}", s["name"], leaf.id);
+                    }
+                    _ => assert_eq!(psbt.unsigned_tx.lock_time.to_consensus_u32(), 0),
+                }
+                // Each input carries only this path's leaf, at its own index.
+                for (n, i) in ins.iter().enumerate() {
+                    let want = leaf_script_at(&vlt, i.branch, i.index, position);
+                    let scripts: Vec<_> = psbt.inputs[n].tap_scripts.values().map(|(s, _)| s.clone()).collect();
+                    assert_eq!(scripts, vec![want.clone()], "{}/{} input {n}", s["name"], leaf.id);
+                    let h = TapLeafHash::from_script(&want, LeafVersion::TapScript);
+                    for (hashes, _) in psbt.inputs[n].tap_key_origins.values() {
+                        assert!(hashes.iter().all(|x| *x == h));
+                    }
+                }
+                sign_all(&mut psbt);
+                let secp = Secp256k1::new();
+                psbt.finalize_mut(&secp).unwrap_or_else(|e| panic!("{}/{}: {e:?}", s["name"], leaf.id));
+                // The witness spends this path's leaf on every input.
+                for (n, i) in ins.iter().enumerate() {
+                    let w = psbt.inputs[n].final_script_witness.as_ref().unwrap();
+                    let script = w.iter().nth(w.len() - 2).unwrap();
+                    assert_eq!(script, leaf_script_at(&vlt, i.branch, i.index, position).as_bytes());
+                }
+                checked += 1;
+            }
+        }
+        assert!(checked >= 12, "paths checked: {checked}");
+    }
+
+    #[test]
+    fn a_leaf_not_in_this_vault_is_refused() {
+        let s = shape("family");
+        let vlt = vault(&s);
+        let other = build_leaf_multileaf(&policy(&shape("poc"))).unwrap();
+        let ins = vec![RangedInput { txid: format!("{:064x}", 1), vout: 0, value_sats: 40_000, branch: Branch::Receive, index: 1 }];
+        let dest = vlt.address(Branch::Receive, 3).unwrap();
+        let err = vlt.build_path_spend_psbt(&ins, &dest, 30_000, 1_000, 0, &other.leaf_scripts[0].1).unwrap_err();
+        assert!(matches!(err, RangedError::Spend(m) if m.contains("not one of this vault's paths")));
+    }
+}
+
+// 11. The /ranged-spend route (what the server calls through the wasm).
+#[test]
+fn ranged_spend_route_builds_by_path_and_says_its_locks() {
+    use dynastytrust_protocol::service::handle;
+    let s = shape("untouched");
+    let r = vault(&s);
+    let vlt = RangedVault::from_stored(&r.multipath_descriptor(), &r.branch_descriptor(Branch::Receive), &r.branch_descriptor(Branch::Change), Network::Signet).unwrap();
+    let compiled = build_leaf_multileaf(&policy(&s)).unwrap();
+    let leaf = |id: &str| hex::encode(compiled.leaf_scripts.iter().find(|(i, _)| i == id).unwrap().1.as_bytes());
+    let req = |leaf_hex: String| serde_json::json!({
+        "multipath": vlt.multipath_descriptor(), "receive": vlt.branch_descriptor(Branch::Receive), "change": vlt.branch_descriptor(Branch::Change),
+        "network": "signet",
+        "inputs": [
+            { "txid": format!("{:064x}", 1), "vout": 0, "value_sats": 40_000, "branch": 0, "index": 2 },
+            { "txid": format!("{:064x}", 2), "vout": 1, "value_sats": 70_000, "branch": 1, "index": 0 },
+        ],
+        "destination": vlt.address(Branch::Receive, 9).unwrap(),
+        "amount_sats": 60_000, "fee_sats": 1_000, "change_index": 3, "leaf_at_zero": leaf_hex,
+    }).to_string();
+    let (status, body) = handle("/ranged-spend", &req(leaf("quiet")));
+    assert_eq!(status, 200, "{body}");
+    let v: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["relative_blocks"], 52560);
+    assert_eq!(v["lock_time"], 0);
+    assert_eq!(v["change_sats"], 110_000 - 61_000);
+    assert_eq!(v["change_address"], vlt.address(Branch::Change, 3).unwrap());
+    let (_, body) = handle("/ranged-spend", &req(leaf("heirs")));
+    let v: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["lock_time"], 400_000);
+    assert!(v["relative_blocks"].is_null());
+    let (status, _) = handle("/ranged-spend", &req("51".into()));
+    assert_eq!(status, 422, "a leaf that is not the vault's");
+}

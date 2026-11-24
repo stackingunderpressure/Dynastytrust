@@ -83,6 +83,7 @@ pub fn handle(endpoint: &str, body: &str) -> (u16, String) {
         "/ranged-address" => run(body, ranged_address),
         "/ranged-compile" => run(body, ranged_compile),
         "/ranged-addresses" => run(body, ranged_addresses),
+        "/ranged-spend" => run(body, ranged_spend),
         other => (404, refusal(&format!("unknown endpoint {other}"))),
     }
 }
@@ -1508,6 +1509,82 @@ pub fn ranged_addresses(req: RangedAddressesRequest) -> Result<RangedAddressesRe
         });
     }
     Ok(RangedAddressesResponse { ok: true, addresses })
+}
+
+// -- /ranged-spend: an unsigned PSBT spending a v2 vault's coins from any of
+// its addresses by ONE path (slice 5). The path is named by its leaf script
+// at receive/0; the lock comes from that leaf (ranged.rs
+// build_path_spend_psbt). Change, if above dust, goes to change/<change_index>.
+
+#[derive(Deserialize)]
+pub struct RangedSpendInput { pub txid: String, pub vout: u32, pub value_sats: u64, pub branch: u8, pub index: u32 }
+
+#[derive(Deserialize)]
+pub struct RangedSpendRequest {
+    pub multipath: String,
+    pub receive: String,
+    pub change: String,
+    pub network: String,
+    pub inputs: Vec<RangedSpendInput>,
+    pub destination: String,
+    pub amount_sats: u64,
+    pub fee_sats: u64,
+    pub change_index: u32,
+    /// The path's leaf script at receive/0, hex.
+    pub leaf_at_zero: String,
+}
+
+#[derive(Serialize)]
+pub struct RangedSpendResponse {
+    pub ok: bool,
+    pub psbt_hex: String,
+    pub psbt_b64: String,
+    /// The change address, or null when the remainder was below dust.
+    pub change_address: Option<String>,
+    pub change_sats: u64,
+    pub lock_time: u32,
+    /// The relative lock every input carries ("if left untouched"), or null.
+    pub relative_blocks: Option<u16>,
+}
+
+pub fn ranged_spend(req: RangedSpendRequest) -> Result<RangedSpendResponse, ServiceError> {
+    use crate::ranged::{Branch, RangedInput, RangedVault};
+    if req.inputs.is_empty() || req.inputs.len() > 200 {
+        return Err(api_err(400, "between 1 and 200 coins"));
+    }
+    let network = parse_network(&req.network).map_err(|e| api_err(400, e))?;
+    let vault = RangedVault::from_stored(&req.multipath, &req.receive, &req.change, network).map_err(|e| api_err(422, e))?;
+    let mut inputs = Vec::with_capacity(req.inputs.len());
+    for (n, i) in req.inputs.iter().enumerate() {
+        let branch = match i.branch {
+            0 => Branch::Receive,
+            1 => Branch::Change,
+            b => return Err(api_err(400, format!("coin {n}: branch must be 0 or 1, got {b}"))),
+        };
+        inputs.push(RangedInput { txid: i.txid.clone(), vout: i.vout, value_sats: i.value_sats, branch, index: i.index });
+    }
+    let leaf = ScriptBuf::from_bytes(hex::decode(&req.leaf_at_zero).map_err(|e| api_err(400, format!("leaf_at_zero: {e}")))?);
+    let psbt = vault
+        .build_path_spend_psbt(&inputs, &req.destination, req.amount_sats, req.fee_sats, req.change_index, &leaf)
+        .map_err(|e| api_err(422, e))?;
+    let (change_address, change_sats) = if psbt.unsigned_tx.output.len() == 2 {
+        (Some(vault.address(Branch::Change, req.change_index).map_err(|e| api_err(422, e))?), psbt.unsigned_tx.output[1].value.to_sat())
+    } else {
+        (None, 0)
+    };
+    let seq = psbt.unsigned_tx.input[0].sequence;
+    let relative_blocks = if seq.is_height_locked() { seq.to_relative_lock_time().and_then(|l| match l { bitcoin::relative::LockTime::Blocks(h) => Some(h.value()), _ => None }) } else { None };
+    let lock_time = psbt.unsigned_tx.lock_time.to_consensus_u32();
+    let bytes = psbt.serialize();
+    Ok(RangedSpendResponse {
+        ok: true,
+        psbt_hex: hex::encode(&bytes),
+        psbt_b64: base64_encode(&bytes),
+        change_address,
+        change_sats,
+        lock_time,
+        relative_blocks,
+    })
 }
 
 #[derive(Deserialize)]

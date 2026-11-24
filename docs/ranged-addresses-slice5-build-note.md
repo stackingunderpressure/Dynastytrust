@@ -66,3 +66,14 @@ The backups (descriptor export, PDF, Legacy Recovery) restore only address
 backup misses most of its coins is a way to lose an inheritance. Options:
 ship the backup slice (6) in the same release as 3-5, or hold fresh
 addresses to test coins until it is done.
+
+## Decisions (operator's chips, 2026-11-24)
+
+1. Backups: **ship the backup slice (6) together** -- slices 3, 4, 5 and 6
+   go to main in ONE release.
+2. "If left untouched" paths: **spend the old-enough coins** -- offer only
+   coins that have sat long enough; show what is spendable now and when each
+   other coin unlocks.
+3. Combining addresses: **fewest coins, and say so** -- when a spend must
+   combine coins from several addresses, one plain line tells the sender
+   before they sign.

@@ -25,9 +25,11 @@
 //! same script at every address -- see the `tapit_only_path_*` tests for
 //! exactly what that does and does not reveal.
 //!
-//! Not covered yet (deliberately): spending an `older()` ("if left
-//! untouched") path from a ranged vault -- each coin would have its own
-//! clock and `build_spend_psbt` only sets an absolute lock time.
+//! Spending by one path (`build_path_spend_psbt`, ranged slice 5): the path
+//! is named by its leaf script at receive/0; each coin keeps only that
+//! path's leaf (its own keys at its own index), and the lock comes from the
+//! leaf itself -- `after(h)` sets the transaction lock time, `older(n)` sets
+//! every input's sequence, so each coin's own clock is what consensus checks.
 
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
@@ -301,6 +303,71 @@ impl RangedVault {
         (start..start + count).map(|i| self.address(branch, i)).collect()
     }
 
+    /// Where a path's leaf sits in the tree, found from its script at
+    /// receive/0 (the vault's own address). The same position holds the same
+    /// path at every index; only the keys inside it change.
+    pub fn leaf_position(&self, leaf_at_zero: &ScriptBuf) -> RResult<usize> {
+        let d = self.definite(Branch::Receive, 0)?;
+        let tr = match &d { Descriptor::Tr(t) => t, _ => return Err(RangedError::Spend("not a taproot vault".into())) };
+        tr.iter_scripts()
+            .position(|(_, ms)| &ms.encode() == leaf_at_zero)
+            .ok_or_else(|| RangedError::Spend("that spending path is not one of this vault's paths".into()))
+    }
+
+    /// The path's leaf at one index: (script, its miniscript text).
+    fn leaf_at(&self, branch: Branch, index: u32, position: usize) -> RResult<(ScriptBuf, String)> {
+        let d = self.definite(branch, index)?;
+        let tr = match &d { Descriptor::Tr(t) => t, _ => return Err(RangedError::Spend("not a taproot vault".into())) };
+        tr.iter_scripts()
+            .nth(position)
+            .map(|(_, ms)| (ms.encode(), ms.to_string()))
+            .ok_or_else(|| RangedError::Spend(format!("no path at position {position}")))
+    }
+
+    /// An unsigned PSBT spending by ONE path. `leaf_at_zero` is the path's
+    /// leaf script at receive/0. The lock is read from that leaf: at most one
+    /// `after(h)` (transaction lock time h) and at most one `older(n)` (every
+    /// input's sequence n). Each input keeps only that path's leaf and the
+    /// key origins for it, as a one-address spend does.
+    #[allow(clippy::too_many_arguments)]
+    pub fn build_path_spend_psbt(
+        &self,
+        inputs: &[RangedInput],
+        destination: &str,
+        amount_sats: u64,
+        fee_sats: u64,
+        change_index: u32,
+        leaf_at_zero: &ScriptBuf,
+    ) -> RResult<Psbt> {
+        let position = self.leaf_position(leaf_at_zero)?;
+        let (_, text) = self.leaf_at(Branch::Receive, 0, position)?;
+        let (after, older) = path_locks(&text)?;
+        let mut psbt = self.build_spend_psbt(inputs, destination, amount_sats, fee_sats, change_index, after.unwrap_or(0))?;
+        if let Some(blocks) = older {
+            let seq = Sequence::from_height(blocks);
+            for input in psbt.unsigned_tx.input.iter_mut() {
+                input.sequence = seq;
+            }
+        }
+        for (n, i) in inputs.iter().enumerate() {
+            let (script, _) = self.leaf_at(i.branch, i.index, position)?;
+            let hash = bitcoin::taproot::TapLeafHash::from_script(&script, bitcoin::taproot::LeafVersion::TapScript);
+            let inp = &mut psbt.inputs[n];
+            inp.tap_scripts.retain(|_, (s, _)| *s == script);
+            if inp.tap_scripts.len() != 1 {
+                return Err(RangedError::Spend(format!("input {n}: the path's leaf is missing")));
+            }
+            inp.tap_key_origins.retain(|_, (hashes, _)| {
+                if hashes.is_empty() {
+                    return true; // the NUMS internal key
+                }
+                hashes.retain(|h| *h == hash);
+                !hashes.is_empty()
+            });
+        }
+        Ok(psbt)
+    }
+
     /// An unsigned PSBT spending coins from any of the vault's addresses,
     /// with change (if above dust) to `change_index` on the change branch.
     /// rust-miniscript fills each input's internal key, merkle root, every
@@ -381,4 +448,33 @@ pub struct RangedInput {
     pub value_sats: u64,
     pub branch: Branch,
     pub index: u32,
+}
+
+/// The locks a path's leaf states, read from its miniscript text: at most one
+/// `after(h)` and at most one `older(n)` (n must fit BIP 68's 16 bits).
+fn path_locks(text: &str) -> RResult<(Option<u32>, Option<u16>)> {
+    fn all(text: &str, word: &str) -> RResult<Vec<u32>> {
+        let mut out = Vec::new();
+        let mut rest = text;
+        while let Some(at) = rest.find(word) {
+            let tail = &rest[at + word.len()..];
+            let end = tail.find(')').ok_or_else(|| RangedError::Spend(format!("unreadable {word}")))?;
+            let n: u32 = tail[..end].parse().map_err(|_| RangedError::Spend(format!("unreadable {word}{})", &tail[..end])))?;
+            out.push(n);
+            rest = &tail[end..];
+        }
+        out.sort_unstable();
+        out.dedup();
+        Ok(out)
+    }
+    let afters = all(text, "after(")?;
+    let olders = all(text, "older(")?;
+    if afters.len() > 1 || olders.len() > 1 {
+        return Err(RangedError::Spend("this path has more than one lock of a kind".into()));
+    }
+    let older = match olders.first() {
+        Some(&n) => Some(u16::try_from(n).map_err(|_| RangedError::Spend(format!("relative lock of {n} blocks does not fit BIP 68")))?),
+        None => None,
+    };
+    Ok((afters.first().copied(), older))
 }
