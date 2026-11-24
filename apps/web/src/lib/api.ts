@@ -76,6 +76,9 @@ function keysForLists(): Promise<void> {
   }
   return listKeys;
 }
+/** Load every vault key addressed to me (once per page) before opening
+ *  sealed rows that did not come through a list here (lib/reports/). */
+export function loadVaultKeysForDisplay(): Promise<void> { return keysForLists(); }
 /** Call after the messaging key unlocks so lists re-open what they can. */
 export function reloadVaultKeys(): void { listKeys = null; }
 
@@ -1213,25 +1216,10 @@ export const api = {
   },
 
 
-  auditPdfUrl: async (vault_id: string): Promise<string> => {
-    const token = await getToken();
-    return `/api/vault-audit-pdf?id=${vault_id}&token=${token}`;
-  },
-
-  activityExportUrl: async (vault_id: string): Promise<string> => {
-    const token = await getToken();
-    return `/api/vault-activity-export?vault_id=${vault_id}&token=${token}`;
-  },
-
-  taxSummaryUrl: async (vault_id: string, year: number): Promise<string> => {
-    const token = await getToken();
-    return `/api/vault-tax-summary?id=${vault_id}&year=${year}&token=${token}`;
-  },
-
-  pdfUrl: async (vault_id: string): Promise<string> => {
-    const token = await getToken();
-    return `/api/vault-pdf?id=${vault_id}&token=${token}`;
-  },
+  /** Every row of one vault, still sealed, for the reports the browser
+   *  builds (lib/reports/). Members only; redacted like the regular lists. */
+  vaultExportData: (vault_id: string) =>
+    req<{ ok: true } & Record<string, unknown>>(`/vault-activity-export?vault_id=${vault_id}`),
 
   distributionWallets: {
     list: (vault_id: string) =>

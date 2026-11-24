@@ -64,6 +64,7 @@ import { ledgerEventWords } from "../lib/ledger-verify";
 import { VaultAddressGate } from "../components/VaultAddressGate";
 import { useVaultKey } from "../lib/use-vault-key";
 import { inviteLink } from "../lib/invite-link";
+import { downloadActivityJson, downloadAuditPdf, downloadTaxSummary, downloadVaultPdf } from "../lib/reports";
 import { encryptMessage, decryptMessage, getMessagingPubkey, messagingKeyLocked, messagingKeyUsesFaceId, unlockMessagingKey, lockMessagingKey, unlockMessagingKeyForGood, regenerateMessagingKey } from "../lib/messaging";
 import { passkeysAvailable } from "../lib/passkey";
 import { TrustTab } from "../components/TrustTab";
@@ -773,6 +774,20 @@ function OverviewTab({
   onOpenTab: (id: string) => void;
 }) {
   const toast = useToast();
+  // Reports are built on this device from the vault's rows, opened with the
+  // vault key (zero-knowledge storage); the server never renders them.
+  const [reportBusy, setReportBusy] = useState(false);
+  async function runReport(make: () => Promise<boolean>) {
+    if (reportBusy) return;
+    setReportBusy(true);
+    try {
+      await make();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not build the report");
+    } finally {
+      setReportBusy(false);
+    }
+  }
   const askPrompt = usePrompt();
   const navigate = useNavigate();
   const isBloc = vault.bloc_policy != null;
@@ -1058,10 +1073,7 @@ function OverviewTab({
               size="sm"
               style={{ padding: "3px 9px", fontSize: 15, whiteSpace: "normal" }}
               disabled={vault.status !== "compiled"}
-              onClick={async () => {
-                const url = await api.pdfUrl(vault.id);
-                window.open(url, "_blank");
-              }}
+              onClick={() => void runReport(() => downloadVaultPdf(vault.id))}
             >
               Download PDF
             </Button>
@@ -1095,10 +1107,7 @@ function OverviewTab({
               variant="ghost"
               size="sm"
               style={{ padding: "3px 9px", fontSize: 15, whiteSpace: "normal" }}
-              onClick={async () => {
-                const url = await api.auditPdfUrl(vault.id);
-                window.open(url, "_blank");
-              }}
+              onClick={() => void runReport(() => downloadAuditPdf(vault.id))}
             >
               Audit PDF
             </Button>
@@ -1107,8 +1116,7 @@ function OverviewTab({
               size="sm"
               style={{ padding: "3px 9px", fontSize: 15, whiteSpace: "normal" }}
               onClick={async () => {
-                // Default to last completed tax year. The server
-                // accepts any year between 2020 and 2099.
+                // Default to last completed tax year (2020-2099).
                 const lastYear = new Date().getUTCFullYear() - 1;
                 const yearStr = await askPrompt({
                   title: "Tax summary",
@@ -1123,8 +1131,7 @@ function OverviewTab({
                   toast.error("Enter a valid 4-digit year between 2020 and 2099.");
                   return;
                 }
-                const url = await api.taxSummaryUrl(vault.id, year);
-                window.open(url, "_blank");
+                await runReport(() => downloadTaxSummary(vault.id, year));
               }}
             >
               Tax summary
@@ -1133,10 +1140,7 @@ function OverviewTab({
               variant="ghost"
               size="sm"
               style={{ padding: "3px 9px", fontSize: 15, whiteSpace: "normal" }}
-              onClick={async () => {
-                const url = await api.activityExportUrl(vault.id);
-                window.open(url, "_blank");
-              }}
+              onClick={() => void runReport(() => downloadActivityJson(vault.id))}
             >
               Activity JSON
             </Button>

@@ -1,3 +1,9 @@
+// Moved from netlify/functions/vault-pdf.js (zero-knowledge storage, Z1 slice 4,
+// docs/zero-knowledge-storage-plan.md): the server can no longer read the
+// names, labels and notes this report prints, so the browser builds it from
+// data it has opened with the vault key. The drawing code is unchanged; only
+// its imports and its return value (bytes, not a Node Buffer) differ.
+// Plain JavaScript like the original -- typed by the .d.ts beside it.
 /**
  * GET /api/vault-pdf?id=<vault-uuid>
  *
@@ -7,12 +13,11 @@
  * Requires: pdf-lib (add to package.json dependencies)
  */
 
-import { whoSignsWords, whoSignsShort, mustSignMeaning } from "./_path-words.js";
+import { whoSignsWords, whoSignsShort, mustSignMeaning } from '../path-words';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import QRCode from 'qrcode';
-import { createHash } from 'node:crypto';
-import { requireUser } from './_auth.js';
-import { getSupabaseAdmin } from './_supabase.js';
+import { sha256 } from '@noble/hashes/sha2';
+import { bytesToHex } from '@noble/hashes/utils';
 
 // Same fingerprint apps/web/src/lib/descriptor-fingerprint.ts computes
 // client-side (plain SHA-256 over the descriptor's UTF-8 bytes, first 8 hex
@@ -23,7 +28,7 @@ import { getSupabaseAdmin } from './_supabase.js';
 // implementation that could drift the way upgradeDescriptor's two separate
 // copies once did.
 function descriptorFingerprint(descriptor) {
-  const hex = createHash('sha256').update(descriptor, 'utf8').digest('hex');
+  const hex = bytesToHex(sha256(new TextEncoder().encode(descriptor)));
   const fp = hex.slice(0, 8);
   return `${fp.slice(0, 4)} ${fp.slice(4, 8)}`;
 }
@@ -162,7 +167,7 @@ function leafPathCards(leaves) {
 }
 
 // ── PDF Builder ───────────────────────────────────────────────────────────────
-async function buildVaultPDF(vault) {
+export async function buildVaultPDF(vault) {
   const pdfDoc = await PDFDocument.create();
   pdfDoc.setTitle(`DynastyTrust Vault — ${vault.name}`);
   pdfDoc.setAuthor('DynastyTrust');
@@ -519,57 +524,7 @@ async function buildVaultPDF(vault) {
   p2.drawText('Page 2 of 2', { x: W - M - 40, y: 13, size: 8, font: regular, color: TEXT_MUTE });
 
   const pdfBytes = await pdfDoc.save();
-  return Buffer.from(pdfBytes);
+  return pdfBytes;
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
-export async function handler(event) {
-  if (event.httpMethod !== 'GET') {
-    return { statusCode: 405, body: 'Method not allowed' };
-  }
-
-  const u = await requireUser(event, { allowQueryToken: true }); // opened as a plain link (window.open / <a href>), needs the ?token= fallback
-  if (u.error) {
-    return { statusCode: 401, body: JSON.stringify({ error: u.error }),
-             headers: { 'content-type': 'application/json' } };
-  }
-
-  const id = event.queryStringParameters?.id;
-  if (!id) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Missing query param: id' }),
-             headers: { 'content-type': 'application/json' } };
-  }
-
-  const supabase = getSupabaseAdmin();
-  const { data: vault, error } = await supabase
-    .from('vaults')
-    .select('*')
-    .eq('id', id)
-    .eq('user_id', u.userId)
-    .single();
-
-  if (error || !vault) {
-    return { statusCode: 404, body: JSON.stringify({ error: 'Vault not found' }),
-             headers: { 'content-type': 'application/json' } };
-  }
-
-  try {
-    const pdfBuffer = await buildVaultPDF(vault);
-    const safeName = (vault.name || 'vault').replace(/[^a-z0-9]/gi, '_').toLowerCase();
-
-    return {
-      statusCode: 200,
-      headers: {
-        'content-type': 'application/pdf',
-        'content-disposition': `attachment; filename="dynastytrust_${safeName}.pdf"`,
-        'content-length': String(pdfBuffer.length),
-      },
-      body: pdfBuffer.toString('base64'),
-      isBase64Encoded: true,
-    };
-  } catch (err) {
-    console.error('PDF generation error:', err);
-    return { statusCode: 500, body: JSON.stringify({ error: 'PDF generation failed: ' + err.message }),
-             headers: { 'content-type': 'application/json' } };
-  }
-}

@@ -2327,6 +2327,33 @@ signers" as not yet verified. Item 1 above postdates it.
 
 **Recently closed:**
 
+- **Zero-knowledge storage, slice 4: reports are built on the device
+  (2026-11-24).** The server could no longer read the names, notes and
+  comments its four reports printed, so it no longer renders them. The PDF
+  drawing code moved unchanged from `vault-pdf.js`, `vault-audit-pdf.js` and
+  `vault-tax-summary.js` into `apps/web/src/lib/reports/` (plain JS as
+  before, typed by a `.d.ts` beside each; Node's crypto and Buffer swapped
+  for @noble/hashes and plain bytes), and those three functions are gone.
+  `vault-activity-export.js` is now the one data source: every row of the
+  vault, redacted as before, still sealed, plus attestations, fetched with
+  the normal Authorization header. `lib/reports/index.ts` opens every sealed
+  value with the vault key (including comments, sealed per proposal) and
+  draws the backup sheet, audit trail, tax summary or readable activity JSON
+  locally; pdf-lib (1.17.1, the version the functions already pinned) is
+  loaded only when a report is asked for (its own 428 KB chunk). With no
+  report link left, `requireUser` lost its `?token=` fallback: a session
+  token no longer travels in a URL (access logs, history, Referer). The
+  backup sheet used to be owner-only because its endpoint filtered by owner;
+  it is now built from the same export any member already receives, so a
+  member can download it too -- no data they could not already read.
+  Tests: `test-api-sealing.mjs` gains the report check (a sealed export
+  opens with nothing sealed left; the backup sheet, audit and tax PDFs build
+  to real `%PDF-` files with no server) and its leak check now ignores
+  chance matches inside sealed base64 (a short word like "Sam" can appear in
+  random base64; seen once in 41 runs). Gates: lint 0 errors (11 warnings,
+  as before), typecheck the same 10 pre-existing errors, build OK, npm test
+  exit 0. NOT walked in a browser: no PDF was opened on a phone.
+
 - **Zero-knowledge storage, slice 3: the history shows names it can no
   longer read (2026-11-24).** Reading the code first: after slice 2 every
   history entry that carried a name already copies it SEALED from the row

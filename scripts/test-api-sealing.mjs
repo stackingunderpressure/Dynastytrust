@@ -75,7 +75,10 @@ globalThis.fetch = async (url, init = {}) => {
 
 const { api } = await import('../apps/web/src/lib/api.ts');
 const PLAIN = ['Winchester Family Trust', 'College for the kids', 'Allowance', 'Sam', 'Spring term', 'State U', 'Sam at 25', 'Circle phrase', 'Anna', 'Roof repair', 'Passed March 3', "Dad's Jade", 'Phone key', 'Uncle Bob'];
-const leaks = () => sent.filter(r => r.body && PLAIN.some(p => JSON.stringify(r.body).includes(p)));
+// Sealed values are random base64 and can contain a short word like "Sam"
+// by chance, so they are cut out before looking for plain text.
+const outsideSeals = (body) => JSON.stringify(body).replace(/zk1:\d+:[A-Za-z0-9+/=]+/g, '<sealed>');
+const leaks = () => sent.filter(r => r.body && PLAIN.some(p => outsideSeals(r.body).includes(p)));
 
 // 1. A new vault: created under the placeholder, renamed sealed.
 const { vault } = await api.vaults.createDraft({ name: 'Winchester Family Trust', network: 'signet', planned_founder_count: 2, planned_heir_count: 1 });
@@ -119,5 +122,49 @@ await api.invites.claim({ token: 't', label: 'Anna', key_label: 'Phone key' });
 assert.ok(!JSON.stringify(sent.at(-1).body).includes('Anna'));
 assert.deepEqual(JSON.parse(store.get('dt-zk-pending:v9')), { label: 'Anna', key_label: 'Phone key' });
 pass("a new member's own label is not sent before they hold the key; it waits on their device");
+
+// 5. Reports (Z1 slice 4): built on the device from the sealed export.
+{
+  const reports = await import('../apps/web/src/lib/reports/index.ts');
+  const s = (field, t) => ring.sealVaultText(V, field, t);
+  const commentSeal = ring.sealVaultText(V, 'comment:p1', JSON.stringify({ body: 'Looks right', vote: 'approve' }));
+  const raw = {
+    export_version: 1, exported_at: '2026-11-24T00:00:00Z',
+    vault: { ...rows.vaults.get(V), network: 'signet', status: 'compiled', address_type: 'tr_multileaf', founder_quorum: 2, heir_quorum: 1, founder_keys: [], heir_keys: [] },
+    members: [{ id: 'm1', vault_id: V, user_id: ME, role: 'owner', label: s('member.label', 'Anna'), status: 'active', created_at: '2026-11-01T00:00:00Z' }],
+    invites: [],
+    proposals: [{ id: 'p1', vault_id: V, path: 'founders_now', destination: 'tb1qxyz', amount_sats: 5000, fee_sats: 200, status: 'broadcast', memo: s('proposal.memo', 'Roof repair'), created_at: '2026-03-01T00:00:00Z', txid: 'ab'.repeat(32) }],
+    signer_sessions: [{ proposal_id: 'p1', label: s('signer.label', 'Phone key'), signed: true, signed_at: '2026-03-01T01:00:00Z' }],
+    proposal_comments: [{ id: 'c1', proposal_id: 'p1', user_id: ME, body: null, vote: null, sealed: commentSeal, created_at: '2026-03-01T00:30:00Z' }],
+    vault_requests: [{ id: 'r1', vault_id: V, amount_sats: 5, reason: s('request.reason', 'Spring term'), status: 'pending', created_at: '2026-02-01T00:00:00Z' }],
+    scheduled_stipends: [{ id: 's1', vault_id: V, name: s('stipend.name', 'Allowance'), amount_sats: 1000, interval_kind: 'monthly', next_due_at: '2026-12-01T00:00:00Z', active: true }],
+    distribution_wallets: [{ id: 'w1', vault_id: V, name: s('wallet.name', 'Sam at 25'), tranches: [] }],
+    events: [{ id: 'e1', vault_id: V, user_id: ME, event_type: 'vault_renamed', metadata: { from: 'Vault', to: s('vault.name', 'Winchester Family Trust') }, created_at: '2026-01-01T00:00:00Z' }],
+    attestations: [{ id: 'a1', vault_id: V, user_id: ME, attestation_type: 'death_declaration', target_hash: 'cd'.repeat(32), signature: 'ef'.repeat(64), pubkey: '12'.repeat(32), target_data: ring.sealVaultJson(V, 'attestation.target_data', { notes: 'Passed March 3' }), signed_at: '2026-04-01T00:00:00Z' }],
+  };
+  const opened = reports.openExport(V, raw);
+  assert.ok(!JSON.stringify(opened).includes('zk1:'), 'nothing sealed is left in a report');
+  for (const word of ['Winchester Family Trust', 'Anna', 'Roof repair', 'Phone key', 'Looks right', 'Spring term', 'Allowance', 'Sam at 25', 'Passed March 3']) {
+    assert.ok(JSON.stringify(opened).includes(word), word);
+  }
+  assert.equal(opened.proposal_comments[0].vote, 'approve');
+  const { buildAuditPdf } = await import('../apps/web/src/lib/reports/audit-pdf.js');
+  const audit = await buildAuditPdf({
+    vault: opened.vault, trustDoc: opened.vault.trust_doc ?? {}, members: opened.members, invites: [], proposals: opened.proposals,
+    signerSessions: opened.signer_sessions, comments: opened.proposal_comments, requests: opened.vault_requests, stipends: opened.scheduled_stipends,
+    distributionWallets: opened.distribution_wallets, events: opened.events, attestations: opened.attestations,
+  });
+  const { buildSummaryPdf } = await import('../apps/web/src/lib/reports/tax-summary-pdf.js');
+  const tax = await buildSummaryPdf({ vault: opened.vault, year: 2026, members: opened.members, proposals: opened.proposals, signerSessions: opened.signer_sessions, events: opened.events, attestations: opened.attestations });
+  const { buildVaultPDF } = await import('../apps/web/src/lib/reports/vault-pdf.js');
+  const sheet = await buildVaultPDF({ ...opened.vault, address: 'tb1p' + 'q'.repeat(58), descriptor: 'tr(' + '02'.padEnd(66, 'a') + ',{pk(x),pk(y)})#abcd1234',
+    miniscript_policy: 'thresh(2,pk(A),pk(B))', recovery_after: 900000, inheritance_after: 950000,
+    founder_keys: ['02'.padEnd(66, 'a'), '03'.padEnd(66, 'b')], heir_keys: ['02'.padEnd(66, 'c')], created_at: '2026-11-01T00:00:00Z' });
+  for (const pdf of [audit, tax, sheet]) {
+    assert.ok(pdf instanceof Uint8Array && pdf.length > 1000);
+    assert.equal(new TextDecoder().decode(pdf.slice(0, 5)), '%PDF-');
+  }
+  pass('reports open every sealed value on the device (nothing sealed left) and the backup sheet, audit and tax PDFs build from it without a server');
+}
 
 console.log(`api sealing: ${n} checks passed`);

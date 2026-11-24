@@ -1,3 +1,9 @@
+// Moved from netlify/functions/vault-tax-summary.js (zero-knowledge storage, Z1 slice 4,
+// docs/zero-knowledge-storage-plan.md): the server can no longer read the
+// names, labels and notes this report prints, so the browser builds it from
+// data it has opened with the vault key. The drawing code is unchanged; only
+// its imports and its return value (bytes, not a Node Buffer) differ.
+// Plain JavaScript like the original -- typed by the .d.ts beside it.
 /**
  * vault-tax-summary.js -- per-vault per-year tax data summary PDF.
  *
@@ -25,10 +31,8 @@
  *     note so the user can choose a price source)
  */
 
-import { whoSignsShort } from "./_path-words.js";
+import { whoSignsShort } from '../path-words';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
-import { requireUser } from './_auth.js';
-import { getSupabaseAdmin } from './_supabase.js';
 
 const GOLD      = rgb(0.788, 0.659, 0.298);
 const GOLD_DIM  = rgb(0.545, 0.412, 0.078);
@@ -92,7 +96,7 @@ function wrap(str, max) {
   return lines;
 }
 
-async function buildSummaryPdf(data) {
+export async function buildSummaryPdf(data) {
   const { vault, year, members, proposals, signerSessions, events, attestations } = data;
 
   const doc = await PDFDocument.create();
@@ -387,87 +391,5 @@ async function buildSummaryPdf(data) {
 
   if (page) footer(page);
   const bytes = await doc.save();
-  return Buffer.from(bytes);
-}
-
-export async function handler(event) {
-  if (event.httpMethod !== 'GET') {
-    return { statusCode: 405, body: 'Method not allowed' };
-  }
-
-  const u = await requireUser(event, { allowQueryToken: true }); // opened as a plain link (window.open / <a href>), needs the ?token= fallback
-  if (u.error) {
-    return { statusCode: 401, body: JSON.stringify({ error: u.error }),
-             headers: { 'content-type': 'application/json' } };
-  }
-
-  const id = event.queryStringParameters?.id;
-  const yearParam = event.queryStringParameters?.year;
-  if (!id) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Missing id' }),
-             headers: { 'content-type': 'application/json' } };
-  }
-  const year = Number(yearParam) || (new Date().getUTCFullYear() - 1);
-  if (year < 2020 || year > 2099) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Invalid year' }),
-             headers: { 'content-type': 'application/json' } };
-  }
-
-  const supabase = getSupabaseAdmin();
-
-  const { data: mem } = await supabase
-    .from('vault_members').select('id')
-    .eq('vault_id', id).eq('user_id', u.userId).eq('status', 'active').maybeSingle();
-  if (!mem) {
-    return { statusCode: 403, body: JSON.stringify({ error: 'Not a member' }),
-             headers: { 'content-type': 'application/json' } };
-  }
-
-  const [vaultRes, membersRes, proposalsRes, eventsRes, attestationsRes] = await Promise.all([
-    supabase.from('vaults').select('*').eq('id', id).single(),
-    supabase.from('vault_members').select('*').eq('vault_id', id).order('created_at'),
-    supabase.from('proposals').select('*').eq('vault_id', id).order('created_at'),
-    supabase.from('vault_events').select('*').eq('vault_id', id).order('created_at'),
-    supabase.from('vault_attestations').select('*').eq('vault_id', id).order('signed_at'),
-  ]);
-  if (vaultRes.error || !vaultRes.data) {
-    return { statusCode: 404, body: JSON.stringify({ error: 'Vault not found' }),
-             headers: { 'content-type': 'application/json' } };
-  }
-
-  const proposalIds = (proposalsRes.data || []).map(p => p.id);
-  const { data: signerSessionsRaw } = proposalIds.length > 0
-    ? await supabase.from('signer_sessions').select('*').in('proposal_id', proposalIds).order('signed_at')
-    : { data: [] };
-
-  try {
-    const pdf = await buildSummaryPdf({
-      vault: vaultRes.data,
-      year,
-      members: membersRes.data || [],
-      proposals: proposalsRes.data || [],
-      signerSessions: signerSessionsRaw || [],
-      events: eventsRes.data || [],
-      attestations: attestationsRes.data || [],
-    });
-
-    const safe = (vaultRes.data.name || 'vault').replace(/[^a-z0-9]/gi, '_').toLowerCase();
-    return {
-      statusCode: 200,
-      headers: {
-        'content-type': 'application/pdf',
-        'content-disposition': `attachment; filename="dynastytrust_tax_${safe}_${year}.pdf"`,
-        'content-length': String(pdf.length),
-      },
-      body: pdf.toString('base64'),
-      isBase64Encoded: true,
-    };
-  } catch (err) {
-    console.error('Tax summary PDF error:', err);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: 'Tax summary PDF failed: ' + err.message }),
-      headers: { 'content-type': 'application/json' },
-    };
-  }
+  return bytes;
 }
