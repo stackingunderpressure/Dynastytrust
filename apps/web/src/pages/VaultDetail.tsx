@@ -43,6 +43,7 @@ import { DescriptorQr } from "../components/DescriptorQr";
 import { QrImage } from "../components/QrImage";
 import { NewReceiveAddress } from "../components/NewReceiveAddress";
 import { checkFreshSpendAddresses, isFreshAddressVault } from "../lib/fresh-addresses";
+import { coinUnlocks, vaultPaths, waitWords } from "../lib/coin-unlock";
 import { RotatePathVault } from "../components/RotatePathVault";
 import { PathDraftCard } from "../components/PathDraftCard";
 import { pubkeyFromXpub, fingerprintFromXpub } from "../lib/xpub";
@@ -758,6 +759,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
             onSendPrefill={prefillSend}
             proposals={proposals}
             onOpenTab={openTab}
+            coinsKey={`${balance?.total_sats ?? ""}:${balance?.utxo_count ?? ""}`}
           />
         )}
         {tab === "send" && (
@@ -765,6 +767,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
             vault={duressOverride === null ? vault : { ...vault, duress: duressOverride }}
             balance={balance}
             prefill={sendPrefill}
+            onPickCoins={prefillSend}
             onDone={() => { setSendPrefill(null); void load(); setTab("history"); }}
           />
         )}
@@ -792,6 +795,7 @@ function OverviewTab({
   onSendPrefill,
   proposals,
   onOpenTab,
+  coinsKey,
 }: {
   vault: Vault;
   copy: (text: string, id: string) => void;
@@ -799,6 +803,8 @@ function OverviewTab({
   onSendPrefill: (p: SendPrefill) => void;
   proposals: Proposal[];
   onOpenTab: (id: string) => void;
+  /** Changes when the balance reloads, so the coins card refreshes too. */
+  coinsKey?: string;
 }) {
   // Ranged slice 6: a vault with a new address every time shows, copies and
   // QR-codes the descriptor of EVERY address (<0;1>/*) -- what a wallet or
@@ -968,6 +974,11 @@ function OverviewTab({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {/* Operator, 2026-11-24: the coins, and when each path opens for each
+          one, right under the balance (docs/coin-unlock-view-build-note.md). */}
+      {vault.status !== "draft" && (
+        <UtxosSection vault={vault} onSendPrefill={onSendPrefill} refreshKey={coinsKey} />
+      )}
       <RemindersBanner vaultId={vault.id} />
       <SuccessionBanner vault={vault} onSendPrefill={onSendPrefill} />
       <ActionGuide
@@ -983,10 +994,6 @@ function OverviewTab({
           paid to other people: not in the download (lib/download.ts). */}
       {!DOWNLOAD && <StipendsSection vault={vault} onSendPrefill={onSendPrefill} />}
       {!DOWNLOAD && <DistributionWalletsSection vault={vault} onSendPrefill={onSendPrefill} />}
-      {vault.status !== "draft" && (
-        <UtxosSection vault={vault} onSendPrefill={onSendPrefill} />
-      )}
-
       {/* Spending paths + Details: named-field vault only -- a leaf-list
           vault's real paths are already shown above by VaultStructureTree
           (and its phase by VaultPhaseCard), built from the real vault.leaves
@@ -1470,11 +1477,13 @@ interface SigningState {
   txid?: string;
 }
 
-function SendTab({ vault, balance, onDone, prefill }: {
+function SendTab({ vault, balance, onDone, prefill, onPickCoins }: {
   vault: Vault;
   balance: BalanceResult | null;
   onDone: () => void;
   prefill?: SendPrefill | null;
+  /** Choose exactly which coins to spend (or undefined: the app picks). */
+  onPickCoins?: (p: SendPrefill) => void;
 }) {
   const askPassword = usePrompt();
   const toast = useToast();
@@ -2595,6 +2604,14 @@ function SendTab({ vault, balance, onDone, prefill }: {
 
   // Form screen
   return (
+    <>
+    {/* Operator's chips, 2026-11-24: the coins and when each path opens for
+        each one; picking coins is optional -- the app picks the fewest. */}
+    {vault.status !== "draft" && onPickCoins && (
+      <div style={{ marginBottom: 14, maxWidth: 480 }}>
+        <UtxosSection vault={vault} onSendPrefill={p => onPickCoins({ ...(prefill ?? {}), ...p })} refreshKey={`${balance?.total_sats ?? ""}:${balance?.utxo_count ?? ""}`} />
+      </div>
+    )}
     <form
       onSubmit={e => void buildAndSign(e)}
       style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 480 }}
@@ -2619,6 +2636,14 @@ function SendTab({ vault, balance, onDone, prefill }: {
             <div style={{ marginTop: 4, color: colors.muted }}>
               Spending these together publicly links them to the same
               owner forever, even if they arrived separately.
+            </div>
+          )}
+          {onPickCoins && (
+            <div style={{ marginTop: 6 }}>
+              <Button type="button" variant="ghost" size="sm" style={{ fontSize: 15, minHeight: 44 }}
+                onClick={() => onPickCoins({ ...(prefill ?? {}), selected_utxos: undefined })}>
+                Let the app choose the coins
+              </Button>
             </div>
           )}
         </div>
@@ -2872,6 +2897,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
         {busy ? (slowHint ? "Waking compiler..." : "Building transaction...") : "Review & sign"}
       </Button>
     </form>
+    </>
   );
 }
 
@@ -8697,9 +8723,12 @@ function DistributionWalletCreator({
 function UtxosSection({
   vault,
   onSendPrefill,
+  refreshKey,
 }: {
   vault: Vault;
   onSendPrefill: (p: SendPrefill) => void;
+  /** Reloads the list when this changes (the balance reloaded). */
+  refreshKey?: string;
 }) {
   const toast = useToast();
   const [utxos, setUtxos] = useState<Array<{
@@ -8710,8 +8739,11 @@ function UtxosSection({
     block_height: number | null;
     block_time: number | null;
     confirmations: number;
+    branch?: number;
+    index?: number;
   }>>([]);
   const [tip, setTip] = useState<number | null>(null);
+  const paths = vaultPaths(vault);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -8729,7 +8761,7 @@ function UtxosSection({
     }
   }, [vault.id, toast]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); }, [load, refreshKey]);
 
   if (loading && utxos.length === 0) {
     return (
@@ -8824,7 +8856,7 @@ function UtxosSection({
             textTransform: "uppercase",
           }}
         >
-          UTXOs ({utxos.length}) . {satsToBtc(total)} BTC total
+          Coins ({utxos.length}) . {satsToBtc(total)} BTC total
         </div>
         <div style={{ display: "flex", gap: 6 }}>
           <Button
@@ -8952,6 +8984,21 @@ function UtxosSection({
               >
                 {u.txid}:{u.vout}
               </div>
+              {u.branch != null && u.index != null && (
+                <div style={{ fontSize: 15, color: colors.muted }}>
+                  On {u.branch === 1 ? "change" : "receive"} address {u.index}
+                </div>
+              )}
+              {paths && tip != null && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  {coinUnlocks(u, paths, tip, new Date()).map(p => (
+                    <div key={p.label} style={{ fontSize: 15, lineHeight: 1.45, color: p.open ? colors.green : colors.sub }}>
+                      <span style={{ color: colors.text }}>{p.label}:</span>{" "}
+                      {p.open ? "can spend now" : waitWords(p)}
+                    </div>
+                  ))}
+                </div>
+              )}
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 2 }}>
                 {u.confirmed && (
                   <Button
