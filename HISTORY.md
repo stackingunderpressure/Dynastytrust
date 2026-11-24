@@ -2327,6 +2327,16 @@ signers" as not yet verified. Item 1 above postdates it.
 
 **Recently closed:**
 
+- **"fetch failed" on fresh-address vault pages (2026-11-24).** Operator:
+  "The mempool keeps fetch failed won't load". Measured root cause:
+  mempool.space answers 429 (too many requests) once our server's scans pile
+  up -- a fresh-address vault's page scanned every watched address twice
+  (balance + the new coins card), views 3-6 of 6 all refused. Quick fix: one
+  scan per view (the balance carries the coins), look-ahead 10/5 -> 5/2,
+  3 lookups at a time, 429 retried. After: 6 of 6 views loaded, one in 19 s
+  (still at risk of the function time limit). The proper fix -- one Electrum
+  connection for every address -- is next, with its own build note.
+
 - **Coins card with per-coin unlock timing (2026-11-24).** Operator, on a
   signet dead man's switch vault: "The utxo is only in history section. We
   need it in send tab and overview. Both showing blocks left estimated date
