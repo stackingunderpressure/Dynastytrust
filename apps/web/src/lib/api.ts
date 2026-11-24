@@ -378,6 +378,11 @@ export interface VaultMembershipGrant {
   // alongside it.
   status: 'sent' | 'accepted' | 'declined' | 'left';
   responded_at: string | null;
+  /** What this member sees when co-signing (docs/tapit-review-modes-build-note.md):
+   *  'wellness' confirms the person only; 'full' also shows the money. */
+  review_mode?: 'wellness' | 'full';
+  /** The change-address index the request's signed list runs up to (exclusive). */
+  change_until?: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -874,6 +879,10 @@ export const api = {
     // Ranged slice 3: the next never-used receive address of a vault with
     // fresh addresses (netlify/functions/vault-addresses.js). The optional
     // label is sealed with the vault key; the server never reads it.
+    /** A fresh-address vault's next index per branch (0 receive, 1 change). */
+    addressIndexes: (vault_id: string) =>
+      req<{ ok: true; next: { 0: number; 1: number } }>(`/vault-addresses?vault_id=${encodeURIComponent(vault_id)}`),
+
     newReceiveAddress: async (vault_id: string, label?: string) =>
       req<{ ok: true; index: number; address: string }>('/vault-addresses', {
         method: 'POST',
@@ -1864,6 +1873,8 @@ export const api = {
       request_event_id: string | null;
       reply_pubkey: string;
       reply_privkey_sealed: EncryptedMessage;
+      review_mode?: 'wellness' | 'full';
+      change_until?: number | null;
     }) =>
       req<{ ok: true; grant: VaultMembershipGrant }>(`/vault-membership-grants`, {
         method: 'POST',

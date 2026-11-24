@@ -11,7 +11,8 @@ import {
 import { getNostrRelays } from '../lib/nostrRelayPrefs';
 import { NostrTransport } from '@dynastytrust/nostr-transport';
 import { subscribeVaultMembershipAcks } from '../lib/vault-membership-ack-channel';
-import { api, type VaultMembershipGrant } from '../lib/api';
+import { api, type Vault, type VaultMembershipGrant } from '../lib/api';
+import { CHANGE_LIST_WARN, changeScriptsFor } from '../lib/change-scripts';
 import { colors, radii, space } from '../theme';
 import { Button } from './ui';
 import { useToast } from './toast';
@@ -113,6 +114,7 @@ export function VaultMembershipSetup({
   leaves,
   leafScripts,
   vaultMultipath,
+  changeVault,
   keyLabels,
   isOwner,
 }: {
@@ -133,6 +135,8 @@ export function VaultMembershipSetup({
    *  request carries the xpub keys Tapit needs to co-sign coins on the
    *  vault's other addresses. Null for a one-address vault. */
   vaultMultipath?: string | null;
+  /** What the change-address list is worked out from (lib/change-scripts.ts). */
+  changeVault?: Pick<Vault, 'id' | 'address' | 'network' | 'descriptor_version' | 'descriptor_multipath' | 'descriptor_receive' | 'descriptor_change'> | null;
   /** Custom per-key display labels (041_vault_key_labels.sql) -- see
    *  VaultStructureTree's identical mechanism in VaultDetail.tsx. Shown
    *  here in place of the raw technical role name (2026-08-15, operator:
@@ -146,6 +150,18 @@ export function VaultMembershipSetup({
 }) {
   const toast = useToast();
   const [busyKeyId, setBusyKeyId] = useState<string | null>(null);
+  // What each member sees when co-signing, picked before sending
+  // (docs/tapit-review-modes-build-note.md); defaults to their last grant's.
+  const [modeFor, setModeFor] = useState<Record<string, 'wellness' | 'full'>>({});
+  // A fresh-address vault's next change index, to warn before a member's
+  // signed change list runs out.
+  const [nextChange, setNextChange] = useState<number | null>(null);
+  useEffect(() => {
+    if (!changeVault || changeVault.descriptor_version !== 2) return;
+    let live = true;
+    api.vaults.addressIndexes(changeVault.id).then(r => { if (live) setNextChange(r.next[1]); }).catch(() => {});
+    return () => { live = false; };
+  }, [changeVault]);
   const [grants, setGrants] = useState<VaultMembershipGrant[]>([]);
   const grantsRef = useRef<VaultMembershipGrant[]>([]);
   grantsRef.current = grants;
@@ -425,6 +441,14 @@ export function VaultMembershipSetup({
     }
     setBusyKeyId(keyId);
     try {
+      const reviewMode = modeFor[keyId] ?? grants.find(x => x.role === role && x.key_id === keyId)?.review_mode ?? 'wellness';
+      // The vault's own change addresses, worked out on this device, so
+      // Tapit can refuse a spend whose "change" goes anywhere else.
+      let change: { scripts: string[]; until: number | null } | null = null;
+      if (changeVault) {
+        const next = changeVault.descriptor_version === 2 ? (await api.vaults.addressIndexes(changeVault.id)).next[1] : 0;
+        change = await changeScriptsFor(changeVault, next);
+      }
       const result = await sendVaultMembershipRequestOverNostr({
         vaultDescriptor,
         vaultName,
@@ -433,6 +457,9 @@ export function VaultMembershipSetup({
         roleLabel: ROLE_LABELS[role as keyof typeof ROLE_LABELS] ? undefined : leafLabelById.get(role),
         leafScripts: roleLeaves,
         rangedKeys: rangedKeysForScripts(vaultMultipath, roleLeaves),
+        reviewMode,
+        changeScripts: change?.scripts,
+        network: changeVault?.network,
         recipientXOnlyPubkey: xOnlyPubkey,
         relays: getNostrRelays(),
       });
@@ -447,6 +474,8 @@ export function VaultMembershipSetup({
         reply_pubkey: result.replyPublicKey,
         // Wrapped to this browser's own messaging key, never stored readable.
         reply_privkey_sealed: sealReplyKey(result.replyPrivateKey),
+        review_mode: reviewMode,
+        change_until: change?.until ?? null,
       });
       setGrants(prev => [...prev.filter(g => g.id !== saved.grant.id), saved.grant]);
       toast.success(
@@ -478,6 +507,13 @@ export function VaultMembershipSetup({
         Each circle member's Tapit wallet needs to hold a membership record for this vault before
         it will recognize a spend request as real. Send it once per member -- their wallet reviews
         it and holds its own copy, then sends back a confirmation you'll see appear below.
+      </p>
+      <p style={{ fontSize: 16, color: colors.muted, marginBottom: 14 }}>
+        For each member, choose what they see when you spend. <b>Wellness check</b>: they only
+        confirm it is really you, calm and not under pressure -- no amounts, no addresses.{' '}
+        <b>Full details</b>: they also see how much leaves the vault, where it goes, and the change
+        coming back. Either way their wallet checks the change really returns to this vault before
+        it signs. A change takes effect when you send the request again and they accept.
       </p>
 
       {!ready && vaultDescriptor !== null && (
@@ -569,11 +605,45 @@ export function VaultMembershipSetup({
                       : 'Grant membership'}
                 </Button>
               </div>
+              {isOwner && (
+                <div role="radiogroup" aria-label={`What ${k.label} sees`} style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {(['wellness', 'full'] as const).map(m => {
+                    const on = (modeFor[k.keyId] ?? g?.review_mode ?? 'wellness') === m;
+                    return (
+                      <button
+                        key={m}
+                        type="button"
+                        role="radio"
+                        aria-checked={on}
+                        onClick={() => setModeFor(prev => ({ ...prev, [k.keyId]: m }))}
+                        style={{
+                          minHeight: 44, padding: '6px 12px', fontSize: 15, borderRadius: radii.md, cursor: 'pointer',
+                          border: `1px solid ${on ? colors.gold : colors.border}`,
+                          background: on ? colors.goldBg : 'transparent', color: on ? colors.gold : colors.muted,
+                        }}
+                      >
+                        {m === 'wellness' ? 'Wellness check only' : 'Full spend details'}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {g && g.status === 'accepted' && (modeFor[k.keyId] ?? g.review_mode ?? 'wellness') !== (g.review_mode ?? 'wellness') && (
+                <div style={{ fontSize: 15, color: colors.gold, paddingLeft: 2 }}>Changed -- send again for it to take effect.</div>
+              )}
+              {g && g.status === 'accepted' && g.change_until != null && nextChange != null && nextChange >= g.change_until - CHANGE_LIST_WARN && (
+                <div style={{ fontSize: 15, color: colors.orange, paddingLeft: 2 }}>
+                  {nextChange >= g.change_until
+                    ? "Their wallet no longer knows this vault's next change address and will refuse to sign. Send again."
+                    : `Their wallet knows ${g.change_until - nextChange} more change addresses. Send again soon.`}
+                </div>
+              )}
               {g && (
                 <div style={{ fontSize: 15, color: STATUS_COLOR[g.status], paddingLeft: 2 }}>
                   {STATUS_LABEL[g.status]}
                   {STATUS_DETAIL[g.status] ?? ''}
                   {g.responded_at ? ` -- ${new Date(g.responded_at).toLocaleString()}` : ''}
+                  {g.review_mode === 'full' ? ' -- sees full spend details' : ' -- wellness check only'}
                 </div>
               )}
             </div>

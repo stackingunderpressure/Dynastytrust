@@ -46,5 +46,11 @@ writeFileSync(process.argv[3], JSON.stringify({
   ranged_keys: [{ xpub: k1.xpub, key00: k1.pubkey.slice(2) }],
   wrong_xpub: k2.xpub,
   psbt_hex: r.body.psbt_hex, input_addresses: ['receive/0', 'receive/5', 'change/2'],
+  change_address: r.body.summary.change_address,
+  // The vault's change addresses 0..9 as output scripts (what a membership's
+  // change list holds); the spend's change is one of them.
+  change_scripts: Array.from({ length: 10 }, (_, i) => callWasm('/ranged-address', { multipath: V.descriptor_multipath, receive: V.descriptor_receive, change: V.descriptor_change, network: 'signet', branch: 1, index: i }).body.script_pubkey.toLowerCase()),
+  // Receive addresses -- NOT change; a list of these must refuse the spend.
+  receive_scripts: Array.from({ length: 10 }, (_, i) => callWasm('/ranged-address', { multipath: V.descriptor_multipath, receive: V.descriptor_receive, change: V.descriptor_change, network: 'signet', branch: 0, index: i }).body.script_pubkey.toLowerCase()),
 }, null, 2) + '\n');
 console.log('inputs', r.body.summary.input_count, 'combined', r.body.summary.addresses_combined);

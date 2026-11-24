@@ -1,3 +1,7 @@
+// GET  /api/vault-addresses?vault_id=<uuid>  (signed in; owner or member)
+//   -> { ok, next: { 0: n, 1: m } } -- the next index each branch will hand
+//   out, so a Tapit membership request can list the vault's NEXT change
+//   addresses (docs/tapit-review-modes-build-note.md). Reads only.
 // POST /api/vault-addresses  { vault_id, label? }
 // Hands out the next receive address of a v2 (ranged) vault.
 // Plan: docs/ranged-addresses-slice2-build-note.md (operator's OK 2026-11-19).
@@ -21,10 +25,12 @@ import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 import { overLimit, TOO_MANY } from "./_rate-limit.js";
 import { rangedAddress } from "./_ranged-wasm.js";
+import { canSeeVault, nextIndexes } from "./_vault-coins.js";
 
 const RECEIVE = 0;
 
 export async function handler(event) {
+  if (event.httpMethod === "GET") return nextIndexesFor(event);
   if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
   const u = await requireUser(event);
   if (u.error) return json(401, { error: u.error });
@@ -120,4 +126,17 @@ export async function handler(event) {
   const { index, derived } = got;
 
   return json(200, { ok: true, index, address: derived.address, label });
+}
+
+async function nextIndexesFor(event) {
+  const u = await requireUser(event);
+  if (u.error) return json(401, { error: u.error });
+  const vaultId = event.queryStringParameters?.vault_id;
+  if (typeof vaultId !== "string" || !/^[0-9a-f-]{36}$/i.test(vaultId)) return json(400, { error: "vault_id is required" });
+  const supabase = getSupabaseAdmin();
+  const { data: vault, error } = await supabase.from("vaults").select("id, user_id, descriptor_version").eq("id", vaultId).maybeSingle();
+  if (error) return json(500, { error: error.message });
+  if (!vault || !(await canSeeVault(supabase, vault, u.userId))) return json(404, { error: "Vault not found" });
+  if (vault.descriptor_version !== 2) return json(400, { error: "This vault has one fixed address." });
+  return json(200, { ok: true, next: await nextIndexes(supabase, vaultId) });
 }

@@ -70,7 +70,7 @@ export async function handler(event) {
 
     const { data, error } = await supabase
       .from("vault_membership_grants")
-      .select("id, role, key_id, recipient_label, recipient_persona, recipient_pubkey, request_event_id, reply_pubkey, reply_privkey, reply_privkey_sealed, status, responded_at, created_at, updated_at")
+      .select("id, role, key_id, recipient_label, recipient_persona, recipient_pubkey, request_event_id, reply_pubkey, reply_privkey, reply_privkey_sealed, status, responded_at, review_mode, change_until, created_at, updated_at")
       .eq("vault_id", vaultId)
       .eq("user_id", u.userId)
       .order("created_at", { ascending: true });
@@ -86,7 +86,11 @@ export async function handler(event) {
     const {
       vault_id, role, key_id, recipient_label, recipient_persona,
       recipient_pubkey, request_event_id, reply_pubkey, reply_privkey, reply_privkey_sealed,
+      review_mode = "wellness", change_until = null,
     } = body;
+    // What this member sees when co-signing (docs/tapit-review-modes-build-note.md).
+    if (review_mode !== "wellness" && review_mode !== "full") return json(400, { error: "review_mode must be wellness or full" });
+    if (change_until !== null && !(Number.isInteger(change_until) && change_until >= 0)) return json(400, { error: "Invalid change_until" });
     if (!vault_id) return json(400, { error: "Missing: vault_id" });
     if (!role) return json(400, { error: "Missing: role" });
     if (!key_id) return json(400, { error: "Missing: key_id" });
@@ -124,11 +128,13 @@ export async function handler(event) {
           reply_privkey_sealed: reply_privkey_sealed ?? null,
           status: "sent",
           responded_at: null,
+          review_mode,
+          change_until,
           updated_at: new Date().toISOString(),
         },
         { onConflict: "vault_id,role,key_id" },
       )
-      .select("id, role, key_id, recipient_label, recipient_persona, recipient_pubkey, request_event_id, reply_pubkey, reply_privkey, reply_privkey_sealed, status, responded_at, created_at, updated_at")
+      .select("id, role, key_id, recipient_label, recipient_persona, recipient_pubkey, request_event_id, reply_pubkey, reply_privkey, reply_privkey_sealed, status, responded_at, review_mode, change_until, created_at, updated_at")
       .single();
     if (error) return json(500, { error: error.message });
     await recordEvent(supabase, { vault_id, user_id: u.userId, event_type: "grant_sent", metadata: sealedGrant(data) });
@@ -156,7 +162,7 @@ export async function handler(event) {
     if (body.status === "left") query = query.eq("status", "accepted");
 
     const { data, error } = await query
-      .select("id, vault_id, role, key_id, recipient_label, recipient_persona, recipient_pubkey, request_event_id, reply_pubkey, reply_privkey, reply_privkey_sealed, status, responded_at, created_at, updated_at")
+      .select("id, vault_id, role, key_id, recipient_label, recipient_persona, recipient_pubkey, request_event_id, reply_pubkey, reply_privkey, reply_privkey_sealed, status, responded_at, review_mode, change_until, created_at, updated_at")
       .maybeSingle();
     if (error) return json(500, { error: error.message });
     if (!data) {

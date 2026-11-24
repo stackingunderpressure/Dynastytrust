@@ -132,6 +132,17 @@ export interface VaultMembershipRequestPayload {
    *  addresses (Tapit freshAddressLeaf.ts; docs/tapit-fresh-address-cosign-
    *  build-note.md). Absent for a one-address vault. */
   ranged_keys?: RangedKey[];
+  /** What this member sees when co-signing (docs/tapit-review-modes-build-
+   *  note.md): 'wellness' (the person only; Tapit's default) or 'full'
+   *  (also the money). Signed into Tapit's membership, so a spend request
+   *  cannot change it. */
+  review_mode?: 'wellness' | 'full';
+  /** The vault's own change addresses as output scripts (hex): its next 200
+   *  change addresses, or its one address. Tapit refuses a spend whose
+   *  "change" is anywhere else. */
+  change_scripts?: string[];
+  /** For showing addresses in full review. */
+  network?: 'bitcoin' | 'testnet' | 'signet';
   /** Decimal sats string; absent means "always require the callback"
    *  (vaultTrail.ts's requiresCallbackConfirmation fail-closed default). */
   high_value_threshold_sats?: string;
@@ -231,6 +242,9 @@ export async function sendVaultMembershipRequestOverNostr(opts: {
   leafScripts: string[];
   /** Fresh-address vaults: rangedKeysForScripts(multipath, leafScripts). */
   rangedKeys?: RangedKey[];
+  reviewMode?: 'wellness' | 'full';
+  changeScripts?: string[];
+  network?: 'bitcoin' | 'testnet' | 'signet';
   highValueThresholdSats?: bigint;
   recipientXOnlyPubkey: string;
   relays?: readonly string[];
@@ -245,6 +259,9 @@ export async function sendVaultMembershipRequestOverNostr(opts: {
     ...(opts.roleLabel ? { role_label: opts.roleLabel.slice(0, 80) } : {}),
     leaf_scripts: opts.leafScripts,
     ...(opts.rangedKeys?.length ? { ranged_keys: opts.rangedKeys } : {}),
+    review_mode: opts.reviewMode ?? 'wellness',
+    ...(opts.changeScripts?.length ? { change_scripts: opts.changeScripts } : {}),
+    ...(opts.network ? { network: opts.network } : {}),
     ...(opts.highValueThresholdSats !== undefined
       ? { high_value_threshold_sats: opts.highValueThresholdSats.toString() }
       : {}),

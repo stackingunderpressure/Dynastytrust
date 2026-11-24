@@ -3376,6 +3376,7 @@ function MembersTab({ vault }: { vault: Vault }) {
           leaves={vault.leaves}
           leafScripts={vault.leaf_scripts}
           vaultMultipath={vault.descriptor_version === 2 ? vault.descriptor_multipath : null}
+          changeVault={vault}
           keyLabels={vault.key_labels}
           isOwner={sessionUserId === vault.user_id}
         />
