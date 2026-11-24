@@ -8,7 +8,7 @@ import { ensureVaultKey } from './use-vault-key';
 import { LOCKED_TEXT, loadAllMyVaultKeys, sealVaultJson, sealVaultText, vaultKeyVersion } from './vault-keyring';
 import { savePending } from './sealed-pending';
 import {
-  F, openAttestation, openInvite, openMember, openProposal, openRequest, openSecret, openSessionLabel, openStipend, openVault, openWallet,
+  F, openAttestation, openInvite, openMember, openProposal, openRequest, openSecret, openSealedDeep, openSessionLabel, openStipend, openVault, openWallet,
 } from './sealed-fields';
 import { openVaultText } from './vault-keyring';
 import { isSealed } from './vault-key';
@@ -1385,7 +1385,11 @@ export const api = {
           event_type: string;
           metadata: Record<string, unknown>;
         }[];
-      }>(`/vault-events?vault_id=${vault_id}&limit=${limit}`),
+      }>(`/vault-events?vault_id=${vault_id}&limit=${limit}`).then(async r => {
+        // Names in the activity log were copied sealed from their rows.
+        await keysForLists();
+        return { ...r, events: r.events.map(e => ({ ...e, metadata: openSealedDeep(vault_id, e.metadata) as Record<string, unknown> })) };
+      }),
   },
 
   // The vault's sealed record. `verification` and `anchoring` are the

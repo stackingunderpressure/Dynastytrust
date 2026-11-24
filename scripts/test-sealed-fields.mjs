@@ -148,4 +148,27 @@ const key1 = vk.newVaultKey();
   pass('the invite link carries the vault name and invited name after the #, and keeps them through sign-in');
 }
 
+// 7. History entries (Z1 slice 3): the names they copied open for display;
+//    the stored payload, which the ledger hashes, is never changed.
+{
+  ring.clearVaultKeyring();
+  ring.setVaultKeys(V, new Map([[1, key1]]), 1);
+  const payload = {
+    from: ring.sealVaultText(V, F.vaultName, 'Old name'),
+    to: ring.sealVaultText(V, F.vaultName, 'New name'),
+    nested: [{ label: ring.sealVaultText(V, F.memberLabel, 'Anna') }],
+    snapshot: ring.sealVaultJson(V, F.attestationData, { notes: 'kept' }),
+    amount_sats: 5000,
+    note: 'plain text stays',
+  };
+  const stored = JSON.stringify(payload);
+  const shown = sf.openSealedDeep(V, payload);
+  assert.deepEqual(shown, { from: 'Old name', to: 'New name', nested: [{ label: 'Anna' }], snapshot: { notes: 'kept' }, amount_sats: 5000, note: 'plain text stays' });
+  assert.equal(JSON.stringify(payload), stored, 'the stored payload is untouched (the ledger hash is computed over it)');
+  ring.clearVaultKeyring();
+  assert.deepEqual(sf.openSealedDeep(V, payload).nested, [{ label: ring.LOCKED_TEXT }], 'no key: Locked, never ciphertext');
+  assert.equal(sf.openSealedDeep(V, payload).snapshot, ring.LOCKED_TEXT);
+  pass('history entries show the names they copied, opened on the device; the stored, hashed payload never changes');
+}
+
 console.log(`sealed fields: ${n} checks passed`);

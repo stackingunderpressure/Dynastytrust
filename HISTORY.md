@@ -2327,6 +2327,26 @@ signers" as not yet verified. Item 1 above postdates it.
 
 **Recently closed:**
 
+- **Zero-knowledge storage, slice 3: the history shows names it can no
+  longer read (2026-11-24).** Reading the code first: after slice 2 every
+  history entry that carried a name already copies it SEALED from the row
+  (rename from/to, key and member labels, invite labels, stipend and wallet
+  names, request recipient and note, the rotate names), so nothing new had
+  to be scrambled on the server -- the work was showing them. The activity
+  log (`api.vaultEvents.list`) and the ledger page (`VaultLedger.tsx`) open
+  sealed values on the device for display (`openSealedDeep` in
+  `lib/sealed-fields.ts`: each field is tried, the seal's associated data
+  still decides). The ledger's hash check never sees the opened copy -- it
+  runs on the stored bytes, and the ledger download stays the raw,
+  independently checkable record. New `test-api-sealing.mjs` drives the
+  REAL `lib/api.ts` against a fake network and fails if any request body
+  carries a plain name, label, memo or trust document (checked by breaking
+  the stipend seal on purpose: the test caught it). Left out: amounts,
+  destinations and fees in history are money fields (Z2); the
+  `terms_accepted` entry still records the browser's user agent (identity,
+  Z4). Gates: lint 0 errors (11 warnings, as before), typecheck the same 10
+  pre-existing errors, build OK, npm test exit 0. NOT walked in a browser.
+
 - **Zero-knowledge storage, slice 2: names and labels sealed, invites
   without email (2026-11-24).** Operator: finish Z1, one push at the end.
   Every name and label the server never computes on is now sealed with the

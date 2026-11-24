@@ -138,3 +138,34 @@ export function openProposal<T>(p: T): T {
   if (row.vault && typeof row.vault === 'object') row.vault = openVault(row.vault);
   return row as T;
 }
+
+/** Open one sealed value whose field is not known in advance (history
+ *  entries copy values from many rows). Each field is tried in turn; the
+ *  seal's associated data still decides -- a value opens only as the field it
+ *  was sealed as. LOCKED_TEXT when none opens. */
+export function openAnyField(vaultId: string, value: string): string {
+  for (const field of Object.values(F)) {
+    const plain = openVaultText(vaultId, field, value);
+    if (plain !== LOCKED_TEXT) return plain as string;
+  }
+  return LOCKED_TEXT;
+}
+
+/** A READABLE COPY of a history entry's details (vault_events.metadata, a
+ *  ledger entry's payload): every sealed string opened, every {zk} object
+ *  opened. Display only -- the ledger's hash check always runs on the
+ *  stored bytes, never on this copy. */
+export function openSealedDeep(vaultId: string, value: unknown): unknown {
+  if (typeof value === 'string') return value.startsWith('zk1:') ? openAnyField(vaultId, value) : value;
+  if (Array.isArray(value)) return value.map(v => openSealedDeep(vaultId, v));
+  if (value && typeof value === 'object') {
+    const zk = (value as { zk?: unknown }).zk;
+    if (typeof zk === 'string' && Object.keys(value).length === 1) {
+      const plain = openAnyField(vaultId, zk);
+      if (plain === LOCKED_TEXT) return LOCKED_TEXT;
+      try { return JSON.parse(plain); } catch { return plain; }
+    }
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, openSealedDeep(vaultId, v)]));
+  }
+  return value;
+}
