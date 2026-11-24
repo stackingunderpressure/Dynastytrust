@@ -2327,6 +2327,11 @@ signers" as not yet verified. Item 1 above postdates it.
 
 **Recently closed:**
 
+- **Released to main 2026-11-24 (operator: "Ok push to main"):** Face ID
+  locks a new key by default; the lost-vs-stolen lesson, below. Owed: the
+  operator makes a new key on the iPhone (Face ID, not a password, then the
+  words to write down).
+
 - **Face ID locks a new key; lost vs stolen is taught where keys are made
   (2026-11-24).** Operator: "We don't need a password creating a key if Face
   ID signs ... Password is just weight on user", then "Yes do both".
