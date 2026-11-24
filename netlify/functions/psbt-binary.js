@@ -18,6 +18,7 @@ import { pubkeyFromXpub } from './_xpub.js';
 import { MEMPOOL, mempoolFetch, getFeeRate } from './_chain.js';
 import { checkNumberBounds, MIN_FEE_RATE_SAT_VB, MAX_FEE_RATE_SAT_VB } from './_numeric.js';
 import { buildRangedSpend } from './_ranged-spend.js';
+import { userServersFrom } from './_electrum.js';
 import { spendKeys, inputVbytesFor, selectCoins, spendCompilerRequest, spendSummary } from '../../packages/vault-rules/src/spend.js';
 
 
@@ -77,7 +78,9 @@ export async function handler(event) {
   // A vault with a new address every time (ranged slice 5): coins from all
   // its addresses, change to a never-used one, built by the compiler wasm.
   if (vault.descriptor_version === 2) {
-    const r = await buildRangedSpend({ supabase, vault, userId: u.userId, body });
+    let userServers;
+    try { userServers = userServersFrom(event); } catch (e) { return json(400, { error: e.message }); }
+    const r = await buildRangedSpend({ supabase, vault, userId: u.userId, body, userServers });
     if (r.status === 200 && r.body.psbt_hex) {
       const sm = r.body.summary;
       await recordEvent(supabase, {

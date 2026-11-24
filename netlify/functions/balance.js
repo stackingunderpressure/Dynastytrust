@@ -14,7 +14,8 @@
 import { json, requireUser } from './_auth.js';
 import { MEMPOOL, mempoolFetch } from './_chain.js';
 import { getSupabaseAdmin } from './_supabase.js';
-import { canSeeVault, coinsAt, nextIndexes, watchedAddresses } from './_vault-coins.js';
+import { canSeeVault, nextIndexes, vaultCoins, watchedAddresses } from './_vault-coins.js';
+import { userServersFrom } from './_electrum.js';
 
 async function btcPrice(network) {
   if (network !== 'bitcoin') return null;
@@ -42,10 +43,9 @@ async function vaultBalance(event, vaultId) {
     const watched = watchedAddresses(vault, vault.descriptor_version === 2 ? await nextIndexes(supabase, vault.id) : undefined);
     // One scan serves both the balance and the coins card (2026-11-24: two
     // scans per page view got the server refused by mempool.space).
-    const [coins, tip] = await Promise.all([
-      coinsAt(network, watched),
-      mempoolFetch(`${MEMPOOL[network] || MEMPOOL.testnet}/blocks/tip/height`).catch(() => null),
-    ]);
+    // Electrum when there is a server for this network (the person's own, or
+    // the default), else the website (_vault-coins.js vaultCoins).
+    const { coins, tip, source } = await vaultCoins(network, watched, userServersFrom(event));
     const confirmed_sats = coins.filter(c => c.status?.confirmed).reduce((n, c) => n + (c.value || 0), 0);
     const unconfirmed_sats = coins.filter(c => !c.status?.confirmed).reduce((n, c) => n + (c.value || 0), 0);
     const total_sats = confirmed_sats + unconfirmed_sats;
@@ -66,6 +66,7 @@ async function vaultBalance(event, vaultId) {
       mempool_url: `${(MEMPOOL[network] || MEMPOOL.testnet).replace(/\/api$/, '')}/address/${vault.address}`,
       tx_count: coins.length,
       addresses_watched: watched.length,
+      source,
       tip: typeof tip === 'number' ? tip : null,
       // The same shape utxos.js answers, so the coins card needs no second scan.
       coins: coins.map(c => {

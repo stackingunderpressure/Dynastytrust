@@ -85,6 +85,7 @@ import { tipHeight, txConfirmations, blocksToApproxLabel } from "../lib/chain";
 import { opensWords, durationWords, rotateDateWords, pathMoments, ROTATE_EXTENSIONS } from "../lib/timelock-words";
 import { buildStandardTrustDoc, standardConfigFromCompiledVault } from "../lib/trust-doc";
 import { SeedSignerNetworkHint } from "../components/SeedSignerNetworkHint";
+import { ElectrumServerSettings } from "../components/ElectrumServerSettings";
 
 
 function satsToBtc(sats: number): string {
@@ -761,6 +762,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
             onOpenTab={openTab}
             coinsKey={`${balance?.total_sats ?? ""}:${balance?.utxo_count ?? ""}`}
             balance={balance}
+            onReloadBalance={() => { void load(); }}
           />
         )}
         {tab === "send" && (
@@ -798,6 +800,7 @@ function OverviewTab({
   onOpenTab,
   coinsKey,
   balance,
+  onReloadBalance,
 }: {
   vault: Vault;
   copy: (text: string, id: string) => void;
@@ -808,6 +811,8 @@ function OverviewTab({
   /** Changes when the balance reloads, so the coins card refreshes too. */
   coinsKey?: string;
   balance?: BalanceResult | null;
+  /** Reload the balance (after the coin-lookup server changed). */
+  onReloadBalance?: () => void;
 }) {
   // Ranged slice 6: a vault with a new address every time shows, copies and
   // QR-codes the descriptor of EVERY address (<0;1>/*) -- what a wallet or
@@ -980,7 +985,12 @@ function OverviewTab({
       {/* Operator, 2026-11-24: the coins, and when each path opens for each
           one, right under the balance (docs/coin-unlock-view-build-note.md). */}
       {vault.status !== "draft" && (
-        <UtxosSection vault={vault} onSendPrefill={onSendPrefill} refreshKey={coinsKey} balance={balance} />
+        <>
+          <UtxosSection vault={vault} onSendPrefill={onSendPrefill} refreshKey={coinsKey} balance={balance} />
+          {/* Which server looks the coins up, and the person's own Electrum
+              server (docs/chain-lookups-build-note.md). */}
+          <ElectrumServerSettings network={vault.network} source={balance?.source} onChanged={() => onReloadBalance?.()} />
+        </>
       )}
       <RemindersBanner vaultId={vault.id} />
       <SuccessionBanner vault={vault} onSendPrefill={onSendPrefill} />

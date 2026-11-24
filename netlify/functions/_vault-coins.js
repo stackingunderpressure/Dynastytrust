@@ -12,6 +12,7 @@
 
 import { callWasm } from "./_ranged-wasm.js";
 import { MEMPOOL, mempoolFetch } from "./_chain.js";
+import { electrumCoins, serverFor } from "./_electrum.js";
 
 /** Unused addresses watched past the last reserved index, per branch.
  *  Every address the app ever handed out is always watched; this margin is
@@ -98,6 +99,36 @@ export async function coinsAt(network, watched, fetchJson = mempoolFetch, parall
   }
   await Promise.all(Array.from({ length: Math.min(parallel, watched.length) }, worker));
   return out;
+}
+
+/**
+ * Coins and the chain tip for a vault's watched addresses
+ * (docs/chain-lookups-build-note.md). The person's own Electrum server, when
+ * their device sent one for this network, and ONLY that server -- a failure
+ * is shown, never quietly sent to mempool.space instead, because choosing
+ * your own node is a privacy choice. Otherwise the default Electrum server
+ * for the network (signet), falling back to the website lookups if it
+ * fails; otherwise the website lookups. `source` says which answered.
+ */
+export async function vaultCoins(network, watched, userServers = {}, deps = {}) {
+  const viaWebsite = async () => {
+    const base = MEMPOOL[network] || MEMPOOL.testnet;
+    const [coins, tip] = await Promise.all([
+      (deps.coinsAt ?? coinsAt)(network, watched),
+      (deps.fetchJson ?? mempoolFetch)(`${base}/blocks/tip/height`).catch(() => null),
+    ]);
+    return { coins, tip: typeof tip === "number" ? tip : null, source: "mempool.space" };
+  };
+  const server = await (deps.serverFor ?? serverFor)(network, userServers, deps);
+  if (!server) return viaWebsite();
+  try {
+    const { coins, tip } = await (deps.electrumCoins ?? electrumCoins)(server, network, watched, deps);
+    return { coins, tip, source: server.own ? "your Electrum server" : `Electrum (${server.host})` };
+  } catch (e) {
+    if (server.own) throw e;
+    console.warn(`default Electrum server failed, using the website lookups: ${e.message}`);
+    return viaWebsite();
+  }
 }
 
 /** May this signed-in user see this vault's coins? Owner or active member. */

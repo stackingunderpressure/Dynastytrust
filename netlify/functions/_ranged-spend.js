@@ -14,7 +14,7 @@
 // spend combines coins from several addresses.
 
 import { callWasm, rangedAddress } from "./_ranged-wasm.js";
-import { coinsAt, nextIndexes, watchedAddresses } from "./_vault-coins.js";
+import { nextIndexes, vaultCoins, watchedAddresses } from "./_vault-coins.js";
 import { fetchTipHeight, getFeeRate } from "./_chain.js";
 import { inputVbytesFor, selectCoins } from "../../packages/vault-rules/src/spend.js";
 
@@ -51,9 +51,12 @@ export function oldEnough(coins, tip, blocks) {
  * Build the spend. Returns { status, body } for the handler to send.
  * `deps` lets tests stand in the chain and the wasm.
  */
-export async function buildRangedSpend({ supabase, vault, userId, body }, deps = {}) {
+export async function buildRangedSpend({ supabase, vault, userId, body, userServers = {} }, deps = {}) {
   const call = deps.callWasm ?? callWasm;
-  const coinsFor = deps.coinsAt ?? coinsAt;
+  // Electrum when there is a server for this network (the person's own, or
+  // the default); the tip that decides "old enough" stays the two-source
+  // check below, never a user-chosen server.
+  const coinsFor = deps.coinsAt ?? (async (network, watched) => (await vaultCoins(network, watched, userServers)).coins);
   const tipOf = deps.fetchTipHeight ?? fetchTipHeight;
   const feeOf = deps.getFeeRate ?? getFeeRate;
   const { destination, amount_sats, fee_rate, path = "founders_now", selected_utxos, sweep } = body;

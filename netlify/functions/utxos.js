@@ -10,8 +10,8 @@
 
 import { requireUser, json } from "./_auth.js";
 import { getSupabaseAdmin } from "./_supabase.js";
-import { MEMPOOL, mempoolFetch } from "./_chain.js";
-import { coinsAt, nextIndexes, watchedAddresses } from "./_vault-coins.js";
+import { nextIndexes, vaultCoins, watchedAddresses } from "./_vault-coins.js";
+import { userServersFrom } from "./_electrum.js";
 
 async function assertMember(supabase, vaultId, userId) {
   const { data } = await supabase
@@ -53,7 +53,6 @@ export async function handler(event) {
   if (!vault.address) return json(200, { ok: true, utxos: [], tip: null });
 
   const network = vault.network || "testnet";
-  const base = MEMPOOL[network] || MEMPOOL.testnet;
 
   let watched;
   try {
@@ -64,13 +63,11 @@ export async function handler(event) {
 
   let raw;
   let tip;
+  let source;
   try {
-    [raw, tip] = await Promise.all([
-      coinsAt(network, watched),
-      mempoolFetch(`${base}/blocks/tip/height`),
-    ]);
+    ({ coins: raw, tip, source } = await vaultCoins(network, watched, userServersFrom(event)));
   } catch (err) {
-    return json(502, { error: "mempool.space error: " + err.message });
+    return json(502, { error: "Could not fetch coins: " + err.message });
   }
 
   const utxos = (raw || []).map(u => {
@@ -102,6 +99,7 @@ export async function handler(event) {
     vault_address: vault.address,
     network,
     tip: typeof tip === "number" ? tip : null,
+    source,
     utxos,
   });
 }

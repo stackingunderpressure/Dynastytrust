@@ -16,6 +16,7 @@ import { isSealed } from './vault-key';
 
 // In production, /api/* is redirected to /.netlify/functions/* by netlify.toml.
 // In local dev with `netlify dev`, the same redirect applies automatically.
+import { electrumHeaders, getElectrumServer } from './electrumPrefs';
 const API = '/api';
 
 async function getToken(): Promise<string> {
@@ -597,6 +598,9 @@ export interface BalanceResult {
    *  summed from, and the chain height -- the coins card uses these instead
    *  of scanning every address a second time. */
   tip?: number | null;
+  /** Balance by vault: who answered -- mempool.space, an Electrum server,
+   *  or "your Electrum server". */
+  source?: string;
   coins?: {
     txid: string; vout: number; value_sats: number; confirmed: boolean;
     block_height: number | null; block_time: number | null; confirmations: number;
@@ -984,9 +988,18 @@ export const api = {
    *  summed over all its addresses (signed in, owner or member -- that list
    *  is private); any other vault reads its one address as before. */
   vaultBalance: (v: Pick<Vault, 'id' | 'address' | 'network' | 'descriptor_version'>) =>
-    v.descriptor_version === 2
-      ? req<BalanceResult>(`/balance?vault_id=${encodeURIComponent(v.id)}`)
+    // By vault (signed in) when it has many addresses, or when this device
+    // has its own Electrum server for the network -- only that route sends
+    // the lookups there (lib/electrumPrefs.ts).
+    v.descriptor_version === 2 || getElectrumServer(v.network)
+      ? req<BalanceResult>(`/balance?vault_id=${encodeURIComponent(v.id)}`, { headers: electrumHeaders() })
       : req<BalanceResult>(`/balance?address=${encodeURIComponent(v.address ?? '')}&network=${v.network}`),
+
+  /** First contact with this device's own Electrum server: reachable, on
+   *  the right chain, and the certificate fingerprint to confirm. */
+  electrumCheck: (body: { network: 'testnet' | 'signet' | 'bitcoin'; host: string; port: number }) =>
+    req<{ ok: true; host: string; port: number; fingerprint: string; software: string | null; tip: number | null; on_network: boolean }>(
+      '/electrum-check', { method: 'POST', body: JSON.stringify(body) }),
 
   utxos: (vault_id: string) =>
     req<{
@@ -1008,7 +1021,9 @@ export const api = {
         branch?: number;
         index?: number;
       }[];
-    }>(`/utxos?vault_id=${vault_id}`),
+      /** Who answered: mempool.space, an Electrum server, or "your Electrum server". */
+      source?: string;
+    }>(`/utxos?vault_id=${vault_id}`, { headers: electrumHeaders() }),
 
   compile: (body: {
     name: string;
@@ -1162,7 +1177,7 @@ export const api = {
         change_address?: string | null;
         waiting?: { txid: string; vout: number; value_sats: number; blocks_left: number }[];
       };
-    }>('/psbt-binary', { method: 'POST', body: JSON.stringify(body) }).then(async r => {
+    }>('/psbt-binary', { method: 'POST', body: JSON.stringify(body), headers: electrumHeaders() }).then(async r => {
       await keysForLists();
       return { ...r, summary: { ...r.summary, vault_name: openVaultText(body.vault_id, F.vaultName, r.summary.vault_name) as string } };
     }),
