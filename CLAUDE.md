@@ -210,7 +210,7 @@ Monorepo root
 |           |-- Dashboard.tsx          Vault list with live balances
 |           `-- VaultDetail.tsx        Vault detail, send flow, history
 |-- netlify/functions/                 Serverless backend (Node ESM)
-|   |-- compile.js                     Proxy to Fly.io compiler
+|   |-- compile.js                     Compile a vault (in-process compiler)
 |   |-- vaults.js                      Vault CRUD
 |   |-- proposals.js                   Spend proposals
 |   |-- psbt-binary.js                 Build PSBT
@@ -221,7 +221,7 @@ Monorepo root
 |   |-- vault-pdf.js                   PDF generation
 |   |-- _auth.js                       JWT verification helper
 |   `-- _supabase.js                   Supabase admin client
-|-- compiler/                          Rust HTTP service (Fly.io)
+|-- compiler/                          Rust HTTP wrapper (was the Fly.io service; retired 2026-11-24)
 |   `-- src/main.rs                    Axum endpoints
 |-- protocol/                          Rust library
 |   `-- src/
@@ -237,7 +237,12 @@ Monorepo root
 
 **Deployments:**
 - Frontend + functions: Netlify (`dynastytrust.family`)
-- Rust compiler: Fly.io (`dynastytrust-compiler.fly.dev`)
+- Rust compiler: IN-PROCESS in the Netlify functions -- the committed WebAssembly
+  `apps/web/src/lib/wasm/dynastytrust_compiler_wasm.wasm` (protocol::service,
+  sha256-checked against its manifest) through `netlify/functions/_compiler.js`.
+  The Fly.io service (`dynastytrust-compiler.fly.dev`) was retired 2026-11-24
+  (docs/retire-fly-build-note.md); every function that reaches the compiler
+  must list the .wasm in netlify.toml `included_files` (test-wasm-bundling).
 - Database: Supabase
 - Bitcoin block / fee / broadcast: mempool.space (testnet + mainnet)
 
@@ -249,8 +254,6 @@ Monorepo root
 | Frontend | `VITE_SUPABASE_ANON_KEY`       | Embedded into the Vite bundle at build time    |
 | Backend  | `SUPABASE_URL`                 | Netlify function runtime                       |
 | Backend  | `SUPABASE_SERVICE_ROLE_KEY`    | Netlify function runtime                       |
-| Backend  | `COMPILER_URL`                 | `https://dynastytrust-compiler.fly.dev`        |
-| Backend  | `COMPILER_SECRET`              | Must match the Fly.io secret exactly           |
 
 ---
 
@@ -286,7 +289,7 @@ the named-field `DynastyPolicy`/`build_multileaf` path never emits
 **Crucial:** callers pass relative offsets ("6 months = 26,280
 blocks"). The Netlify `compile.js` / `vaults-compile.js` fetch
 the current chain tip from mempool.space and forward **`tip +
-offset`** to the Fly compiler. An `after()` leaf then bakes in a
+offset`** to the compiler. An `after()` leaf then bakes in a
 specific absolute block height. Without the tip addition, the leaf's
 `after(26280)` compiles to `OP_CLTV` at height 26,280 (long past
 on any live network) → every timelock path unlocks at funding. An
@@ -324,7 +327,7 @@ Miniscript allows.
 
 Private keys and mnemonics are generated and stored in `localStorage` only.
 Only xpubs and pubkey hex (public, safe) are ever sent to the server or the
-Fly.io compiler. `lib/keystore.ts` is the single source of truth for key
+compiler. `lib/keystore.ts` is the single source of truth for key
 material.
 
 ### Two key modes
@@ -338,12 +341,12 @@ material.
 
 ### PSBT signing flow (browser-first)
 
-1. Browser calls `/api/psbt-binary` (Netlify -> Fly.io) to build the PSBT
+1. Browser calls `/api/psbt-binary` (Netlify, in-process compiler) to build the PSBT
 2. Browser parses PSBT in `psbt-signer.ts` (no server)
 3. For each required signer: derive private key from mnemonic, compute
    BIP341 tapscript sighash, Schnorr-sign via `@noble/curves/secp256k1`
 4. Merge signed PSBTs in browser using `mergePsbts()`
-5. Finalize via `/api/psbt-finalize` (Fly.io)
+5. Finalize via `/api/psbt-finalize` (in-process compiler)
 6. Broadcast directly from the browser to mempool.space
 
 ### Routing (react-router-dom)
@@ -472,10 +475,9 @@ only reach for it if the automated pipeline itself is broken.
 
 ---
 
-## Fly.io compiler endpoints
+## Compiler endpoints (in-process)
 
 ```
-GET  /health             Service health check
 POST /compile            Compile Miniscript policy -> descriptor + address
 POST /psbt-binary        Build unsigned PSBT from vault + UTXOs
 POST /psbt-merge         Merge multiple partially-signed PSBTs
@@ -484,9 +486,12 @@ POST /governance/status  Get active spending paths at current block height
 POST /governance/audit   Audit a proposed spend for policy compliance
 ```
 
-All endpoints require `Authorization: Bearer <COMPILER_SECRET>`. The compiler
-spins down when idle (`auto_stop_machines = "stop"`) and wakes on first
-request (~2-3 second cold start).
+Not HTTP any more: `_compiler.js` `fetchCompiler` / `compilerFetch` /
+`compilerPost` answer these endpoints in-process with a Response carrying the
+exact status and text the Fly service sent (test-compiler-inprocess: all 231
+recorded requests). No URL, no shared secret, no cold start. The same
+WebAssembly runs in the browser (`lib/browser-compiler.ts`) and the
+downloaded app.
 
 ---
 
@@ -497,7 +502,7 @@ request (~2-3 second cold start).
 | `DuplicatePubKeys` on compile                  | Using `tr` instead of `tr_multileaf`                         | Default to `tr_multileaf`                                        |
 | `pubkey hex should be 66 digits, got 111`      | Sending xpub string instead of pubkey hex                    | Use `toPubkeyHex()` helper in PolicyBuilder                      |
 | `This key is not a signer for any input`       | Keys regenerated after vault compiled                        | Delete keys, regenerate, recompile vault                         |
-| Non-JSON from compiler                         | `COMPILER_SECRET` mismatch between Netlify and Fly.io        | Ensure both env vars match exactly                               |
+| Non-JSON from compiler                         | (Fly era) `COMPILER_SECRET` mismatch between Netlify and Fly.io | Fly retired 2026-11-24; the in-process compiler cannot mismatch |
 | `Buffer is not defined`                        | Used Node `Buffer` in browser code                           | Use `Array.from().map()` for hex encoding                        |
 | PSBT signing error `wrong private key format`  | HDKey not configured with HMAC                               | Wire `HDKey.utils` with `@noble/hashes/hmac`                     |
 | `JSX > is not valid` build failure             | Bare `>` or `->` inside JSX text                             | Use `&gt;`, `=>`, `--`, or reword                                |
@@ -519,7 +524,7 @@ See `Stack` above for the layout.
 - Auth: Supabase email/password, signup confirmation
 - Key Manager: generate test/secure keys, backup-with-verify flow, archive,
   delete, edit, import/export keyring JSON, persona grouping
-- Policy Builder: compile vault via Fly.io, copy descriptor / Miniscript /
+- Policy Builder: compile vault via the in-process compiler, copy descriptor / Miniscript /
   address / BSMS export, save vault to Supabase
 - Dashboard: vault list with live BTC balance + USD value, search, archive
   toggle, rename, deep links to `/vaults/:id`

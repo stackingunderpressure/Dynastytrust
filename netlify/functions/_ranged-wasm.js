@@ -42,6 +42,25 @@ function load() {
   return loaded;
 }
 
+/** Calls one service.rs route; returns { status, text } -- the exact
+ *  response text the Fly server sent for the same request. */
+export function callWasmText(endpoint, request) {
+  const x = load();
+  const enc = new TextEncoder();
+  const e = enc.encode(endpoint), b = enc.encode(JSON.stringify(request));
+  const ep = x.dt_alloc(e.length), bp = x.dt_alloc(b.length);
+  new Uint8Array(x.memory.buffer, ep, e.length).set(e);
+  new Uint8Array(x.memory.buffer, bp, b.length).set(b);
+  const rp = x.dt_handle(ep, e.length, bp, b.length);
+  x.dt_dealloc(ep, e.length);
+  x.dt_dealloc(bp, b.length);
+  const len = new DataView(x.memory.buffer).getUint32(rp, true);
+  const json = new TextDecoder().decode(new Uint8Array(x.memory.buffer, rp + 4, len));
+  x.dt_dealloc(rp, 4 + len);
+  const v = JSON.parse(json);
+  return { status: v.status, text: v.body };
+}
+
 /** Calls one service.rs route; returns { status, body } (body parsed). */
 export function callWasm(endpoint, request) {
   const x = load();

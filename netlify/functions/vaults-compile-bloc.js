@@ -36,8 +36,6 @@ import { fetchVerifiedTipHeight, relativeToAbsolute, checkTimelockFloor } from "
 import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
 import { assertNotPrivateExtendedKey } from "./_xpub.js";
 
-const COMPILER_URL = process.env.COMPILER_URL;
-const COMPILER_SECRET = process.env.COMPILER_SECRET;
 
 export async function handler(event) {
   if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
@@ -72,9 +70,6 @@ export async function handler(event) {
     }
   }
 
-  if (!COMPILER_URL) {
-    return json(503, { error: "Compiler service not configured.", hint: "Set COMPILER_URL in Netlify env vars." });
-  }
 
   const supabase = getSupabaseAdmin();
 
@@ -129,7 +124,7 @@ export async function handler(event) {
 
   let compiled;
   try {
-    const res = await fetchCompiler(COMPILER_URL, "/compile-bloc", {
+    const res = await fetchCompiler(null, "/compile-bloc", {
       name: vault.name,
       network: vault.network,
       parent_keys, kid_keys,
@@ -142,7 +137,7 @@ export async function handler(event) {
       kids_decay_step_blocks: bp.kids_decay_step_blocks,
       kids_decay_start_quorum: bp.kids_decay_start_quorum,
       kids_decay_floor_quorum: bp.kids_decay_floor_quorum,
-    }, { compilerSecret: COMPILER_SECRET });
+    });
     const text = await res.text();
     let data;
     try {
@@ -150,7 +145,7 @@ export async function handler(event) {
     } catch {
       return json(502, {
         error: `Compiler returned non-JSON (status ${res.status}): ${text.slice(0, 200)}`,
-        hint: "Check COMPILER_SECRET matches between Netlify and Fly.io.",
+        hint: "The vault compiler gave an answer that is not JSON -- this is a bug; please report it.",
       });
     }
     if (!res.ok || !data.ok) {

@@ -42,8 +42,6 @@ import { standardKeys, standardCompilePayload, standardCompiledRow } from "../..
 import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
 import { rangedFields } from "./_ranged-compile.js";
 
-const COMPILER_URL = process.env.COMPILER_URL;
-const COMPILER_SECRET = process.env.COMPILER_SECRET;
 
 const VAULT_FIELDS =
   "id, created_at, updated_at, user_id, name, network, address, descriptor, miniscript_policy, address_type, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, founder_keys, heir_keys, protector_keys, protector_quorum, protector_after, consent_keys, consent_quorum, archived, status, planned_founder_count, planned_heir_count, trust_doc, predecessor_id, leaf_scripts, backup_keys, backup_quorum, second_heir_keys, second_heir_quorum, second_inheritance_after, key_origins";
@@ -64,12 +62,6 @@ export async function handler(event) {
   const vaultId = body.vault_id;
   if (!vaultId) return json(400, { error: "Missing: vault_id" });
 
-  if (!COMPILER_URL) {
-    return json(503, {
-      error: "Compiler service not configured.",
-      hint: "Set COMPILER_URL in Netlify env vars.",
-    });
-  }
 
   const supabase = getSupabaseAdmin();
 
@@ -121,7 +113,7 @@ export async function handler(event) {
 
   let compiled;
   try {
-    const res = await fetchCompiler(COMPILER_URL, "/compile", compilePayload, { compilerSecret: COMPILER_SECRET });
+    const res = await fetchCompiler(null, "/compile", compilePayload);
     const text = await res.text();
     let data;
     try {
@@ -129,7 +121,7 @@ export async function handler(event) {
     } catch {
       return json(502, {
         error: `Compiler returned non-JSON (status ${res.status}): ${text.slice(0, 200)}`,
-        hint: "Check COMPILER_SECRET matches between Netlify and Fly.io.",
+        hint: "The vault compiler gave an answer that is not JSON -- this is a bug; please report it.",
       });
     }
     if (!res.ok || !data.ok) {

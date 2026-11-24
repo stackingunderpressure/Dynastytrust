@@ -14,6 +14,7 @@
  *   psbts       — array of hex-encoded PSBTs to merge
  */
 
+import { compilerFetch } from './_compiler.js';
 import { requireUser, json } from './_auth.js';
 import { recordEvent } from './_ledger.js';
 import { canMutate, isTerminalProposalStatus } from './_authz.js';
@@ -21,8 +22,6 @@ import { getSupabaseAdmin } from './_supabase.js';
 import { findSpendingPath, pathSignatureStatus } from './_vault-shape.js';
 import { signersOnEveryInput } from './_psbt-verify.js';
 
-const COMPILER_URL    = process.env.COMPILER_URL;
-const COMPILER_SECRET = process.env.COMPILER_SECRET;
 
 export async function handler(event) {
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
@@ -98,16 +97,12 @@ export async function handler(event) {
     }
   }
 
-  if (!COMPILER_URL) {
-    return json(503, { error: 'COMPILER_URL not configured. Deploy the Fly.io compiler to enable PSBT merging.' });
-  }
 
   try {
-    const res = await fetch(`${COMPILER_URL.replace(/\/$/, '')}/psbt-merge`, {
+    const res = await compilerFetch('/psbt-merge', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(COMPILER_SECRET ? { Authorization: `Bearer ${COMPILER_SECRET}` } : {}),
       },
       body: JSON.stringify({ psbts }),
     });

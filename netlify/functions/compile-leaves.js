@@ -43,8 +43,6 @@ import {
   leavesCompilePayload, leavesCompiledProblem, leavesCompiledRow,
 } from "../../packages/vault-rules/src/leaves.js";
 
-const COMPILER_URL = process.env.COMPILER_URL;
-const COMPILER_SECRET = process.env.COMPILER_SECRET;
 
 // The compile rules themselves -- each path's checks, the tip conversion,
 // the compiler request, the must-sign backstop and the stored row -- are
@@ -72,9 +70,6 @@ export async function handler(event) {
   // them a hardware wallet cannot recognise its own key on a leaf.
   const keyOrigins = leavesKeyOrigins(body.key_origins);
 
-  if (!COMPILER_URL) {
-    return json(503, { error: "Compiler service not configured.", hint: "Set COMPILER_URL in Netlify env vars." });
-  }
 
   const supabase = getSupabaseAdmin();
 
@@ -126,7 +121,7 @@ export async function handler(event) {
 
   let compiled;
   try {
-    const res = await fetchCompiler(COMPILER_URL, "/compile-leaves", leavesCompilePayload(vault, wireLeaves), { compilerSecret: COMPILER_SECRET });
+    const res = await fetchCompiler(null, "/compile-leaves", leavesCompilePayload(vault, wireLeaves));
     const text = await res.text();
     let data;
     try {
@@ -134,7 +129,7 @@ export async function handler(event) {
     } catch {
       return json(502, {
         error: `Compiler returned non-JSON (status ${res.status}): ${text.slice(0, 200)}`,
-        hint: "Check COMPILER_SECRET matches between Netlify and Fly.io.",
+        hint: "The vault compiler gave an answer that is not JSON -- this is a bug; please report it.",
       });
     }
     if (!res.ok || !data.ok) {

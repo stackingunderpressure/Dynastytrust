@@ -26,8 +26,6 @@ import { fetchVerifiedTipHeight, relativeToAbsolute, checkTimelockFloor } from "
 import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
 import { assertNotPrivateExtendedKey } from "./_xpub.js";
 
-const COMPILER_URL    = process.env.COMPILER_URL;
-const COMPILER_SECRET = process.env.COMPILER_SECRET;
 
 export async function handler(event) {
   if (event.httpMethod !== "POST") {
@@ -120,12 +118,6 @@ export async function handler(event) {
     if (inheritanceErr) return json(400, { error: inheritanceErr });
   }
 
-  if (!COMPILER_URL) {
-    return json(503, {
-      error: "Compiler service not configured. Set COMPILER_URL in Netlify environment variables.",
-      hint: "Deploy the Rust compiler to Fly.io and set COMPILER_URL to its URL."
-    });
-  }
 
   // Convert the relative block offsets the caller passed ("6 months
   // from now") into absolute CLTV heights (tip + offset). Miniscript
@@ -147,7 +139,7 @@ export async function handler(event) {
   // the machine is waking up from a cold start.
   let compiled;
   try {
-    const compilerRes = await fetchCompiler(COMPILER_URL, "/compile", {
+    const compilerRes = await fetchCompiler(null, "/compile", {
       name, network, address_type,
       founder_keys, founder_quorum,
       recovery_quorum,
@@ -158,7 +150,7 @@ export async function handler(event) {
       ...(consent_keys.length > 0 && consent_quorum != null
         ? { consent_keys, consent_quorum }
         : {}),
-    }, { compilerSecret: COMPILER_SECRET });
+    });
 
     const rawText = await compilerRes.text();
     let data;
@@ -167,7 +159,7 @@ export async function handler(event) {
     } catch {
       return json(502, {
         error: `Compiler returned non-JSON (status ${compilerRes.status}): ${rawText.slice(0, 200)}`,
-        hint: "Check COMPILER_SECRET matches between Netlify and Fly.io"
+        hint: "The vault compiler gave an answer that is not JSON -- this is a bug; please report it."
       });
     }
 
@@ -185,7 +177,7 @@ export async function handler(event) {
     // configured are server infrastructure details, not something an
     // authenticated app user needs to debug a transient network blip --
     // log them server-side instead of handing them back in the response.
-    console.error('Compiler unreachable:', { compiler_url: COMPILER_URL, secret_set: !!COMPILER_SECRET, reason });
+    console.error('Compiler failed:', { reason });
     return json(502, { error: `Compiler unreachable: ${reason}` });
   }
 

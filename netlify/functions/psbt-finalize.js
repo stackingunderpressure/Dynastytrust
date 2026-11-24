@@ -13,10 +13,9 @@
  * Returns: { ok, raw_tx_hex, txid, input_count, output_count, vbytes }
  */
 
+import { compilerFetch } from './_compiler.js';
 import { requireUser, json } from './_auth.js';
 
-const COMPILER_URL    = process.env.COMPILER_URL;
-const COMPILER_SECRET = process.env.COMPILER_SECRET;
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
@@ -48,18 +47,12 @@ export async function handler(event) {
     });
   }
 
-  if (!COMPILER_URL) {
-    return json(503, {
-      error: 'COMPILER_URL not configured. Deploy the Rust compiler to Fly.io and add COMPILER_URL to Netlify environment variables.',
-    });
-  }
 
   try {
-    const res = await fetch(`${COMPILER_URL.replace(/\/$/, '')}/psbt-finalize`, {
+    const res = await compilerFetch('/psbt-finalize', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(COMPILER_SECRET ? { Authorization: `Bearer ${COMPILER_SECRET}` } : {}),
       },
       body: JSON.stringify({ psbt_hex }),
     });
@@ -84,7 +77,7 @@ export async function handler(event) {
   } catch (err) {
     console.error('psbt-finalize error:', err);
     return json(502, {
-      error: `Compiler unreachable: ${err.message}. Check COMPILER_URL and that Fly.io is running.`,
+      error: `Compiler unreachable: ${err.message}. The vault compiler could not run on the server.`,
     });
   }
 }

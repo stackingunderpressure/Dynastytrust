@@ -24,7 +24,7 @@ const from = (t) => { const q = { select: () => q, eq: () => q, neq: () => q, is
   then: (res) => res({ data: [], error: null }) }; return q; };
 mock.module(F('_supabase.js'), { namedExports: { getSupabaseAdmin: () => ({ from }) } });
 mock.module(F('_auth.js'), { namedExports: { requireUser: async () => ({ userId: OWNER, claims }), json: (statusCode, body) => ({ statusCode, body }) } });
-mock.module(F('_compiler.js'), { namedExports: { compilerFailureReason: String, fetchCompiler: async () => { compilerCalls++; throw new Error('compiler reached'); } } });
+mock.module(F('_compiler.js'), { namedExports: { compilerFailureReason: String, fetchCompiler: async () => { compilerCalls++; throw new Error('compiler reached'); }, compilerFetch: async () => { compilerCalls++; throw new Error('compiler reached'); }, compilerPost: async () => { compilerCalls++; throw new Error('compiler reached'); } } });
 const realChain = await import(F('_chain.js'));
 mock.module(F('_chain.js'), { namedExports: { ...realChain, fetchVerifiedTipHeight: async () => { compilerCalls++; throw new Error('tip reached'); } } });
 process.env.COMPILER_URL = 'http://compiler.invalid';

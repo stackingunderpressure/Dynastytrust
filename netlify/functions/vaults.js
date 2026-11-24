@@ -1,3 +1,4 @@
+import { compilerFetch } from "./_compiler.js";
 import { draftViewForMember } from "./_invite-rules.js";
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
@@ -11,8 +12,6 @@ const docFingerprint = (doc) => createHash("sha256").update(canonicalJson(doc ??
 import { assertNotPrivateExtendedKey } from "./_xpub.js";
 import { VAULT_FIELDS } from "./_vault-fields.js";
 
-const COMPILER_URL    = process.env.COMPILER_URL;
-const COMPILER_SECRET = process.env.COMPILER_SECRET;
 
 // Defense-in-depth for the compromised-coordinator threat model: the
 // isBloc and legacy branches below persist a client-supplied
@@ -27,13 +26,11 @@ const COMPILER_SECRET = process.env.COMPILER_SECRET;
 // earlier in the normal flow, so an outage here is not the same class
 // of risk as never validating at all.
 async function looksLikeAValidAddress(address, network) {
-  if (!COMPILER_URL) return true;
   try {
-    const res = await fetch(`${COMPILER_URL.replace(/\/$/, "")}/validate-address`, {
+    const res = await compilerFetch('/validate-address', {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(COMPILER_SECRET ? { Authorization: `Bearer ${COMPILER_SECRET}` } : {}),
       },
       body: JSON.stringify({ address, network }),
     });

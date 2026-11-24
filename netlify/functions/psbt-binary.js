@@ -10,6 +10,7 @@
  *   summary   — spend details for UI display
  */
 
+import { compilerFetch } from './_compiler.js';
 import { requireUser, json } from './_auth.js';
 import { recordEvent } from './_ledger.js';
 import { getSupabaseAdmin } from './_supabase.js';
@@ -19,8 +20,6 @@ import { checkNumberBounds, MIN_FEE_RATE_SAT_VB, MAX_FEE_RATE_SAT_VB } from './_
 import { buildRangedSpend } from './_ranged-spend.js';
 import { spendKeys, inputVbytesFor, selectCoins, spendCompilerRequest, spendSummary } from '../../packages/vault-rules/src/spend.js';
 
-const COMPILER_URL    = process.env.COMPILER_URL;
-const COMPILER_SECRET = process.env.COMPILER_SECRET;
 
 // The spend rules -- input size and fee estimates, keys for the compiler,
 // coin selection, the compiler request and the summary -- are ONE copy in
@@ -196,23 +195,12 @@ export async function handler(event) {
   }
 
   // Build binary PSBT via Rust compiler
-  if (!COMPILER_URL) {
-    // Fallback: return JSON PSBT structure for manual import
-    return json(200, {
-      ok: true,
-      fallback: true,
-      message: 'COMPILER_URL not set — returning JSON PSBT. Deploy compiler for binary PSBT.',
-      psbt_json: { inputs: inputsWithScript, destination, amount_sats: amountSatsFinal, fee_sats: finalFee, change_sats: hasChange ? changeVal : 0 },
-      summary: { vault_name: vault.name, vault_address: vault.address, destination, amount_sats: amountSatsFinal, fee_sats: finalFee, fee_rate: rate, input_count: selected.length, total_in_sats: totalIn, network },
-    });
-  }
 
   try {
-    const compilerRes = await fetch(`${COMPILER_URL.replace(/\/$/, '')}/psbt-binary`, {
+    const compilerRes = await compilerFetch('/psbt-binary', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(COMPILER_SECRET ? { Authorization: `Bearer ${COMPILER_SECRET}` } : {}),
       },
       body: JSON.stringify(spendCompilerRequest(vault, keys, {
         inputs: inputsWithScript, destination, amountSatsFinal, finalFee, network, path, keyOrigins,

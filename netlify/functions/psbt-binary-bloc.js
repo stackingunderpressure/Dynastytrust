@@ -28,14 +28,13 @@
  * is no tip conversion at spend time.
  */
 
+import { compilerFetch } from './_compiler.js';
 import { requireUser, json } from './_auth.js';
 import { getSupabaseAdmin } from './_supabase.js';
 import { MEMPOOL, mempoolFetch, getFeeRate } from './_chain.js';
 import { assertNotPrivateExtendedKey } from './_xpub.js';
 import { checkNumberBounds, MIN_FEE_RATE_SAT_VB, MAX_FEE_RATE_SAT_VB } from './_numeric.js';
 
-const COMPILER_URL    = process.env.COMPILER_URL;
-const COMPILER_SECRET = process.env.COMPILER_SECRET;
 
 // Taproot input: 57.5 vbytes, output: 43 vbytes, overhead: 10.5.
 const TR_INPUT_VBYTES  = 57.5;
@@ -193,11 +192,6 @@ export async function handler(event) {
     }
   }
 
-  if (!COMPILER_URL) {
-    return json(503, {
-      error: 'Compiler service not configured. Set COMPILER_URL in Netlify environment variables.',
-    });
-  }
 
   const base = MEMPOOL[network] || MEMPOOL.testnet;
 
@@ -311,11 +305,10 @@ export async function handler(event) {
   }
 
   try {
-    const compilerRes = await fetch(`${COMPILER_URL.replace(/\/$/, '')}/psbt-binary-bloc`, {
+    const compilerRes = await compilerFetch('/psbt-binary-bloc', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(COMPILER_SECRET ? { Authorization: `Bearer ${COMPILER_SECRET}` } : {}),
       },
       body: JSON.stringify({
         inputs,
@@ -347,7 +340,7 @@ export async function handler(event) {
     catch {
       return json(502, {
         error: `Compiler returned non-JSON (status ${compilerRes.status}): ${rawText.slice(0, 200)}`,
-        hint: 'Check COMPILER_SECRET matches between Netlify and Fly.io',
+        hint: 'The vault compiler gave an answer that is not JSON -- this is a bug; please report it.',
       });
     }
     if (!compilerRes.ok || !data.ok) {

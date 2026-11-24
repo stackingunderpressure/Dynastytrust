@@ -87,6 +87,16 @@ const table = (name) => {
 mock.module(F('_supabase.js'), { namedExports: { getSupabaseAdmin: () => ({ from: table }) } });
 mock.module(F('_auth.js'), { namedExports: { requireUser: async () => ({ userId: 'u1' }), json: (statusCode, body) => ({ statusCode, body }) } });
 mock.module(F('_ledger.js'), { namedExports: { recordEvent: async (_s, ev) => { current.event = ev; } } });
+// The compiler stand-in (was a fake Fly server at https://compiler.invalid;
+// the compiler now runs in-process through _compiler.js, so it is stood in
+// there -- same fake answer, same recorded request).
+mock.module(F('_compiler.js'), { namedExports: {
+  compilerFetch: async (path, init) => {
+    assert.equal(path, '/psbt-binary');
+    sentToCompiler = JSON.parse(init.body);
+    return new Response(JSON.stringify({ ok: true, psbt_hex: '70736274ff' + sentToCompiler.inputs.length, psbt_b64: 'cHNidP8=' }), { status: 200 });
+  },
+} });
 
 globalThis.fetch = async (url, init = {}) => {
   const u = String(url);

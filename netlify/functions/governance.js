@@ -13,23 +13,18 @@
  * is sent for status checks. Audit checks do forward to the compiler.
  */
 
+import { compilerFetch } from './_compiler.js';
 import { requireUser, json } from './_auth.js';
 import { getSupabaseAdmin } from './_supabase.js';
 import { checkNumberBounds } from './_numeric.js';
 import { isLeafListVault, getSpendingPaths, findSpendingPath, signaturesNeeded } from './_vault-shape.js';
 
-const COMPILER_URL    = process.env.COMPILER_URL;
-const COMPILER_SECRET = process.env.COMPILER_SECRET;
 
 async function forwardToCompiler(endpoint, body) {
-  if (!COMPILER_URL) {
-    throw new Error('COMPILER_URL not configured');
-  }
-  const res = await fetch(`${COMPILER_URL.replace(/\/$/, '')}${endpoint}`, {
+  const res = await compilerFetch(`${endpoint}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...(COMPILER_SECRET ? { Authorization: `Bearer ${COMPILER_SECRET}` } : {}),
     },
     body: JSON.stringify(body),
   });
@@ -117,9 +112,6 @@ export async function handler(event) {
     }
 
     // If compiler is not available, run a simplified JS version
-    if (!COMPILER_URL) {
-      return json(200, { ok: true, result: jsGovernanceStatus(policyBase, utxo_age_blocks) });
-    }
 
     try {
       const result = await forwardToCompiler('/governance/status', {
@@ -159,9 +151,6 @@ export async function handler(event) {
       });
     }
 
-    if (!COMPILER_URL) {
-      return json(200, { ok: true, result: jsGovernanceAudit(policyBase, { path, amount_sats, destination, utxo_age_blocks, total_vault_sats, signers }) });
-    }
 
     try {
       const result = await forwardToCompiler('/governance/audit', {

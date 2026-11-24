@@ -18,8 +18,6 @@ import { requireUser, json } from "./_auth.js";
 import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
 import { assertNotPrivateExtendedKey } from "./_xpub.js";
 
-const COMPILER_URL = process.env.COMPILER_URL;
-const COMPILER_SECRET = process.env.COMPILER_SECRET;
 
 export async function handler(event) {
   if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
@@ -56,21 +54,15 @@ export async function handler(event) {
     }
   }
 
-  if (!COMPILER_URL) {
-    return json(503, {
-      error: "Compiler service not configured.",
-      hint: "Set COMPILER_URL in Netlify env vars.",
-    });
-  }
 
   try {
-    const res = await fetchCompiler(COMPILER_URL, "/compile-tranche", {
+    const res = await fetchCompiler(null, "/compile-tranche", {
       network,
       beneficiary_key,
       trustee_keys,
       trustee_quorum,
       unlock_block,
-    }, { compilerSecret: COMPILER_SECRET });
+    });
     const text = await res.text();
     let data;
     try {
@@ -78,7 +70,7 @@ export async function handler(event) {
     } catch {
       return json(502, {
         error: `Compiler returned non-JSON (status ${res.status}): ${text.slice(0, 200)}`,
-        hint: "Check COMPILER_SECRET matches between Netlify and Fly.io.",
+        hint: "The vault compiler gave an answer that is not JSON -- this is a bug; please report it.",
       });
     }
     if (!res.ok || !data.ok) {

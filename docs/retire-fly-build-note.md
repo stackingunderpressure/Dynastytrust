@@ -43,8 +43,9 @@ down by the operator.
 - Tests that stand in a fake Fly (test-compile-full-row, test-dust-change,
   test-finalize-guard, test-invite-handlers, test-vault-rules-standard /
   -leaves / -spend) mock `fetchCompiler` or `fetch`; they are pointed at the
-  new call. The three vault-rules replays then prove the real compiler gives
-  the recorded behaviour, not only a mock.
+  new call (they keep proving each function's own rules with a stand-in;
+  the compiler's answers are proven by test-compiler-inprocess, all 231
+  recorded Fly requests).
 - Proofs and tools that talk to a compiler over HTTP (offline-harness.sh,
   offline-vault-harness.mjs, compiler-parity.mjs, bitcoin-core-proof.mjs,
   signet-core-spend.mjs) already have a WebAssembly mode or keep HTTP for
@@ -70,3 +71,21 @@ its own server so a phone cannot be handed a different vault).
 
 Held, with everything else on the branch (the Shape-step fix 6c9409a, the
 bundling hotfix a9553a4, then the rule change), for the operator's word.
+
+## Built (2026-11-24, branch only)
+
+- `_compiler.js` answers in-process (`callWasmText`); 14 functions switched;
+  every "COMPILER_URL not set" branch removed (503s, psbt-binary's JSON
+  fallback, governance's no-URL shortcut -- its JS answer on a compiler
+  ERROR stays); two log lines that named the removed variables fixed before
+  they could throw.
+- `vaults.js` address validation used to SKIP when COMPILER_URL was unset
+  (fail-open); it now always validates.
+- netlify.toml: 17 functions ship the .wasm (test-wasm-bundling).
+- Proof: test-compiler-inprocess 3 cases (231 recorded requests identical);
+  Bitcoin Core 32.1 one-address proof in WebAssembly mode 14/14; npm test
+  exit 0; build exit 0; lint 0 errors / 9 warnings; typecheck the same 10.
+- Left: the offline harness still starts the compiler HTTP binary (a dev
+  tool; it proves the same Rust). After the release, by the operator: stop
+  the Fly app, remove COMPILER_URL / COMPILER_SECRET from Netlify, then the
+  deploy-compiler workflow goes.

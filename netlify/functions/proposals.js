@@ -6,6 +6,7 @@
  * PATCH ?id=<uuid>        — update status, add signed PSBT, mark broadcast
  */
 
+import { compilerFetch } from './_compiler.js';
 import { requireUser, json } from './_auth.js';
 import { recordEvent } from './_ledger.js';
 import { canMutate } from './_authz.js';
@@ -15,8 +16,6 @@ import { checkNumberBounds, MIN_FEE_RATE_SAT_VB, MAX_FEE_RATE_SAT_VB } from './_
 import { isLeafListVault } from './_vault-shape.js';
 import { jsGovernanceAuditLeafList } from './governance.js';
 
-const COMPILER_URL    = process.env.COMPILER_URL;
-const COMPILER_SECRET = process.env.COMPILER_SECRET;
 
 // A proposal's real lifecycle, gathered from every place status is
 // written across this app: created draft (no psbt yet) or pending
@@ -74,14 +73,12 @@ async function runGovernanceAudit(vault, proposal) {
     signers:           [],  // no signatures yet on creation
   };
 
-  if (!COMPILER_URL) return null;
 
   try {
-    const res = await fetch(`${COMPILER_URL.replace(/\/$/, '')}/governance/audit`, {
+    const res = await compilerFetch('/governance/audit', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(COMPILER_SECRET ? { Authorization: `Bearer ${COMPILER_SECRET}` } : {}),
       },
       body: JSON.stringify(body),
     });

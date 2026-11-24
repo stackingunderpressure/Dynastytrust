@@ -25,8 +25,6 @@ import { requireUser, json } from "./_auth.js";
 import { fetchVerifiedTipHeight, relativeToAbsolute, checkTimelockFloor } from "./_chain.js";
 import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
 
-const COMPILER_URL    = process.env.COMPILER_URL;
-const COMPILER_SECRET = process.env.COMPILER_SECRET;
 
 export async function handler(event) {
   if (event.httpMethod !== "POST") {
@@ -86,12 +84,6 @@ export async function handler(event) {
     if (err) return json(400, { error: err });
   }
 
-  if (!COMPILER_URL) {
-    return json(503, {
-      error: "Compiler service not configured. Set COMPILER_URL in Netlify environment variables.",
-      hint: "Deploy the Rust compiler to Fly.io and set COMPILER_URL to its URL.",
-    });
-  }
 
   // Relative offsets -> absolute CLTV heights (tip + offset).
   let tipHeight;
@@ -105,7 +97,7 @@ export async function handler(event) {
 
   let compiled;
   try {
-    const compilerRes = await fetchCompiler(COMPILER_URL, "/compile-bloc", {
+    const compilerRes = await fetchCompiler(null, "/compile-bloc", {
       name, network,
       parent_keys,
       parents_together_quorum,
@@ -118,7 +110,7 @@ export async function handler(event) {
       kids_decay_step_blocks,
       kids_decay_start_quorum,
       kids_decay_floor_quorum,
-    }, { compilerSecret: COMPILER_SECRET });
+    });
 
     const rawText = await compilerRes.text();
     let data;
@@ -127,7 +119,7 @@ export async function handler(event) {
     } catch {
       return json(502, {
         error: `Compiler returned non-JSON (status ${compilerRes.status}): ${rawText.slice(0, 200)}`,
-        hint: "Check COMPILER_SECRET matches between Netlify and Fly.io",
+        hint: "The vault compiler gave an answer that is not JSON -- this is a bug; please report it.",
       });
     }
 
@@ -144,7 +136,7 @@ export async function handler(event) {
     // See compile.js's identical fix: the internal compiler URL and
     // whether its secret is configured are server infrastructure
     // details, not something the client needs -- log, don't return.
-    console.error("Compiler unreachable:", { compiler_url: COMPILER_URL, secret_set: !!COMPILER_SECRET, reason });
+    console.error("Compiler failed:", { reason });
     return json(502, { error: `Compiler unreachable: ${reason}` });
   }
 

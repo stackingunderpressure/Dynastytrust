@@ -1,67 +1,57 @@
 /**
- * _compiler.js -- shared fetch-with-timeout-and-retry for calls to the
- * Fly.io Rust compiler service.
+ * _compiler.js -- the ONE way a server function reaches the vault compiler.
  *
- * This scaffolding (AbortController timeout + a retry with backoff, to
- * ride out the compiler's cold start after idling) was independently
- * copy-pasted into compile.js and compile-bloc.js, while
- * compile-tranche.js, vaults-compile.js, and vaults-compile-bloc.js
- * each grew their own copy of just the timeout half and never got the
- * retry -- three call sites silently missing the exact resilience the
- * other two were built for. One shared implementation now backs all
- * five, so "does this endpoint retry a cold compiler" isn't a
- * per-file accident anymore.
+ * Until 2026-11-24 this POSTed to the Fly.io compiler service
+ * (dynastytrust-compiler.fly.dev) with a timeout and a cold-start retry.
+ * Operator: "Retire Fly first" (docs/retire-fly-build-note.md). Fly was a
+ * thin wrapper whose every route called protocol::service; the compiler
+ * WebAssembly committed in this repo runs that same service.rs, and
+ * scripts/test-compiler-wasm.mjs replays every recorded Fly answer through
+ * it, identical. So the call now runs in-process and answers with a real
+ * Response carrying the exact status and text Fly would have sent -- each
+ * caller keeps its own parsing and error wording unchanged. No network, no
+ * shared secret, no cold start.
  *
- * Handles only the network transport (timeout + retry); each caller
- * keeps its own response-parsing and error-shaping, since those
- * genuinely differ (e.g. compile.js's non-JSON-response hint text).
+ * The .wasm is read from disk and checked against its manifest's sha256
+ * (_ranged-wasm.js); every function that imports this file must ship both in
+ * netlify.toml included_files (scripts/test-wasm-bundling.mjs).
  */
 
-const DEFAULT_TIMEOUT_MS = 15000;
-const DEFAULT_RETRIES = 2;
-const DEFAULT_RETRY_DELAY_MS = 3000;
+import { callWasmText } from "./_ranged-wasm.js";
+
+const ENDPOINTS = new Set([
+  "/compile", "/compile-bloc", "/compile-tranche", "/compile-leaves",
+  "/psbt-binary", "/psbt-binary-bloc", "/psbt-binary-tranche",
+  "/psbt-finalize", "/psbt-merge",
+  "/governance/status", "/governance/audit", "/validate-address",
+]);
 
 /**
- * POST to a compiler endpoint with a timeout and a retry (to ride out
- * the compiler waking up from a cold start). Returns the raw fetch
- * Response on success; throws the last error if every attempt fails
- * (an AbortError on timeout, or the underlying network error).
+ * Ask the compiler. `path` is the endpoint Fly served ("/compile", ...).
+ * Returns a Response (status + JSON text, as Fly sent it). A compiler that
+ * cannot load (missing or altered .wasm) throws, like an unreachable server
+ * used to -- callers already turn that into their own 502.
+ * The first argument (the old Fly URL) and the options are ignored; kept so
+ * every caller changes only where it gets its answer from.
  */
-export async function fetchCompiler(compilerUrl, path, body, {
-  compilerSecret,
-  timeoutMs = DEFAULT_TIMEOUT_MS,
-  retries = DEFAULT_RETRIES,
-  retryDelayMs = DEFAULT_RETRY_DELAY_MS,
-} = {}) {
-  let lastErr;
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const res = await fetch(`${compilerUrl.replace(/\/$/, '')}${path}`, {
-        method: 'POST',
-        signal: controller.signal,
-        headers: {
-          'Content-Type': 'application/json',
-          ...(compilerSecret ? { Authorization: `Bearer ${compilerSecret}` } : {}),
-        },
-        body: JSON.stringify(body),
-      });
-      return res;
-    } catch (err) {
-      lastErr = err;
-      console.error(`Compiler attempt ${attempt} failed:`, err.message);
-      if (attempt < retries) await new Promise((r) => setTimeout(r, retryDelayMs));
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-  throw lastErr;
+export async function fetchCompiler(_unusedUrl, path, body, _unusedOptions) {
+  if (!ENDPOINTS.has(path)) throw new Error(`unknown compiler endpoint ${path}`);
+  const { status, text } = callWasmText(path, body);
+  return new Response(text, { status, headers: { "Content-Type": "application/json" } });
 }
 
-/** Human-readable reason for a fetchCompiler failure -- distinguishes a timeout from any other network error. */
-export function compilerFailureReason(err, timeoutMs = DEFAULT_TIMEOUT_MS) {
-  return err?.name === 'AbortError'
-    ? `Compiler timed out after ${timeoutMs / 1000}s`
-    : err?.message || 'Unknown error';
+/** The same, without the legacy first argument. */
+export function compilerPost(path, body) {
+  return fetchCompiler(null, path, body);
+}
+
+/** Human-readable reason for a compiler failure. */
+export function compilerFailureReason(err) {
+  return err?.message || "Unknown error";
+}
+
+/** For callers written against fetch(url, init): the same answer, taking the
+ *  JSON body from `init.body`. */
+export function compilerFetch(path, init) {
+  return fetchCompiler(null, path, JSON.parse(init.body));
 }
