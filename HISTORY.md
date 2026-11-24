@@ -2327,6 +2327,26 @@ signers" as not yet verified. Item 1 above postdates it.
 
 **Recently closed:**
 
+- **Fly retired; dead man's switch allowed (2026-11-24).** Operator, after
+  the compile step refused his vault: "Why also we have to have an absolute
+  path?" ... "I might want a 2 month deadman switch or 13 month one" -- then
+  "We still need fly? Isn't our browser compiling?" and "Retire Fly first".
+  Root cause of the refusal: our own rule in `verify_leaf_policy`, not
+  Bitcoin's; it dated from when "later" meant multi-year inheritance. And
+  the builder never showed its plain message: `friendlyCompileError`
+  matched Rust variant names, but the compiler sends its error text. Done:
+  every compiler call runs in-process from the committed WebAssembly
+  (`_compiler.js`; all 231 recorded Fly answers identical; 17 functions
+  ship the .wasm, held to the code by test-wasm-bundling -- which also
+  caught that release e04b75d shipped it with only one of six fresh-address
+  functions); the rule is gone and the builder shows a dead-man's-switch
+  card from the vault's own numbers with an "I understand" tick. Evidence:
+  Bitcoin Core 32.1 one-address proof in WebAssembly mode 14/14; ranged
+  proof on a vault with no fixed-date path 7/7. Left for the operator after
+  his signet walk: stop the Fly app, remove COMPILER_URL / COMPILER_SECRET
+  from Netlify; then deploy-compiler.yml goes. Not walked in a browser
+  before release.
+
 - **A new address every time (ranged addresses, slices 3-6, 2026-11-24).**
   Operator: "Yes start the multiple addresses work" -- "a new change address
   each time and fresh receive address each time". Chips: fresh by default
