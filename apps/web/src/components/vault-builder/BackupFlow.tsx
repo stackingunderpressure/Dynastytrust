@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { PANEL_FIT } from '../ui/panelFit';
 import { markBackedUp, protectKeyWithPasskey, type LocalKey } from '../../lib/keystore';
 import { passkeysAvailable } from '../../lib/passkey';
 import { colors, fonts, radii, space } from '../../theme';
@@ -42,8 +43,7 @@ export function BackupModal({
           padding: 'clamp(18px, 5vw, 28px) clamp(16px, 5vw, 32px)',
           width: '100%',
           maxWidth: wide ? 660 : 520,
-          maxHeight: '92vh',
-          overflowY: 'auto',
+          ...PANEL_FIT,
           fontFamily: fonts.sans,
         }}
       >

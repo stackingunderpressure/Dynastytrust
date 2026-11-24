@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
+import { PANEL_FIT } from "../components/ui/panelFit";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { DOWNLOAD } from "../lib/download";
 import {
@@ -3739,8 +3740,7 @@ function MyKeyModal({
           padding: "24px 28px",
           width: "100%",
           maxWidth: 480,
-          maxHeight: "90dvh",
-          overflowY: "auto",
+          ...PANEL_FIT,
         }}
       >
         <div style={{ fontSize: 18, fontWeight: 600, color: colors.text, marginBottom: 6 }}>
@@ -4003,6 +4003,7 @@ function InviteModal({
           padding: "28px 32px",
           width: "100%",
           maxWidth: 420,
+          ...PANEL_FIT,
         }}
       >
         <h2
@@ -4889,8 +4890,7 @@ function RotateVaultModal({
           padding: "24px 28px",
           width: "100%",
           maxWidth: 520,
-          maxHeight: "92vh",
-          overflowY: "auto",
+          ...PANEL_FIT,
         }}
       >
         <div style={{ fontSize: 20, fontWeight: 600, fontFamily: fonts.display, color: colors.text, marginBottom: 6 }}>
@@ -7577,6 +7577,7 @@ function NewRequestModal({
           padding: "28px 32px",
           width: "100%",
           maxWidth: 460,
+          ...PANEL_FIT,
         }}
       >
         <h2
@@ -8247,8 +8248,7 @@ function TrancheClaimModal({
           padding: "28px 32px",
           width: "100%",
           maxWidth: 480,
-          maxHeight: "85vh",
-          overflowY: "auto",
+          ...PANEL_FIT,
           display: "flex",
           flexDirection: "column",
           gap: 14,

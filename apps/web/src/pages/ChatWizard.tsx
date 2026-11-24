@@ -178,7 +178,7 @@ export default function ChatWizard() {
           display: 'flex',
           flexDirection: 'column',
           gap: space[3],
-          maxHeight: '58vh',
+          maxHeight: '58dvh', // dvh: follows the phone's browser bars (panelFit.ts)
           overflowY: 'auto',
           padding: space[1],
         }}

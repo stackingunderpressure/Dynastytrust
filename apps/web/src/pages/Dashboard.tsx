@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { PANEL_FIT } from "../components/ui/panelFit";
 import { useNavigate } from "react-router-dom";
 import { api, type Vault, type BalanceResult } from "../lib/api";
 import { useRealtimeRefresh } from "../lib/realtime";
@@ -603,8 +604,7 @@ function ModalShell({
           padding: "28px 32px",
           width: "100%",
           maxWidth,
-          maxHeight: "90dvh",
-          overflowY: "auto",
+          ...PANEL_FIT,
         }}
       >
         {children}

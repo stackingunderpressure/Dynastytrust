@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { PANEL_FIT } from './panelFit';
 import { colors, fonts, space } from '../../theme';
 
 // Shared modal shell. Matches the pattern previously inlined per-page so the
@@ -39,8 +40,7 @@ export function Modal({
           padding: '28px 32px',
           width: '100%',
           maxWidth: wide ? 660 : 520,
-          maxHeight: '92vh',
-          overflowY: 'auto',
+          ...PANEL_FIT,
           fontFamily: fonts.sans,
         }}
       >

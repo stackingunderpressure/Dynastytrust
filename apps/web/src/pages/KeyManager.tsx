@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { PANEL_FIT } from "../components/ui/panelFit";
 import { Link } from "react-router-dom";
 import {
   listAllKeys, generateTestKey, generateSoftwareKey, generatePasskeyKey, importXpub,
@@ -79,8 +80,7 @@ function Modal({
           padding: "28px 32px",
           width: "100%",
           maxWidth: wide ? 660 : 520,
-          maxHeight: "92vh",
-          overflowY: "auto",
+          ...PANEL_FIT,
           fontFamily: fonts.sans,
         }}
       >
