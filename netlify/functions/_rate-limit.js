@@ -7,6 +7,8 @@
  * family out of signing in; it only stops slowing down a flood.
  */
 
+import { createHmac } from "node:crypto";
+
 /** The caller's address as Netlify reports it. */
 export function clientIp(event) {
   const h = event?.headers ?? {};
@@ -19,7 +21,7 @@ export function clientIp(event) {
  */
 export async function overLimit(supabase, { name, event, max, windowSeconds }) {
   try {
-    const { data, error } = await supabase.rpc("rate_hit", { p_bucket: `${name}:${clientIp(event)}`, p_window_seconds: windowSeconds });
+    const { data, error } = await supabase.rpc("rate_hit", { p_bucket: `${name}:${ipTag(clientIp(event))}`, p_window_seconds: windowSeconds });
     if (error) { console.error("[rate-limit] count failed, not limiting:", error.message); return false; }
     if (Math.random() < 0.02) await supabase.rpc("rate_housekeeping");
     return Number(data) > max;
@@ -27,6 +29,16 @@ export async function overLimit(supabase, { name, event, max, windowSeconds }) {
     console.error("[rate-limit] count failed, not limiting:", e?.message || e);
     return false;
   }
+}
+
+/**
+ * Z4: the bucket never holds the address itself -- only a keyed hash of it
+ * (keyed with the server's own secret, so a copy of the table cannot be
+ * turned back into addresses by trying them all). Old windows are cleared
+ * by rate_housekeeping as before.
+ */
+export function ipTag(ip, secret = process.env.SUPABASE_SERVICE_ROLE_KEY || "") {
+  return createHmac("sha256", "dynastytrust-rate-limit-v1|" + secret).update(String(ip)).digest("hex").slice(0, 32);
 }
 
 export const TOO_MANY = "Too many attempts from this connection. Wait a few minutes and try again.";

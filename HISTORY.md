@@ -2327,6 +2327,35 @@ signers" as not yet verified. Item 1 above postdates it.
 
 **Recently closed:**
 
+- **Z4: accounts without identity (2026-11-24).** Operator: "I like z4";
+  chips: synced passkey only, offer to remove email, name on the phone,
+  email behind "Other ways". Build note:
+  `docs/z4-accounts-without-identity-build-note.md`. A Face ID account
+  (`lib/passkey-account.ts`): a discoverable passkey's PRF, at one fixed
+  salt, becomes a BIP 340 sign-in key that answers the existing challenge
+  (sign-in number filled in, since a passkey cannot be used off this site)
+  and goes through the existing `key-signup` (kind device) and
+  `wallet-signin-verify` -- no email, no password, no words, no name. The
+  sign-in screen leads with Face ID and Tapit; email and username sit
+  behind "Other ways" (and the email option no longer says
+  "Recommended"). An existing account adds Face ID sign-in
+  (`wallet-link` kind device, beside any Tapit link) and may then remove
+  its email (`account-email.js`: refused until a key exists, swaps in a
+  never-mailed placeholder and marks the account so the placeholder guard
+  lets it act; `AccountPrivacyCard.tsx` on the Keys page). Hygiene: no name
+  is stored at sign-up (it stays on the phone, `account-name.ts`); vault
+  creation no longer records the browser's user agent; rate-limit buckets
+  hold a keyed hash of the connection address, never the address. Tests:
+  `test-faceid-account.mjs` (4 checks, a stand-in passkey against the REAL
+  key-signup, verify, wallet-link and account-email handlers; the lockout
+  guard proven by removing it on purpose), rate-limit gains the no-address
+  check, key-account and username-signup expect no stored name. Sign-in
+  screens looked at in a production build at 375px: no sideways scroll.
+  Gates: lint 0 errors (11 warnings, as before), typecheck the same 10
+  pre-existing errors, build OK, npm test exit 0. NOT done: no real
+  passkey has been used, and the second-device recovery is unproven until
+  the operator tries it.
+
 - **Released to main 2026-11-24 (operator: one push when the plan is
   done):** Tapit answers gift-wrapped (Phase 1) and zero-knowledge storage
   Z1 slices 1-5, below. Owed by hand straight after: the operator runs

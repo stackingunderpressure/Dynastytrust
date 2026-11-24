@@ -14,6 +14,7 @@ import { Button, Input, Label, Textarea } from "../components/ui";
 import { QrImage } from "../components/QrImage";
 import { XpubQrScanner } from "../components/XpubQrScanner";
 import { WalletLinkCard } from "../components/WalletLinkCard";
+import { AccountPrivacyCard } from "../components/AccountPrivacyCard";
 import { TwoStepCard } from "../components/TwoStepCard";
 import { FaceIdLockAll } from "../components/FaceIdLockAll";
 import { FaceIdSignInSetting } from "../components/FaceIdSignIn";
@@ -1138,6 +1139,7 @@ export default function KeyManager() {
       <WalletLinkCard />
       <FaceIdLockAll keysVersion={keys.length + keys.filter(k => k.passkeyMnemonic).length} onChanged={reload} />
       <FaceIdSignInSetting />
+      <AccountPrivacyCard />
       <div style={{ marginBottom: 16 }}>
         <TwoStepCard />
       </div>

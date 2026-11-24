@@ -30,7 +30,7 @@ const GOOD = 'river-copper-lantern-58';
 // 1. A username account: confirmed, never-mailed address, name defaults to the username.
 let r = await call({ username: '  Grandpa.Joe ', password: GOOD });
 assert.equal(r.statusCode, 200, JSON.stringify(r.body));
-assert.deepEqual(made[0], { email: 'grandpa.joe@users.dynastytrust.family', password: GOOD, email_confirm: true, user_metadata: { display_name: 'grandpa.joe', username: 'grandpa.joe', signin: 'username' }, app_metadata: { dt_made_by: 'username-signup' } });
+assert.deepEqual(made[0], { email: 'grandpa.joe@users.dynastytrust.family', password: GOOD, email_confirm: true, user_metadata: { username: 'grandpa.joe', signin: 'username' }, app_metadata: { dt_made_by: 'username-signup' } });
 assert.equal(web.signInAddress(' Grandpa.Joe '), made[0].email, 'the browser signs in at the same address');
 assert.equal(web.signInAddress('anna@example.com'), 'anna@example.com', 'an email is used as typed');
 pass('a username account: confirmed, never-mailed address, same address at sign-in');

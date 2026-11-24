@@ -1832,9 +1832,14 @@ export const api = {
   /** The Tapit wallet bound to the current account, if any -- read side of
    *  wallet-link.js's POST binding (2026-08-19, operator: "not showing back
    *  up in dynasty and frankly no where for it to be"). */
+  account: {
+    /** Z4: take the email off this account (needs a Face ID or Tapit key). */
+    removeEmail: () => req<{ ok: true }>(`/account-email`, { method: 'DELETE' }),
+  },
+
   walletLink: {
     get: () =>
-      req<{ ok: true; pubkey: string | null; bound_at: string | null }>(`/wallet-link`),
+      req<{ ok: true; pubkey: string | null; bound_at: string | null; device_keys?: number }>(`/wallet-link`),
     unlink: () =>
       req<{ ok: true }>(`/wallet-link`, { method: 'DELETE' }),
   },

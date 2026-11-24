@@ -353,8 +353,10 @@ export async function handler(event) {
         user_id: u.userId,
         event_type: "terms_accepted",
         metadata: {
+          // Z4: the browser's user agent is no longer recorded (it says
+          // which phone and browser a person uses, in a ledger that can't
+          // be rewritten).
           terms_version: String(body.terms_accepted_version),
-          user_agent: event.headers?.["user-agent"] || null,
         },
       });
     }

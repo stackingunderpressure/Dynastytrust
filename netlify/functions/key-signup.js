@@ -2,7 +2,8 @@
  * key-signup.js -- make an account from a key alone, no email.
  *
  * POST /api/key-signup   (no auth -- this CREATES an account)
- *   Body: { grant: { attestation }, display_name? }
+ *   Body: { grant: { attestation } } (a display_name, if sent, is ignored:
+ *   since Z4 the name stays on the person's phone)
  *   The attestation answers a challenge from /api/wallet-signin-challenge,
  *   signed by the person's Tapit wallet (lib/wallet-signin.ts, mode
  *   'signup'). Body may carry kind: 'tapit' (default) | 'device'.
@@ -18,7 +19,7 @@ import { getSupabaseAdmin } from "./_supabase.js";
 import { json } from "./_auth.js";
 import { overLimit, TOO_MANY } from "./_rate-limit.js";
 import { madeByUs } from "./_placeholder-guard.js";
-import { proveKeyControl, consumeChallenge, mintSession, placeholderEmail, cleanDisplayName, issueKeySessionClaim } from "./_key-account.js";
+import { proveKeyControl, consumeChallenge, mintSession, placeholderEmail, issueKeySessionClaim } from "./_key-account.js";
 
 export async function handler(event) {
   if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
@@ -39,11 +40,12 @@ export async function handler(event) {
   const consumed = await consumeChallenge(supabase, proof.nonce);
   if (consumed.error) return json(consumed.status, { error: consumed.error });
 
-  const displayName = cleanDisplayName(body.display_name);
   const { data: created, error: createErr } = await supabase.auth.admin.createUser({
     email: placeholderEmail(),
     email_confirm: true,
-    user_metadata: { display_name: displayName, signin: "key" },
+    // Z4 (operator's chip, 2026-11-24): no name is stored; it stays on the
+    // person's phone (apps/web/src/lib/account-name.ts).
+    user_metadata: { signin: "key" },
     app_metadata: madeByUs("key-signup"), // threat model J: only marked placeholder accounts may act
   });
   const userId = created?.user?.id;

@@ -95,7 +95,8 @@ const user = users.get(tokens.get(s1.body.token_hash));
 assert.ok(user, 'the token logs into the new account');
 assert.match(user.email, /^k-[0-9a-f]{24}@keys\.dynastytrust\.family$/);
 assert.equal(user.email_confirm, true);
-assert.deepEqual(user.user_metadata, { display_name: 'Dad', signin: 'key' });
+// Z4 (2026-11-24): the name a person sends is not stored; it stays on their phone.
+assert.deepEqual(user.user_metadata, { signin: 'key' });
 assert.equal(tables.wallet_identities.length, 1);
 assert.equal(tables.wallet_identities[0].kind, 'device');
 assert.equal(tables.wallet_signins.length, 1);

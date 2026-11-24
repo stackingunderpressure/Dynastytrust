@@ -78,10 +78,16 @@ IPs.
 - Hardware-wallet sign-in (dropped 2026-11-13).
 - Money fields and vault structure (Z2, Z3).
 
-## Decisions -- the operator's
+## Decisions (operator's chips, 2026-11-24)
 
-1. Recovery for a Face ID account: the synced passkey only, or also a printed
-   recovery code.
-2. Existing email accounts: offer "remove my email", or leave them.
-3. Display name: on the device only, or kept on the server.
-4. Email sign-up: behind "Other ways", or removed for new accounts.
+1. Recovery for a Face ID account: the synced passkey only (no recovery code).
+2. Existing email accounts: offered "Remove my email" (after a key exists).
+3. Display name: on the device only.
+4. Email sign-up: kept, behind "Other ways".
+
+## Status (2026-11-24)
+
+Slices 1-4 built on claude/nostr-phase1-giftwrap, not deployed. Slice 0 (the
+second-device check) is the operator's walk: create a Face ID account on the
+iPhone, then sign in on another Apple device with the same Apple ID. Tests
+use a stand-in passkey; no real passkey has been used.

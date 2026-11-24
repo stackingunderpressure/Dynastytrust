@@ -39,6 +39,11 @@ for (let i = 1; i <= 5; i++) assert.notEqual((await hit('key-signup', '4.4.4.4')
 assert.equal((await hit('key-signup', '4.4.4.4')).statusCode, 429);
 pass('account creation: 5 per hour per connection, the 6th refused and nothing made');
 
+// Z4: the stored buckets never hold an address, only a keyed hash of it.
+assert.ok(counts.size > 0);
+for (const bucket of counts.keys()) assert.ok(!/\d+\.\d+\.\d+\.\d+/.test(bucket), `bucket holds an address: ${bucket}`);
+pass('the counter stores no connection address, only a keyed hash of it');
+
 rpcDown = true;
 assert.notEqual((await hit('wallet-signin-challenge', '1.1.1.1')).statusCode, 429, 'a counter outage must not lock people out');
 pass('a counter outage never locks anyone out');
