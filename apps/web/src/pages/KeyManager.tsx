@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
-  listAllKeys, generateTestKey, generateSoftwareKey, importXpub,
+  listAllKeys, generateTestKey, generateSoftwareKey, generatePasskeyKey, importXpub,
   updateKeyStatus, deleteKeyVerified, keyNeedsPassword, revealMnemonic, secureTestKey, removeKeyPassword, changeKeyPassword,
   exportKeyring, importKeyringJson, renameKey, parseXpubText, restoreKeyFromWords, inspectRecoveryWords,
   type LocalKey, type Network,
@@ -21,11 +21,11 @@ import { FaceIdSignInSetting } from "../components/FaceIdSignIn";
 import { PasskeyProtect } from "../components/PasskeyProtect";
 import { KeySafety } from "../components/KeySafety";
 import { RESTORE_WARNING } from "../lib/key-education";
-import { passwordHint, passwordProblem } from "../lib/password-rules";
+import { passwordProblem } from "../lib/password-rules";
 import { WordGrid } from "../components/vault-builder/BackupFlow";
 import {
   BackupFlow, KeyCreatedPrompt,
-  PasswordProtectFields, validatePasswordProtection, DEFAULT_PASSWORD_PROTECT_STATE,
+  PasswordProtectFields, validatePasswordProtection, defaultProtection,
   type PasswordProtectState,
 } from "../components/vault-builder";
 
@@ -97,9 +97,10 @@ function Modal({
   );
 }
 
-// The one key-generation flow. Label/network + an optional password --
-// password defaults on (this is the path for real funds), uncheck it for
-// an instant no-password test key. What used to be two separate buttons/
+// The one key-generation flow. Label/network + how to lock it: Face ID
+// by default where the device has it (operator, 2026-11-24: "Password is
+// just weight on user"), a password where it does not, or no lock for an
+// instant test key (test coins only). What used to be two separate buttons/
 // modals ("+ Quick key", no escape once you picked wrong; "+ Secure key",
 // no way to skip the password) is now one form; backing up now vs. later
 // is handled uniformly afterward by KeyCreatedPrompt, not by which button
@@ -117,7 +118,7 @@ function GenerateKeyModal({ onDone, onClose }: { onClose: () => void; onDone: (k
   // Signet, as the vault builder defaults to: a key on another network
   // cannot go into a signet vault (signet walk 2026-11-19).
   const [network, setNetwork] = useState<Network>("signet");
-  const [pw, setPw] = useState<PasswordProtectState>(DEFAULT_PASSWORD_PROTECT_STATE);
+  const [pw, setPw] = useState<PasswordProtectState>(defaultProtection);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -132,9 +133,11 @@ function GenerateKeyModal({ onDone, onClose }: { onClose: () => void; onDone: (k
     setErr(null);
     try {
       const finalLabel = label.trim();
-      const { key, mnemonic } = pw.enabled
-        ? await generateSoftwareKey({ label: finalLabel, network, password: pw.password, persona: finalLabel })
-        : generateTestKey({ label: finalLabel, network, persona: finalLabel });
+      const { key, mnemonic } = pw.method === 'faceid'
+        ? await generatePasskeyKey({ label: finalLabel, network, persona: finalLabel })
+        : pw.method === 'password'
+          ? await generateSoftwareKey({ label: finalLabel, network, password: pw.password, persona: finalLabel })
+          : generateTestKey({ label: finalLabel, network, persona: finalLabel });
       onDone(key, mnemonic);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed");
@@ -146,9 +149,11 @@ function GenerateKeyModal({ onDone, onClose }: { onClose: () => void; onDone: (k
   return (
     <Modal title="New key" onClose={onClose}>
       <p style={{ fontSize: 17, color: colors.muted, marginBottom: 20, lineHeight: 1.5 }}>
-        {pw.enabled
-          ? "Mnemonic encrypted with your password. Use for real funds."
-          : "No password. Mnemonic stored in plain text in this browser."}
+        {pw.method === 'faceid'
+          ? "The words are locked with Face ID on this phone. You write them down once, next."
+          : pw.method === 'password'
+            ? "The words are locked with your password on this device."
+            : "No lock. The words sit in plain text in this browser: test coins only."}
       </p>
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <div>
@@ -196,11 +201,10 @@ function RestoreKeyModal({ onDone, onClose }: { onClose: () => void; onDone: (ke
   const [label, setLabel] = useState("");
   const [network, setNetwork] = useState<Network>("mainnet");
   const [words, setWords] = useState("");
-  const [pw, setPw] = useState<PasswordProtectState>(DEFAULT_PASSWORD_PROTECT_STATE);
+  const [pw, setPw] = useState<PasswordProtectState>(defaultProtection);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const real = network === "mainnet";
   const seen = inspectRecoveryWords(words);
   const firstBad = seen.unknown[0];
   // A word still being typed is not "wrong" yet: only flag the last word
@@ -215,7 +219,7 @@ function RestoreKeyModal({ onDone, onClose }: { onClose: () => void; onDone: (ke
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    const pwState = real ? { ...pw, enabled: true } : pw;
+    const pwState = pw;
     const validationError = validatePasswordProtection(pwState, network);
     if (validationError) {
       setErr(validationError);
@@ -230,7 +234,8 @@ function RestoreKeyModal({ onDone, onClose }: { onClose: () => void; onDone: (ke
         persona: finalLabel,
         network,
         words,
-        password: pwState.enabled ? pwState.password : undefined,
+        password: pwState.method === 'password' ? pwState.password : undefined,
+        faceId: pwState.method === 'faceid',
       });
       onDone(key, upgraded);
     } catch (e) {
@@ -284,34 +289,7 @@ function RestoreKeyModal({ onDone, onClose }: { onClose: () => void; onDone: (ke
           />
           <p style={{ fontSize: 17, color: progress.color, margin: "6px 0 0", lineHeight: 1.5 }}>{progress.text}</p>
         </div>
-        {real ? (
-          <>
-            <p style={{ fontSize: 17, color: colors.sub, margin: 0, lineHeight: 1.5 }}>
-              Choose a password to lock this key on this device. It can be a new one -- it does not have to
-              match the password you used before.
-            </p>
-            <div>
-              <Label>Password</Label>
-              <Input
-                type="password"
-                value={pw.password}
-                onChange={e => setPw({ ...pw, password: e.target.value })}
-                required
-                minLength={8}
-                placeholder="Four unrelated words is ideal"
-              />
-              <p style={{ fontSize: 15, color: passwordHint(pw.password, network).level === "weak" ? colors.orange : colors.sub, margin: "6px 0 0", lineHeight: 1.5 }}>
-                {passwordHint(pw.password, network).text}
-              </p>
-            </div>
-            <div>
-              <Label>Confirm password</Label>
-              <Input type="password" value={pw.confirm} onChange={e => setPw({ ...pw, confirm: e.target.value })} required />
-            </div>
-          </>
-        ) : (
-          <PasswordProtectFields state={pw} onChange={setPw} label="Password-protect this key on this device" network={network} />
-        )}
+        <PasswordProtectFields state={pw} onChange={setPw} network={network} />
         {err && <p style={{ color: colors.red, fontSize: 17, margin: 0, lineHeight: 1.5 }}>{err}</p>}
         <div style={{ display: "flex", gap: 10 }}>
           <Button type="button" variant="ghost" style={{ minHeight: 44 }} onClick={onClose}>
@@ -1253,7 +1231,7 @@ export default function KeyManager() {
           >
             {search
               ? "Try a different search term."
-              : "A key is one signer in a vault. Each person (founder, heir) holds their own. Keys never leave this browser. Generate one -- password-protect it now for real funds, or skip that for now and explore."}
+              : "A key is one signer in a vault. Each person (founder, heir) holds their own. Keys never leave this browser. Generate one -- Face ID locks it on this phone -- or make an unlocked test key to explore."}
           </p>
           {!search && (
             <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>

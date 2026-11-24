@@ -451,6 +451,46 @@ export async function generateSoftwareKey(opts: {
   return { key, mnemonic };
 }
 
+/**
+ * FACE ID KEY (operator, 2026-11-24: "We don't need a password creating a
+ * key if Face ID signs"). The words are locked with the device passkey the
+ * moment they are made: they are never saved in plain text or under a
+ * password first. Same protection protectKeyWithPasskey gives an older key,
+ * and the same self-check before anything is saved. The backup step that
+ * follows still shows the words once to write down -- they remain the way
+ * back if this device or its passkey is lost.
+ */
+export async function generatePasskeyKey(opts: {
+  label: string;
+  network: Network;
+  persona: string;
+  prf?: PrfProvider;
+}): Promise<KeyCreateResult> {
+  const mnemonic = generateMnemonic(wordlist, 256);
+  const { account, child00, path, masterFingerprint } = deriveAccount(mnemonic, opts.network);
+  const passkeyMnemonic = await sealWithDevicePasskey(mnemonic, opts.prf ?? webauthnPrf);
+  const key: LocalKey = {
+    keyId:             crypto.randomUUID(),
+    label:             opts.label,
+    persona:           opts.persona,
+    origin:            'software',
+    network:           opts.network,
+    fingerprint:       bip32Fingerprint(account.publicKey!),
+    masterFingerprint,
+    derivationPath:    path,
+    xpub:              account.publicExtendedKey,
+    pubkey:            toHex(child00.publicKey!),
+    status:            'active',
+    createdAt:         new Date().toISOString(),
+    passkeyMnemonic,
+    backedUp:          false,
+  };
+  const all = loadAll();
+  all.push(key);
+  saveAll(all);
+  return { key, mnemonic };
+}
+
 // -- Restoring a key from its written words --------------------------------
 //
 // Until 2026-11-11 there was NO way to bring a key back: the app told
@@ -510,6 +550,9 @@ export async function restoreKeyFromWords(opts: {
   persona: string;
   words: string;
   password?: string;
+  /** Lock the restored words with Face ID instead of a password. */
+  faceId?: boolean;
+  prf?: PrfProvider;
 }): Promise<{ key: LocalKey; upgraded: boolean }> {
   const seen = inspectRecoveryWords(opts.words);
   if (seen.unknown.length > 0) {
@@ -546,8 +589,10 @@ export async function restoreKeyFromWords(opts: {
     }
   }
 
-  const password = opts.password ?? '';
-  if (!password) {
+  const password = opts.faceId ? '' : (opts.password ?? '');
+  if (opts.faceId) {
+    // Face ID protects a real-bitcoin key as well as a password does.
+  } else if (!password) {
     const blocked = testModeBlockedReason(network);
     if (blocked) {
       throw new Error(existing
@@ -573,7 +618,9 @@ export async function restoreKeyFromWords(opts: {
     pubkey:         toHex(child00.publicKey!),
     status:         existing?.status ?? 'active',
     createdAt:      existing?.createdAt ?? new Date().toISOString(),
-    ...(password ? { encryptedMnemonic: await encryptText(mnemonic, password) } : { testMnemonic: mnemonic }),
+    ...(opts.faceId
+      ? { passkeyMnemonic: await sealWithDevicePasskey(mnemonic, opts.prf ?? webauthnPrf) }
+      : password ? { encryptedMnemonic: await encryptText(mnemonic, password) } : { testMnemonic: mnemonic }),
     backedUp:       true,
   };
 
@@ -1091,6 +1138,17 @@ export async function provenPasskeySecret(prf: PrfProvider = webauthnPrf): Promi
 
 /** Encrypt each seed under one proven passkey secret, read every one back,
  *  then save them all in ONE write. Any failure saves nothing. */
+/** Lock one set of words with the device passkey, proving it opens again
+ *  before the caller saves anything. */
+async function sealWithDevicePasskey(mnemonic: string, prf: PrfProvider): Promise<PasskeyBlob> {
+  const { credentialIdB64, prfSaltB64, secret } = await provenPasskeySecret(prf);
+  const blob = await encryptWithPrfSecret(mnemonic, secret, credentialIdB64, prfSaltB64);
+  if ((await decryptWithPrfSecret(blob, secret)) !== mnemonic) {
+    throw new Error('Face ID protection failed its own check. Nothing was saved.');
+  }
+  return blob;
+}
+
 async function lockWithDevicePasskey(entries: { keyId: string; mnemonic: string }[], prf: PrfProvider): Promise<LocalKey[]> {
   if (entries.length === 0) return [];
   const { credentialIdB64, prfSaltB64, secret } = await provenPasskeySecret(prf);

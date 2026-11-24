@@ -86,6 +86,12 @@ assert.match(text, /No password changes that/);
 assert.match(text, /Never choose the words yourself/);
 assert.match(text, /at least one key on each path a hardware wallet/);
 assert.match(text, /There is no reset/);
+// 2026-11-24: losing a key and having it stolen are different, and only a
+// new vault fixes theft. Never claim a restored or rebuilt key is safe again.
+assert.match(text, /Lost is not the same as stolen/);
+assert.match(text, /the thief has the same key/);
+assert.match(text, /nobody can cancel a Bitcoin key/);
+assert.match(text, /Rotate vault/);
 for (const lie of [/as safe as a hardware wallet/i, /cannot be hacked/i, /unhackable/i, /bank[- ]grade/i, /military[- ]grade/i, /100% (safe|secure)/i, /completely (safe|secure)/i]) assert.doesNotMatch(text, lie);
 assert.match(edu.RESTORE_WARNING, /Only restore words that this app or a signing device generated/);
 assert.ok(edu.KEY_LESSONS.length <= 6 && edu.KEY_LESSONS.every(l => l.body.length < 420), 'short enough to actually be read');

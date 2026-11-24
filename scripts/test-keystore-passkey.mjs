@@ -157,4 +157,31 @@ await assert.rejects(ks.protectKeyWithPasskey(d.key.keyId, { password: PW, prf: 
 assert.equal(ks.devicePasskeyId(), kept, 'a cancelled prompt must not forget a passkey already in use');
 pass('failed new passkey forgotten; cancelled prompt keeps the old one');
 
+// 2026-11-24 (operator: "We don't need a password creating a key if Face ID
+// signs"): a key made or restored straight under Face ID. Its words are
+// never stored in plain text or under a password, not even for a moment.
+{
+  store.delete('dt:devicePasskey:v1'); // a fresh device: earlier cases used other stand-in passkeys
+  const fid = fakePasskey();
+  const made = await ks.generatePasskeyKey({ label: 'face', network: 'mainnet', persona: 'face', prf: fid });
+  const stored = raw(made.key.keyId);
+  assert.ok(stored.passkeyMnemonic && !stored.encryptedMnemonic && !stored.testMnemonic);
+  assert.equal(stored.backedUp, false, 'the written backup still follows');
+  assert.ok(![...store.values()].some(v => v.includes(made.mnemonic.split(' ').slice(0, 4).join(' '))), 'the words are never in storage');
+  assert.equal(await ks.revealMnemonic(made.key.keyId, undefined, fid), made.mnemonic, 'Face ID opens it, no password');
+  // A passkey that answers differently each time is refused and nothing is saved.
+  const before = JSON.parse([...store.values()][0]).length;
+  store.delete('dt:devicePasskey:v1');
+  await assert.rejects(ks.generatePasskeyKey({ label: 'x', network: 'mainnet', persona: 'x', prf: fakePasskey({ deterministic: false }) }));
+  store.delete('dt:devicePasskey:v1');
+  assert.equal(JSON.parse([...store.values()][0]).length, before, 'no key saved when Face ID protection fails');
+  // Restore a real-bitcoin key with Face ID instead of a password.
+  ks.deleteKey(made.key.keyId);
+  const back = await ks.restoreKeyFromWords({ label: 'again', network: 'mainnet', persona: 'again', words: made.mnemonic, faceId: true, prf: fid });
+  const r = raw(back.key.keyId);
+  assert.ok(r.passkeyMnemonic && !r.encryptedMnemonic && !r.testMnemonic && r.backedUp);
+  assert.equal(r.pubkey, made.key.pubkey, 'the same words bring back the same key');
+  pass('a key made or restored under Face ID needs no password and never stores its words readable');
+}
+
 console.log(`keystore-passkey tests passed (${n} cases)`);

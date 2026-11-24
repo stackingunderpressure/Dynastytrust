@@ -2327,6 +2327,32 @@ signers" as not yet verified. Item 1 above postdates it.
 
 **Recently closed:**
 
+- **Face ID locks a new key; lost vs stolen is taught where keys are made
+  (2026-11-24).** Operator: "We don't need a password creating a key if Face
+  ID signs ... Password is just weight on user", then "Yes do both".
+  `keystore.generatePasskeyKey` makes a key whose words are locked with the
+  device passkey from the first moment (never saved readable or under a
+  password first; same self-check as before saving); `restoreKeyFromWords`
+  takes `faceId` the same way, and Face ID counts as a lock for real
+  bitcoin. The one shared control (`PasswordProtectFields` + new
+  `key-protection.ts`) is now a choice: Face ID (default where the device
+  has it), a password (fallback), no lock (test coins only, refused for real
+  bitcoin) -- used by New key, Restore and the vault builder. The written
+  24-word backup still follows every new key. The key lesson
+  (`key-education.ts`): the password lesson became "Face ID locks the words
+  on this device"; new "Lost is not the same as stolen" (lost: the words, or
+  a Tapit key's circle with its backup, bring back the same key; stolen:
+  nobody can cancel a Bitcoin key -- Rotate vault before the thief gathers
+  the others); the dice advice folded into the multisig lesson to stay at
+  six. Read from Tapit first: its circle splits the BACKUP's key, never the
+  signing key, so the lesson says "rebuilt from its backup with your Tapit
+  circle". Tests: keystore-passkey gains the Face ID make/restore case
+  (words never in storage, a failing passkey saves nothing, same key
+  restored); password-rules pins the new lesson's hard lines. Gates: lint 0
+  errors (9 warnings, down from 11), typecheck the same 10 pre-existing
+  errors, build OK, npm test exit 0. NOT walked: the key forms sit behind
+  sign-in and no real Face ID prompt can run here.
+
 - **Released to main 2026-11-24 (operator: "Ship it, I'll test"):** Z4
   accounts without identity, below. Owed: the operator's iPhone walk --
   create a Face ID account, sign out and back in, then sign in on a second
