@@ -58,3 +58,31 @@ limit but tells mempool.space who owns which vault).
 for signet and for real bitcoin -- `scripts/electrum-probe.mjs`, run by a
 GitHub workflow on the working branch (this sandbox cannot open raw
 connections), asks each candidate for its tip and one address's coins.
+
+## What the probe found (GitHub runners, 2026-11-24, runs 45468048287 + 45468351484)
+
+Measured from GitHub's machines, NOT Netlify's -- whether Netlify's servers
+are treated the same is unverified until the first live call.
+
+- **Signet: mempool.space:60602 works.** Valid certificate, tip 332337 (the
+  same as mempool.space's website at that minute), 20 address lookups in ONE
+  request in 458-734 ms. Fifteen back-to-back batches: 15 of 15 answered,
+  566-632 ms each, no slowing, no refusals.
+- Signet others: electrum.mutinynet.com answers but is a DIFFERENT signet
+  (tip 3,618,239) -- unusable. wakiyamap and Blockstream signet time out.
+- **Real bitcoin: mempool.space has no public Electrum port** (50002 timed
+  out 16 of 16). Blockstream (50002, valid cert) connects but returns nothing
+  to a batched request. Three community servers answer the batch
+  (fulcrum.sethforprivacy.com, electrum.emzy.de, bitcoin.lukechilds.co, tip
+  977403, 278-966 ms) -- every one with a self-signed certificate, so we
+  cannot prove we are talking to who we think, and each is one person's
+  machine that may go away.
+- Testnet: only testnet.aranguren.org answers (self-signed); mempool.space
+  60002 times out; Blockstream returns nothing to a batch.
+
+What a lying or wrong server could do: hide coins (balance looks short) or
+show coins that do not exist (a spend built on them fails at signing or
+broadcast -- taproot signatures commit to every input's amount and script,
+so it cannot move real money wrongly, but the screen would be wrong).
+
+Decision owed by the operator: signet is clear; real bitcoin is not.
