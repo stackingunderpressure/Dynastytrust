@@ -180,4 +180,16 @@ pass('a browser key made must-sign is allowed and described as a phone\'s protec
 }
 pass('a must-sign key held by an invited person is flagged: the app cannot see their device, so ask for a hardware wallet');
 
+// The Shape step refuses an "if untouched for" path with no fixed-date path
+// (the compiler's rule), before any key is chosen.
+{
+  const u = (t) => ({ unlockType: t });
+  assert.equal(r.untouchedWithoutDatedPath([u('immediate'), u('older')]), true);
+  assert.equal(r.untouchedWithoutDatedPath([u('immediate'), u('older'), u('after')]), false);
+  assert.equal(r.untouchedWithoutDatedPath([u('immediate'), u('after')]), false);
+  assert.equal(r.untouchedWithoutDatedPath([u('immediate')]), false);
+  assert.ok(!/older|after\(|leaf/.test(r.UNTOUCHED_NEEDS_DATED), 'plain words, no compiler terms');
+}
+pass('an "if untouched for" path with no fixed-date path is caught on the Shape step, in plain words');
+
 console.log(`path-risk tests passed (${n} cases)`);

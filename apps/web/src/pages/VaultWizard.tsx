@@ -18,7 +18,7 @@ import { downloadVault } from '../lib/descriptor-backup';
 import { keyNetworkMatches } from '../lib/network';
 import { whoSignsShort, whoSignsWords, mustSignMeaning } from '../lib/path-words';
 import { mustSignPathsNotInScripts } from '../lib/must-sign-check';
-import { keyKind, mustSignKeysEveryPathNeeds, pathNotes, vaultNote, type RiskNote, type RiskPath } from '../lib/path-risk';
+import { keyKind, mustSignKeysEveryPathNeeds, pathNotes, untouchedWithoutDatedPath, UNTOUCHED_NEEDS_DATED, vaultNote, type RiskNote, type RiskPath } from '../lib/path-risk';
 import { blocksToHuman, TIMELOCK_PRESETS, MIN_RECOVERY_BLOCKS } from '../lib/blocks';
 import { approxWallclockDate, blocksUntilDate, verifiedTipHeight } from '../lib/chain';
 import { checkAbsoluteTimelocks, type TimelockPair } from '../lib/timelock-check';
@@ -320,13 +320,16 @@ function friendlyCompileError(message: string): string {
     return 'All keys in a vault must be on the same network (all testnet, all signet, or all mainnet).';
   if (m.includes('failed to fetch') || m.includes('non-json') || m.includes('502') || m.includes('503'))
     return 'The compiler did not respond. It may be waking from idle -- wait a couple of seconds and try again.';
-  if (m.includes('relativetimelockneedsabsolutefallback'))
-    return 'An "if untouched for" path can\'t be the only fallback -- add a fixed-date path too, or turn this one off.';
-  if (m.includes('relativetimelocktoolong'))
+  // The compiler sends its error TEXT, not the Rust variant name -- both are
+  // matched, so the plain words actually show (operator's screenshot,
+  // 2026-11-24: the raw "leaf policy rejected" line reached the screen).
+  if (m.includes('relativetimelockneedsabsolutefallback') || m.includes('only non-immediate fallback'))
+    return `${UNTOUCHED_NEEDS_DATED} This draft can't change shape now: start a new vault from "Start a vault" and set its paths that way.`;
+  if (m.includes('relativetimelocktoolong') || (m.includes('relative timelock') && m.includes('exceeds')))
     return `An "if untouched for" path can't wait longer than about 13.7 months (${MAX_RELATIVE_BLOCKS} blocks). Use a fixed-date path instead for a longer wait.`;
-  if (m.includes('noimmediateleaf'))
+  if (m.includes('noimmediateleaf') || m.includes('at least one immediate'))
     return 'Every vault needs at least one path that can spend right away.';
-  if (m.includes('decayrequirestimelock'))
+  if (m.includes('decayrequirestimelock') || m.includes('decaying leaf must have'))
     return 'The step-down option only applies to a path that waits for something -- turn on a fixed date or "if untouched for" first.';
   return message;
 }
@@ -669,6 +672,12 @@ export default function VaultWizard() {
         setDraftVault(res.vault);
       } else if (shape === 'leaves') {
         const enabled = leafDrafts.filter(l => l.enabled);
+        // The compiler would refuse this shape only at the very end, after
+        // every key is chosen -- say so here, while the shape can change.
+        if (untouchedWithoutDatedPath(enabled)) {
+          setConfigureErr(UNTOUCHED_NEEDS_DATED);
+          return;
+        }
         const res = await api.vaults.createLeavesDraft({
           name,
           network,

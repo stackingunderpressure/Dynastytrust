@@ -245,3 +245,15 @@ export function vaultNote(paths: RiskPath[]): RiskNote | null {
     text: `The strongest set-up is a hardware wallet, made with good randomness, required on every spend. Right now ${listWords(open.map(p => q(p.label)))} can open without one. Each path below says how to change that.`,
   };
 }
+
+/** The compiler's rule (protocol verify_leaf_policy): an "if untouched for"
+ *  path may not be a vault's only later path -- one fixed-date path must
+ *  exist too, so moving the coins can never keep every later path shut.
+ *  Checked on the Shape step so nobody fills every key slot first and is
+ *  refused at the end (operator's screenshot, 2026-11-24). */
+export const UNTOUCHED_NEEDS_DATED =
+  'An "if untouched for" path can\'t be the only later path. Add a path with a fixed date too, or turn the "if untouched for" path off.';
+
+export function untouchedWithoutDatedPath(paths: { unlockType: 'immediate' | 'after' | 'older' }[]): boolean {
+  return paths.some(p => p.unlockType === 'older') && !paths.some(p => p.unlockType === 'after');
+}
