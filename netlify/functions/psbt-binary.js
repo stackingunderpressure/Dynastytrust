@@ -16,6 +16,7 @@ import { getSupabaseAdmin } from './_supabase.js';
 import { pubkeyFromXpub } from './_xpub.js';
 import { MEMPOOL, mempoolFetch, getFeeRate } from './_chain.js';
 import { checkNumberBounds, MIN_FEE_RATE_SAT_VB, MAX_FEE_RATE_SAT_VB } from './_numeric.js';
+import { buildRangedSpend } from './_ranged-spend.js';
 import { spendKeys, inputVbytesFor, selectCoins, spendCompilerRequest, spendSummary } from '../../packages/vault-rules/src/spend.js';
 
 const COMPILER_URL    = process.env.COMPILER_URL;
@@ -59,7 +60,7 @@ export async function handler(event) {
   const supabase = getSupabaseAdmin();
   const { data: vault, error } = await supabase
     .from('vaults')
-    .select('id, name, address, network, descriptor, address_type, recovery_after, inheritance_after, recovery_quorum, founder_quorum, heir_quorum, founder_keys, heir_keys, consent_keys, consent_quorum, protector_keys, protector_quorum, protector_after, backup_keys, backup_quorum, second_heir_keys, second_heir_quorum, second_inheritance_after, key_origins, leaves')
+    .select('id, name, address, network, descriptor, address_type, recovery_after, inheritance_after, recovery_quorum, founder_quorum, heir_quorum, founder_keys, heir_keys, consent_keys, consent_quorum, protector_keys, protector_quorum, protector_after, backup_keys, backup_quorum, second_heir_keys, second_heir_quorum, second_inheritance_after, key_origins, leaves, leaf_scripts, descriptor_version, descriptor_multipath, descriptor_receive, descriptor_change')
     .eq('id', vault_id)
     .maybeSingle();
 
@@ -73,6 +74,22 @@ export async function handler(event) {
     .eq('status', 'active')
     .maybeSingle();
   if (!membership) return json(403, { error: 'Not a member of this vault' });
+
+  // A vault with a new address every time (ranged slice 5): coins from all
+  // its addresses, change to a never-used one, built by the compiler wasm.
+  if (vault.descriptor_version === 2) {
+    const r = await buildRangedSpend({ supabase, vault, userId: u.userId, body });
+    if (r.status === 200 && r.body.psbt_hex) {
+      const sm = r.body.summary;
+      await recordEvent(supabase, {
+        vault_id: vault.id,
+        user_id: u.userId,
+        event_type: 'psbt_generated',
+        metadata: { destination, amount_sats: sm.amount_sats, fee_sats: sm.fee_sats, fee_rate: sm.fee_rate, input_count: sm.input_count, binary: true, path, sweep: !!sweep, addresses_combined: sm.addresses_combined },
+      });
+    }
+    return json(r.status, r.body);
+  }
 
   // Stored xpubs become their /0/0 child pubkey so tap_scripts match what
   // the browser signs against; a path-builder vault's leaves are
