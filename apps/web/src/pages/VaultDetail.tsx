@@ -275,7 +275,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
   const load = useCallback(async () => {
     const [balRes, propRes] = await Promise.allSettled([
       vault.address
-        ? api.balance(vault.address, vault.network)
+        ? api.vaultBalance(vault)
         : Promise.resolve(null),
       api.proposals.list(vault.id),
     ]);

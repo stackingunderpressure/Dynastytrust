@@ -144,7 +144,7 @@ export default function Dashboard() {
       for (const v of vaults) {
         if (!v.address) continue; // drafts have no address yet
         api
-          .balance(v.address, v.network)
+          .vaultBalance(v)
           .then(b => {
             setBalances(prev => ({ ...prev, [v.id]: b }));
             setBalanceErrors(prev => (prev[v.id] ? { ...prev, [v.id]: false } : prev));

@@ -113,3 +113,26 @@ gap-limit warnings (need slice 4).
 - Left for slice 4: the balance and coin list still read only `address`
   (receive 0), so coins on addresses 1+ are not yet seen -- which is why
   this does not ship alone.
+
+## Slice 4 built (2026-11-24, branch only)
+
+- `_vault-coins.js`: a v2 vault watches every reserved index on receive (0)
+  and change (1) plus a look-ahead (10 receive, 5 change), all from its
+  stored descriptors via the wasm `/ranged-addresses`; receive/0 must equal
+  the vault's address or nothing is watched.
+- `balance.js?vault_id=`: the whole vault's balance, signed in, owner or
+  active member only (a v2 vault's address list is the private thing).
+  By-address mode unchanged. Dashboard and the vault page use
+  `api.vaultBalance(v)`.
+- `utxos.js`: every coin, tagged with its address, branch and index (the
+  spend slice needs these).
+- Not covered yet: the downloaded app's local server
+  (`apps/web/src/lib/local-server`) still reads one address; the "Explorer"
+  link opens address 0 only; no gap warning when the look-ahead is used up.
+
+## Release order (for the push to main)
+
+`_vault-fields.js` now selects the new columns on every vault read, so the
+migration must be live BEFORE the functions that read them deploy, or vault
+lists fail until it is. Apply `20261119000000_ranged_addresses.sql` first
+(the db-deploy workflow, run on its own), confirm, then let Netlify build.

@@ -971,6 +971,14 @@ export const api = {
   balance: (address: string, network: 'testnet' | 'signet' | 'bitcoin') =>
     req<BalanceResult>(`/balance?address=${encodeURIComponent(address)}&network=${network}`),
 
+  /** A vault's whole balance. A vault with a new address every time is
+   *  summed over all its addresses (signed in, owner or member -- that list
+   *  is private); any other vault reads its one address as before. */
+  vaultBalance: (v: Pick<Vault, 'id' | 'address' | 'network' | 'descriptor_version'>) =>
+    v.descriptor_version === 2
+      ? req<BalanceResult>(`/balance?vault_id=${encodeURIComponent(v.id)}`)
+      : req<BalanceResult>(`/balance?address=${encodeURIComponent(v.address ?? '')}&network=${v.network}`),
+
   utxos: (vault_id: string) =>
     req<{
       ok: true;
@@ -985,6 +993,11 @@ export const api = {
         block_height: number | null;
         block_time: number | null;
         confirmations: number;
+        /** Which of the vault's addresses the coin sits on (always receive
+         *  0 for a one-address vault). */
+        address?: string;
+        branch?: number;
+        index?: number;
       }[];
     }>(`/utxos?vault_id=${vault_id}`),
 

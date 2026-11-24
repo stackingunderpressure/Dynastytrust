@@ -4,13 +4,74 @@
  * Fetches balance and UTXO summary from mempool.space.
  * Also fetches current BTC/USD price to show fiat value.
  * No auth required — address is public info.
+ *
+ * GET /api/balance?vault_id=<uuid>  (signed in; the vault's owner or a member)
+ * The whole vault: for a v2 vault ("a new address every time") the sum over
+ * every one of its addresses (_vault-coins.js). Behind sign-in because the
+ * list of a v2 vault's addresses is exactly what fresh addresses keep private.
  */
 
-import { json } from './_auth.js';
+import { json, requireUser } from './_auth.js';
 import { MEMPOOL, mempoolFetch } from './_chain.js';
+import { getSupabaseAdmin } from './_supabase.js';
+import { canSeeVault, coinsAt, nextIndexes, watchedAddresses } from './_vault-coins.js';
+
+async function btcPrice(network) {
+  if (network !== 'bitcoin') return null;
+  try {
+    const price = await mempoolFetch('https://mempool.space/api/v1/prices');
+    return price?.USD || null;
+  } catch { return null; }
+}
+
+async function vaultBalance(event, vaultId) {
+  const u = await requireUser(event);
+  if (u.error) return json(401, { error: u.error });
+  if (!/^[0-9a-f-]{36}$/i.test(vaultId)) return json(400, { error: 'Invalid vault_id' });
+  const supabase = getSupabaseAdmin();
+  const { data: vault, error } = await supabase
+    .from('vaults')
+    .select('id, user_id, address, network, descriptor_version, descriptor_multipath, descriptor_receive, descriptor_change')
+    .eq('id', vaultId)
+    .maybeSingle();
+  if (error) return json(500, { error: error.message });
+  if (!vault || !(await canSeeVault(supabase, vault, u.userId))) return json(404, { error: 'Vault not found' });
+  if (!vault.address) return json(400, { error: 'This vault has no address yet' });
+  const network = vault.network || 'testnet';
+  try {
+    const watched = watchedAddresses(vault, vault.descriptor_version === 2 ? await nextIndexes(supabase, vault.id) : undefined);
+    const coins = await coinsAt(network, watched);
+    const confirmed_sats = coins.filter(c => c.status?.confirmed).reduce((n, c) => n + (c.value || 0), 0);
+    const unconfirmed_sats = coins.filter(c => !c.status?.confirmed).reduce((n, c) => n + (c.value || 0), 0);
+    const total_sats = confirmed_sats + unconfirmed_sats;
+    const btc_price_usd = await btcPrice(network);
+    const btc_amount = total_sats / 1e8;
+    return json(200, {
+      ok: true,
+      address: vault.address,
+      network,
+      confirmed_sats,
+      unconfirmed_sats,
+      total_sats,
+      btc_amount,
+      btc_price_usd,
+      usd_value: btc_price_usd ? btc_amount * btc_price_usd : null,
+      utxo_count: coins.length,
+      confirmed_utxos: coins.filter(c => c.status?.confirmed).length,
+      mempool_url: `${(MEMPOOL[network] || MEMPOOL.testnet).replace(/\/api$/, '')}/address/${vault.address}`,
+      tx_count: coins.length,
+      addresses_watched: watched.length,
+    });
+  } catch (err) {
+    console.error('Vault balance error:', err);
+    return json(502, { error: 'Could not fetch balance: ' + err.message });
+  }
+}
 
 export async function handler(event) {
   if (event.httpMethod !== 'GET') return json(405, { error: 'Method not allowed' });
+  const vaultId = event.queryStringParameters?.vault_id;
+  if (vaultId) return vaultBalance(event, vaultId);
 
   const address = event.queryStringParameters?.address;
   const network = event.queryStringParameters?.network || 'testnet';

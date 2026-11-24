@@ -55,7 +55,11 @@ subscribePsbtCosignResponses(fake, f.replyPrivateKey, r => got.push(r));
 assert.deepEqual(filter.kinds, [9579, 1059]);
 handler(f.wrapped);
 handler(f.forgedReseal);
-await new Promise(r => setTimeout(r, 50));
+// Opening a wrap is async crypto: wait for the answer (up to 2 s) rather
+// than a fixed 50 ms, which failed under a loaded full-suite run, then give
+// the forged one the same time to (wrongly) arrive.
+for (let t = 0; t < 40 && got.length === 0; t++) await new Promise(r => setTimeout(r, 50));
+await new Promise(r => setTimeout(r, 100));
 assert.equal(got.length, 1);
 assert.equal(got[0].signerPubkey, f.walletPubkey);
 assert.equal(got[0].psbtHex, '70736274ff');

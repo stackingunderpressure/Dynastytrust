@@ -1,7 +1,8 @@
 /**
  * GET /api/utxos?vault_id=<uuid>
  *
- * Returns every UTXO sitting at the vault's address: confirmed +
+ * Returns every UTXO sitting at the vault's address (a v2 vault: every one
+ * of its addresses, _vault-coins.js -- each coin says which): confirmed +
  * unconfirmed, with value, confirmation count, and block-age. Lets
  * the overview tab list each UTXO individually and lets the Send
  * flow offer coin-control ("spend just this UTXO").
@@ -10,6 +11,7 @@
 import { requireUser, json } from "./_auth.js";
 import { getSupabaseAdmin } from "./_supabase.js";
 import { MEMPOOL, mempoolFetch } from "./_chain.js";
+import { coinsAt, nextIndexes, watchedAddresses } from "./_vault-coins.js";
 
 async function assertMember(supabase, vaultId, userId) {
   const { data } = await supabase
@@ -34,7 +36,7 @@ export async function handler(event) {
   const supabase = getSupabaseAdmin();
   const { data: vault, error } = await supabase
     .from("vaults")
-    .select("id, address, network")
+    .select("id, address, network, descriptor_version, descriptor_multipath, descriptor_receive, descriptor_change")
     .eq("id", vaultId)
     .maybeSingle();
   if (error) return json(500, { error: error.message });
@@ -53,11 +55,18 @@ export async function handler(event) {
   const network = vault.network || "testnet";
   const base = MEMPOOL[network] || MEMPOOL.testnet;
 
+  let watched;
+  try {
+    watched = watchedAddresses(vault, vault.descriptor_version === 2 ? await nextIndexes(supabase, vaultId) : undefined);
+  } catch (err) {
+    return json(500, { error: `This vault's addresses could not be worked out, so no coins are shown: ${err.message}` });
+  }
+
   let raw;
   let tip;
   try {
     [raw, tip] = await Promise.all([
-      mempoolFetch(`${base}/address/${vault.address}/utxo`),
+      coinsAt(network, watched),
       mempoolFetch(`${base}/blocks/tip/height`),
     ]);
   } catch (err) {
@@ -80,6 +89,9 @@ export async function handler(event) {
       block_height: blockHeight,
       block_time: blockTime,
       confirmations,
+      address: u.address,
+      branch: u.branch,
+      index: u.index,
     };
   });
 
