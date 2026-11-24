@@ -35,8 +35,24 @@ import { colors, fonts, radii, space } from "../theme";
 import { SeedSignerNetworkHint } from "../components/SeedSignerNetworkHint";
 import { useVaultKey } from "../lib/use-vault-key";
 import { openField, sealField } from "../lib/vault-key";
+import { checkFreshSpendAddresses, isFreshAddressVault } from "../lib/fresh-addresses";
 
 type Session = Awaited<ReturnType<typeof api.signerSessions.list>>["sessions"][number];
+
+/** The proposal's live PSBT: its built PSBT as the merge base, then every
+ *  signed partial (see the 2026-08-11 note where this is used). */
+function mergedPsbtOf(proposal: Proposal, sessions: Session[]): string {
+  const partials = sessions.filter(s => s.signed && s.psbt_partial_hex).map(s => s.psbt_partial_hex!).filter(Boolean);
+  const mergeChain = proposal.psbt_hex ? [proposal.psbt_hex, ...partials] : partials;
+  if (mergeChain.length > 1) {
+    try {
+      return mergePsbts(mergeChain);
+    } catch {
+      return mergeChain[0];
+    }
+  }
+  return mergeChain[0] ?? "";
+}
 
 function satsToBtc(sats: number): string {
   return (sats / 1e8).toFixed(8).replace(/\.?0+$/, "") || "0";
@@ -167,6 +183,22 @@ export default function ProposalDetail() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // A vault with a new address every time (ranged slice 5): every input and
+  // the change must be one of ITS addresses, worked out on this device.
+  // Async (it runs the compiler), so it is kept per PSBT; until it has
+  // passed for the PSBT on screen, nothing is offered for signing.
+  const [freshCheck, setFreshCheck] = useState<{ psbt: string; reason: string | null } | null>(null);
+  useEffect(() => {
+    if (!vault || !proposal || !isFreshAddressVault(vault) || proposal.path === "tranche_claim") return;
+    const psbt = mergedPsbtOf(proposal, sessions);
+    if (!psbt) return;
+    let live = true;
+    void checkFreshSpendAddresses(vault, psbt).then(r => {
+      if (live) setFreshCheck({ psbt, reason: r.ok ? null : r.reason });
+    });
+    return () => { live = false; };
+  }, [vault, proposal, sessions]);
+
   const load = useCallback(async () => {
     if (!vaultId || !proposalId) return;
     try {
@@ -228,8 +260,6 @@ export default function ProposalDetail() {
     );
   }
 
-  const signedSessions = sessions.filter(s => s.signed && s.psbt_partial_hex);
-  const partials = signedSessions.map(s => s.psbt_partial_hex!).filter(Boolean);
   // 2026-08-11 fix (operator: "Finalization failed: PSBT is missing
   // both witness and non-witness UTXO at index 0"). Always fold
   // proposal.psbt_hex in as the merge base, ahead of every partial, when
@@ -244,17 +274,7 @@ export default function ProposalDetail() {
   // whenever there was exactly one: a single trimmed hardware-wallet
   // partial (SeedSigner's own PSBTParser.trim() strips everything but
   // the signature, by design) became this proposal's live PSBT outright.
-  const mergeChain = proposal.psbt_hex ? [proposal.psbt_hex, ...partials] : partials;
-  const mergedPsbt =
-    mergeChain.length > 1
-      ? (() => {
-          try {
-            return mergePsbts(mergeChain);
-          } catch {
-            return mergeChain[0];
-          }
-        })()
-      : mergeChain[0] ?? "";
+  const mergedPsbt = mergedPsbtOf(proposal, sessions);
   const counted = mergedPsbt ? countSignatures(mergedPsbt) : 0;
   // A co-signer signs a PSBT that came out of the database, not one they
   // built. Re-derive from its bytes that it pays what the proposal row
@@ -263,6 +283,9 @@ export default function ProposalDetail() {
   // reach a signing key. Tranche claims spend from the tranche's own
   // address, which this page does not load, so the own-coins/change
   // check is skipped there (destination, amount and fee still hold).
+  const freshVault = isFreshAddressVault(vault) && proposal.path !== "tranche_claim";
+  // Until the fresh-address check has passed for THIS PSBT, nothing is signable.
+  const freshPending = freshVault && !!mergedPsbt && freshCheck?.psbt !== mergedPsbt;
   const psbtMismatch: string | null = mergedPsbt
     ? (() => {
         // A missing vault address must refuse, not skip, the own-coins
@@ -274,13 +297,15 @@ export default function ProposalDetail() {
           destination: proposal.destination,
           amountSats: proposal.amount_sats,
           network: vault.network,
-          ownAddress: proposal.path === "tranche_claim" ? undefined : (vault.address ?? undefined),
+          // A fresh-address vault's own-coins check is checkFreshSpendAddresses.
+          ownAddress: proposal.path === "tranche_claim" || freshVault ? undefined : (vault.address ?? undefined),
           feeSats: proposal.fee_sats,
         });
-        return check.ok ? null : (check.reason ?? "PSBT does not match this request");
+        if (!check.ok) return check.reason ?? "PSBT does not match this request";
+        return freshVault && freshCheck?.psbt === mergedPsbt ? freshCheck.reason : null;
       })()
     : null;
-  const signablePsbt = psbtMismatch ? "" : mergedPsbt;
+  const signablePsbt = psbtMismatch || freshPending ? "" : mergedPsbt;
   const pathSigners = resolvePathSigners(vault, proposal.path);
   const required = pathSigners.required;
   // "Enough signatures" is decided by WHO has signed, on every input,
@@ -382,15 +407,20 @@ export default function ProposalDetail() {
       if (proposal.path === "tranche_claim" || !vault.address) {
         throw new Error("Refusing to sign: this request cannot be checked against the vault's own address from this page.");
       }
+      const fresh = isFreshAddressVault(vault);
       const check = verifyPsbtMatchesRequest(basePsbt, {
         destination: proposal.destination,
         amountSats: proposal.amount_sats,
         network: vault.network,
-        ownAddress: vault.address,
+        ownAddress: fresh ? undefined : vault.address,
         feeSats: proposal.fee_sats,
       });
       if (!check.ok) {
         throw new Error(`Refusing to sign: ${check.reason}. This PSBT does not match the request shown.`);
+      }
+      if (fresh) {
+        const own = await checkFreshSpendAddresses(vault, basePsbt);
+        if (!own.ok) throw new Error(`Refusing to sign: ${own.reason}. This PSBT does not match the request shown.`);
       }
       const result = await signPsbtWithMnemonic(basePsbt, mnemonic, key.derivationPath, vault.network);
       await api.signerSessions.submit({

@@ -115,6 +115,10 @@ export interface PsbtInput {
   tapInternalKey?: Uint8Array;
   tapLeafScript?: Array<{ controlBlock: Uint8Array; script: Uint8Array; leafVersion: number }>;
   tapScriptSigs?: Array<{ pubkey: Uint8Array; leafHash: Uint8Array; sig: Uint8Array }>;
+  /** PSBT_IN_TAP_BIP32_DERIVATION (BIP 371): which key, from which seed
+   *  (master fingerprint) at which path, may sign which leaves. Read so a
+   *  signer can find the key for a coin on any of a vault's addresses. */
+  tapBip32Derivation?: TapBip32Derivation[];
   partialSigs?: Array<{ pubkey: Uint8Array; sig: Uint8Array }>;
   sequence?: number;
 }
@@ -130,6 +134,8 @@ export interface ParsedPsbt {
   raw: Uint8Array;
   tx: PsbtTx;
   inputs: PsbtInput[];
+  /** Per output, the fields read from its map (see parsePsbt). */
+  outputMaps?: PsbtOutputMap[];
 }
 
 // A real PSBT for this app's vaults (a handful of inputs/outputs plus
@@ -152,6 +158,26 @@ function readVarInt(buf: Uint8Array, offset: number): [number, number] {
   if (first === 0xfd) { assertInBounds(buf, offset + 1, 2, "varint"); return [readUint16LE(buf, offset + 1), offset + 3]; }
   if (first === 0xfe) { assertInBounds(buf, offset + 1, 4, "varint"); return [readUint32LE(buf, offset + 1), offset + 5]; }
   throw new Error("64-bit varint not supported");
+}
+
+export interface TapBip32Derivation { pubkey: Uint8Array; leafHashes: Uint8Array[]; fingerprint: number; path: number[] }
+export interface PsbtOutputMap { tapBip32Derivation?: TapBip32Derivation[] }
+
+/** BIP 371 tap BIP32 derivation: key [type, xonly(32)], value
+ *  <count><leaf hashes, 32 each><fingerprint 4, big-endian><path u32 LE...>. */
+function readTapBip32(key: Uint8Array, value: Uint8Array): TapBip32Derivation {
+  if (key.length !== 33) throw new Error("Malformed PSBT: tap-bip32-derivation key must be 33 bytes");
+  const [count, after] = readVarInt(value, 0);
+  assertInBounds(value, after, count * 32 + 4, "tap-bip32-derivation");
+  const leafHashes: Uint8Array[] = [];
+  for (let h = 0; h < count; h++) leafHashes.push(value.slice(after + h * 32, after + (h + 1) * 32));
+  let at = after + count * 32;
+  const fingerprint = ((value[at] << 24) | (value[at + 1] << 16) | (value[at + 2] << 8) | value[at + 3]) >>> 0;
+  at += 4;
+  if ((value.length - at) % 4 !== 0) throw new Error("Malformed PSBT: tap-bip32-derivation path is not whole numbers");
+  const path: number[] = [];
+  for (; at < value.length; at += 4) path.push(readUint32LE(value, at));
+  return { pubkey: key.slice(1), leafHashes, fingerprint, path };
 }
 
 export function parsePsbt(hex: string): ParsedPsbt {
@@ -251,6 +277,10 @@ export function parsePsbt(hex: string): ParsedPsbt {
         const script = kv.value.slice(0, kv.value.length - 1);
         if (!inp.tapLeafScript) inp.tapLeafScript = [];
         inp.tapLeafScript.push({ controlBlock, script, leafVersion });
+      } else if (keyType === 0x16) {
+        // PSBT_IN_TAP_BIP32_DERIVATION (BIP 371)
+        if (!inp.tapBip32Derivation) inp.tapBip32Derivation = [];
+        inp.tapBip32Derivation.push(readTapBip32(kv.key, kv.value));
       } else if (keyType === 0x14) {
         // PSBT_IN_TAP_SCRIPT_SIG (BIP 371)
         // key: [0x14, xonly_pubkey(32), leaf_hash(32)]
@@ -264,20 +294,28 @@ export function parsePsbt(hex: string): ParsedPsbt {
     return inp;
   });
 
-  // Skip output sections
+  // Output sections: only PSBT_OUT_TAP_BIP32_DERIVATION (0x07) is read --
+  // it says which of a vault's addresses a change output is.
+  const outputMaps: PsbtOutputMap[] = [];
   for (let i = 0; i < tx.outputs.length; i++) {
     const seen = new Set<string>();
+    const out: PsbtOutputMap = {};
     while (true) {
       const kv = readKV();
       if (!kv) break;
       noDuplicate(seen, kv.key, `output ${i}`);
+      if (kv.key[0] === 0x07) {
+        if (!out.tapBip32Derivation) out.tapBip32Derivation = [];
+        out.tapBip32Derivation.push(readTapBip32(kv.key, kv.value));
+      }
     }
+    outputMaps.push(out);
   }
   // Nothing may follow the last map: bytes a strict parser would reject
   // (or read as more maps) must not ride along unseen.
   if (pos !== buf.length) throw new Error("Malformed PSBT: trailing bytes after the last map");
 
-  return { raw: buf, tx, inputs };
+  return { raw: buf, tx, inputs, outputMaps };
 }
 
 function parseRawTx(buf: Uint8Array): PsbtTx {

@@ -42,7 +42,7 @@ import { formatDescriptorFingerprint } from "../lib/descriptor-fingerprint";
 import { DescriptorQr } from "../components/DescriptorQr";
 import { QrImage } from "../components/QrImage";
 import { NewReceiveAddress } from "../components/NewReceiveAddress";
-import { isFreshAddressVault } from "../lib/fresh-addresses";
+import { checkFreshSpendAddresses, isFreshAddressVault } from "../lib/fresh-addresses";
 import { RotatePathVault } from "../components/RotatePathVault";
 import { PathDraftCard } from "../components/PathDraftCard";
 import { pubkeyFromXpub, fingerprintFromXpub } from "../lib/xpub";
@@ -1473,6 +1473,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
   prefill?: SendPrefill | null;
 }) {
   const askPassword = usePrompt();
+  const toast = useToast();
   const [step, setStep] = useState<SendStep>("form");
   const [dest, setDest] = useState(prefill?.destination ?? "");
   const [amountBtc, setAmountBtc] = useState(
@@ -1625,6 +1626,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
           change_sats: number;
           fee_rate: number;
           destination: string;
+          addresses_combined?: number;
         };
         status?: string;
         message?: string;
@@ -1687,18 +1689,29 @@ function SendTab({ vault, balance, onDone, prefill }: {
         setBusy(false);
         return;
       }
+      // A vault with a new address every time: its coins and change are
+      // checked against the addresses THIS device derives (ranged slice 5).
+      const fresh = isFreshAddressVault(vault);
       const psbtCheck = verifyPsbtMatchesRequest(psbtRes.psbt_hex, {
         destination: dest.trim(),
         amountSats: psbtRes.summary.amount_sats,
         network: vault.network,
-        ownAddress: vault.address,
+        ownAddress: fresh ? undefined : vault.address,
         feeSats: psbtRes.summary.fee_sats,
         changeSats: psbtRes.summary.change_sats,
       });
-      if (!psbtCheck.ok) {
-        setErr(`Refusing to sign: ${psbtCheck.reason}. This PSBT does not match what you requested -- try again, and contact support if this persists.`);
+      const ownCheck = psbtCheck.ok && fresh ? await checkFreshSpendAddresses(vault, psbtRes.psbt_hex) : psbtCheck;
+      if (!psbtCheck.ok || !ownCheck.ok) {
+        const reason = !psbtCheck.ok ? psbtCheck.reason : !ownCheck.ok ? ownCheck.reason : '';
+        setErr(`Refusing to sign: ${reason}. This PSBT does not match what you requested -- try again, and contact support if this persists.`);
         setBusy(false);
         return;
+      }
+      // Operator's chip (2026-11-24): when a spend combines coins from
+      // several addresses, say so before anyone signs.
+      const combined = psbtRes.summary.addresses_combined ?? 1;
+      if (fresh && combined > 1) {
+        toast.info(`This payment uses coins from ${combined} of this vault's addresses, so anyone looking can tell those addresses belong together.`);
       }
 
       // Sweep only learns the real amount here, once the backend has

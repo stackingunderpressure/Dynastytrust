@@ -21,7 +21,8 @@ export type CompilerEndpoint =
   | '/compile' | '/compile-bloc' | '/compile-tranche' | '/compile-leaves'
   | '/psbt-binary' | '/psbt-binary-bloc' | '/psbt-binary-tranche'
   | '/psbt-finalize' | '/psbt-merge'
-  | '/governance/status' | '/governance/audit' | '/validate-address';
+  | '/governance/status' | '/governance/audit' | '/validate-address'
+  | '/ranged-address';
 
 let loading: Promise<CompilerExports> | null = null;
 let injected: Uint8Array | null = null;

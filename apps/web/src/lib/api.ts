@@ -1146,6 +1146,12 @@ export const api = {
         total_in_sats: number;
         network: string;
         path: string;
+        /** Fresh-address vaults (ranged slice 5): how many of the vault's
+         *  addresses this spend combines, its never-used change address,
+         *  and coins whose "if left untouched" wait is not over yet. */
+        addresses_combined?: number;
+        change_address?: string | null;
+        waiting?: { txid: string; vout: number; value_sats: number; blocks_left: number }[];
       };
     }>('/psbt-binary', { method: 'POST', body: JSON.stringify(body) }).then(async r => {
       await keysForLists();

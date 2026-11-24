@@ -63,9 +63,29 @@ export async function signPsbtWithMnemonic(
 
   if (!child00.privateKey) throw new Error("Could not derive private key");
 
-  const privKey = child00.privateKey;
-  const pubKey = secp256k1.getPublicKey(privKey, true); // compressed
-  const xOnlyPubKey = pubKey.slice(1); // x-only (32 bytes)
+  // A vault with a new address every time (ranged slice 5) holds coins on
+  // many addresses, each with this key's child at /<branch>/<index>. The
+  // PSBT's key origins say which; only origins for THIS seed's fingerprint
+  // and THIS account path, one receive (0) or change (1) step and an index
+  // below, are followed, and the derived key must equal the origin's key.
+  const accountPath = parsePath(derivationPath);
+  const keyFor = (inp: ParsedPsbt["inputs"][number]): Array<{ priv: Uint8Array; xonly: Uint8Array }> => {
+    const out = [{ priv: child00.privateKey!, xonly: secp256k1.getPublicKey(child00.privateKey!, true).slice(1) }];
+    for (const d of inp.tapBip32Derivation ?? []) {
+      if (d.fingerprint !== root.fingerprint) continue;
+      if (d.path.length !== accountPath.length + 2) continue;
+      if (!accountPath.every((c, k) => d.path[k] === c)) continue;
+      const [branch, index] = d.path.slice(accountPath.length);
+      if ((branch !== 0 && branch !== 1) || index >= 0x80000000) continue;
+      if (branch === 0 && index === 0) continue; // already child00
+      const child = account.deriveChild(branch).deriveChild(index);
+      if (!child.privateKey) continue;
+      const xonly = secp256k1.getPublicKey(child.privateKey, true).slice(1);
+      if (toHex(xonly) !== toHex(d.pubkey)) continue; // the origin lied about the key
+      out.push({ priv: child.privateKey, xonly });
+    }
+    return out;
+  };
 
   const parsed = parsePsbt(psbtHex);
   let signaturesAdded = 0;
@@ -73,8 +93,10 @@ export async function signPsbtWithMnemonic(
   for (let i = 0; i < parsed.inputs.length; i++) {
     const inp = parsed.inputs[i];
     if (!inp.tapLeafScript || inp.tapLeafScript.length === 0) continue;
+    const mine = keyFor(inp);
 
     for (const leaf of inp.tapLeafScript) {
+     for (const { priv: privKey, xonly: xOnlyPubKey } of mine) {
       // Is our key one this leaf script actually NAMES? Walked opcode by
       // opcode -- a substring search over the hex also matched our key
       // bytes inside a longer data push or at an odd nibble offset.
@@ -112,6 +134,7 @@ export async function signPsbtWithMnemonic(
       );
       inp.tapScriptSigs.push({ pubkey: xOnlyPubKey, leafHash, sig });
       signaturesAdded++;
+     }
     }
   }
 
@@ -121,6 +144,16 @@ export async function signPsbtWithMnemonic(
 
   const signedHex = serializePsbt(parsed);
   return { psbt_hex: signedHex, signaturesAdded };
+}
+
+/** "m/48'/1'/0'/2'" -> BIP32 child numbers (hardened with the top bit). */
+function parsePath(path: string): number[] {
+  return path.replace(/^m\/?/, "").split("/").filter(Boolean).map((c) => {
+    const hard = /['h]$/.test(c);
+    const n = Number(c.replace(/['h]$/, ""));
+    if (!Number.isInteger(n) || n < 0 || n >= 0x80000000) throw new Error(`Bad derivation path: ${path}`);
+    return hard ? (n + 0x80000000) >>> 0 : n;
+  });
 }
 
 /**

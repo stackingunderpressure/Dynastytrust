@@ -77,3 +77,26 @@ addresses to test coins until it is done.
 3. Combining addresses: **fewest coins, and say so** -- when a spend must
    combine coins from several addresses, one plain line tells the sender
    before they sign.
+
+## Built (2026-11-24, branch only -- ships with slices 3, 4 and 6)
+
+- Rust `build_path_spend_psbt` + `/ranged-spend` (commit 4c43991).
+- Server `_ranged-spend.js`, routed from `psbt-binary.js` (0a61d30).
+- Browser: the PSBT parser reads input and output tap key origins; the
+  signer signs each coin with its key's child at that coin's address (only
+  for its own fingerprint and account path, and only if the derived key
+  equals the origin's); `lib/fresh-addresses.ts` `checkFreshSpendAddresses`
+  derives every coin's and the change's address on the device and refuses
+  anything else, and a vault whose address list does not start at its own
+  (phone-pinned) address. Wired into the send screen and the proposal page
+  (sign, hardware QR and Tapit co-sign wait for it).
+- Send screen says when a spend combines addresses.
+- Proof: `scripts/test-ranged-sign.mjs` -- two seed phrases make a vault,
+  the server builds a spend from two of its addresses, both phones sign
+  with their /0/2 and /0/3 keys, it finalizes; the "if left untouched" path
+  with one phone and the old-enough coin only; a stranger's phrase signs
+  nothing; another vault's coins are refused.
+
+Not done yet: the send screen does not yet list the coins still waiting on
+an "if left untouched" path (the server returns them); the downloaded app's
+local server; a walk on a real phone and on signet.
