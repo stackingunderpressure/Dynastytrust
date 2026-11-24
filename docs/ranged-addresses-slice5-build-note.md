@@ -97,6 +97,6 @@ addresses to test coins until it is done.
   with one phone and the old-enough coin only; a stranger's phrase signs
   nothing; another vault's coins are refused.
 
-Not done yet: the send screen does not yet list the coins still waiting on
-an "if left untouched" path (the server returns them); the downloaded app's
+Not done yet:
+the downloaded app's
 local server; a walk on a real phone and on signet.

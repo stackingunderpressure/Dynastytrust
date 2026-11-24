@@ -1627,6 +1627,7 @@ function SendTab({ vault, balance, onDone, prefill }: {
           fee_rate: number;
           destination: string;
           addresses_combined?: number;
+          waiting?: { txid: string; vout: number; value_sats: number; blocks_left: number }[];
         };
         status?: string;
         message?: string;
@@ -1712,6 +1713,14 @@ function SendTab({ vault, balance, onDone, prefill }: {
       const combined = psbtRes.summary.addresses_combined ?? 1;
       if (fresh && combined > 1) {
         toast.info(`This payment uses coins from ${combined} of this vault's addresses, so anyone looking can tell those addresses belong together.`);
+      }
+      // Operator's chip: an "if left untouched" path spends only the coins
+      // whose own wait is over -- say what is still waiting, and for how long.
+      const waiting = psbtRes.summary.waiting ?? [];
+      if (waiting.length > 0) {
+        const soonest = Math.min(...waiting.map(w => w.blocks_left));
+        const held = waiting.reduce((t, w) => t + w.value_sats, 0);
+        toast.info(`${waiting.length === 1 ? 'One coin' : `${waiting.length} coins`} (${satsToBtc(held)} BTC) ${waiting.length === 1 ? 'has' : 'have'} not sat untouched long enough for this path yet, so ${waiting.length === 1 ? 'it is' : 'they are'} left out. The next is ready in about ${blocksToLabel(soonest)}.`);
       }
 
       // Sweep only learns the real amount here, once the backend has
