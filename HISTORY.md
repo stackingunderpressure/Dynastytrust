@@ -2327,6 +2327,16 @@ signers" as not yet verified. Item 1 above postdates it.
 
 **Recently closed:**
 
+- **Tapit membership requests from path-builder vaults (2026-11-24).**
+  Operator: "Vault request didn't show up in tap it this time. It has
+  worked before in aug but silent this go." Root cause on the Tapit side:
+  its guard allowed only the six named roles, but every vault made in the
+  path builder names roles by path id (sent that way since 2026-08-19), so
+  Tapit dropped each request silently; his August vault used named roles.
+  Tapit b268a39 accepts path ids; this release sends the path's name as
+  `role_label` so Tapit shows "Everyday". A request Tapit already rejected
+  is remembered, so it must be sent again. Not walked in a browser.
+
 - **Fly retired; dead man's switch allowed (2026-11-24).** Operator, after
   the compile step refused his vault: "Why also we have to have an absolute
   path?" ... "I might want a 2 month deadman switch or 13 month one" -- then
