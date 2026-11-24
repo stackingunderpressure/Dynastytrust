@@ -1,6 +1,6 @@
 # Build note: Tapit's change-address check, and a choice of what a co-signer sees
 
-Status: NOTE ONLY. No code until the operator says go.
+Status: SHIPPED 2026-11-24 (operator: "Ship all"). Migration 20261124210000 applied first; DynastyTrust and Tapit c526ba5 after.
 
 ## The ask (operator, 2026-11-24, in his words)
 
