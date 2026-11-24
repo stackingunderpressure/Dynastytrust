@@ -800,6 +800,10 @@ function OverviewTab({
   proposals: Proposal[];
   onOpenTab: (id: string) => void;
 }) {
+  // Ranged slice 6: a vault with a new address every time shows, copies and
+  // QR-codes the descriptor of EVERY address (<0;1>/*) -- what a wallet or
+  // SeedSigner must register -- never the one-address form.
+  const shownDescriptor = vault.descriptor_version === 2 ? (vault.descriptor_multipath ?? null) : vault.descriptor;
   const toast = useToast();
   // Reports are built on this device from the vault's rows, opened with the
   // vault key (zero-knowledge storage); the server never renders them.
@@ -1085,8 +1089,8 @@ function OverviewTab({
               variant="ghost"
               size="sm"
               style={{ padding: "3px 9px", fontSize: 15, whiteSpace: "normal" }}
-              disabled={!vault.descriptor}
-              onClick={() => vault.descriptor && copy(vault.descriptor, "desc")}
+              disabled={!shownDescriptor}
+              onClick={() => shownDescriptor && copy(shownDescriptor, "desc")}
             >
               {copied === "desc" ? "Copied" : "Copy descriptor"}
             </Button>
@@ -1116,7 +1120,7 @@ function OverviewTab({
               variant="ghost"
               size="sm"
               style={{ padding: "3px 9px", fontSize: 15, whiteSpace: "normal" }}
-              disabled={!vault.descriptor}
+              disabled={!shownDescriptor}
               onClick={() => setShowDescriptorQr(v => !v)}
             >
               {showDescriptorQr ? "Hide QR" : "Show descriptor QR"}
@@ -1126,7 +1130,7 @@ function OverviewTab({
                 variant="ghost"
                 size="sm"
                 style={{ padding: "3px 9px", fontSize: 15, whiteSpace: "normal" }}
-                disabled={!vault.descriptor}
+                disabled={!shownDescriptor}
                 onClick={() => navigate(`/vaults/${vault.id}/legacy-recovery`)}
               >
                 Legacy recovery setup
@@ -1200,9 +1204,9 @@ function OverviewTab({
             lineHeight: 1.6,
           }}
         >
-          {vault.descriptor}
+          {shownDescriptor}
         </div>
-        {vault.descriptor && (
+        {shownDescriptor && (
           <div
             style={{
               marginTop: 12,
@@ -1219,7 +1223,7 @@ function OverviewTab({
               Descriptor fingerprint
             </span>
             <span style={{ fontSize: 18, color: colors.gold, fontFamily: fonts.mono, letterSpacing: 2 }}>
-              {formatDescriptorFingerprint(vault.descriptor)}
+              {formatDescriptorFingerprint(shownDescriptor)}
             </span>
             <span style={{ fontSize: 14, color: colors.muted, textAlign: "center", maxWidth: 380 }}>
               Write this down separately (paper, not this screen). Before trusting a
@@ -1228,9 +1232,9 @@ function OverviewTab({
             </span>
           </div>
         )}
-        {showDescriptorQr && vault.descriptor && (
+        {showDescriptorQr && shownDescriptor && (
           <div style={{ marginTop: 14, display: "flex", justifyContent: "center" }}>
-            <DescriptorQr descriptor={vault.descriptor} label="Descriptor QR" size={240} />
+            <DescriptorQr descriptor={shownDescriptor} label="Descriptor QR" size={240} />
           </div>
         )}
       </div>

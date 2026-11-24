@@ -26,7 +26,7 @@ import { whoSignsWords } from './path-words';
 import type { Vault, DistributionWallet, LeafSpec } from './api';
 import { downloadTextFile } from './download-file';
 import { formatDescriptorFingerprint } from './descriptor-fingerprint';
-import { coreRecoveryLines } from './recovery-instructions';
+import { coreRangedRecoveryLines, coreRecoveryLines } from './recovery-instructions';
 
 // A line of lib/recovery-instructions.ts as a comment line of a backup file.
 const asComment = (l: string) => (l ? `# ${l}` : '#');
@@ -65,6 +65,22 @@ export interface VaultBackupLike {
    *  computePhase's header comment in VaultDetail.tsx) -- the real
    *  spending rules live here instead. */
   leaves?: LeafSpec[] | null;
+  /** 2 = a new address every time (ranged slice 6): the backup's
+   *  descriptor is then `descriptor_multipath` (`<0;1>/*`, every receive
+   *  and change address), never the one-address `descriptor`. */
+  descriptor_version?: number | null;
+  descriptor_multipath?: string | null;
+}
+
+/** The descriptor a backup must carry: for a vault with a new address every
+ *  time, the one that describes EVERY address (`<0;1>/*`); otherwise the
+ *  vault's one-address descriptor. Null when not compiled. */
+export function backupDescriptor(v: { descriptor: string | null; descriptor_version?: number | null; descriptor_multipath?: string | null }): string | null {
+  if (v.descriptor_version === 2) {
+    if (!v.descriptor_multipath) throw new Error("This vault gives every payment a new address, but its full descriptor is missing -- a backup without it would miss coins, so none was made.");
+    return v.descriptor_multipath;
+  }
+  return v.descriptor;
 }
 
 // A leaf's timing + decay, in the same plain-English style the rest of
@@ -79,6 +95,8 @@ function leafTimingText(leaf: LeafSpec): string {
 }
 
 export function vaultBackupText(v: VaultBackupLike): string {
+  const fresh = v.descriptor_version === 2;
+  const descriptor = backupDescriptor(v);
   const isLeafShape = Array.isArray(v.leaves) && v.leaves.length > 0;
   const leaves = v.leaves ?? [];
 
@@ -125,11 +143,21 @@ export function vaultBackupText(v: VaultBackupLike): string {
     `# Address type: ${v.address_type}`,
     `# Generated: ${new Date().toISOString()}`,
     ``,
-    `# Receive address`,
+    ...(fresh
+      ? [
+          `# This vault gives every payment a NEW ADDRESS. The address below`,
+          `# is only its first one; coins may sit on many others. The`,
+          `# descriptor below describes every one of them (receive and`,
+          `# change) -- keep IT, not just this address.`,
+          `# First receive address`,
+        ]
+      : [`# Receive address`]),
     v.address ?? '(not compiled yet)',
     ``,
-    `# Output descriptor (load it into Bitcoin Core -- see RECOVERY below)`,
-    v.descriptor ?? '(not compiled yet)',
+    fresh
+      ? `# Output descriptor -- EVERY address of this vault (load it into Bitcoin Core -- see RECOVERY below)`
+      : `# Output descriptor (load it into Bitcoin Core -- see RECOVERY below)`,
+    descriptor ?? '(not compiled yet)',
     ``,
     `# Descriptor fingerprint -- write this down SEPARATELY from this file`,
     `# (a sticky note, a second sheet of paper, memorized). Before trusting`,
@@ -137,7 +165,7 @@ export function vaultBackupText(v: VaultBackupLike): string {
     `# a re-downloaded backup -- recompute its fingerprint and compare`,
     `# against what you wrote down here. A mismatch means don't sign;`,
     `# something swapped the descriptor for a different one.`,
-    v.descriptor ? formatDescriptorFingerprint(v.descriptor) : '(not compiled yet)',
+    descriptor ? formatDescriptorFingerprint(descriptor) : '(not compiled yet)',
     ``,
     `# Miniscript policy`,
     v.miniscript_policy ?? '(not compiled yet)',
@@ -155,7 +183,7 @@ export function vaultBackupText(v: VaultBackupLike): string {
     `#   2. Enough signers' seed phrases (metal backups) to open one`,
     `#      path -- see "Spending rules" above for how many`,
     `#`,
-    ...coreRecoveryLines(v.network).map(asComment),
+    ...(fresh ? coreRangedRecoveryLines(v.network) : coreRecoveryLines(v.network)).map(asComment),
     `#`,
     `# LEGACY RECOVERY (long-horizon descriptor recovery):`,
     `#   If a keyholder here published a Legacy Recovery share for their`,
@@ -192,9 +220,13 @@ export function vaultBackupText(v: VaultBackupLike): string {
  * xpub-vs-tpub key-version bytes, which Sparrow reads directly.
  * Throws if the vault hasn't compiled yet -- there is nothing to seal.
  */
-export function legacyOnChainDescriptorPayload(v: { descriptor: string | null }): string {
-  if (!v.descriptor) throw new Error('This vault has not compiled yet -- there is no descriptor to seal.');
-  return v.descriptor;
+export function legacyOnChainDescriptorPayload(v: { descriptor: string | null; descriptor_version?: number | null; descriptor_multipath?: string | null }): string {
+  // A vault with a new address every time seals the descriptor of EVERY
+  // address (ranged slice 6) -- the one-address form would recover only
+  // the first.
+  const d = backupDescriptor(v);
+  if (!d) throw new Error('This vault has not compiled yet -- there is no descriptor to seal.');
+  return d;
 }
 
 export function downloadVaultBackup(v: VaultBackupLike): Promise<boolean> {
@@ -229,6 +261,9 @@ export interface LegacyOnChainRecoveryNoteLike {
   address: string;
   derivationPath: string;
   txid: string | null;
+  /** The vault gives every payment a new address (its sealed descriptor is
+   *  the `<0;1>/*` one): print the Core steps proven for that form. */
+  freshAddresses?: boolean;
 }
 
 export function legacyOnChainRecoveryNoteText(n: LegacyOnChainRecoveryNoteLike): string {
@@ -272,7 +307,7 @@ export function legacyOnChainRecoveryNoteText(n: LegacyOnChainRecoveryNoteLike):
     `# phrases to open one path, to spend from it. No DynastyTrust`,
     `# account or server is needed for either step.`,
     `#`,
-    ...coreRecoveryLines(n.network, 'in the descriptor').map(asComment),
+    ...(n.freshAddresses ? coreRangedRecoveryLines(n.network, 'in the descriptor') : coreRecoveryLines(n.network, 'in the descriptor')).map(asComment),
     ``,
     `Address:          ${n.address}`,
     `Derivation path:  ${n.derivationPath}`,

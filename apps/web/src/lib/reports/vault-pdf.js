@@ -227,7 +227,11 @@ export async function buildVaultPDF(vault) {
   y -= 24;
 
   // ── Section: Bitcoin Address + QR Code ───────────────────────────────────
-  p1.drawText('BITCOIN ADDRESS', { x: M, y, size: 8, font: bold, color: GOLD });
+  // Ranged slice 6: a vault with a new address every time prints its FIRST
+  // address here and its every-address descriptor on page 2.
+  const fresh = vault.descriptor_version === 2;
+  if (fresh && !vault.descriptor_multipath) throw new Error('This vault gives every payment a new address, but its full descriptor is missing -- a backup without it would miss coins, so none was made.');
+  p1.drawText(fresh ? 'FIRST BITCOIN ADDRESS' : 'BITCOIN ADDRESS', { x: M, y, size: 8, font: bold, color: GOLD });
   y -= 16;
 
   // Address text box (left side, leaving room for QR on right)
@@ -258,7 +262,9 @@ export async function buildVaultPDF(vault) {
 
   y -= 60;
 
-  p1.drawText('Fund the vault by sending Bitcoin to this address. Scan the QR code with your wallet. Verify on your hardware device before sending.',
+  p1.drawText(fresh
+    ? 'This vault gives every payment a new address; this is only its first. Get a new one in the app for each payment. The descriptor on page 2 covers every address -- keep it.'
+    : 'Fund the vault by sending Bitcoin to this address. Scan the QR code with your wallet. Verify on your hardware device before sending.',
     { x: M, y, size: 9, font: regular, color: TEXT_MUTE, maxWidth: W - M * 2 });
   y -= 32;
 
@@ -382,11 +388,14 @@ export async function buildVaultPDF(vault) {
   // ── Output Descriptor ──────────────────────────────────────────────────────
   p2.drawText('OUTPUT DESCRIPTOR', { x: M, y, size: 8, font: bold, color: GOLD });
   y -= 14;
-  p2.drawText('Load this descriptor into Bitcoin Core (version 29 or newer) to watch the vault balance and prepare transactions.',
+  p2.drawText(fresh
+    ? 'This one descriptor covers EVERY address of the vault, receiving and change. Load it into Bitcoin Core (version 29 or newer) to watch the whole balance and prepare transactions.'
+    : 'Load this descriptor into Bitcoin Core (version 29 or newer) to watch the vault balance and prepare transactions.',
     { x: M, y, size: 9, font: regular, color: TEXT_MUTE, maxWidth: W - M * 2 });
   y -= 20;
 
-  const desc = vault.descriptor || '—';
+  const backupDesc = fresh ? vault.descriptor_multipath : vault.descriptor;
+  const desc = backupDesc || '—';
   const descLines = [];
   for (let i = 0; i < desc.length; i += 62) descLines.push(desc.slice(i, i + 62));
   const descH = descLines.length * 14 + 16;
@@ -402,13 +411,13 @@ export async function buildVaultPDF(vault) {
   // future copy of this descriptor (on a signer, in a re-downloaded backup),
   // recompute its fingerprint and compare against what's printed here. See
   // apps/web/src/lib/descriptor-fingerprint.ts for the full rationale.
-  if (vault.descriptor) {
+  if (backupDesc) {
     p2.drawText('DESCRIPTOR FINGERPRINT', { x: M, y, size: 8, font: bold, color: GOLD });
     y -= 14;
     p2.drawText('Compare this against any future copy of the descriptor before trusting it. A mismatch means don\'t sign.',
       { x: M, y, size: 8, font: regular, color: TEXT_MUTE, maxWidth: W - M * 2 });
     y -= 16;
-    p2.drawText(descriptorFingerprint(vault.descriptor), { x: M, y, size: 14, font: mono, color: GOLD });
+    p2.drawText(descriptorFingerprint(backupDesc), { x: M, y, size: 14, font: mono, color: GOLD });
     y -= 22;
   }
 
@@ -478,9 +487,13 @@ export async function buildVaultPDF(vault) {
   y -= 16;
 
   const steps = [
-    ['1. Load the descriptor', 'In Bitcoin Core 29 or newer: getdescriptorinfo, createwallet, importdescriptors. That gives a watch-only wallet showing the balance. The vault backup file prints each command. Tested 11 Nov 2026.'],
+    ['1. Load the descriptor', fresh
+      ? 'In Bitcoin Core 29 or newer: createwallet, then importdescriptors with a range and active, once. That gives a watch-only wallet showing coins on every address. The vault backup file prints each command. Tested 24 Nov 2026.'
+      : 'In Bitcoin Core 29 or newer: getdescriptorinfo, createwallet, importdescriptors. That gives a watch-only wallet showing the balance. The vault backup file prints each command. Tested 11 Nov 2026.'],
     ['2. Get each signer ready', 'Bitcoin Core does not read seed words. Each signer uses a Taproot-miniscript hardware wallet (untested by us), or turns their words into an account key on an OFFLINE computer.'],
-    ['3. Build the transaction', 'createpsbt with the coin, the destination, the amount and the locktime: 0 for a path open now, the path\'s block height for a dated path. Nothing sets it for you.'],
+    ['3. Build the transaction', fresh
+      ? 'createpsbt with the coins, the destination, the amount and the lock: locktime 0 for a path open now, the path\'s block height for a dated path; for an "if untouched" path, locktime 0 and each coin\'s sequence set to the wait. Nothing sets it for you.'
+      : 'createpsbt with the coin, the destination, the amount and the locktime: 0 for a path open now, the path\'s block height for a dated path. Nothing sets it for you.'],
     ['4. Sign with required devices', (() => {
       if (!isLeafShape) return `This vault requires ${vault.founder_quorum || 2} of ${(vault.founder_keys || []).length} founder signatures. Each signer signs the PSBT with walletprocesspsbt.`;
       const immediate = vault.leaves.find(l => l.unlock?.type === 'immediate');

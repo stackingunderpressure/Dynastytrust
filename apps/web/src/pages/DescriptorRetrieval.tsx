@@ -328,6 +328,16 @@ export default function DescriptorRetrieval() {
             seen Sparrow or Nunchuk load this kind of vault; do not count on
             them.
           </div>
+          {recoveredBundle.includes('<0;1>/*') && (
+            <div style={{ fontSize: 16, color: colors.text, marginTop: 8, lineHeight: 1.6 }}>
+              This vault gives every payment a new address, and this one descriptor covers all of
+              them, receiving and change. In Bitcoin Core load it once, with a range and as active,
+              so it finds coins on every address (tested in Bitcoin Core 32.1):{' '}
+              <span style={{ fontFamily: fonts.mono, wordBreak: 'break-all' }}>
+                importdescriptors '[{'{'}"desc":"DESCRIPTOR","timestamp":0,"range":[0,999],"active":true{'}'}]'
+              </span>
+            </div>
+          )}
         </Card>
       )}
 

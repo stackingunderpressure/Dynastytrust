@@ -563,6 +563,7 @@ function LegacyOnChainV2Card({ vault, role, localKeys, toast }: {
                   address,
                   derivationPath: legacyOnChainDerivationPath(vaultNetworkToKeystoreNetwork(vault.network)),
                   txid: candidate?.txid ?? broadcastTxid,
+                  freshAddresses: vault.descriptor_version === 2,
                 })}
               >
                 Download recovery note (nothing secret in it -- safe to keep anywhere)

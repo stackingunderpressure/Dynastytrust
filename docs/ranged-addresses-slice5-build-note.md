@@ -100,3 +100,28 @@ addresses to test coins until it is done.
 Not done yet:
 the downloaded app's
 local server; a walk on a real phone and on signet.
+
+## Slice 6 built: backups (2026-11-24, branch only)
+
+- `scripts/bitcoin-core-ranged-proof.mjs` (needs a Bitcoin Core download;
+  run against 32.1, sha256 checked against bitcoincore.org's SHA256SUMS,
+  release signatures NOT checked): Core gives our `<0;1>/*` descriptor the
+  same checksum and the same receive/change addresses 0-19; ONE watch-only
+  import (`range [0,999]`, `active`) sees coins on five addresses
+  (`getbalance`, `listunspent`); two people spend from two addresses with
+  Core alone; a spend from our server + browser signer is mined with its
+  change on a never-used change address Core counts as the vault's; the
+  "if left untouched" path is refused while young and mined after the
+  wait, by our stack and by Core alone (createpsbt sequence = the wait).
+  7 checks, all passed.
+- `recovery-instructions.ts` `coreRangedRecoveryLines`: only the commands
+  and arguments that proof ran (held to it by test-recovery-instructions).
+- Backup file, Legacy Recovery payload and note, backup PDF, the vault
+  page's descriptor copy / QR / fingerprint: the every-address descriptor
+  for a fresh-address vault; each refuses to be made without it.
+- Recovery page: a recovered every-address descriptor gets its import line.
+- Left as is on purpose: Tapit co-signing's `vault_descriptor` is the
+  vault's identity label in the Tapit wallet (membership claims match on
+  it); the one-address form still names the vault uniquely.
+- Not seen: SeedSigner (or any hardware wallet) registering the
+  `<0;1>/*` descriptor from the QR; Sparrow / Nunchuk loading it.
