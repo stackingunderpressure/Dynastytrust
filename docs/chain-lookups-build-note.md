@@ -86,3 +86,52 @@ broadcast -- taproot signatures commit to every input's amount and script,
 so it cannot move real money wrongly, but the screen would be wrong).
 
 Decision owed by the operator: signet is clear; real bitcoin is not.
+
+## Operator's answer, and the Build Note for it (2026-11-24)
+
+Asked how lookups should work, the operator chose the recommendation "but also
+choice to point at private electrum server of choice", and then, asked who
+picks: **"Each user, in the app".**
+
+**What would be built.** (1) Coin lookups for signet go to mempool.space's
+Electrum server, every watched address in one request, with today's website
+lookups as the fallback. Real bitcoin and testnet stay on today's path unless
+the user has set their own server. (2) A setting, "Your own Electrum server"
+(host and port), saved on the device the way the Nostr relay list already is
+(`nostrRelayPrefs.ts`), sent with each coin lookup. Our server connects to
+it over TLS, asks, and answers.
+
+**Blast radius (read from the code, 2026-11-24).**
+- New `netlify/functions/_electrum.js`: one TLS connection, batched
+  `blockchain.scripthash.listunspent` and the tip; address-to-script-hash.
+- `_vault-coins.js` `coinsAt` (used by `balance.js`, `utxos.js`,
+  `_ranged-spend.js` via `psbt-binary.js`) takes an optional server; the shape
+  it returns does not change, so the coins card, send and spend do not change.
+- Other mempool.space users stay as they are this slice: `psbt-binary-bloc`,
+  `-tranche`, `proposals`, `distribution-wallets`, `_anchor`, fee rate,
+  broadcast, and the two-source tip check that bakes timelock heights (that
+  one must never trust a user-chosen server).
+- Web: a Settings field plus `lib/api.ts` passing it; no database change.
+- Guards: our server would connect wherever a user points it, so it refuses
+  addresses that resolve to private or internal networks, uses TLS only, a
+  short timeout and a size cap. Without these it becomes a tool for probing
+  other machines.
+- Tests: Electrum against a stand-in server; the coin and spend tests stay as
+  they are; the probe gains a mode for the new path.
+
+**Decisions that are the operator's.**
+1. Where the choice is saved: this device only, never on our server (private,
+   matches Nostr relays), or on the account so it follows you.
+2. Home nodes (Umbrel, Start9) use self-signed certificates: pin the
+   certificate's fingerprint the user pastes, or trust whatever certificate the
+   server shows on first contact.
+3. Whether a server the user chose replaces our lookups, or is cross-checked
+   against them (privacy versus a second opinion).
+
+**What is true and must be told plainly.** A node at home behind a router
+is not reachable from our server unless it is exposed to the internet over
+TLS; Tor-only (.onion) nodes will not work from here. Our server still sees
+which addresses it asks about, whichever Electrum server answers.
+
+**Deliberately left out.** Fees, broadcast, the timelock-baking tip, the
+older vault kinds' spend builders, and testnet4.
