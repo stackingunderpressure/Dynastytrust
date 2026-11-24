@@ -5,7 +5,7 @@
  * Addresses are public ones picked from recent blocks (2026-11-24).
  * Exits non-zero if any check fails.
  */
-import { electrumCoins, serverFor, checkUserServer, electrumBatch } from "../netlify/functions/_electrum.js";
+import { electrumCoins, electrumUsed, serverFor, checkUserServer, electrumBatch } from "../netlify/functions/_electrum.js";
 
 const SIGNET = ["tb1pjyf2ry3l9lx3ge9jvs5zzvq0lnqcwg5yct5369hypequ6xs333hqj6qc0j", "tb1qt8v6gj8k2h2fu4h7mjzkwqjyu8rrxdvmvqpdc4",
   "tb1qpxh4ygyft22tjmux7evxqzj76aflk00wa3nxd3gtu3f7z8d38ffqmvg7zw", "tb1pkptnqn5u7ppgve54e5s0rt30yds5j5gyzx2p5a95l458jsr5gu8qdjumk7",
@@ -37,6 +37,17 @@ await check("signet default server: coins match mempool.space's website", async 
   const mine = coins.map(key).sort(), theirs = web.sort();
   if (JSON.stringify(mine) !== JSON.stringify(theirs)) throw new Error(`differ: electrum ${mine.length} vs website ${theirs.length}`);
   return { ms, tip, coins: coins.length };
+});
+
+await check("signet default server: 'ever paid' matches the website's transaction counts", async () => {
+  const used = await electrumUsed(await serverFor("signet", {}), "signet", watch(SIGNET));
+  const web = [];
+  for (const a of SIGNET) {
+    const st = await (await fetch(`https://mempool.space/signet/api/address/${a}`)).json();
+    if (st.chain_stats.tx_count + st.mempool_stats.tx_count > 0) web.push(a);
+  }
+  if (JSON.stringify([...used].sort()) !== JSON.stringify(web.sort())) throw new Error(`differ: ${used.size} vs ${web.length}`);
+  return { paid: used.size, of: SIGNET.length };
 });
 
 let pin = null;
