@@ -2327,6 +2327,30 @@ signers" as not yet verified. Item 1 above postdates it.
 
 **Recently closed:**
 
+- **SeedSigner fork caught up with stock SeedSigner again (2026-11-24).**
+  Operator: "SeedSigner first". Correcting an older entry here: the fork is
+  NOT 123 commits behind -- stock dev (995ce5c) was already merged in
+  (fork commit 02897591, "keep vault script-path signing"), and an image
+  WAS built on 2026-11-19 from f1d03189 (build run 44522089514, success).
+  Today: stock dev moved on by 7 commits (SeedSigner/seedsigner#1073:
+  change and self-transfer outputs checked against the inputs' derivation
+  paths, mixed base paths refused on single-sig v0, a "Distant Address"
+  warning, every warning through one PSBTWarningView). Merged on the fork
+  as 11c57910 and fast-forwarded onto its dev: 13 conflict blocks in 4
+  files resolved keeping both sides (the fork's script-path signing state
+  and script-tree change; stock's split held findings; the fork's
+  fingerprint, spending-path, key-path-bypass and wrong-network screens,
+  with stock's warnings routed through PSBTWarningView). Stock's five new
+  warning-flow tests gained the fork's fingerprint step. Checked on the
+  merged parser: a DynastyTrust multi-leaf spend with change back to the
+  vault's fixed address raises no warning and holds no finding. MEASURED:
+  491 passed, 5 failed -- the same five locale tests that fail in a sandbox
+  without compiled translations. The 2026-11-19 CI failure on f1d03189 was
+  GitHub's runner unable to reach Ubuntu's package mirror, not the code.
+  NOT done: the image. Actions is disabled on the fork repository, so the
+  pi0 build (the operator's board) was refused; it needs Actions switched
+  back on. NOT seen: a physical device on the merged code.
+
 - **Released to main 2026-11-24 (operator: "Ok push to main"):** Face ID
   locks a new key by default; the lost-vs-stolen lesson, below. Owed: the
   operator makes a new key on the iPhone (Face ID, not a password, then the
