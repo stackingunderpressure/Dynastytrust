@@ -41,6 +41,8 @@ import { downloadVault, downloadDistributionWalletBackup } from "../lib/descript
 import { formatDescriptorFingerprint } from "../lib/descriptor-fingerprint";
 import { DescriptorQr } from "../components/DescriptorQr";
 import { QrImage } from "../components/QrImage";
+import { NewReceiveAddress } from "../components/NewReceiveAddress";
+import { isFreshAddressVault } from "../lib/fresh-addresses";
 import { RotatePathVault } from "../components/RotatePathVault";
 import { PathDraftCard } from "../components/PathDraftCard";
 import { pubkeyFromXpub, fingerprintFromXpub } from "../lib/xpub";
@@ -632,10 +634,12 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
               )}
               <div style={{ fontSize: 16, color: colors.sub, marginTop: 8, lineHeight: 1.5 }}>
                 First deposit? Send a small amount, wait until it shows here, then send the rest.
+                {isFreshAddressVault(vault) && " This is the vault's first address; for every later deposit, get a new one below."}
               </div>
             </div>
           )}
-          {vault.address && (
+          {vault.address && vault.status !== "draft" && isFreshAddressVault(vault) && <NewReceiveAddress vault={vault} />}
+          {vault.address && !isFreshAddressVault(vault) && (
             <div style={{ fontSize: 15, color: colors.muted, marginTop: 10, lineHeight: 1.5 }}>
               This vault has one fixed address, reused for every deposit --
               anyone who sees one payment to it can see every payment to it

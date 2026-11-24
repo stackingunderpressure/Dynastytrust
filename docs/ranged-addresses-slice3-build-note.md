@@ -94,3 +94,22 @@ gap-limit warnings (need slice 4).
    relative lock in the spend slice) rather than refuse them.
 4. Tapit-only paths: **allowed, with a plain warning** that their addresses
    can be linked.
+
+## Built (2026-11-24, branch only -- ships with slices 4 and 5)
+
+- Compile: `_ranged-compile.js` + `/ranged-compile` wasm route; fresh by
+  default, fixed on request or when no key has an xpub; rotation and the
+  Bloc shape stay fixed.
+- Vault builder: "Receiving addresses" choice on the keys step; warning for
+  paths that use only Tapit keys.
+- Vault page: "New receive address" (`components/NewReceiveAddress.tsx`),
+  label sealed with the vault key (`F.addressLabel`). Receive address 0 is
+  the vault's own address: it is recorded as issued and never handed out as
+  new, so the first "new" address is 1.
+- Real Postgres 16: `scripts/ranged-migration-pg.sh` 45 passed, 0 failed.
+  The test-data reset deletes vaults (the lock is update-only; address rows
+  cascade). Rotation inserts and compiles a new draft. No function writes a
+  locked field after compile (checked every `from("vaults").update`).
+- Left for slice 4: the balance and coin list still read only `address`
+  (receive 0), so coins on addresses 1+ are not yet seen -- which is why
+  this does not ship alone.

@@ -9,7 +9,8 @@
 //      own address -- so every address handed out comes from the compiled
 //      vault, never from anything else;
 //   4. reserve the next receive index (one row-locked statement in the
-//      database; concurrent callers each get a different number);
+//      database; concurrent callers each get a different number) -- index 0
+//      is the vault's own address, recorded and skipped, never handed out;
 //   5. derive that index with the Rust (compiler wasm) and record it. The
 //      database refuses a row whose descriptor checksum is not the vault's,
 //      an index never reserved, or a repeat of an index or address.
@@ -36,7 +37,13 @@ export async function handler(event) {
   }
   const vaultId = body.vault_id;
   if (typeof vaultId !== "string" || !/^[0-9a-f-]{36}$/i.test(vaultId)) return json(400, { error: "vault_id is required" });
-  const label = typeof body.label === "string" ? body.label.trim().slice(0, 80) || null : null;
+  // A label sealed with the vault key (zk1:, lib/vault-keyring.ts) is kept
+  // whole -- the server never reads it; a plain one is cut to 80 characters.
+  const rawLabel = typeof body.label === "string" ? body.label.trim() : "";
+  const label = rawLabel.startsWith("zk1:")
+    ? (rawLabel.length <= 400 ? rawLabel : null)
+    : rawLabel.slice(0, 80) || null;
+  if (rawLabel.startsWith("zk1:") && !label) return json(400, { error: "That label is too long." });
 
   const supabase = getSupabaseAdmin();
   if (await overLimit(supabase, { name: "vault-address", event, max: 60, windowSeconds: 3600 })) return json(429, { error: TOO_MANY });
@@ -81,28 +88,36 @@ export async function handler(event) {
     return json(500, { error: "This vault's stored descriptor does not match its address. No address was issued -- please contact support." });
   }
 
-  // 4. Reserve.
-  const { data: index, error: rErr } = await supabase.rpc("reserve_vault_address_index", { p_vault_id: vaultId, p_branch: RECEIVE });
-  if (rErr || !Number.isInteger(index)) return json(500, { error: `Could not reserve an address: ${rErr?.message || "no index"}` });
-
-  // 5. Derive and record.
-  let derived;
-  try {
-    derived = rangedAddress(vault, RECEIVE, index);
-  } catch (e) {
-    return json(500, { error: `Address ${index} could not be derived; nothing was recorded: ${e.message}` });
-  }
-  const { error: iErr } = await supabase.from("vault_addresses").insert({
-    vault_id: vaultId,
-    branch: RECEIVE,
-    idx: index,
-    address: derived.address,
-    script_pubkey: derived.script_pubkey,
-    descriptor_checksum: derived.descriptor_checksum,
-    issued_by: u.userId,
-    label,
-  });
-  if (iErr) return json(500, { error: `The address could not be recorded, so it was not issued: ${iErr.message}` });
+  // 4-5. Reserve, derive, record. Receive address 0 IS the vault's own
+  // address (shown when it was made, and for its first deposit), so it is
+  // never handed out as new: when the reservation lands on 0, that address
+  // is recorded as issued (no label) and the next one is reserved.
+  const reserveAndRecord = async (rowLabel) => {
+    const { data: index, error: rErr } = await supabase.rpc("reserve_vault_address_index", { p_vault_id: vaultId, p_branch: RECEIVE });
+    if (rErr || !Number.isInteger(index)) return { status: 500, error: `Could not reserve an address: ${rErr?.message || "no index"}` };
+    let derived;
+    try {
+      derived = rangedAddress(vault, RECEIVE, index);
+    } catch (e) {
+      return { status: 500, error: `Address ${index} could not be derived; nothing was recorded: ${e.message}` };
+    }
+    const { error: iErr } = await supabase.from("vault_addresses").insert({
+      vault_id: vaultId,
+      branch: RECEIVE,
+      idx: index,
+      address: derived.address,
+      script_pubkey: derived.script_pubkey,
+      descriptor_checksum: derived.descriptor_checksum,
+      issued_by: u.userId,
+      label: index === 0 ? null : rowLabel,
+    });
+    if (iErr) return { status: 500, error: `The address could not be recorded, so it was not issued: ${iErr.message}` };
+    return { index, derived };
+  };
+  let got = await reserveAndRecord(label);
+  if (!got.error && got.index === 0) got = await reserveAndRecord(label);
+  if (got.error) return json(got.status, { error: got.error });
+  const { index, derived } = got;
 
   return json(200, { ok: true, index, address: derived.address, label });
 }

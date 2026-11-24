@@ -131,12 +131,28 @@ r = await call({ vault_id: V2.id });
 assert.equal(r.statusCode, 500); assert.equal(state.inserted.length, 0);
 pass('if recording fails, or reserving fails, no address is handed out');
 
-// 5. Consecutive calls get consecutive, different addresses.
+// 5. Consecutive calls get consecutive, different addresses -- starting at 1:
+// receive address 0 is the vault's own (shown at funding), recorded as issued
+// with no label and never handed out as new.
 reset(V2);
 const got = [];
-for (let i = 0; i < 5; i++) got.push((await call({ vault_id: V2.id })).body.address);
+for (let i = 0; i < 5; i++) got.push((await call({ vault_id: V2.id, label: 'zk1:sealed-label' })).body.address);
 assert.equal(new Set(got).size, 5);
-got.forEach((a, i) => assert.equal(prog(a), prog(shape.receive[i])));
-pass("five calls: indexes 0-4, five different addresses, each Bitcoin Core's");
+got.forEach((a, i) => assert.equal(prog(a), prog(shape.receive[i + 1])));
+assert.equal(state.inserted.length, 6);
+assert.equal(state.inserted[0].idx, 0); assert.equal(state.inserted[0].label, null);
+assert.equal(prog(state.inserted[0].address), prog(shape.receive[0]));
+assert.ok(!got.includes(V2.address));
+assert.equal(state.inserted[1].label, 'zk1:sealed-label');
+pass("five calls: indexes 1-5 (0 recorded, never handed out), each Bitcoin Core's");
+
+// 6. A sealed label is kept whole; an over-long sealed label is refused.
+reset(V2, { next: 4 });
+r = await call({ vault_id: V2.id, label: 'zk1:' + 'a'.repeat(300) });
+assert.equal(r.statusCode, 200); assert.equal(state.inserted[0].label.length, 304);
+reset(V2, { next: 4 });
+r = await call({ vault_id: V2.id, label: 'zk1:' + 'a'.repeat(500) });
+assert.equal(r.statusCode, 400); assert.equal(state.reserved, 0);
+pass('a sealed label is kept whole; an over-long one is refused before reserving');
 
 console.log(`vault-addresses tests passed (${n} cases)`);

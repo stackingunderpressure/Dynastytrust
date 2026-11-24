@@ -858,6 +858,15 @@ export const api = {
     // `fresh` (ranged slice 3): the xpub origins the server uses to give the
     // vault a new address every time; it checks each one is the vault's own.
     // Omitted (e.g. rotation) means one fixed address.
+    // Ranged slice 3: the next never-used receive address of a vault with
+    // fresh addresses (netlify/functions/vault-addresses.js). The optional
+    // label is sealed with the vault key; the server never reads it.
+    newReceiveAddress: async (vault_id: string, label?: string) =>
+      req<{ ok: true; index: number; address: string }>('/vault-addresses', {
+        method: 'POST',
+        body: JSON.stringify({ vault_id, label: label ? await seal(vault_id, F.addressLabel, label) : undefined }),
+      }),
+
     compileLeaves: (vault_id: string, key_origins?: { pubkey: string; fingerprint: string; derivation_path: string }[],
       fresh?: { addresses: AddressChoice; ranged_origins: { fingerprint: string; account_path: string; xpub: string }[] }) =>
       opened(req<CompileAnswer>('/compile-leaves', {

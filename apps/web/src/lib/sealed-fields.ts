@@ -30,6 +30,7 @@ export const F = {
   attestationData: 'attestation.target_data',
   proposalMemo: 'proposal.memo',
   signerLabel: 'signer.label',
+  addressLabel: 'address.label',
 } as const;
 
 type Row = Record<string, unknown>;
