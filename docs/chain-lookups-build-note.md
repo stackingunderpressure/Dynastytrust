@@ -51,3 +51,10 @@ shipped (fa2b177). This note is the proper fix. Nothing is built yet.
 
 Moving lookups into the browser (each person's own IP would avoid our
 limit but tells mempool.space who owns which vault).
+
+## Decision (operator's chip, 2026-11-24)
+
+**A public Electrum server.** First step: find servers that actually answer
+for signet and for real bitcoin -- `scripts/electrum-probe.mjs`, run by a
+GitHub workflow on the working branch (this sandbox cannot open raw
+connections), asks each candidate for its tip and one address's coins.
