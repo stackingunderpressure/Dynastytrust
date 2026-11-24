@@ -104,3 +104,4 @@ exact-bytes check makes today.
   list Tapit's fixture signs with.
 - After both ship: resend My Vault's membership request from the Members
   tab, accept in Tapit, then retry the spend. Not walked on a phone yet.
+Shipped to main 2026-11-24 with the Electrum coin lookups (operator: "Ship both now").

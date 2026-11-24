@@ -157,3 +157,5 @@ passed):
 
 Still unverified until it is live: Netlify's machines rather than GitHub's,
 and the panel walked on a phone.
+
+Shipped to main 2026-11-24 (operator: "Ship both now").
