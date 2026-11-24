@@ -35,10 +35,43 @@
 [functions."ledger-anchor"]
   schedule = "17 9 * * *"
 
-# The v2 address-issuing function derives addresses with the compiler
-# WebAssembly (netlify/functions/_ranged-wasm.js), checked against its
-# manifest before use; both files must ship with the function.
+# Every function that runs the compiler WebAssembly
+# (netlify/functions/_ranged-wasm.js -- directly, or through _ranged-compile,
+# _vault-coins or _ranged-spend) must ship the .wasm and its manifest: it is
+# read from disk and checked against the manifest, never bundled by esbuild.
+# Missing here = that function refuses every fresh-address request.
+# scripts/test-wasm-bundling.mjs holds this list to the code.
 [functions."vault-addresses"]
+  included_files = [
+    "apps/web/src/lib/wasm/dynastytrust_compiler_wasm.wasm",
+    "apps/web/src/lib/wasm/compiler-wasm.manifest.json",
+  ]
+
+[functions."vaults-compile"]
+  included_files = [
+    "apps/web/src/lib/wasm/dynastytrust_compiler_wasm.wasm",
+    "apps/web/src/lib/wasm/compiler-wasm.manifest.json",
+  ]
+
+[functions."compile-leaves"]
+  included_files = [
+    "apps/web/src/lib/wasm/dynastytrust_compiler_wasm.wasm",
+    "apps/web/src/lib/wasm/compiler-wasm.manifest.json",
+  ]
+
+[functions."balance"]
+  included_files = [
+    "apps/web/src/lib/wasm/dynastytrust_compiler_wasm.wasm",
+    "apps/web/src/lib/wasm/compiler-wasm.manifest.json",
+  ]
+
+[functions."utxos"]
+  included_files = [
+    "apps/web/src/lib/wasm/dynastytrust_compiler_wasm.wasm",
+    "apps/web/src/lib/wasm/compiler-wasm.manifest.json",
+  ]
+
+[functions."psbt-binary"]
   included_files = [
     "apps/web/src/lib/wasm/dynastytrust_compiler_wasm.wasm",
     "apps/web/src/lib/wasm/compiler-wasm.manifest.json",
