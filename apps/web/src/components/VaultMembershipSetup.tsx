@@ -446,7 +446,9 @@ export function VaultMembershipSetup({
       // Tapit can refuse a spend whose "change" goes anywhere else.
       let change: { scripts: string[]; until: number | null } | null = null;
       if (changeVault) {
-        const next = changeVault.descriptor_version === 2 ? (await api.vaults.addressIndexes(changeVault.id)).next[1] : 0;
+        // From the lowest change address a spend may still use (a reused one,
+        // left by a spend never sent), so Tapit knows it too.
+        const next = changeVault.descriptor_version === 2 ? (await api.vaults.addressIndexes(changeVault.id)).change_from : 0;
         change = await changeScriptsFor(changeVault, next);
       }
       const result = await sendVaultMembershipRequestOverNostr({

@@ -12,7 +12,7 @@
 
 import { callWasm } from "./_ranged-wasm.js";
 import { MEMPOOL, mempoolFetch } from "./_chain.js";
-import { electrumCoins, serverFor } from "./_electrum.js";
+import { electrumCoins, electrumUsed, serverFor } from "./_electrum.js";
 
 /** Unused addresses watched past the last reserved index, per branch.
  *  Every address the app ever handed out is always watched; this margin is
@@ -25,7 +25,10 @@ export const LOOK_AHEAD = { 0: 5, 1: 2 };
 const PARALLEL = 3;
 const RETRIES = 2;
 const RETRY_WAIT_MS = 1200;
-const MAX_PER_BRANCH = 200; // the wasm route's own cap
+const ROUTE_MAX = 200; // the wasm route's own cap per call
+// Addresses watched per branch. Was 200 (the route's cap) until 2026-11-24,
+// which would have stopped a long-lived vault seeing its newest addresses.
+const MAX_PER_BRANCH = 5000;
 
 /** Reserved-index counters for a v2 vault: { 0: n, 1: m } (0 when unset). */
 export async function nextIndexes(supabase, vaultId) {
@@ -49,19 +52,23 @@ export function watchedAddresses(vault, next = { 0: 0, 1: 0 }, call = callWasm) 
   const out = [];
   for (const branch of [0, 1]) {
     const count = Math.min(MAX_PER_BRANCH, Math.max(1, next[branch] ?? 0) + LOOK_AHEAD[branch]);
-    const r = call("/ranged-addresses", {
-      multipath: vault.descriptor_multipath,
-      receive: vault.descriptor_receive,
-      change: vault.descriptor_change,
-      network: vault.network,
-      branch,
-      start: 0,
-      count,
-    });
-    if (r.status !== 200 || !r.body?.ok || !Array.isArray(r.body.addresses)) {
-      throw new Error(r.body?.error || `address list refused (${r.status})`);
+    // The wasm route answers at most ROUTE_MAX per call; ask in runs so a
+    // vault past 200 addresses keeps watching its newest ones (2026-11-24).
+    for (let start = 0; start < count; start += ROUTE_MAX) {
+      const r = call("/ranged-addresses", {
+        multipath: vault.descriptor_multipath,
+        receive: vault.descriptor_receive,
+        change: vault.descriptor_change,
+        network: vault.network,
+        branch,
+        start,
+        count: Math.min(ROUTE_MAX, count - start),
+      });
+      if (r.status !== 200 || !r.body?.ok || !Array.isArray(r.body.addresses)) {
+        throw new Error(r.body?.error || `address list refused (${r.status})`);
+      }
+      for (const a of r.body.addresses) out.push({ branch, index: a.index, address: a.address });
     }
-    for (const a of r.body.addresses) out.push({ branch, index: a.index, address: a.address });
   }
   const zero = out.find((a) => a.branch === 0 && a.index === 0);
   if (!zero || zero.address !== vault.address) {
@@ -124,6 +131,41 @@ export async function vaultCoins(network, watched, userServers = {}, deps = {}) 
   try {
     const { coins, tip } = await (deps.electrumCoins ?? electrumCoins)(server, network, watched, deps);
     return { coins, tip, source: server.own ? "your Electrum server" : `Electrum (${server.host})` };
+  } catch (e) {
+    if (server.own) throw e;
+    console.warn(`default Electrum server failed, using the website lookups: ${e.message}`);
+    return viaWebsite();
+  }
+}
+
+/**
+ * Which of `watched` have ever been paid (docs/receive-address-reuse-until-
+ * paid-build-note.md): same servers and same rules as vaultCoins -- the
+ * person's own Electrum server only, else the default Electrum server with
+ * the website as fallback, else the website (an address's transaction
+ * count, confirmed plus waiting). A Set of addresses.
+ */
+export async function vaultUsed(network, watched, userServers = {}, deps = {}) {
+  const viaWebsite = async () => {
+    const base = MEMPOOL[network] || MEMPOOL.testnet;
+    const used = new Set();
+    let next = 0;
+    const fetchJson = deps.fetchJson ?? mempoolFetch;
+    async function worker() {
+      while (next < watched.length) {
+        const w = watched[next++];
+        const st = await withRetry(() => fetchJson(`${base}/address/${w.address}`), deps.retryWaitMs);
+        if ((st?.chain_stats?.tx_count ?? 0) + (st?.mempool_stats?.tx_count ?? 0) > 0) used.add(w.address);
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(PARALLEL, watched.length) }, worker));
+    return used;
+  };
+  if (!watched.length) return new Set();
+  const server = await (deps.serverFor ?? serverFor)(network, userServers, deps);
+  if (!server) return viaWebsite();
+  try {
+    return await (deps.electrumUsed ?? electrumUsed)(server, network, watched, deps);
   } catch (e) {
     if (server.own) throw e;
     console.warn(`default Electrum server failed, using the website lookups: ${e.message}`);

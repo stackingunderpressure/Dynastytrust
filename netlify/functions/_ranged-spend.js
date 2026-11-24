@@ -14,7 +14,8 @@
 // spend combines coins from several addresses.
 
 import { callWasm, rangedAddress } from "./_ranged-wasm.js";
-import { nextIndexes, vaultCoins, watchedAddresses } from "./_vault-coins.js";
+import { nextIndexes, vaultCoins, vaultUsed, watchedAddresses } from "./_vault-coins.js";
+import { reusableChange } from "./_receive-choice.js";
 import { fetchTipHeight, getFeeRate } from "./_chain.js";
 import { inputVbytesFor, selectCoins } from "../../packages/vault-rules/src/spend.js";
 
@@ -93,12 +94,35 @@ export async function buildRangedSpend({ supabase, vault, userId, body, userServ
   const picked = selectCoins({ confirmed: ready, amount_sats, sweep, selected_utxos, rate, inputVbytes: inputVbytesFor(vault, path) });
   if (!picked.ok) return { status: picked.status, body: { ...picked.body, ...(waiting.length ? { waiting } : {}) } };
 
-  // A never-used change address, reserved only when there is change.
+  // A never-used change address, only when there is change. First the
+  // lowest change address already issued but never paid -- left by a spend
+  // built and never sent -- so abandoned spends leave no gap a restoring
+  // wallet could stop at (docs/receive-address-reuse-until-paid-build-
+  // note.md); otherwise a new one, reserved.
   let changeIndex = 0;
+  let changeReused = false;
   if (picked.hasChange) {
-    const { data, error } = await supabase.rpc("reserve_vault_address_index", { p_vault_id: vault.id, p_branch: CHANGE });
-    if (error || !Number.isInteger(data)) return { status: 500, body: { error: `Could not reserve a change address: ${error?.message || "no index"}` } };
-    changeIndex = data;
+    const usedOf = deps.vaultUsed ?? vaultUsed;
+    const { data: issuedChange, error: cErr } = await supabase
+      .from("vault_addresses").select("idx, address").eq("vault_id", vault.id).eq("branch", CHANGE).order("idx", { ascending: true }).limit(5000);
+    if (cErr) return { status: 500, body: { error: `Could not read the change addresses: ${cErr.message}` } };
+    let reuse = null;
+    if (issuedChange?.length) {
+      try {
+        const used = await usedOf(network, issuedChange.map((a) => ({ branch: CHANGE, index: a.idx, address: a.address })), userServers);
+        reuse = reusableChange(issuedChange, used);
+      } catch (e) {
+        return { status: 502, body: { error: "Could not check the change addresses: " + e.message } };
+      }
+    }
+    if (reuse) {
+      changeIndex = reuse.idx;
+      changeReused = true;
+    } else {
+      const { data, error } = await supabase.rpc("reserve_vault_address_index", { p_vault_id: vault.id, p_branch: CHANGE });
+      if (error || !Number.isInteger(data)) return { status: 500, body: { error: `Could not reserve a change address: ${error?.message || "no index"}` } };
+      changeIndex = data;
+    }
   }
 
   const where = new Map(watched.map((w) => [w.address, w]));
@@ -132,7 +156,8 @@ export async function buildRangedSpend({ supabase, vault, userId, body, userServ
       return { status: 500, body: { error: `The change address could not be checked: ${e.message}` } };
     }
     if (derived.address !== r.body.change_address) return { status: 500, body: { error: "The change address did not match, so nothing was built." } };
-    const { error } = await supabase.from("vault_addresses").insert({
+    // A reused change address is already recorded.
+    const { error } = changeReused ? { error: null } : await supabase.from("vault_addresses").insert({
       vault_id: vault.id, branch: CHANGE, idx: changeIndex, address: derived.address,
       script_pubkey: derived.script_pubkey, descriptor_checksum: derived.descriptor_checksum, issued_by: userId, label: null,
     });

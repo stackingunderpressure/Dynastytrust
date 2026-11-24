@@ -2,7 +2,14 @@
 //   -> { ok, next: { 0: n, 1: m } } -- the next index each branch will hand
 //   out, so a Tapit membership request can list the vault's NEXT change
 //   addresses (docs/tapit-review-modes-build-note.md). Reads only.
-// POST /api/vault-addresses  { vault_id, label? }
+// GET  /api/vault-addresses?vault_id=<uuid>&list=1 -> { ok, addresses: [{
+//   index, address, label, paid }] } newest first (receive addresses issued).
+// POST /api/vault-addresses  { vault_id, label?, mode? }
+//   mode "current" (default, 2026-11-24): the newest issued receive address
+//   never paid, shown again, until it is paid -- only then a new one. mode
+//   "new": a new one even so ("I need a different one"), refused once
+//   GAP_LIMIT addresses in a row are unpaid. Paid = any history on chain.
+//   docs/receive-address-reuse-until-paid-build-note.md.
 // Hands out the next receive address of a v2 (ranged) vault.
 // Plan: docs/ranged-addresses-slice2-build-note.md (operator's OK 2026-11-19).
 //
@@ -25,7 +32,9 @@ import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 import { overLimit, TOO_MANY } from "./_rate-limit.js";
 import { rangedAddress } from "./_ranged-wasm.js";
-import { canSeeVault, nextIndexes } from "./_vault-coins.js";
+import { canSeeVault, nextIndexes, vaultUsed } from "./_vault-coins.js";
+import { userServersFrom } from "./_electrum.js";
+import { GAP_LIMIT, currentUnpaid, reusableChange, unpaidRun } from "./_receive-choice.js";
 
 const RECEIVE = 0;
 
@@ -94,6 +103,29 @@ export async function handler(event) {
     return json(500, { error: "This vault's stored descriptor does not match its address. No address was issued -- please contact support." });
   }
 
+  // The addresses already issued, and which have ever been paid (the
+  // person's own Electrum server if their device sent one).
+  const mode = body.mode === "new" ? "new" : "current";
+  let issued, used, next;
+  try {
+    ({ issued, next } = await issuedReceive(supabase, vaultId));
+    used = await vaultUsed(vault.network, issued.map((a) => ({ branch: RECEIVE, index: a.idx, address: a.address })), userServersFrom(event));
+  } catch (e) {
+    return json(502, { error: `Could not check which addresses have been paid: ${e.message}` });
+  }
+  if (mode === "current") {
+    const cur = currentUnpaid(issued, used);
+    if (cur) {
+      // Same address again; a label typed now is kept if it had none.
+      if (label && !cur.label) await supabase.from("vault_addresses").update({ label }).eq("vault_id", vaultId).eq("branch", RECEIVE).eq("idx", cur.idx);
+      return json(200, { ok: true, index: cur.idx, address: cur.address, label: cur.label || label, reused: true, unpaid_run: unpaidRun(next, issued, used) });
+    }
+  } else if (unpaidRun(next, issued, used) >= GAP_LIMIT) {
+    return json(409, {
+      error: `There are already ${GAP_LIMIT} unpaid addresses in a row. Another one could be missed by a wallet restoring this vault, which stops looking after ${GAP_LIMIT} empty addresses. Use one from the list, or wait until one is paid.`,
+    });
+  }
+
   // 4-5. Reserve, derive, record. Receive address 0 IS the vault's own
   // address (shown when it was made, and for its first deposit), so it is
   // never handed out as new: when the reservation lands on 0, that address
@@ -125,7 +157,22 @@ export async function handler(event) {
   if (got.error) return json(got.status, { error: got.error });
   const { index, derived } = got;
 
-  return json(200, { ok: true, index, address: derived.address, label });
+  const after = [...issued, { idx: index, address: derived.address, label }];
+  return json(200, { ok: true, index, address: derived.address, label, reused: false, unpaid_run: unpaidRun(index + 1, after, used) });
+}
+
+/** A v2 vault's issued receive addresses and its next receive number. */
+async function issuedReceive(supabase, vaultId) {
+  const { data, error } = await supabase
+    .from("vault_addresses")
+    .select("idx, address, label")
+    .eq("vault_id", vaultId)
+    .eq("branch", RECEIVE)
+    .order("idx", { ascending: true })
+    .limit(5000);
+  if (error) throw new Error(error.message);
+  const next = (await nextIndexes(supabase, vaultId))[RECEIVE];
+  return { issued: data ?? [], next };
 }
 
 async function nextIndexesFor(event) {
@@ -134,9 +181,41 @@ async function nextIndexesFor(event) {
   const vaultId = event.queryStringParameters?.vault_id;
   if (typeof vaultId !== "string" || !/^[0-9a-f-]{36}$/i.test(vaultId)) return json(400, { error: "vault_id is required" });
   const supabase = getSupabaseAdmin();
-  const { data: vault, error } = await supabase.from("vaults").select("id, user_id, descriptor_version").eq("id", vaultId).maybeSingle();
+  const { data: vault, error } = await supabase.from("vaults").select("id, user_id, network, descriptor_version").eq("id", vaultId).maybeSingle();
   if (error) return json(500, { error: error.message });
   if (!vault || !(await canSeeVault(supabase, vault, u.userId))) return json(404, { error: "Vault not found" });
   if (vault.descriptor_version !== 2) return json(400, { error: "This vault has one fixed address." });
-  return json(200, { ok: true, next: await nextIndexes(supabase, vaultId) });
+  if (event.queryStringParameters?.list === "1") {
+    let issued, used, next;
+    try {
+      ({ issued, next } = await issuedReceive(supabase, vaultId));
+      used = await vaultUsed(vault.network, issued.map((a) => ({ branch: RECEIVE, index: a.idx, address: a.address })), userServersFrom(event));
+    } catch (e) {
+      return json(502, { error: `Could not check which addresses have been paid: ${e.message}` });
+    }
+    return json(200, {
+      ok: true,
+      unpaid_run: unpaidRun(next, issued, used),
+      gap_limit: GAP_LIMIT,
+      addresses: issued.filter((a) => a.idx > 0).reverse().map((a) => ({ index: a.idx, address: a.address, label: a.label, paid: used.has(a.address) })),
+    });
+  }
+  // Where a Tapit member's change list must start: the lowest change
+  // address a spend may still use -- one issued but never paid (a spend
+  // never sent; _ranged-spend.js reuses it) -- else the next new one.
+  const next = await nextIndexes(supabase, vaultId);
+  let change_from = next[1];
+  const { data: issuedChange, error: cErr } = await supabase
+    .from("vault_addresses").select("idx, address").eq("vault_id", vaultId).eq("branch", 1).order("idx", { ascending: true }).limit(5000);
+  if (cErr) return json(500, { error: cErr.message });
+  if (issuedChange?.length) {
+    try {
+      const used = await vaultUsed(vault.network, issuedChange.map((a) => ({ branch: 1, index: a.idx, address: a.address })), userServersFrom(event));
+      const reuse = reusableChange(issuedChange, used);
+      if (reuse) change_from = reuse.idx;
+    } catch (e) {
+      return json(502, { error: `Could not check the change addresses: ${e.message}` });
+    }
+  }
+  return json(200, { ok: true, next, change_from });
 }

@@ -881,13 +881,24 @@ export const api = {
     // label is sealed with the vault key; the server never reads it.
     /** A fresh-address vault's next index per branch (0 receive, 1 change). */
     addressIndexes: (vault_id: string) =>
-      req<{ ok: true; next: { 0: number; 1: number } }>(`/vault-addresses?vault_id=${encodeURIComponent(vault_id)}`),
+      req<{ ok: true; next: { 0: number; 1: number }; change_from: number }>(`/vault-addresses?vault_id=${encodeURIComponent(vault_id)}`, { headers: electrumHeaders() }),
 
-    newReceiveAddress: async (vault_id: string, label?: string) =>
-      req<{ ok: true; index: number; address: string }>('/vault-addresses', {
+    /** A fresh-address vault's issued receive addresses, newest first, and
+     *  whether each has ever been paid. */
+    receiveAddresses: (vault_id: string) =>
+      req<{ ok: true; unpaid_run: number; gap_limit: number; addresses: { index: number; address: string; label: string | null; paid: boolean }[] }>(
+        `/vault-addresses?vault_id=${encodeURIComponent(vault_id)}&list=1`, { headers: electrumHeaders() })
+        .then(r => ({ ...r, addresses: r.addresses.map(a => ({ ...a, label: a.label ? (openVaultText(vault_id, F.addressLabel, a.label) as string) : null })) })),
+
+    /** The receive address to give out: the newest one never paid, again,
+     *  until it is paid (mode 'current'); or a new one even so ('new',
+     *  refused at 20 unpaid in a row). */
+    newReceiveAddress: async (vault_id: string, label?: string, mode: 'current' | 'new' = 'current') =>
+      req<{ ok: true; index: number; address: string; label?: string | null; reused?: boolean; unpaid_run?: number }>('/vault-addresses', {
         method: 'POST',
-        body: JSON.stringify({ vault_id, label: label ? await seal(vault_id, F.addressLabel, label) : undefined }),
-      }),
+        headers: electrumHeaders(),
+        body: JSON.stringify({ vault_id, mode, label: label ? await seal(vault_id, F.addressLabel, label) : undefined }),
+      }).then(r => ({ ...r, label: r.label ? (openVaultText(vault_id, F.addressLabel, r.label) as string) : null })),
 
     compileLeaves: (vault_id: string, key_origins?: { pubkey: string; fingerprint: string; derivation_path: string }[],
       fresh?: { addresses: AddressChoice; ranged_origins: { fingerprint: string; account_path: string; xpub: string }[] }) =>

@@ -32,7 +32,8 @@ V2.address = callWasm('/ranged-address', { multipath: V2.descriptor_multipath, r
 
 let state;
 function reset(vault, opts = {}) {
-  state = { vault, user: OWNER, next: opts.next ?? 0, inserted: [], reserved: 0, insertError: opts.insertError ?? null, rpcError: opts.rpcError ?? null };
+  state = { vault, user: OWNER, next: opts.next ?? 0, inserted: [], reserved: 0, insertError: opts.insertError ?? null, rpcError: opts.rpcError ?? null,
+    used: new Set(), updated: [] };
 }
 const q = (table) => {
   const filters = {};
@@ -44,6 +45,12 @@ const q = (table) => {
       if (table === 'vault_members') return { data: filters.user_id === MEMBER ? { id: 'm1' } : null, error: null };
       return { data: null, error: null };
     },
+    order: () => o,
+    limit: () => o,
+    // The issued addresses (what this test recorded), for the "current
+    // unpaid" and list reads.
+    then: (res) => res({ data: table === 'vault_addresses' ? state.inserted.filter((a) => a.branch === filters.branch).map((a) => ({ idx: a.idx, address: a.address, label: a.label })).sort((a, b) => a.idx - b.idx) : [], error: null }),
+    update: (row) => { state.updated.push(row); return o; },
     insert: async (row) => {
       if (state.insertError) return { error: { message: state.insertError } };
       state.inserted.push(row);
@@ -69,6 +76,14 @@ mock.module(F('_supabase.js'), { namedExports: { getSupabaseAdmin: () => supabas
 mock.module(F('_auth.js'), { namedExports: {
   requireUser: async () => (state.user ? { userId: state.user } : { error: 'Not signed in' }),
   json: (statusCode, body) => ({ statusCode, body }),
+} });
+// Which addresses the chain says were ever paid: state.used (the real
+// lookups are tested in test-electrum.mjs / test-vault-coins.mjs).
+const realCoins = await import(F('_vault-coins.js'));
+mock.module(F('_vault-coins.js'), { namedExports: {
+  ...realCoins,
+  nextIndexes: async () => ({ 0: state.next, 1: 0 }),
+  vaultUsed: async (_net, watched) => new Set(watched.map((w) => w.address).filter((a) => state.used.has(a))),
 } });
 const { handler } = await import(F('vault-addresses.js'));
 const call = (body) => handler({ httpMethod: 'POST', headers: {}, body: JSON.stringify(body) });
@@ -136,7 +151,7 @@ pass('if recording fails, or reserving fails, no address is handed out');
 // with no label and never handed out as new.
 reset(V2);
 const got = [];
-for (let i = 0; i < 5; i++) got.push((await call({ vault_id: V2.id, label: 'zk1:sealed-label' })).body.address);
+for (let i = 0; i < 5; i++) got.push((await call({ vault_id: V2.id, label: 'zk1:sealed-label', mode: 'new' })).body.address);
 assert.equal(new Set(got).size, 5);
 got.forEach((a, i) => assert.equal(prog(a), prog(shape.receive[i + 1])));
 assert.equal(state.inserted.length, 6);
@@ -144,7 +159,7 @@ assert.equal(state.inserted[0].idx, 0); assert.equal(state.inserted[0].label, nu
 assert.equal(prog(state.inserted[0].address), prog(shape.receive[0]));
 assert.ok(!got.includes(V2.address));
 assert.equal(state.inserted[1].label, 'zk1:sealed-label');
-pass("five calls: indexes 1-5 (0 recorded, never handed out), each Bitcoin Core's");
+pass("five 'different one' calls: indexes 1-5 (0 recorded, never handed out), each Bitcoin Core's");
 
 // 6. A sealed label is kept whole; an over-long sealed label is refused.
 reset(V2, { next: 4 });
@@ -154,5 +169,41 @@ reset(V2, { next: 4 });
 r = await call({ vault_id: V2.id, label: 'zk1:' + 'a'.repeat(500) });
 assert.equal(r.statusCode, 400); assert.equal(state.reserved, 0);
 pass('a sealed label is kept whole; an over-long one is refused before reserving');
+
+// 7. Operator, 2026-11-24: "If I click on an address and don't use it there
+// is no way to go back and use it". The same unpaid address comes back
+// until it is paid; then the next one.
+reset(V2);
+const first = await call({ vault_id: V2.id });
+const again = await call({ vault_id: V2.id });
+assert.equal(first.body.index, 1); assert.equal(again.body.index, 1); assert.equal(again.body.reused, true);
+assert.equal(state.reserved, 2); // 0 (the vault's own, recorded) and 1 -- nothing for the repeat
+state.used.add(first.body.address);
+const third = await call({ vault_id: V2.id });
+assert.equal(third.body.index, 2); assert.equal(third.body.reused, false);
+pass('the same unpaid address is shown again (nothing reserved); once paid, the next one');
+
+// 8. "I need a different one" is refused at 20 unpaid in a row, before reserving.
+reset(V2);
+for (let i = 0; i < 19; i++) assert.equal((await call({ vault_id: V2.id, mode: 'new' })).statusCode, 200);
+state.used.add(state.inserted[0].address); // the vault's own address (0) was paid
+r = await call({ vault_id: V2.id, mode: 'new' });
+assert.equal(r.statusCode, 200, JSON.stringify(r.body)); assert.equal(r.body.unpaid_run, 20);
+const before = state.reserved;
+r = await call({ vault_id: V2.id, mode: 'new' });
+assert.equal(r.statusCode, 409); assert.match(r.body.error, /20 unpaid addresses in a row/); assert.equal(state.reserved, before);
+r = await call({ vault_id: V2.id });
+assert.equal(r.statusCode, 200); assert.equal(r.body.reused, true); assert.equal(r.body.index, 20);
+pass("a 21st unpaid address is refused with the reason; the current one is still shown");
+
+// 9. The list: newest first, paid or waiting, without address 0.
+reset(V2);
+for (let i = 0; i < 3; i++) await call({ vault_id: V2.id, mode: 'new' });
+state.used.add(state.inserted.find((a) => a.idx === 2).address);
+r = await handler({ httpMethod: 'GET', headers: {}, queryStringParameters: { vault_id: V2.id, list: '1' } });
+assert.equal(r.statusCode, 200, JSON.stringify(r.body));
+assert.deepEqual(r.body.addresses.map((a) => [a.index, a.paid]), [[3, false], [2, true], [1, false]]);
+assert.equal(r.body.unpaid_run, 1); assert.equal(r.body.gap_limit, 20);
+pass('the list shows 3, 2 (paid), 1 newest first, and one unpaid after the last paid');
 
 console.log(`vault-addresses tests passed (${n} cases)`);

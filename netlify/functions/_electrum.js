@@ -197,6 +197,30 @@ export async function electrumCoins(server, network, watched, deps = {}) {
   return { coins, tip };
 }
 
+/**
+ * Which watched addresses have EVER been paid (any history, confirmed or
+ * waiting, even if since spent) -- one batched get_history
+ * (docs/receive-address-reuse-until-paid-build-note.md). Checks the chain
+ * like electrumCoins does. Returns a Set of addresses.
+ */
+export async function electrumUsed(server, network, watched, deps = {}) {
+  const calls = [
+    ["blockchain.block.header", [0]],
+    ...watched.map((w) => ["blockchain.scripthash.get_history", [scripthashOf(w.address, network)]]),
+  ];
+  const { results } = await electrumBatch(server, calls, deps);
+  if (headerHash(String(results.get(0) || "")) !== GENESIS[network]) {
+    throw new Error(`Electrum server ${server.host} is not on ${network}. Nothing was read from it.`);
+  }
+  const used = new Set();
+  watched.forEach((w, i) => {
+    const list = results.get(i + 1);
+    if (!Array.isArray(list)) throw new Error(`Electrum server ${server.host} did not answer for every address.`);
+    if (list.length) used.add(w.address);
+  });
+  return used;
+}
+
 /** First contact with a user's server: is it reachable, on the right chain, and what certificate does it show? */
 export async function checkUserServer(raw, network, deps = {}) {
   const s = parseUserServer(raw);

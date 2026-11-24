@@ -40,14 +40,19 @@ const coin = (w, value, height, k) => ({ txid: k.toString(16).padStart(64, '0'),
 let db;
 const supabase = {
   from: (t) => {
-    const o = { select: () => o, eq: () => o, then: (res) => res({ data: Object.entries(db.next).map(([branch, next_index]) => ({ branch: Number(branch), next_index })), error: null }),
+    // vault_addresses: the change addresses already issued (db.change);
+    // vault_address_branches: the counters.
+    const o = { select: () => o, eq: () => o, order: () => o, limit: () => o,
+      then: (res) => res(t === 'vault_addresses'
+        ? { data: db.change, error: null }
+        : { data: Object.entries(db.next).map(([branch, next_index]) => ({ branch: Number(branch), next_index })), error: null }),
       insert: async (row) => { db.inserted.push({ t, ...row }); return { error: null }; } };
     return o;
   },
   rpc: async (name, args) => { db.rpc.push(args); return { data: db.nextChange++, error: null }; },
 };
-const deps = (coins) => ({ coinsAt: async () => coins, fetchTipHeight: async () => TIP, getFeeRate: async () => 2 });
-const reset = () => { db = { next: { 0: 5, 1: 3 }, inserted: [], rpc: [], nextChange: 4 }; };
+const deps = (coins, used = new Set()) => ({ coinsAt: async () => coins, fetchTipHeight: async () => TIP, getFeeRate: async () => 2, vaultUsed: async () => used });
+const reset = () => { db = { next: { 0: 5, 1: 3 }, inserted: [], rpc: [], nextChange: 4, change: [] }; };
 const dest = callWasm('/ranged-address', { multipath: V.descriptor_multipath, receive: V.descriptor_receive, change: V.descriptor_change, network: 'signet', branch: 0, index: 40 }).body.address;
 
 // 1. Everyday path from two addresses, change to a reserved, recorded change address.
@@ -118,4 +123,23 @@ assert.equal(o.ready.length, 1);
 assert.equal(oldEnough([{ txid: 'a', vout: 0, value: 1, status: { block_height: 100 } }], 108, 10).ready.length, 0);
 pass('a coin is old enough once tip - height + 1 reaches the wait');
 
+
+// Change from a spend built but never sent is reused, not left as a gap
+// (docs/receive-address-reuse-until-paid-build-note.md).
+reset();
+db.change = [0, 1, 2, 3].map(i => ({ idx: i, address: at(1, i).address }));
+r = await buildRangedSpend({ supabase, vault: V, userId: 'u1', body: { destination: dest, amount_sats: 70_000, path: 'everyday' } },
+  deps([coin(at(0, 0), 30_000, TIP - 10, 1), coin(at(0, 3), 50_000, TIP - 10, 2)], new Set([at(1, 0).address, at(1, 2).address])));
+assert.equal(r.status, 200, JSON.stringify(r.body));
+assert.equal(r.body.summary.change_address, at(1, 1).address);
+assert.equal(db.rpc.length, 0); assert.equal(db.inserted.length, 0);
+pass('change goes to the lowest change address never paid (1), with nothing new reserved or recorded');
+
+reset();
+db.change = [0, 1, 2, 3].map(i => ({ idx: i, address: at(1, i).address }));
+r = await buildRangedSpend({ supabase, vault: V, userId: 'u1', body: { destination: dest, amount_sats: 70_000, path: 'everyday' } },
+  deps([coin(at(0, 0), 30_000, TIP - 10, 1), coin(at(0, 3), 50_000, TIP - 10, 2)], new Set(db.change.map(c => c.address))));
+assert.equal(r.status, 200, JSON.stringify(r.body));
+assert.equal(db.rpc.length, 1); assert.equal(r.body.summary.change_address, db.inserted[0].address);
+pass('every change address paid: a new one is reserved and recorded, as before');
 console.log(`ranged-spend tests passed (${n} cases)`);

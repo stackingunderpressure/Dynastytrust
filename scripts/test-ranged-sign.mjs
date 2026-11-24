@@ -62,7 +62,7 @@ const TIP = 200_000;
 const coin = (b, i, value, height, k) => ({ txid: k.toString(16).padStart(64, '0'), vout: 0, value, status: { confirmed: true, block_height: height }, address: addr(b, i), branch: b, index: i });
 let db;
 const supabase = {
-  from: () => { const o = { select: () => o, eq: () => o, then: (res) => res({ data: [{ branch: 0, next_index: 4 }, { branch: 1, next_index: 0 }], error: null }), insert: async (row) => { db.push(row); return { error: null }; } }; return o; },
+  from: (t) => { const o = { select: () => o, eq: () => o, order: () => o, limit: () => o, then: (res) => res(t === 'vault_addresses' ? { data: [], error: null } : { data: [{ branch: 0, next_index: 4 }, { branch: 1, next_index: 0 }], error: null }), insert: async (row) => { db.push(row); return { error: null }; } }; return o; },
   rpc: async () => ({ data: 0, error: null }),
 };
 const build = async (path, amount, coins) => {
