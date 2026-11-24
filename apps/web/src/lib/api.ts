@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import type { EncryptedMessage } from './messaging';
 import { broadcastTxUrl, type Network } from '../config';
 import type { ProofOfLife, DuressFlag } from 'tapit-attest';
 import type { SpendingPathSummary } from './vault-spending-paths';
@@ -239,7 +240,9 @@ export interface VaultMembershipGrant {
   recipient_pubkey: string;
   request_event_id: string | null;
   reply_pubkey: string;
-  reply_privkey: string;
+  /** Legacy readable reply key; new rows use reply_privkey_sealed (lib/reply-key-seal.ts). */
+  reply_privkey: string | null;
+  reply_privkey_sealed?: EncryptedMessage | null;
   // 'left' (2026-08-15, operator: "when you disengage from it and you
   // want to delete yourself from it, it would notify Dynasty Trust that
   // you have a trustee that's disconnected") is a member's own wallet
@@ -269,6 +272,7 @@ export interface CirclePhraseDelivery {
   delivered_at: string;
   reply_pubkey: string | null;
   reply_privkey: string | null;
+  reply_privkey_sealed?: EncryptedMessage | null;
   confirmed_at: string | null;
   created_at: string;
   updated_at: string;
@@ -389,6 +393,8 @@ export interface ProposalComment {
   user_id: string;
   body: string | null;
   vote: ProposalVote | null;
+  /** Body + vote sealed with the vault key (lib/vault-key.ts); body/vote are null when set. */
+  sealed?: string | null;
 }
 
 /** One signer's row on a proposal -- who's been asked to sign and whether
@@ -555,6 +561,17 @@ export interface VaultInvite {
 }
 
 //
+
+/** GET /api/vault-keys (zero-knowledge storage, lib/vault-key.ts). */
+export interface VaultKeysState {
+  ok: true;
+  version: number;
+  owner_user_id: string;
+  checks: Record<string, string>;
+  mine: { version: number; wrap: EncryptedMessage }[];
+  current_holders: { user_id: string; pubkey: string | null }[];
+  members: { user_id: string; messaging_pubkey: string | null }[];
+}
 
 export const api = {
   vaults: {
@@ -1255,11 +1272,18 @@ export const api = {
       }),
   },
 
+  vaultKeys: {
+    get: (vault_id: string) =>
+      req<VaultKeysState>(`/vault-keys?vault_id=${vault_id}`),
+    post: (body: { vault_id: string; version: number; check?: string; wraps: { recipient_user_id: string; wrap: EncryptedMessage }[] }) =>
+      req<{ ok: true; version: number }>(`/vault-keys`, { method: 'POST', body: JSON.stringify(body) }),
+  },
+
   proposalComments: {
     list: (proposal_id: string) =>
       req<{ ok: true; comments: ProposalComment[] }>(`/proposal-comments?proposal_id=${proposal_id}`),
 
-    create: (body: { proposal_id: string; body?: string; vote?: ProposalVote }) =>
+    create: (body: { proposal_id: string; body?: string; vote?: ProposalVote; sealed?: string }) =>
       req<{ ok: true; comment: ProposalComment }>(`/proposal-comments`, {
         method: 'POST',
         body: JSON.stringify(body),
@@ -1540,7 +1564,7 @@ export const api = {
       recipient_pubkey: string;
       request_event_id: string | null;
       reply_pubkey: string;
-      reply_privkey: string;
+      reply_privkey_sealed: EncryptedMessage;
     }) =>
       req<{ ok: true; grant: VaultMembershipGrant }>(`/vault-membership-grants`, {
         method: 'POST',
@@ -1567,7 +1591,7 @@ export const api = {
       recipient_persona: string;
       status: 'delivered' | 'queued';
       reply_pubkey?: string;
-      reply_privkey?: string;
+      reply_privkey_sealed?: EncryptedMessage;
     }) =>
       req<{ ok: true; delivery: CirclePhraseDelivery }>(`/circle-phrase-deliveries`, {
         method: 'POST',

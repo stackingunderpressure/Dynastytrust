@@ -5,7 +5,10 @@
  *        List comments + votes for a proposal (member-only).
  * POST /api/proposal-comments
  *        Body: { proposal_id, body?, vote? ('approve'|'abstain'|'decline') }
- *        At least one of body or vote required.
+ *        or    { proposal_id, sealed } -- body + vote sealed with the vault key
+ *        (lib/vault-key.ts, zero-knowledge plan Z1). The server stores the
+ *        sealed text and never learns the words or the vote.
+ *        At least one of body, vote or sealed required.
  *        If the caller already has a vote on this proposal, the
  *        new row supersedes the previous vote (the old row is
  *        kept for audit; UI dedupes to the latest per-member vote).
@@ -17,7 +20,8 @@ import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 import { recordEvent } from "./_ledger.js";
 
-const FIELDS = "id, created_at, proposal_id, user_id, body, vote";
+const FIELDS = "id, created_at, proposal_id, user_id, body, vote, sealed";
+const MAX_SEALED = 20000;
 
 export async function handler(event) {
   const u = await requireUser(event);
@@ -63,9 +67,16 @@ export async function handler(event) {
       return json(400, { error: "Invalid JSON body" });
     }
 
-    const { proposal_id, body: text, vote } = body;
+    const { proposal_id, body: text, vote, sealed } = body;
     if (!proposal_id) return json(400, { error: "Missing: proposal_id" });
-    if (!text && !vote) return json(400, { error: "Provide a comment body, a vote, or both" });
+    if (sealed !== undefined) {
+      if (typeof sealed !== "string" || !sealed.startsWith("zk1:") || sealed.length > MAX_SEALED) {
+        return json(400, { error: "Invalid sealed comment" });
+      }
+      if (text || vote) return json(400, { error: "Send either a sealed comment or a readable one, not both" });
+    } else if (!text && !vote) {
+      return json(400, { error: "Provide a comment body, a vote, or both" });
+    }
     if (vote && !["approve", "abstain", "decline"].includes(vote)) {
       return json(400, { error: "Invalid vote" });
     }
@@ -89,8 +100,9 @@ export async function handler(event) {
     const row = {
       proposal_id,
       user_id: u.userId,
-      body: text ?? null,
-      vote: vote ?? null,
+      body: sealed ? null : text ?? null,
+      vote: sealed ? null : vote ?? null,
+      sealed: sealed ?? null,
     };
 
     const { data, error } = await supabase
@@ -104,7 +116,8 @@ export async function handler(event) {
     await recordEvent(supabase, {
       vault_id: proposal.vault_id,
       user_id: u.userId,
-      event_type: vote ? `voted_${vote}` : "commented",
+      // A sealed comment may carry a vote; never write its value here.
+      event_type: sealed ? "commented" : vote ? `voted_${vote}` : "commented",
       metadata: { proposal_id, comment_id: data.id },
     });
 

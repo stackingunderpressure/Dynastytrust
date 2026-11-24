@@ -32,6 +32,12 @@ import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 import { recordEvent } from "./_ledger.js";
 
+// A sealed reply key (lib/reply-key-seal.ts) is an EncryptedMessage the
+// server cannot open; shape-checked only.
+const validSealed = (w) => !!w && typeof w === "object" && typeof w.sender_pubkey === "string"
+  && typeof w.nonce === "string" && typeof w.ciphertext === "string" && w.ciphertext.length <= 4096
+  && Array.isArray(w.recipients) && w.recipients.length === 1;
+
 // What a grant contributes to the vault's sealed record. Never the reply
 // keypair: reply_privkey is a messaging private key.
 const sealedGrant = (g) => ({
@@ -64,7 +70,7 @@ export async function handler(event) {
 
     const { data, error } = await supabase
       .from("vault_membership_grants")
-      .select("id, role, key_id, recipient_label, recipient_persona, recipient_pubkey, request_event_id, reply_pubkey, reply_privkey, status, responded_at, created_at, updated_at")
+      .select("id, role, key_id, recipient_label, recipient_persona, recipient_pubkey, request_event_id, reply_pubkey, reply_privkey, reply_privkey_sealed, status, responded_at, created_at, updated_at")
       .eq("vault_id", vaultId)
       .eq("user_id", u.userId)
       .order("created_at", { ascending: true });
@@ -79,7 +85,7 @@ export async function handler(event) {
 
     const {
       vault_id, role, key_id, recipient_label, recipient_persona,
-      recipient_pubkey, request_event_id, reply_pubkey, reply_privkey,
+      recipient_pubkey, request_event_id, reply_pubkey, reply_privkey, reply_privkey_sealed,
     } = body;
     if (!vault_id) return json(400, { error: "Missing: vault_id" });
     if (!role) return json(400, { error: "Missing: role" });
@@ -87,7 +93,8 @@ export async function handler(event) {
     if (!recipient_label) return json(400, { error: "Missing: recipient_label" });
     if (!recipient_pubkey) return json(400, { error: "Missing: recipient_pubkey" });
     if (!reply_pubkey) return json(400, { error: "Missing: reply_pubkey" });
-    if (!reply_privkey) return json(400, { error: "Missing: reply_privkey" });
+    if (!reply_privkey && !reply_privkey_sealed) return json(400, { error: "Missing: reply_privkey_sealed" });
+    if (reply_privkey_sealed && !validSealed(reply_privkey_sealed)) return json(400, { error: "Invalid reply_privkey_sealed" });
 
     // Only the vault owner sends membership grants -- same authority
     // invites.js requires for invite creation. Without this check any
@@ -112,14 +119,16 @@ export async function handler(event) {
           recipient_pubkey,
           request_event_id: request_event_id ?? null,
           reply_pubkey,
-          reply_privkey,
+          // New rows keep only the sealed copy (zero-knowledge plan Z0).
+          reply_privkey: reply_privkey_sealed ? null : reply_privkey,
+          reply_privkey_sealed: reply_privkey_sealed ?? null,
           status: "sent",
           responded_at: null,
           updated_at: new Date().toISOString(),
         },
         { onConflict: "vault_id,role,key_id" },
       )
-      .select("id, role, key_id, recipient_label, recipient_persona, recipient_pubkey, request_event_id, reply_pubkey, reply_privkey, status, responded_at, created_at, updated_at")
+      .select("id, role, key_id, recipient_label, recipient_persona, recipient_pubkey, request_event_id, reply_pubkey, reply_privkey, reply_privkey_sealed, status, responded_at, created_at, updated_at")
       .single();
     if (error) return json(500, { error: error.message });
     await recordEvent(supabase, { vault_id, user_id: u.userId, event_type: "grant_sent", metadata: sealedGrant(data) });
@@ -147,7 +156,7 @@ export async function handler(event) {
     if (body.status === "left") query = query.eq("status", "accepted");
 
     const { data, error } = await query
-      .select("id, vault_id, role, key_id, recipient_label, recipient_persona, recipient_pubkey, request_event_id, reply_pubkey, reply_privkey, status, responded_at, created_at, updated_at")
+      .select("id, vault_id, role, key_id, recipient_label, recipient_persona, recipient_pubkey, request_event_id, reply_pubkey, reply_privkey, reply_privkey_sealed, status, responded_at, created_at, updated_at")
       .maybeSingle();
     if (error) return json(500, { error: error.message });
     if (!data) {

@@ -62,6 +62,7 @@ function psbtBindingHash(psbtHex: string): string {
 }
 import { ledgerEventWords } from "../lib/ledger-verify";
 import { VaultAddressGate } from "../components/VaultAddressGate";
+import { useVaultKey } from "../lib/use-vault-key";
 import { encryptMessage, decryptMessage, getMessagingPubkey, messagingKeyLocked, messagingKeyUsesFaceId, unlockMessagingKey, lockMessagingKey, unlockMessagingKeyForGood, regenerateMessagingKey } from "../lib/messaging";
 import { passkeysAvailable } from "../lib/passkey";
 import { TrustTab } from "../components/TrustTab";
@@ -293,6 +294,10 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
     if (!origins.length) return;
     void api.vaults.repairKeyOrigins(vault.id, origins).catch(() => {});
   }, [vault]);
+
+  // Vault key housekeeping on every open (zero-knowledge plan Z1): the owner
+  // creates or replaces it, members share it with whoever lacks it.
+  useVaultKey(vault.id);
 
   // Publish this browser's X25519 messaging pubkey to the user's
   // vault_members row on first visit so other members can send

@@ -1,6 +1,6 @@
 # Zero-knowledge storage — scramble what the server keeps
 
-Status: PLAN, decisions recorded (section 8); Z1 build note (section 10) awaiting go. No code.
+Status: Z0 + Z1 slice 1 BUILT on claude/nostr-phase1-giftwrap (2026-11-24), not deployed. Decisions in section 8; build note in section 10.
 Read from DynastyTrust origin/main @ 6d0b82d. Part of the Standard track in
 tapit-wallet `docs/ROADMAP_STANDARD_SOVEREIGN.md` (P2, "privacy first").
 
@@ -247,8 +247,6 @@ Unchanged by Z1: anything the server computes on for money or structure
 
 ### Decisions still needed
 
-6. Existing test data: re-encrypt in place and accept that old ledger entries
-   stay readable, or reset test data (no real users yet).
-7. A new member waiting for the key: acceptable (recommended), or the founder
-   pre-wraps at invite time (needs the newcomer's messaging key before they
-   join, which they don't have yet).
+6. Existing test data: RESET (operator, 2026-11-24) -- by hand with
+   `scripts/reset-test-data.sql` at ship time, never inside a migration.
+7. A new member waiting for the key: accepted (operator, 2026-11-24).

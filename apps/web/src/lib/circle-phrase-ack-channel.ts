@@ -40,6 +40,9 @@ export const CIRCLE_PHRASE_ACK_KIND = 9581;
 export interface CirclePhraseAck {
   /** Which delivery this ack confirms -- the reply pubkey it was addressed to. */
   replyPubkey: string;
+  /** The ack's real signer (inner event author). The caller must check it is
+   *  the recipient's own Tapit key: the reply pubkey is public in the request. */
+  signerPubkey: string;
   eventId: string;
   receivedAt: number;
 }
@@ -104,5 +107,5 @@ async function handleIncoming(
     return;
   }
   if (!isAckPayload(parsed)) return;
-  onAck({ replyPubkey: pTag, eventId: event.id, receivedAt: event.created_at });
+  onAck({ replyPubkey: pTag, signerPubkey: event.pubkey, eventId: event.id, receivedAt: event.created_at });
 }

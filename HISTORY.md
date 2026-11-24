@@ -2327,6 +2327,40 @@ signers" as not yet verified. Item 1 above postdates it.
 
 **Recently closed:**
 
+- **Zero-knowledge storage, slice 1: the vault key, sealed comments and votes
+  (2026-11-24).** From docs/zero-knowledge-storage-plan.md (operator: Z0 + Z1,
+  devices do the checks, start clean). Each vault now gets a random key made
+  in the owner's browser (`lib/vault-key.ts`), wrapped to every member's
+  X25519 messaging key with the same scheme messages use, one row per member
+  per key version in the new `vault_keys` table (`vault-keys.js`). The owner
+  publishes a check value per version, so a member rejects a key slipped to
+  them by anyone else; wraps must come from the caller's own published key
+  and go only to active members; only the owner creates or replaces the key;
+  members whose messaging key changed since it was pinned are not given it;
+  a member on a new device gets it shared again; removing a member replaces
+  the key on the owner's next open (`use-vault-key.ts`, run on every vault
+  open). Proposal comments and votes are now sealed before they leave the
+  device (`proposal_comments.sealed`); the server stores ciphertext only, and
+  the activity log says "commented" instead of `voted_approve` /
+  `voted_decline`, which used to leak the vote. Z0: the Nostr ack reply keys
+  are stored wrapped to the owner's own messaging key
+  (`lib/reply-key-seal.ts`), never readable; old rows still open. Reading the
+  code first re-rated Z0 from "security bug" to hygiene (a leaked reply key
+  only opens accept/decline acks whose status the server already has) and
+  found a real small gap: circle-phrase "received" acks weren't checked
+  against the recipient's key -- now they are. `scripts/reset-test-data.sql`
+  is the operator's one-time clean start (run by hand, never a migration).
+  Tests: `test-vault-key.mjs` (sealing, key sharing across simulated devices,
+  the plan cases, the reply-key seal, and the REAL vault-keys and
+  proposal-comments handlers); `scripts/test-zk-db.sh` replays all 59
+  migrations on a real Postgres, checks the new constraints and the browser
+  write ban, and runs the reset (vault, comment and ledger entry to zero,
+  accounts kept, ledger triggers back on). Gates: lint 0 errors (11 warnings,
+  same as before), typecheck 10 pre-existing errors in the same files, build
+  OK, npm test exit 0. NOT walked in a browser with two real accounts.
+  Left for later slices: names and labels, history payloads, PDFs in the
+  browser, the assistant.
+
 - **Tapit answers can arrive gift-wrapped, hiding which wallet answered
   (2026-11-23).** From the Tapit privacy review: DynastyTrust's own requests
   to a Tapit wallet already used a throwaway sender key, but Tapit's four

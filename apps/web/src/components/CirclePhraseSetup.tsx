@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { openReplyKey, sealReplyKey } from '../lib/reply-key-seal';
 import { Link } from 'react-router-dom';
 import { getTapitCircleMembers } from '../lib/tapit-circle-members';
 import { sendCirclePhrasePairOverNostr } from '../lib/circle-phrase-delivery';
@@ -110,14 +111,19 @@ export function CirclePhraseSetup({
   // arrived while this page was closed still gets caught on the next
   // mount -- same pattern VaultMembershipSetup.tsx uses for its own
   // accept/decline roster.
-  const pendingReplyKeys = deliveries.filter(d => !d.confirmed_at && d.reply_privkey).map(d => d.reply_privkey!);
+  const pendingReplyKeys = deliveries.filter(d => !d.confirmed_at).map(openReplyKey).filter((k): k is string => !!k);
   const pendingKeysSignature = pendingReplyKeys.slice().sort().join(',');
   useEffect(() => {
     if (pendingReplyKeys.length === 0) return;
     const transport = new NostrTransport({ relays: getNostrRelays() });
+    const expectedSigner = new Map(getTapitCircleMembers(founderKeys).circleMembers.map(k => [k.keyId, k.tapitXOnlyPubkey?.toLowerCase()]));
     const sub = subscribeCirclePhraseAcks(transport, pendingReplyKeys, ack => {
       const d = deliveriesRef.current.find(x => x.reply_pubkey === ack.replyPubkey);
       if (!d || d.confirmed_at) return;
+      // The reply pubkey is public in the request event, so anyone could
+      // send a "received". Only the recipient's own Tapit key counts.
+      const expected = expectedSigner.get(d.recipient_key_id);
+      if (!expected || ack.signerPubkey.toLowerCase() !== expected) return;
       void api.circlePhraseDeliveries.confirm(ack.replyPubkey).then(res => {
         setDeliveries(prev => prev.map(x => (x.id === res.delivery.id ? res.delivery : x)));
         toast.success(`${d.recipient_label} confirmed receipt of the safety phrase`);
@@ -217,7 +223,8 @@ export function CirclePhraseSetup({
         recipient_persona: persona,
         status: outcome,
         reply_pubkey: result.replyPublicKey,
-        reply_privkey: result.replyPrivateKey,
+        // Wrapped to this browser's own messaging key, never stored readable.
+        reply_privkey_sealed: sealReplyKey(result.replyPrivateKey),
       });
       setDeliveries(prev => [...prev.filter(d => d.id !== saved.delivery.id), saved.delivery]);
       return outcome;
