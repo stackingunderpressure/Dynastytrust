@@ -320,3 +320,58 @@ fn ranged_address_route_matches_the_vectors() {
     assert_eq!(handle("/ranged-address", &req(2, 0)).0, 400);
     assert_eq!(handle("/ranged-address", &req(0, MAX_INDEX + 1)).0, 400);
 }
+
+// 9. The /ranged-compile route (what the compile functions call, slice 3)
+//    turns the compiled vault into exactly the vector's descriptors, and
+//    refuses an xpub that is not one of the vault's keys.
+#[test]
+fn ranged_compile_route_makes_the_vectors_descriptors() {
+    use dynastytrust_protocol::service::handle;
+    let s = shape("family");
+    let compiled = build_leaf_multileaf(&policy(&s)).unwrap();
+    let wire: Vec<Value> = s["origins"].as_array().unwrap().iter().map(|o| serde_json::json!({
+        "fingerprint": o["fingerprint"], "account_path": o["account_path"], "xpub": o["xpub"],
+    })).collect();
+    let req = |origins: &Vec<Value>| serde_json::json!({
+        "template": compiled.descriptor, "network": "signet", "origins": origins,
+    }).to_string();
+    let (status, body) = handle("/ranged-compile", &req(&wire));
+    assert_eq!(status, 200, "{body}");
+    let v: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["multipath"], s["multipath_descriptor"]);
+    assert_eq!(v["receive"], s["receive_descriptor"]);
+    assert_eq!(v["change"], s["change_descriptor"]);
+    let want0 = bitcoin::Address::from_str(s["receive"][0].as_str().unwrap()).unwrap().assume_checked().script_pubkey();
+    let got0 = bitcoin::Address::from_str(v["receive0"].as_str().unwrap()).unwrap().assume_checked().script_pubkey();
+    assert_eq!(got0, want0, "receive/0 is the compiled address");
+
+    // An xpub that is not one of this vault's keys (a different seed; every
+    // vector shape shares the same test keys, so one is made here): refused.
+    let secp = Secp256k1::new();
+    let master = bitcoin::bip32::Xpriv::new_master(Network::Testnet, &[7u8; 32]).unwrap();
+    let path = DerivationPath::from_str("m/48'/1'/0'/2'").unwrap();
+    let foreign = Xpub::from_priv(&secp, &master.derive_priv(&secp, &path).unwrap());
+    let mut wrong = wire.clone();
+    wrong[0] = serde_json::json!({ "fingerprint": master.fingerprint(&secp).to_string(), "account_path": "m/48'/1'/0'/2'", "xpub": foreign.to_string() });
+    let (status, body) = handle("/ranged-compile", &req(&wrong));
+    assert_eq!(status, 422, "{body}");
+    // And a set that leaves one of the vault's xpub keys fixed still works
+    // only if every given origin is in the vault: dropping one is allowed.
+    let fewer: Vec<Value> = wire[1..].to_vec();
+    assert_eq!(handle("/ranged-compile", &req(&fewer)).0, 200);
+
+    // /ranged-addresses lists the same change addresses as the vectors.
+    let list = serde_json::json!({
+        "multipath": v["multipath"], "receive": v["receive"], "change": v["change"],
+        "network": "signet", "branch": 1, "start": 0, "count": 10,
+    }).to_string();
+    let (status, body) = handle("/ranged-addresses", &list);
+    assert_eq!(status, 200, "{body}");
+    let l: Value = serde_json::from_str(&body).unwrap();
+    for i in 0..10usize {
+        let want = bitcoin::Address::from_str(s["change"][i].as_str().unwrap()).unwrap().assume_checked().script_pubkey();
+        assert_eq!(l["addresses"][i]["script_pubkey"].as_str().unwrap(), hex::encode(want.as_bytes()), "change/{i}");
+    }
+    let too_many = serde_json::json!({ "multipath": v["multipath"], "receive": v["receive"], "change": v["change"], "network": "signet", "branch": 0, "start": 0, "count": 201 }).to_string();
+    assert_eq!(handle("/ranged-addresses", &too_many).0, 400);
+}

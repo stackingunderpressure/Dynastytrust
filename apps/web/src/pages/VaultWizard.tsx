@@ -5,10 +5,10 @@ import {
   type LocalKey,
 } from '../lib/keystore';
 import {
-  upgradeDescriptor, buildKeyOrigins, buildPsbtKeyOrigins, toPubkeyHex,
+  upgradeDescriptor, buildKeyOrigins, buildPsbtKeyOrigins, buildRangedOrigins, keyCanRange, toPubkeyHex,
   type SelectedKey,
 } from '../lib/descriptor-keys';
-import { api, type Vault, type VaultProposal, type BlocPolicy, type TrustDoc, type VaultInvite, type VaultMember } from '../lib/api';
+import { api, type AddressChoice, type Vault, type VaultProposal, type BlocPolicy, type TrustDoc, type VaultInvite, type VaultMember } from '../lib/api';
 import { DOWNLOAD } from '../lib/download';
 import { hydrateSlots, mustSlot } from '../lib/path-people';
 import { PathInvites } from '../components/vault-builder/PathInvites';
@@ -398,6 +398,8 @@ export default function VaultWizard() {
   // the trap: nothing stopped a new vault from silently landing on the
   // network this app doesn't actually support end to end.
   const [network, setNetwork] = useState<NetworkChoice>('signet');
+  // Operator's chip, 2026-11-24: a new address every time, by default.
+  const [addressChoice, setAddressChoice] = useState<AddressChoice>('fresh');
 
   const [stdConfig, setStdConfig] = useState<StandardConfig>(DEFAULT_STANDARD_CONFIG);
   const [blocConfig, setBlocConfig] = useState<BlocConfig>(DEFAULT_BLOC_CONFIG);
@@ -837,7 +839,8 @@ export default function VaultWizard() {
           consent_keys: stdConfig.consentEnabled ? toDirect(consentKeys) : [],
           backup_keys: stdConfig.backupEnabled ? toDirect(backupKeys) : [],
           second_heir_keys: stdConfig.secondInheritanceEnabled ? toDirect(secondHeirKeys) : [],
-        });
+        }, addressChoice);
+        if (addressChoice === 'fresh' && res.addresses === 'fixed' && res.addresses_note) toast.info(res.addresses_note);
         // Upgrade the descriptor to Nunchuk/Sparrow key-origin form,
         // same post-processing PolicyBuilder's save() already did.
         await assertTimelocks(draftVault.network, [
@@ -860,7 +863,9 @@ export default function VaultWizard() {
         // One key may be on several paths; its origin is sent once.
         const allLeafKeys = enabled.flatMap(l => [...(leafKeys[mustSlot(l.id)] ?? []), ...(leafKeys[l.id] ?? [])])
           .filter((k, i, all) => all.findIndex(o => o.keyId === k.keyId) === i);
-        const res = await api.vaults.compileLeaves(draftVault.id, buildPsbtKeyOrigins(allLeafKeys));
+        const res = await api.vaults.compileLeaves(draftVault.id, buildPsbtKeyOrigins(allLeafKeys),
+          { addresses: addressChoice, ranged_origins: buildRangedOrigins(allLeafKeys) });
+        if (addressChoice === 'fresh' && res.addresses === 'fixed' && res.addresses_note) toast.info(res.addresses_note);
         // Checked here as well as on the server: every must-sign key has
         // to be in its own path's compiled script. If it is not, the
         // address is for a weaker vault than the one on screen.
@@ -1041,6 +1046,7 @@ export default function VaultWizard() {
           people={people}
           reloadPeople={reloadPeople}
           slotsReady={slotsReady}
+          addressChoice={addressChoice} setAddressChoice={setAddressChoice}
           onContinue={() => { setStep('compile'); void runCompile(); }}
           onSaveForLater={() => {
             toast.success(shape === 'leaves'
@@ -2179,7 +2185,7 @@ function KeysStep({
   parentKeys, setParentKeys, kidKeys, setKidKeys,
   network, onChangeNetwork, networkBusy, genRole, setGenRole, onGenerateKey, onImportXpub, onImportTapitKey,
   vaultId, vaultName, ownerUserId, people, reloadPeople,
-  slotsReady, onContinue, onSaveForLater,
+  slotsReady, addressChoice, setAddressChoice, onContinue, onSaveForLater,
 }: {
   shape: Shape; stdConfig: StandardConfig; blocConfig: BlocConfig;
   leafDrafts: LeafDraft[];
@@ -2205,6 +2211,8 @@ function KeysStep({
   people: { members: VaultMember[]; invites: VaultInvite[] };
   reloadPeople: () => Promise<void>;
   slotsReady: boolean;
+  addressChoice: AddressChoice;
+  setAddressChoice: (c: AddressChoice) => void;
   onContinue: () => void;
   onSaveForLater: () => void;
 }) {
@@ -2240,6 +2248,16 @@ function KeysStep({
   const everyPathSig = everyPathKeys.map(k => k.keyId).sort().join(',');
   const [ackFor, setAckFor] = useState('');
   const needsAck = everyPathKeys.length > 0 && ackFor !== everyPathSig;
+  // Paths whose every key is a Tapit key (no xpub): those keys are the same
+  // at every address, so spending by that path links the addresses.
+  const tapitOnlyPaths = shape === 'leaves'
+    ? enabledLeaves
+      .filter(l => {
+        const ks = [...(leafKeys[l.id] ?? []), ...(leafKeys[mustSlot(l.id)] ?? [])];
+        return ks.length > 0 && ks.every(k => !keyCanRange(k));
+      })
+      .map(l => l.label)
+    : [];
   const noteColor = { danger: colors.red, warn: colors.orange, info: colors.sub, good: colors.green } as const;
   const noteBox = (n: RiskNote, i: number) => (
     <div
@@ -2509,6 +2527,10 @@ function KeysStep({
         </Card>
       )}
 
+      {(shape === 'standard' || shape === 'leaves') && (
+        <AddressChoiceCard choice={addressChoice} onChange={setAddressChoice} tapitOnlyPaths={tapitOnlyPaths} />
+      )}
+
       <div style={{ display: 'flex', gap: 10 }}>
         <Button variant="ghost" onClick={onSaveForLater}>Save and finish later</Button>
         <Button disabled={!slotsReady || needsAck} onClick={onContinue}>
@@ -2516,6 +2538,42 @@ function KeysStep({
         </Button>
       </div>
     </div>
+  );
+}
+
+// Ranged slice 3 (docs/ranged-addresses-slice3-build-note.md). Fresh is the
+// default; a single fixed address stays a choice.
+function AddressChoiceCard({ choice, onChange, tapitOnlyPaths }: {
+  choice: AddressChoice; onChange: (c: AddressChoice) => void; tapitOnlyPaths: string[];
+}) {
+  const options: { id: AddressChoice; title: string; detail: string }[] = [
+    { id: 'fresh', title: 'A new address every time (recommended)',
+      detail: 'Each time you receive, and for the change when you send, the vault uses an address nobody has seen before. People who pay you cannot see your other payments or your balance.' },
+    { id: 'fixed', title: 'One address, always the same',
+      detail: 'Simpler to reuse, but anyone who knows it can watch every coin that comes in and goes out.' },
+  ];
+  return (
+    <Card>
+      <fieldset style={{ border: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <legend style={{ fontSize: 18, fontWeight: 600, color: colors.text, marginBottom: 6 }}>Receiving addresses</legend>
+        {options.map(o => (
+          <label key={o.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', minHeight: 44, cursor: 'pointer' }}>
+            <input type="radio" name="address-choice" checked={choice === o.id} onChange={() => onChange(o.id)} style={{ marginTop: 5 }} />
+            <span>
+              <span style={{ fontSize: 17, color: colors.text }}>{o.title}</span>
+              <span style={{ display: 'block', fontSize: 15, color: colors.sub, lineHeight: 1.5 }}>{o.detail}</span>
+            </span>
+          </label>
+        ))}
+      </fieldset>
+      {choice === 'fresh' && tapitOnlyPaths.length > 0 && (
+        <p style={{ fontSize: 16, color: colors.orange, lineHeight: 1.5, margin: '10px 0 0' }}>
+          {tapitOnlyPaths.map(l => `"${l}"`).join(' and ')} {tapitOnlyPaths.length === 1 ? 'uses' : 'use'} only Tapit keys. A Tapit key
+          stays the same at every address, so if bitcoin is ever spent by {tapitOnlyPaths.length === 1 ? 'that path' : 'those paths'},
+          anyone watching can tell those addresses belong together. Every other path still gets new keys at every address.
+        </p>
+      )}
+    </Card>
   );
 }
 

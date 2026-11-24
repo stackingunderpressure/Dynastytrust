@@ -50,6 +50,9 @@ mock.module(F('_supabase.js'), { namedExports: { getSupabaseAdmin: () => ({ from
 mock.module(F('_auth.js'), { namedExports: { requireUser: async () => ({ userId: 'u1', claims: { aal: 'aal2' } }), json: (statusCode, body) => ({ statusCode, body }) } });
 mock.module(F('_finalize-guard.js'), { namedExports: { realBitcoinFinalizeProblem: async () => null } });
 mock.module(F('_ledger.js'), { namedExports: { recordEvent: async () => {} } });
+// The compiler here is a stand-in with made-up addresses, so the fresh-address
+// step (real wasm, scripts/test-ranged-compile.mjs) answers "fixed" here.
+mock.module(F('_ranged-compile.js'), { namedExports: { rangedFields: () => ({ fields: {}, addresses: 'fixed', reason: 'test' }) } });
 const chain = await import(F('_chain.js'));
 mock.module(F('_chain.js'), { namedExports: { ...chain, fetchVerifiedTipHeight: async () => 300_000 } });
 mock.module(F('_compiler.js'), { namedExports: {

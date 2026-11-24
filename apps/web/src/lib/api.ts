@@ -265,7 +265,20 @@ export interface Vault {
    *  since most reads of a Vault don't select it; present when the
    *  server does (e.g. after a compile or a key_origins repair PATCH). */
   key_origins?: { pubkey: string; fingerprint: string; derivation_path: string }[];
+  /** 2 = a new address every time (`<0;1>/*`, ranged slice 3); 1 or absent =
+   *  one fixed address. `address` is always receive address 0. */
+  descriptor_version?: number | null;
+  descriptor_multipath?: string | null;
+  descriptor_receive?: string | null;
+  descriptor_change?: string | null;
+  ranged_format?: number | null;
 }
+
+/** New addresses every time, or one fixed address (ranged slice 3). */
+export type AddressChoice = 'fresh' | 'fixed';
+/** A compile's answer: the vault, and which addresses it ended up with
+ *  (`addresses_note` says why when fresh was asked for and it stayed fixed). */
+export interface CompileAnswer { ok: true; vault: Vault; addresses?: AddressChoice; addresses_note?: string | null }
 
 export type LeafUnlock =
   | { type: 'immediate' }
@@ -799,10 +812,10 @@ export const api = {
       consent_keys?: { pubkey: string; xpub: string; fingerprint: string; derivation_path: string }[];
       backup_keys?: { pubkey: string; xpub: string; fingerprint: string; derivation_path: string }[];
       second_heir_keys?: { pubkey: string; xpub: string; fingerprint: string; derivation_path: string }[];
-    }) =>
-      opened(req<{ ok: true; vault: Vault }>('/vaults-compile', {
+    }, addresses?: AddressChoice) =>
+      opened(req<CompileAnswer>('/vaults-compile', {
         method: 'POST',
-        body: JSON.stringify(direct_keys ? { vault_id, direct_keys } : { vault_id }),
+        body: JSON.stringify({ vault_id, ...(direct_keys ? { direct_keys } : {}), ...(addresses ? { addresses } : {}) }),
       })),
 
     // Shape-only generic leaf-list vault (migration 042): the primary
@@ -842,10 +855,14 @@ export const api = {
     // leaf-list shape had no equivalent at all until this fix, so no
     // leaf-list vault ever got BIP371 tap_key_origins and a real hardware
     // wallet correctly refused to sign ("did not add a valid signature").
-    compileLeaves: (vault_id: string, key_origins?: { pubkey: string; fingerprint: string; derivation_path: string }[]) =>
-      opened(req<{ ok: true; vault: Vault }>('/compile-leaves', {
+    // `fresh` (ranged slice 3): the xpub origins the server uses to give the
+    // vault a new address every time; it checks each one is the vault's own.
+    // Omitted (e.g. rotation) means one fixed address.
+    compileLeaves: (vault_id: string, key_origins?: { pubkey: string; fingerprint: string; derivation_path: string }[],
+      fresh?: { addresses: AddressChoice; ranged_origins: { fingerprint: string; account_path: string; xpub: string }[] }) =>
+      opened(req<CompileAnswer>('/compile-leaves', {
         method: 'POST',
-        body: JSON.stringify({ vault_id, key_origins }),
+        body: JSON.stringify({ vault_id, key_origins, ...(fresh ?? { addresses: 'fixed' }) }),
       })),
 
     archive: (id: string) =>

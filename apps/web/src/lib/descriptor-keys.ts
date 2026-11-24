@@ -114,6 +114,31 @@ export function buildPsbtKeyOrigins(
   return out;
 }
 
+/**
+ * The xpub origins the server needs to give a vault fresh addresses
+ * (netlify/functions/_ranged-compile.js): one entry per key that has an
+ * xpub, at its ACCOUNT path. A key with no xpub (a Tapit key) is left out
+ * and stays the same at every address. The server refuses any xpub whose
+ * /0/0 key is not one the vault was compiled with.
+ */
+export function buildRangedOrigins(
+  keys: SelectedKey[],
+): { fingerprint: string; account_path: string; xpub: string }[] {
+  const out: { fingerprint: string; account_path: string; xpub: string }[] = [];
+  for (const k of keys) {
+    const fp = k.masterFingerprint ?? k.fingerprint;
+    if (!fp || !k.xpub || !k.derivationPath) continue;
+    if (out.some(o => o.xpub === k.xpub)) continue;
+    out.push({ fingerprint: fp, account_path: k.derivationPath.replace(/\/+$/, ''), xpub: k.xpub });
+  }
+  return out;
+}
+
+/** A key that can make a new key for every address (it has an xpub). */
+export function keyCanRange(k: SelectedKey): boolean {
+  return Boolean((k.masterFingerprint ?? k.fingerprint) && k.xpub && k.derivationPath);
+}
+
 // Compressed pubkey hex is stored on each key at generation time.
 export function toPubkeyHex(k: SelectedKey): string {
   if (k.pubkey && k.pubkey.length === 66) return k.pubkey;

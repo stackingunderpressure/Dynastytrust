@@ -37,6 +37,7 @@ import { recordEvent } from "./_ledger.js";
 import { fetchVerifiedTipHeight } from "./_chain.js";
 import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
 import { unconfirmedMemberKeys } from "./_invite-rules.js";
+import { rangedFields } from "./_ranged-compile.js";
 import {
   leavesKeyOrigins, leavesCheck, leavesNeedTip, leavesWire,
   leavesCompilePayload, leavesCompiledProblem, leavesCompiledRow,
@@ -146,9 +147,14 @@ export async function handler(event) {
     return json(502, { error: `Compiler unreachable: ${compilerFailureReason(err)}` });
   }
 
+  // Fresh addresses (default) or one fixed address: built here, saved in the
+  // same update that compiles the vault (_ranged-compile.js).
+  const ranged = rangedFields(compiled, vault.network, body.addresses, body.ranged_origins);
+  if (ranged.error) return json(ranged.status, { error: ranged.error });
+
   const { data: saved, error: saveErr } = await supabase
     .from("vaults")
-    .update(leavesCompiledRow(compiled, wireLeaves, keyOrigins))
+    .update({ ...leavesCompiledRow(compiled, wireLeaves, keyOrigins), ...ranged.fields })
     .eq("id", vaultId)
     .select(VAULT_FIELDS)
     .single();
@@ -158,8 +164,8 @@ export async function handler(event) {
     vault_id: vaultId,
     user_id: u.userId,
     event_type: "draft_compiled",
-    metadata: { address_type: "tr_multileaf", network: vault.network, shape: "leaves" },
+    metadata: { address_type: "tr_multileaf", network: vault.network, shape: "leaves", addresses: ranged.addresses },
   });
 
-  return json(200, { ok: true, vault: saved });
+  return json(200, { ok: true, vault: saved, addresses: ranged.addresses, addresses_note: ranged.reason ?? null });
 }

@@ -81,6 +81,8 @@ pub fn handle(endpoint: &str, body: &str) -> (u16, String) {
         "/governance/audit" => run(body, governance_audit),
         "/validate-address" => run(body, validate_address),
         "/ranged-address" => run(body, ranged_address),
+        "/ranged-compile" => run(body, ranged_compile),
+        "/ranged-addresses" => run(body, ranged_addresses),
         other => (404, refusal(&format!("unknown endpoint {other}"))),
     }
 }
@@ -1405,6 +1407,107 @@ pub fn ranged_address(req: RangedAddressRequest) -> Result<RangedAddressResponse
         script_pubkey: hex::encode(definite.script_pubkey().as_bytes()),
         descriptor_checksum: vault.branch_checksum(branch),
     })
+}
+
+// -- /ranged-compile: turn a freshly compiled (v1-form) vault into its v2
+// form (ranged.rs RangedVault::from_template), from the account xpub behind
+// each key. Refuses unless every origin's /0/0 child is a key the vault was
+// compiled with and receive/0 equals the compiled address -- so a wrong or
+// foreign xpub can never quietly become part of the vault. Used by the
+// compile functions through the compiler wasm (ranged addresses slice 3).
+
+#[derive(Deserialize)]
+pub struct RangedOriginWire {
+    pub fingerprint: String,
+    /// The ACCOUNT path, e.g. "m/48'/1'/0'/2'" (no trailing /0/0).
+    pub account_path: String,
+    pub xpub: String,
+}
+
+#[derive(Deserialize)]
+pub struct RangedCompileRequest {
+    pub template: String,
+    pub network: String,
+    pub origins: Vec<RangedOriginWire>,
+}
+
+#[derive(Serialize)]
+pub struct RangedCompileResponse {
+    pub ok: bool,
+    pub multipath: String,
+    pub receive: String,
+    pub change: String,
+    /// receive/0 -- always the compiled vault's own address.
+    pub receive0: String,
+    /// How many of the vault's keys were made ranged (the rest stay fixed).
+    pub ranged_keys: usize,
+}
+
+pub fn ranged_compile(req: RangedCompileRequest) -> Result<RangedCompileResponse, ServiceError> {
+    use crate::ranged::{Branch, KeyOrigin, RangedVault};
+    use bitcoin::bip32::{DerivationPath, Fingerprint, Xpub};
+    let network = parse_network(&req.network).map_err(|e| api_err(400, e))?;
+    let mut origins = Vec::with_capacity(req.origins.len());
+    for (i, o) in req.origins.iter().enumerate() {
+        let fingerprint = Fingerprint::from_str(&o.fingerprint).map_err(|e| api_err(400, format!("origin {i}: fingerprint: {e}")))?;
+        let account_path = DerivationPath::from_str(&o.account_path).map_err(|e| api_err(400, format!("origin {i}: path: {e}")))?;
+        let xpub = Xpub::from_str(&o.xpub).map_err(|e| api_err(400, format!("origin {i}: xpub: {e}")))?;
+        origins.push(KeyOrigin { fingerprint, account_path, xpub });
+    }
+    let vault = RangedVault::from_template(&req.template, &origins, network).map_err(|e| api_err(422, e))?;
+    Ok(RangedCompileResponse {
+        ok: true,
+        multipath: vault.multipath_descriptor(),
+        receive: vault.branch_descriptor(Branch::Receive),
+        change: vault.branch_descriptor(Branch::Change),
+        receive0: vault.address(Branch::Receive, 0).map_err(|e| api_err(422, e))?,
+        ranged_keys: origins.len(),
+    })
+}
+
+// -- /ranged-addresses: a run of addresses on one branch, with their
+// scriptPubKeys, for finding a v2 vault's coins (slice 4). Bounded.
+
+#[derive(Deserialize)]
+pub struct RangedAddressesRequest {
+    pub multipath: String,
+    pub receive: String,
+    pub change: String,
+    pub network: String,
+    pub branch: u8,
+    pub start: u32,
+    pub count: u32,
+}
+
+#[derive(Serialize)]
+pub struct RangedAddressItem { pub index: u32, pub address: String, pub script_pubkey: String }
+
+#[derive(Serialize)]
+pub struct RangedAddressesResponse { pub ok: bool, pub addresses: Vec<RangedAddressItem> }
+
+pub fn ranged_addresses(req: RangedAddressesRequest) -> Result<RangedAddressesResponse, ServiceError> {
+    use crate::ranged::{Branch, RangedVault};
+    if req.count == 0 || req.count > 200 {
+        return Err(api_err(400, "count must be 1 to 200"));
+    }
+    let network = parse_network(&req.network).map_err(|e| api_err(400, e))?;
+    let branch = match req.branch {
+        0 => Branch::Receive,
+        1 => Branch::Change,
+        b => return Err(api_err(400, format!("branch must be 0 (receive) or 1 (change), got {b}"))),
+    };
+    let vault = RangedVault::from_stored(&req.multipath, &req.receive, &req.change, network).map_err(|e| api_err(422, e))?;
+    let end = req.start.checked_add(req.count).ok_or_else(|| api_err(400, "index range overflows"))?;
+    let mut addresses = Vec::with_capacity(req.count as usize);
+    for index in req.start..end {
+        let d = vault.definite(branch, index).map_err(|e| api_err(400, e))?;
+        addresses.push(RangedAddressItem {
+            index,
+            address: d.address(network).map_err(|e| api_err(422, e))?.to_string(),
+            script_pubkey: hex::encode(d.script_pubkey().as_bytes()),
+        });
+    }
+    Ok(RangedAddressesResponse { ok: true, addresses })
 }
 
 #[derive(Deserialize)]

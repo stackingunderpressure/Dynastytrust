@@ -40,6 +40,7 @@ import { pubkeyFromXpub } from "./_xpub.js";
 import { fetchVerifiedTipHeight } from "./_chain.js";
 import { standardKeys, standardCompilePayload, standardCompiledRow } from "../../packages/vault-rules/src/standard.js";
 import { fetchCompiler, compilerFailureReason } from "./_compiler.js";
+import { rangedFields } from "./_ranged-compile.js";
 
 const COMPILER_URL = process.env.COMPILER_URL;
 const COMPILER_SECRET = process.env.COMPILER_SECRET;
@@ -139,10 +140,20 @@ export async function handler(event) {
     return json(502, { error: `Compiler unreachable: ${compilerFailureReason(err)}` });
   }
 
+  // Fresh addresses (default) or one fixed address: built here, saved in the
+  // same update that compiles the vault (_ranged-compile.js).
+  // A standard vault already holds each key's xpub, fingerprint and account
+  // path (standardKeys), so the origins come from the server's own records.
+  const origins = [...keys.founders, ...keys.heirs, ...keys.consenters, ...keys.backups, ...keys.secondHeirs]
+    .filter((k) => k.xpub && k.fingerprint && k.derivation_path)
+    .map((k) => ({ fingerprint: k.fingerprint, account_path: k.derivation_path, xpub: k.xpub }));
+  const ranged = rangedFields(compiled, vault.network, body.addresses, origins);
+  if (ranged.error) return json(ranged.status, { error: ranged.error });
+
   // Update the vault row with compiled output.
   const { data: saved, error: saveErr } = await supabase
     .from("vaults")
-    .update(standardCompiledRow(vault, keys, compiled, tipHeight))
+    .update({ ...standardCompiledRow(vault, keys, compiled, tipHeight), ...ranged.fields })
     .eq("id", vaultId)
     .select(VAULT_FIELDS)
     .single();
@@ -157,8 +168,9 @@ export async function handler(event) {
       network: vault.network,
       founder_count: keys.founders.length,
       heir_count: keys.heirs.length,
+      addresses: ranged.addresses,
     },
   });
 
-  return json(200, { ok: true, vault: saved });
+  return json(200, { ok: true, vault: saved, addresses: ranged.addresses, addresses_note: ranged.reason ?? null });
 }

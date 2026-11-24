@@ -86,6 +86,9 @@ mock.module(F('_supabase.js'), { namedExports: { getSupabaseAdmin: () => ({ from
 mock.module(F('_auth.js'), { namedExports: { requireUser: async () => ({ userId: 'u1', claims: { aal: 'aal2' } }), json: (statusCode, body) => ({ statusCode, body }) } });
 mock.module(F('_finalize-guard.js'), { namedExports: { realBitcoinFinalizeProblem: async () => null } });
 mock.module(F('_ledger.js'), { namedExports: { recordEvent: async () => {} } });
+// The compiler here is a stand-in with made-up addresses, so the fresh-address
+// step (real wasm, scripts/test-ranged-compile.mjs) answers "fixed" here.
+mock.module(F('_ranged-compile.js'), { namedExports: { rangedFields: () => ({ fields: {}, addresses: 'fixed', reason: 'test' }) } });
 const chain = await import(F('_chain.js'));
 mock.module(F('_chain.js'), { namedExports: { ...chain, fetchVerifiedTipHeight: async () => { tipCalls++; return 250_000; } } });
 mock.module(F('_compiler.js'), { namedExports: {
@@ -120,7 +123,16 @@ if (process.env.RECORD) {
 } else {
   const before = JSON.parse(readFileSync(FIXTURE, 'utf8'));
   assert.equal(results.length, before.length);
-  for (let i = 0; i < results.length; i++) assert.deepEqual(results[i], before[i], `case "${before[i].label}" behaves differently`);
+  // Ranged slice 3 (2026-11-24) added two answer fields, `addresses` and
+  // `addresses_note`, to a successful compile; everything else is unchanged.
+  for (let i = 0; i < results.length; i++) {
+    const got = structuredClone(results[i]);
+    if (got.body?.ok) {
+      assert.equal(got.body.addresses, 'fixed', `case "${before[i].label}"`);
+      delete got.body.addresses; delete got.body.addresses_note;
+    }
+    assert.deepEqual(got, before[i], `case "${before[i].label}" behaves differently`);
+  }
   // A compiled vault comes back with every column the vault page reads.
   // A short list crashed the page right after the wizard (live signet
   // walk, 2026-11-19: "TypeError: e is not iterable").
