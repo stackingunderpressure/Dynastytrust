@@ -2327,6 +2327,27 @@ signers" as not yet verified. Item 1 above postdates it.
 
 **Recently closed:**
 
+- **Zero-knowledge storage, slice 5: Sage stores nothing and asks first
+  (2026-11-24).** Decision 3: the browser shows what goes to the AI and the
+  person says yes. Reading the code first: the chat already held the whole
+  conversation on screen, and the server-side vault lookup (`vault_id`)
+  was never reached by any screen -- and would now have put sealed text in
+  the prompt. `assistant.js` is now a stateless relay: no threads, no
+  messages, no database at all; the browser sends the conversation it
+  shows (bounded: last 20 turns, 8,000 characters each, ending on the
+  person); every message the person wrote is checked for a seed phrase or
+  private key before the model is called (it used to check only the
+  newest). The dead vault-context path is removed. `ChatWizard.tsx` asks
+  once per browser session, before the first message: "this conversation
+  goes to Anthropic; DynastyTrust stores none of it". The teaching prompt
+  is unchanged (its rung and timelock-wording tests still pass). The old
+  `assistant_threads` / `assistant_messages` tables are left in place,
+  unused (the reset empties them; dropping tables is not this slice).
+  Tests: `test-assistant-relay.mjs` (3 checks, the REAL handler with the
+  database mocked to throw if touched). Gates: lint 0 errors (11 warnings,
+  as before), typecheck the same 10 pre-existing errors, build OK, npm test
+  exit 0. NOT walked in a browser.
+
 - **Zero-knowledge storage, slice 4: reports are built on the device
   (2026-11-24).** The server could no longer read the names, notes and
   comments its four reports printed, so it no longer renders them. The PDF

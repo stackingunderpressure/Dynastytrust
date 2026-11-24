@@ -245,6 +245,25 @@ Unchanged by Z1: anything the server computes on for money or structure
 5. **Assistant**: history kept and sent from the browser; shows what goes to
    the AI and asks.
 
+### Z1 status (2026-11-24): all five slices built, not deployed
+
+1. Vault key, sealed comments and votes, Z0, phrase-ack check -- done.
+2. Names and labels, invite name in the link, invites without email -- done.
+   Shared seal/open in `lib/api.ts` via `lib/vault-keyring.ts` and
+   `lib/sealed-fields.ts`.
+3. History: entries already copy names sealed after slice 2; the activity
+   log and ledger page open them for display only -- done.
+4. Reports built on the device from one sealed export
+   (`lib/reports/`); the server PDF functions are gone -- done.
+5. Sage: stateless relay, nothing stored, one-time consent -- done.
+
+Still readable on the server after Z1, by design of the phases: money
+fields (amounts, destinations, fees, txids, PSBTs -- Z2), vault structure
+and path labels (Z3), account identity and the `terms_accepted` user agent
+(Z4), who shares a vault (Z5). Proof is by tests (`test-api-sealing.mjs`
+fails if a plain name is ever sent); NOT yet walked in a browser with two
+real accounts.
+
 ### Decisions still needed
 
 6. Existing test data: RESET (operator, 2026-11-24) -- by hand with

@@ -1879,15 +1879,15 @@ export const api = {
   // actual vault is built only through the existing PolicyBuilder.
   // No key material is ever sent here or returned.
   assistant: {
+    // Stateless (zero-knowledge storage, Z1 slice 5): the conversation lives
+    // in this browser and is sent whole each turn; the server stores none of
+    // it and relays it to the model. The person is told before it is sent.
     chat: (body: {
-      thread_id: string | null;
-      message: string;
+      messages: { role: 'user' | 'assistant'; content: string }[];
       mode: 'guided' | 'express';
-      vault_id?: string;
     }) =>
       req<{
         ok: true;
-        thread: { id: string; mode: 'guided' | 'express'; vault_id: string | null };
         reply: string;
         proposed_values: VaultProposal | null;
       }>('/assistant', { method: 'POST', body: JSON.stringify(body) }),
