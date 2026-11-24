@@ -135,3 +135,25 @@ which addresses it asks about, whichever Electrum server answers.
 
 **Deliberately left out.** Fees, broadcast, the timelock-baking tip, the
 older vault kinds' spend builders, and testnet4.
+
+## Built, and checked against real servers (2026-11-24)
+
+Built per the decisions above (commit a3f83b9). `scripts/electrum-live.mjs`
+runs the real `_electrum.js` from GitHub's machines (run 45472493694, all
+passed):
+
+- Signet default (mempool.space:60602), six quiet addresses: 7 coins in
+  445 ms, identical to mempool.space's website for the same addresses.
+- Own server (fulcrum.sethforprivacy.com, bitcoin): first contact gave the
+  fingerprint; pinned, 12 coins on three addresses in 232 ms, identical to
+  the website. A wrong pin was refused; offered for signet it was flagged as
+  the wrong chain; `localhost` was refused before connecting.
+- The signet miner's payout address (123,016 transactions): mempool.space's
+  server answers "Too many unspent transaction outputs (>500)" after 6.3 s.
+  For the default server that falls back to the website; a person's own
+  server would show the error. Not a vault's shape.
+- Run 3 failed only because it used busy addresses (8 s timeout); fixed by
+  using addresses like a vault's.
+
+Still unverified until it is live: Netlify's machines rather than GitHub's,
+and the panel walked on a phone.
