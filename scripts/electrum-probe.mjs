@@ -13,7 +13,8 @@ const CANDIDATES = [
   ['signet', 'mempool.space', 60602], ['signet', 'electrum.mutinynet.com', 50002],
   ['signet', 'signet-electrumx.wakiyamap.dev', 50002], ['signet', 'electrum.blockstream.info', 60602],
   ['testnet', 'electrum.blockstream.info', 60002], ['testnet', 'testnet.aranguren.org', 51002],
-  ['bitcoin', 'electrum.blockstream.info', 50002], ['bitcoin', 'fulcrum.sethforprivacy.com', 50002],
+  ['bitcoin', 'electrum.blockstream.info', 50002], ['bitcoin', 'mempool.space', 50002],
+  ['testnet', 'mempool.space', 60002], ['bitcoin', 'fulcrum.sethforprivacy.com', 50002],
   ['bitcoin', 'electrum.emzy.de', 50002], ['bitcoin', 'bitcoin.lukechilds.co', 50002],
 ];
 // Any script: P2TR of 32 x 0x01 bytes (empty is fine; we time the round trip).
@@ -54,7 +55,16 @@ function probe(host, port) {
   });
 }
 
+// Load check: the coin scan's worst case, back to back, on one server.
+async function burst(host, port, rounds) {
+  const times = [];
+  for (let i = 0; i < rounds; i++) { const r = await probe(host, port); times.push(r.error || `${r.listunspentOk}/20 ${r.batchMs}ms`); }
+  console.log(`burst ${host}:${port} x${rounds}: ${times.join(', ')}`);
+}
+
 for (const [net, host, port] of CANDIDATES) {
   const r = await probe(host, port);
   console.log(`${net.padEnd(8)} ${JSON.stringify(r)}`);
 }
+await burst('mempool.space', 60602, 15);
+await burst('mempool.space', 50002, 15);
