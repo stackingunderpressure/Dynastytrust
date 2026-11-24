@@ -1,6 +1,6 @@
 # Build note: show the same receive address until it is paid
 
-Status: NOTE ONLY. No code until the operator says go.
+Status: SHIPPED 2026-11-24 (operator: "Ship it, I'll walk signet"). Electrum live check run 45490717077 passed (history matches the website).
 
 ## The ask (operator, 2026-11-24, in his words)
 
