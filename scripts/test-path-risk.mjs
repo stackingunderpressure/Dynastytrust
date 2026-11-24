@@ -180,16 +180,19 @@ pass('a browser key made must-sign is allowed and described as a phone\'s protec
 }
 pass('a must-sign key held by an invited person is flagged: the app cannot see their device, so ask for a hardware wallet');
 
-// The Shape step refuses an "if untouched for" path with no fixed-date path
-// (the compiler's rule), before any key is chosen.
+// A dead man's switch (every later path "if untouched for") is allowed
+// since 2026-11-24, with a card computed from the vault's own paths.
 {
-  const u = (t) => ({ unlockType: t });
-  assert.equal(r.untouchedWithoutDatedPath([u('immediate'), u('older')]), true);
-  assert.equal(r.untouchedWithoutDatedPath([u('immediate'), u('older'), u('after')]), false);
-  assert.equal(r.untouchedWithoutDatedPath([u('immediate'), u('after')]), false);
-  assert.equal(r.untouchedWithoutDatedPath([u('immediate')]), false);
-  assert.ok(!/older|after\(|leaf/.test(r.UNTOUCHED_NEEDS_DATED), 'plain words, no compiler terms');
+  const p = (unlockType, label = 'x', olderBlocks = 0) => ({ unlockType, label, olderBlocks, who: 'any 1 of 2' });
+  assert.equal(r.deadMansSwitchLines([p('immediate')]), null, 'no later path: no card');
+  assert.equal(r.deadMansSwitchLines([p('immediate'), p('older', 'Quiet', 8640), p('after', 'Heirs')]), null, 'a fixed-date path too: no card');
+  const lines = r.deadMansSwitchLines([p('immediate', 'Everyday'), p('older', 'Thirteen months', 56160), p('older', 'Two months', 8640)]);
+  assert.ok(lines && lines.length === 6);
+  assert.match(lines[1], /about 2 months, "Two months" opens: any 1 of 2/);
+  assert.match(lines[2], /about 1.1 years, "Thirteen months" opens/);
+  assert.ok(lines.some(l => /starts again from zero/.test(l)) && lines.some(l => /never open/.test(l)));
+  assert.ok(!lines.join(' ').match(/older|after\(|leaf|CSV|BIP/), 'plain words, no compiler terms');
 }
-pass('an "if untouched for" path with no fixed-date path is caught on the Shape step, in plain words');
+pass('a dead man\'s switch gets a plain card from its own numbers (shortest wait first); a vault with a fixed date gets none');
 
 console.log(`path-risk tests passed (${n} cases)`);

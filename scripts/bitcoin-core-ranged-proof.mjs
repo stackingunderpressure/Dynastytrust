@@ -73,13 +73,13 @@ const minerAddr = cli('miner', 'getnewaddress', '', 'bech32m');
 const mine = (k) => { for (let left = k; left > 0; left -= 1000) cli('miner', 'generatetoaddress', Math.min(left, 1000), minerAddr); };
 mine(101);
 
-// ---- the vault: everyday 2 of 3; "quiet" 1 of 3 if left untouched 150
-// blocks; a dated 1-of-3 path (the compiler never lets older() stand alone).
+// ---- the vault: a DEAD MAN'S SWITCH -- everyday 2 of 3; "quiet" 1 of 3 if
+// left untouched 150 blocks, and no fixed-date path at all (allowed since
+// 2026-11-24, docs/untouched-only-build-note.md).
 const QUIET = 150;
 const leaves = [
   { id: 'everyday', label: 'everyday', keys: S.map(s => s.pubkey), quorum: 2, unlock: { type: 'immediate' } },
   { id: 'quiet', label: 'quiet', keys: S.map(s => s.pubkey), quorum: 1, unlock: { type: 'older', blocks: QUIET } },
-  { id: 'later', label: 'later', keys: S.map(s => s.pubkey), quorum: 1, unlock: { type: 'after', blocks: 26_100 } },
 ];
 const compiled = wasm('/compile-leaves', { network: NET, leaves });
 const ranged = wasm('/ranged-compile', { template: compiled.descriptor, network: NET, origins: S.map(s => ({ fingerprint: FP, account_path: s.path, xpub: s.xpub })) });

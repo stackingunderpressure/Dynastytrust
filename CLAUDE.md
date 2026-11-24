@@ -277,11 +277,14 @@ a normal-quorum leaf that relaxes to a lower quorum only if the coin
 has sat untouched for N months, so simply moving/consolidating the
 coin keeps the vault at its full quorum. `protocol::MAX_RELATIVE_BLOCKS`
 (60,000 blocks, ~13.7 months) hard-caps any `OlderThan` leaf, well
-inside BIP 68's 65,535-block ceiling, and `verify_leaf_policy` rejects
-a leaf policy where a relative leaf is the ONLY non-immediate
-fallback — it is a quality-of-life relaxation on an already-adequate
-vault, never a substitute for a real recovery/inheritance leaf with a
-fixed deadline. This exception exists only on the generic leaf-list
+inside BIP 68's 65,535-block ceiling. Since 2026-11-24 (operator: "I
+might want a 2 month deadman switch or 13 month one ... educate
+consequential decisions plainly") a relative leaf MAY be the vault's
+only later path -- a dead man's switch; the builder shows a plain card
+computed from the vault's own paths and requires an "I understand"
+tick (`lib/path-risk.ts` `deadMansSwitchLines`). A multi-year
+inheritance still needs a fixed-date `after()` leaf -- BIP 68 cannot
+express it. This exception exists only on the generic leaf-list
 vault path (`LeafPolicy`/`Unlock::OlderThan`/`build_leaf_multileaf`);
 the named-field `DynastyPolicy`/`build_multileaf` path never emits
 `older()` at all.

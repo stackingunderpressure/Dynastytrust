@@ -17,7 +17,9 @@ pub const MIN_RECOVERY_BLOCKS: u32 = 26_000;
 /// This is the documented, deliberate exception for a different job: a
 /// short, self-refreshing leaf where resetting the clock on every spend
 /// is the entire point (e.g. "3-of-3 normally, drops to 2-of-3 if the
-/// coin sits untouched for 12 months"). See LeafPolicy/Unlock below.
+/// coin sits untouched for 12 months"), or a dead man's switch that is the
+/// vault's only later path (allowed since 2026-11-24). See LeafPolicy/Unlock
+/// below.
 pub const MAX_RELATIVE_BLOCKS: u32 = 60_000;
 
 pub(crate) const NUMS_HEX: &str =
@@ -225,8 +227,6 @@ pub enum PolicyError {
     DecayRequiresTimelock,
     #[error("relative timelock ({0} blocks) exceeds the {MAX_RELATIVE_BLOCKS}-block cap -- use an absolute after() leaf for a long deadline")]
     RelativeTimelockTooLong(u32),
-    #[error("a relative-timelock (older()) leaf must not be the vault's only non-immediate fallback -- add an absolute after() leaf too")]
-    RelativeTimelockNeedsAbsoluteFallback,
     #[error("two keys in the same spending path are the same Taproot key (they differ only in the 02/03 prefix) -- one signature would count for both")]
     DuplicateXOnlyKey,
     #[error("timelock height {0} is not a block height -- Bitcoin reads values of 500,000,000 and above as a calendar date, which is already in the past")]
@@ -1262,8 +1262,8 @@ pub enum Unlock {
     /// OP_CHECKSEQUENCEVERIFY (BIP68 relative locktime) -- measured from
     /// this specific UTXO's confirmation height, resets on every spend.
     /// Capped at MAX_RELATIVE_BLOCKS; `verify_leaf_policy` rejects a
-    /// larger value and rejects a vault that relies on this as its only
-    /// non-immediate fallback.
+    /// larger value. It may be a vault's only later path (a dead man's
+    /// switch) since 2026-11-24.
     #[serde(rename = "older")]
     OlderThan { blocks: u32 },
 }
@@ -1469,21 +1469,12 @@ fn verify_leaf_policy(policy: &LeafPolicy) -> Result<(), PolicyError> {
             }
         }
     }
-    // A relative-timelock leaf is a quality-of-life relaxation on an
-    // already-adequate vault, never a substitute for a real fixed-deadline
-    // fallback -- see MAX_RELATIVE_BLOCKS's doc comment and the amended
-    // CLAUDE.md absolute-timelock section.
-    let has_relative = policy
-        .leaves
-        .iter()
-        .any(|l| matches!(l.unlock, Unlock::OlderThan { .. }));
-    let has_absolute = policy
-        .leaves
-        .iter()
-        .any(|l| matches!(l.unlock, Unlock::After { .. }));
-    if has_relative && !has_absolute {
-        return Err(PolicyError::RelativeTimelockNeedsAbsoluteFallback);
-    }
+    // An older() ("if left untouched") leaf MAY be the vault's only later
+    // path -- a dead man's switch (operator, 2026-11-24: "I might want a 2
+    // month deadman switch or 13 month one ... educate consequential
+    // decisions plainly"). Until then this refused it unless an after()
+    // leaf existed too; the builder now explains the consequence and asks
+    // for an "I understand" instead (docs/untouched-only-build-note.md).
     Ok(())
 }
 
@@ -3011,7 +3002,7 @@ mod leaf_policy_tests {
     }
 
     #[test]
-    fn relative_leaf_cannot_be_the_only_non_immediate_fallback() {
+    fn relative_leaf_may_be_the_only_later_path() {
         let policy = LeafPolicy {
             leaves: vec![
                 Leaf {
@@ -3036,10 +3027,11 @@ mod leaf_policy_tests {
             consent_keys: vec![],
             consent_quorum: None,
         };
-        match build_leaf_multileaf(&policy) {
-            Err(PolicyError::RelativeTimelockNeedsAbsoluteFallback) => {}
-            other => panic!("expected RelativeTimelockNeedsAbsoluteFallback, got {other:?}"),
-        }
+        // A dead man's switch: allowed since 2026-11-24 (operator). The
+        // leaf compiles to older(52560) and nothing else is required.
+        let out = build_leaf_multileaf(&policy).expect("an if-untouched path may be the only later path");
+        assert!(out.descriptor.contains("older(52560)"), "{}", out.descriptor);
+        assert!(!out.descriptor.contains("after("), "{}", out.descriptor);
     }
 
     #[test]

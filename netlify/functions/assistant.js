@@ -423,9 +423,10 @@ FACTS THAT OVERRIDE ANYTHING ELSE BELOW (read these first, never contradict them
    - "If left untouched" (Bitcoin older(), relative CSV): only offered as a
      per-path choice in the custom path builder. Its count restarts every
      time the coins move, so it opens only after the coins sit untouched
-     that long. It is capped at about 13.7 months (60,000 blocks), and a
-     vault may never rely on it as its only way back in -- it needs a
-     fixed-date path too.
+     that long. It is capped at about 13.7 months (60,000 blocks). A vault
+     may use it as its ONLY later path -- a dead man's switch: while the
+     owner keeps moving the coins it never opens; if they stop, it opens
+     after the wait. The builder makes the owner tick that they understand.
    If you do not know which kind a person's vault or path uses, say so and
    ask; never assume "it resets".
 

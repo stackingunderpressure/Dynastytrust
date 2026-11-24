@@ -246,14 +246,23 @@ export function vaultNote(paths: RiskPath[]): RiskNote | null {
   };
 }
 
-/** The compiler's rule (protocol verify_leaf_policy): an "if untouched for"
- *  path may not be a vault's only later path -- one fixed-date path must
- *  exist too, so moving the coins can never keep every later path shut.
- *  Checked on the Shape step so nobody fills every key slot first and is
- *  refused at the end (operator's screenshot, 2026-11-24). */
-export const UNTOUCHED_NEEDS_DATED =
-  'An "if untouched for" path can\'t be the only later path. Add a path with a fixed date too, or turn the "if untouched for" path off.';
 
-export function untouchedWithoutDatedPath(paths: { unlockType: 'immediate' | 'after' | 'older' }[]): boolean {
-  return paths.some(p => p.unlockType === 'older') && !paths.some(p => p.unlockType === 'after');
+/**
+ * A dead man's switch: every later path of the vault is "if untouched for"
+ * (operator, 2026-11-24: allowed, "educate consequential decisions
+ * plainly"). Returns the plain lines for the builder's card, computed from
+ * this vault's own paths, or null when the vault has a fixed-date path (or no
+ * later path at all). `who` is each path's "who signs" phrase.
+ */
+export function deadMansSwitchLines(later: { unlockType: 'immediate' | 'after' | 'older'; label: string; olderBlocks: number; who: string }[]): string[] | null {
+  const timed = later.filter(p => p.unlockType !== 'immediate');
+  if (timed.length === 0 || timed.some(p => p.unlockType !== 'older')) return null;
+  const sorted = [...timed].sort((a, b) => a.olderBlocks - b.olderBlocks);
+  return [
+    'Every later path of this vault is "if untouched for". That makes it a dead man\'s switch: nothing opens on a date.',
+    ...sorted.map(p => `If the coins sit untouched for ${durationWords(p.olderBlocks)}, "${p.label}" opens: ${p.who} can spend them without the everyday keys.`),
+    'Every time the coins move -- any spend, even back to this vault -- that clock starts again from zero, for each coin separately.',
+    'So while you keep moving the coins, those paths never open. If you stop (you lose access, you are ill, you die), they open after that wait.',
+    'If the everyday keys are lost, the coins can only come back through these paths, after that wait.',
+  ];
 }

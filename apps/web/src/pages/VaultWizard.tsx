@@ -18,7 +18,7 @@ import { downloadVault } from '../lib/descriptor-backup';
 import { keyNetworkMatches } from '../lib/network';
 import { whoSignsShort, whoSignsWords, mustSignMeaning } from '../lib/path-words';
 import { mustSignPathsNotInScripts } from '../lib/must-sign-check';
-import { keyKind, mustSignKeysEveryPathNeeds, pathNotes, untouchedWithoutDatedPath, UNTOUCHED_NEEDS_DATED, vaultNote, type RiskNote, type RiskPath } from '../lib/path-risk';
+import { deadMansSwitchLines, keyKind, mustSignKeysEveryPathNeeds, pathNotes, vaultNote, type RiskNote, type RiskPath } from '../lib/path-risk';
 import { blocksToHuman, TIMELOCK_PRESETS, MIN_RECOVERY_BLOCKS } from '../lib/blocks';
 import { approxWallclockDate, blocksUntilDate, verifiedTipHeight } from '../lib/chain';
 import { checkAbsoluteTimelocks, type TimelockPair } from '../lib/timelock-check';
@@ -323,8 +323,6 @@ function friendlyCompileError(message: string): string {
   // The compiler sends its error TEXT, not the Rust variant name -- both are
   // matched, so the plain words actually show (operator's screenshot,
   // 2026-11-24: the raw "leaf policy rejected" line reached the screen).
-  if (m.includes('relativetimelockneedsabsolutefallback') || m.includes('only non-immediate fallback'))
-    return `${UNTOUCHED_NEEDS_DATED} This draft can't change shape now: start a new vault from "Start a vault" and set its paths that way.`;
   if (m.includes('relativetimelocktoolong') || (m.includes('relative timelock') && m.includes('exceeds')))
     return `An "if untouched for" path can't wait longer than about 13.7 months (${MAX_RELATIVE_BLOCKS} blocks). Use a fixed-date path instead for a longer wait.`;
   if (m.includes('noimmediateleaf') || m.includes('at least one immediate'))
@@ -672,12 +670,6 @@ export default function VaultWizard() {
         setDraftVault(res.vault);
       } else if (shape === 'leaves') {
         const enabled = leafDrafts.filter(l => l.enabled);
-        // The compiler would refuse this shape only at the very end, after
-        // every key is chosen -- say so here, while the shape can change.
-        if (untouchedWithoutDatedPath(enabled)) {
-          setConfigureErr(UNTOUCHED_NEEDS_DATED);
-          return;
-        }
         const res = await api.vaults.createLeavesDraft({
           name,
           network,
@@ -2257,6 +2249,15 @@ function KeysStep({
   const everyPathSig = everyPathKeys.map(k => k.keyId).sort().join(',');
   const [ackFor, setAckFor] = useState('');
   const needsAck = everyPathKeys.length > 0 && ackFor !== everyPathSig;
+  // A dead man's switch -- every later path is "if untouched for" -- is
+  // allowed (operator, 2026-11-24), after a plain card and an "I
+  // understand" tick; the tick clears itself if those paths change.
+  const switchLines = shape === 'leaves'
+    ? deadMansSwitchLines(enabledLeaves.map(l => ({ unlockType: l.unlockType, label: l.label, olderBlocks: l.olderBlocks, who: whoSignsWords(l.quorum, l.plannedKeys, l.plannedRequired) })))
+    : null;
+  const switchSig = switchLines ? switchLines.join('|') : '';
+  const [switchAckFor, setSwitchAckFor] = useState('');
+  const needsSwitchAck = !!switchLines && switchAckFor !== switchSig;
   // Paths whose every key is a Tapit key (no xpub): those keys are the same
   // at every address, so spending by that path links the addresses.
   const tapitOnlyPaths = shape === 'leaves'
@@ -2540,10 +2541,32 @@ function KeysStep({
         <AddressChoiceCard choice={addressChoice} onChange={setAddressChoice} tapitOnlyPaths={tapitOnlyPaths} />
       )}
 
+      {switchLines && (
+        <Card>
+          <div style={{ fontSize: 18, fontWeight: 600, color: colors.orange, marginBottom: 6 }}>
+            This vault is a dead man's switch
+          </div>
+          {switchLines.map((l, i) => (
+            <p key={i} style={{ fontSize: 17, color: colors.text, lineHeight: 1.55, margin: i === 0 ? 0 : '8px 0 0' }}>{l}</p>
+          ))}
+          <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer', marginTop: 12, minHeight: 44 }}>
+            <input
+              type="checkbox"
+              checked={!needsSwitchAck}
+              onChange={e => setSwitchAckFor(e.target.checked ? switchSig : '')}
+              style={{ width: 22, height: 22, marginTop: 2, flexShrink: 0 }}
+            />
+            <span style={{ fontSize: 17, color: colors.text, lineHeight: 1.5 }}>
+              I understand. If the coins sit untouched for that long, those paths open -- whether or not I meant them to.
+            </span>
+          </label>
+        </Card>
+      )}
+
       <div style={{ display: 'flex', gap: 10 }}>
         <Button variant="ghost" onClick={onSaveForLater}>Save and finish later</Button>
-        <Button disabled={!slotsReady || needsAck} onClick={onContinue}>
-          {!slotsReady ? 'Fill every slot to continue' : needsAck ? 'Tick the box above to continue' : 'All slots filled -- compile'}
+        <Button disabled={!slotsReady || needsAck || needsSwitchAck} onClick={onContinue}>
+          {!slotsReady ? 'Fill every slot to continue' : needsAck || needsSwitchAck ? 'Tick the box above to continue' : 'All slots filled -- compile'}
         </Button>
       </div>
     </div>

@@ -59,3 +59,25 @@ education problem, which is what this change answers.
 
 Changing the 60,000-block cap; reminders that warn the owner before a dead
 man's switch opens (a natural next slice); any change to fixed-date paths.
+
+## Decisions (operator's chips, 2026-11-24)
+
+1. Teach it with a **plain card + tick box** (like the must-sign warning).
+2. **Retire Fly first** (docs/retire-fly-build-note.md), so the rule lives
+   in one compiler; then this; one release after the operator's OK.
+
+## Built (2026-11-24, branch only)
+
+- Rust: the refusal and its error are gone; the test now proves an
+  untouched-only vault compiles to `older(52560)` with no `after()`.
+  Compiler wasm rebuilt; all 231 recorded compiler answers still identical
+  (no recorded request had this shape).
+- Builder: the held Shape-step refusal (6c9409a) is removed; on the keys step
+  a "This vault is a dead man's switch" card, computed from the vault's own
+  paths (`lib/path-risk.ts` `deadMansSwitchLines`, shortest wait first, plain
+  words), and an "I understand" tick that gates Continue and clears itself if
+  those paths change. Its error-message matching fixes stay.
+- Sage's fact sheet and CLAUDE.md now state the new rule.
+- Proof: Bitcoin Core 32.1 ranged proof re-run on a vault with NO fixed-date
+  path: 7/7, the switch refused while young and mined after the wait, by our
+  stack and by Core alone.
