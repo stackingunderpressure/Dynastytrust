@@ -2327,6 +2327,15 @@ signers" as not yet verified. Item 1 above postdates it.
 
 **Recently closed:**
 
+- **Coins card with per-coin unlock timing (2026-11-24).** Operator, on a
+  signet dead man's switch vault: "The utxo is only in history section. We
+  need it in send tab and overview. Both showing blocks left estimated date
+  till unlock of each one." Cause of "only in history": the coin list sat at
+  the bottom of the overview and loaded once. Now first under the balance
+  and on Send, refreshing with the balance, with "can spend now" or blocks +
+  rough date per path per coin (lib/coin-unlock.ts, the spend builder's own
+  rule). Not walked in a browser before release.
+
 - **Tapit membership requests from path-builder vaults (2026-11-24).**
   Operator: "Vault request didn't show up in tap it this time. It has
   worked before in aug but silent this go." Root cause on the Tapit side:
