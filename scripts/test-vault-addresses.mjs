@@ -33,7 +33,9 @@ V2.address = callWasm('/ranged-address', { multipath: V2.descriptor_multipath, r
 let state;
 function reset(vault, opts = {}) {
   state = { vault, user: OWNER, next: opts.next ?? 0, inserted: [], reserved: 0, insertError: opts.insertError ?? null, rpcError: opts.rpcError ?? null,
-    used: new Set(), updated: [] };
+    // By default the vault's own address (0) has had its first deposit;
+    // the "new vault" case clears this.
+    used: new Set(vault?.address ? [vault.address] : []), updated: [] };
 }
 const q = (table) => {
   const filters = {};
@@ -173,7 +175,17 @@ pass('a sealed label is kept whole; an over-long one is refused before reserving
 // 7. Operator, 2026-11-24: "If I click on an address and don't use it there
 // is no way to go back and use it". The same unpaid address comes back
 // until it is paid; then the next one.
+// Operator, 2026-11-25: "Copy address should pick the correct one". A
+// new vault gives out its OWN address (0) until that is paid, reserving
+// nothing.
 reset(V2);
+state.used.clear();
+const zeroFirst = await call({ vault_id: V2.id });
+assert.equal(zeroFirst.body.index, 0); assert.equal(zeroFirst.body.address, V2.address); assert.equal(zeroFirst.body.first, true);
+assert.equal(state.reserved, 0);
+pass("a new vault gives out its own address first, while it has never been paid");
+
+reset(V2); // the first deposit landed on address 0
 const first = await call({ vault_id: V2.id });
 const again = await call({ vault_id: V2.id });
 assert.equal(first.body.index, 1); assert.equal(again.body.index, 1); assert.equal(again.body.reused, true);

@@ -86,6 +86,7 @@ import { tipHeight, txConfirmations, blocksToApproxLabel } from "../lib/chain";
 import { opensWords, durationWords, rotateDateWords, pathMoments, ROTATE_EXTENSIONS } from "../lib/timelock-words";
 import { buildStandardTrustDoc, standardConfigFromCompiledVault } from "../lib/trust-doc";
 import { SeedSignerNetworkHint } from "../components/SeedSignerNetworkHint";
+import { CurrentAddressCopy } from "../components/CurrentAddressCopy";
 import { ElectrumServerSettings } from "../components/ElectrumServerSettings";
 
 
@@ -585,15 +586,19 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
                 Send
               </Button>
             )}
-            <Button
-              variant="ghost"
-              size="sm"
-              style={{ fontSize: 16 }}
-              disabled={!vault.address}
-              onClick={() => vault.address && copy(vault.address, "addr")}
-            >
-              {copied === "addr" ? "Copied!" : "Copy address"}
-            </Button>
+            {/* A fresh-address vault copies the address to give out NOW
+                (CurrentAddressCopy, below); this one copies its one address. */}
+            {!isFreshAddressVault(vault) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                style={{ fontSize: 16 }}
+                disabled={!vault.address}
+                onClick={() => vault.address && copy(vault.address, "addr")}
+              >
+                {copied === "addr" ? "Copied!" : "Copy address"}
+              </Button>
+            )}
             {balance && (
               <a
                 href={balance.mempool_url}
@@ -616,7 +621,8 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
               </a>
             )}
           </div>
-          {vault.address && (
+          {vault.address && vault.status !== "draft" && isFreshAddressVault(vault) && <CurrentAddressCopy vault={vault} />}
+          {vault.address && !isFreshAddressVault(vault) && (
             <div style={{ marginTop: 10 }}>
               <Button
                 variant="ghost"
@@ -637,7 +643,6 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
               )}
               <div style={{ fontSize: 16, color: colors.sub, marginTop: 8, lineHeight: 1.5 }}>
                 First deposit? Send a small amount, wait until it shows here, then send the rest.
-                {isFreshAddressVault(vault) && " This is the vault's first address; for every later deposit, get a new one below."}
               </div>
             </div>
           )}

@@ -109,11 +109,21 @@ export async function handler(event) {
   let issued, used, next;
   try {
     ({ issued, next } = await issuedReceive(supabase, vaultId));
-    used = await vaultUsed(vault.network, issued.map((a) => ({ branch: RECEIVE, index: a.idx, address: a.address })), userServersFrom(event));
+    // Address 0 (the vault's own) is looked up too, even before it is
+    // recorded: until it is paid, it is the one to give out.
+    const watch = issued.some((a) => a.idx === 0) ? issued : [{ idx: 0, address: vault.address, label: null }, ...issued];
+    used = await vaultUsed(vault.network, watch.map((a) => ({ branch: RECEIVE, index: a.idx, address: a.address })), userServersFrom(event));
   } catch (e) {
     return json(502, { error: `Could not check which addresses have been paid: ${e.message}` });
   }
   if (mode === "current") {
+    // Operator, 2026-11-25: "Copy address should pick the correct one and
+    // make it known each un used it's copying." The vault's own address
+    // while it has never been paid; then the newest one given out and not
+    // paid; only then a new one.
+    if (!used.has(vault.address) && !issued.some((a) => a.idx > 0)) {
+      return json(200, { ok: true, index: 0, address: vault.address, label: null, reused: false, first: true, unpaid_run: unpaidRun(next, issued, used) });
+    }
     const cur = currentUnpaid(issued, used);
     if (cur) {
       // Same address again; a label typed now is kept if it had none.
