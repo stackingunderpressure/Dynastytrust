@@ -101,3 +101,10 @@ Should we give option to blind within a vault of a family though."
   means a successor vault).
 - Making blind checkers able to stop a strange destination: they verify the
   person, not the payment -- the note says so where the group is chosen.
+
+## Operator's decisions (2026-11-25)
+
+1. Only the wellness group may be blind.
+2. The wellness group is blind by default in a family vault.
+3. No later path: refuse to compile.
+4. Replace the per-member switch with the vault's design.
