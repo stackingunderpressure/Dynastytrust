@@ -222,3 +222,5 @@ What slice 2 actually needs:
 Blast radius beyond the note: a new public (signature-checked) function and
 its cross-site headers, one migration, a new Nostr event kind in both apps,
 the membership request gaining the circle's keys.
+
+Decision 7 (operator, 2026-11-25): (a) straight to the server. Slice 1 shipped first ("Ship slice 1 now").
