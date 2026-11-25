@@ -129,7 +129,7 @@ export function VaultMembershipSetup({
   /** Present only for the generic leaf-list ("custom builder") vault
    *  shape -- when set (and non-empty), this drives roleArrays instead
    *  of the five named-field arrays above, one "role" per leaf id. */
-  leaves?: { id: string; label: string; keys: string[] }[] | null;
+  leaves?: { id: string; label: string; keys: string[]; wellness?: { view: 'blind' | 'full' } }[] | null;
   leafScripts: Record<string, string> | null;
   /** A vault with a new address every time: its <0;1>/* descriptor, so the
    *  request carries the xpub keys Tapit needs to co-sign coins on the
@@ -150,9 +150,13 @@ export function VaultMembershipSetup({
 }) {
   const toast = useToast();
   const [busyKeyId, setBusyKeyId] = useState<string | null>(null);
-  // What each member sees when co-signing, picked before sending
-  // (docs/tapit-review-modes-build-note.md); defaults to their last grant's.
-  const [modeFor, setModeFor] = useState<Record<string, 'wellness' | 'full'>>({});
+  // What each member sees comes from the vault's design
+  // (docs/wellness-group-build-note.md; operator's decisions, 2026-11-25):
+  // the people on a wellness-check path see what that path says (no amounts
+  // by default); everyone else -- every trust or legal role -- always sees
+  // full spend details.
+  const wellnessOf = (role: string) => (leaves ?? []).find(l => l.id === role)?.wellness ?? null;
+  const viewFor = (role: string): 'wellness' | 'full' => (wellnessOf(role)?.view === 'blind' ? 'wellness' : 'full');
   // A fresh-address vault's next change index, to warn before a member's
   // signed change list runs out.
   const [nextChange, setNextChange] = useState<number | null>(null);
@@ -441,7 +445,8 @@ export function VaultMembershipSetup({
     }
     setBusyKeyId(keyId);
     try {
-      const reviewMode = modeFor[keyId] ?? grants.find(x => x.role === role && x.key_id === keyId)?.review_mode ?? 'wellness';
+      const reviewMode = viewFor(role);
+      const wellnessPath = !!wellnessOf(role);
       // The vault's own change addresses, worked out on this device, so
       // Tapit can refuse a spend whose "change" goes anywhere else.
       let change: { scripts: string[]; until: number | null } | null = null;
@@ -460,6 +465,7 @@ export function VaultMembershipSetup({
         leafScripts: roleLeaves,
         rangedKeys: rangedKeysForScripts(vaultMultipath, roleLeaves),
         reviewMode,
+        wellnessPath,
         changeScripts: change?.scripts,
         network: changeVault?.network,
         recipientXOnlyPubkey: xOnlyPubkey,
@@ -511,11 +517,11 @@ export function VaultMembershipSetup({
         it and holds its own copy, then sends back a confirmation you'll see appear below.
       </p>
       <p style={{ fontSize: 16, color: colors.muted, marginBottom: 14 }}>
-        For each member, choose what they see when you spend. <b>Wellness check</b>: they only
-        confirm it is really you, calm and not under pressure -- no amounts, no addresses.{' '}
-        <b>Full details</b>: they also see how much leaves the vault, where it goes, and the change
-        coming back. Either way their wallet checks the change really returns to this vault before
-        it signs. A change takes effect when you send the request again and they accept.
+        What each member sees when you spend comes from how this vault was built. People on a
+        wellness-check path confirm it is really you, calm and not under pressure -- no amounts, unless
+        the path was set to show them. Everyone else sees how much leaves the vault, where it goes, and
+        the change coming back. Either way their wallet checks the change really returns to this vault
+        before it signs.
       </p>
 
       {!ready && vaultDescriptor !== null && (
@@ -607,31 +613,10 @@ export function VaultMembershipSetup({
                       : 'Grant membership'}
                 </Button>
               </div>
-              {isOwner && (
-                <div role="radiogroup" aria-label={`What ${k.label} sees`} style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {(['wellness', 'full'] as const).map(m => {
-                    const on = (modeFor[k.keyId] ?? g?.review_mode ?? 'wellness') === m;
-                    return (
-                      <button
-                        key={m}
-                        type="button"
-                        role="radio"
-                        aria-checked={on}
-                        onClick={() => setModeFor(prev => ({ ...prev, [k.keyId]: m }))}
-                        style={{
-                          minHeight: 44, padding: '6px 12px', fontSize: 15, borderRadius: radii.md, cursor: 'pointer',
-                          border: `1px solid ${on ? colors.gold : colors.border}`,
-                          background: on ? colors.goldBg : 'transparent', color: on ? colors.gold : colors.muted,
-                        }}
-                      >
-                        {m === 'wellness' ? 'Wellness check only' : 'Full spend details'}
-                      </button>
-                    );
-                  })}
+              {g && g.status === 'accepted' && viewFor(role) !== (g.review_mode ?? 'wellness') && (
+                <div style={{ fontSize: 15, color: colors.gold, paddingLeft: 2 }}>
+                  This vault's design says they should {viewFor(role) === 'full' ? 'see full spend details' : 'see no amounts'}; their wallet has the older setting. Send again for it to take effect.
                 </div>
-              )}
-              {g && g.status === 'accepted' && (modeFor[k.keyId] ?? g.review_mode ?? 'wellness') !== (g.review_mode ?? 'wellness') && (
-                <div style={{ fontSize: 15, color: colors.gold, paddingLeft: 2 }}>Changed -- send again for it to take effect.</div>
               )}
               {g && g.status === 'accepted' && g.change_until != null && nextChange != null && nextChange >= g.change_until - CHANGE_LIST_WARN && (
                 <div style={{ fontSize: 15, color: colors.orange, paddingLeft: 2 }}>

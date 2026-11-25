@@ -137,6 +137,9 @@ export interface VaultMembershipRequestPayload {
    *  (also the money). Signed into Tapit's membership, so a spend request
    *  cannot change it. */
   review_mode?: 'wellness' | 'full';
+  /** This member's path is a wellness-check path: Tapit asks the safety
+   *  phrase on EVERY spend, not only above the live-check amount. */
+  wellness_path?: boolean;
   /** The vault's own change addresses as output scripts (hex): its next 200
    *  change addresses, or its one address. Tapit refuses a spend whose
    *  "change" is anywhere else. */
@@ -243,6 +246,7 @@ export async function sendVaultMembershipRequestOverNostr(opts: {
   /** Fresh-address vaults: rangedKeysForScripts(multipath, leafScripts). */
   rangedKeys?: RangedKey[];
   reviewMode?: 'wellness' | 'full';
+  wellnessPath?: boolean;
   changeScripts?: string[];
   network?: 'bitcoin' | 'testnet' | 'signet';
   highValueThresholdSats?: bigint;
@@ -260,6 +264,7 @@ export async function sendVaultMembershipRequestOverNostr(opts: {
     leaf_scripts: opts.leafScripts,
     ...(opts.rangedKeys?.length ? { ranged_keys: opts.rangedKeys } : {}),
     review_mode: opts.reviewMode ?? 'wellness',
+    ...(opts.wellnessPath ? { wellness_path: true } : {}),
     ...(opts.changeScripts?.length ? { change_scripts: opts.changeScripts } : {}),
     ...(opts.network ? { network: opts.network } : {}),
     ...(opts.highValueThresholdSats !== undefined

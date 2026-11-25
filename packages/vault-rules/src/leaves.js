@@ -84,6 +84,22 @@ export function leavesCheck(vault) {
       }
     }
   }
+  // A wellness-check path (docs/wellness-group-build-note.md): the owner
+  // must sign (at least one must-sign key), and the vault needs a later path
+  // that does not depend on the wellness group -- operator's decision:
+  // refuse, so the vault can never lock up if its people cannot be reached.
+  for (const leaf of leaves) {
+    if (leaf.wellness === undefined) continue;
+    if (!leaf.wellness || (leaf.wellness.view !== "blind" && leaf.wellness.view !== "full")) {
+      return refuse(400, `The wellness setting on "${leaf.label || leaf.id}" is not readable.`);
+    }
+    if (!Array.isArray(leaf.required_keys) || leaf.required_keys.length < 1) {
+      return refuse(400, `The wellness-check path "${leaf.label || leaf.id}" needs your own key as a must-sign key.`);
+    }
+  }
+  if (leaves.some((l) => l.wellness) && !leaves.some((l) => l.unlock?.type && l.unlock.type !== "immediate")) {
+    return refuse(400, "A wellness-check path needs a later path that does not depend on its people, so the vault can never lock up. Add an \"After a fixed date\" or \"If untouched\" path.");
+  }
   for (const k of vault.consent_keys ?? []) {
     try {
       assertNotPrivateExtendedKey(k);
@@ -117,6 +133,8 @@ export function leavesWire(leaves, tipHeight) {
       // Only present on a path that has them, so every other vault's
       // stored paths keep the exact shape they always had.
       ...(Array.isArray(leaf.required_keys) && leaf.required_keys.length > 0 ? { required_keys: leaf.required_keys } : {}),
+      // Stored with the path, never part of its script: who on it sees what.
+      ...(leaf.wellness ? { wellness: { view: leaf.wellness.view } } : {}),
     };
   });
 }

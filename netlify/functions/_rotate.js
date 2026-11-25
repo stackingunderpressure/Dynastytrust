@@ -62,6 +62,8 @@ export function rotatedLeaves(srcLeaves, offsets) {
       // hand the owner a successor that is WEAKER than the vault they
       // rotated from, without a word.
       ...(Array.isArray(leaf.required_keys) && leaf.required_keys.length > 0 ? { required_keys: [...leaf.required_keys] } : {}),
+      // A wellness-check path stays one, with the same view for its people.
+      ...(leaf.wellness ? { wellness: { view: leaf.wellness.view } } : {}),
     };
   });
 }

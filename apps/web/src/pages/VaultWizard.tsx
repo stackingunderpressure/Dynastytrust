@@ -86,6 +86,11 @@ interface LeafDraft {
   decayStepBlocks: number;
   decayFloorQ: number;
   enabled: boolean;
+  /** A wellness-check path (docs/wellness-group-build-note.md): the owner
+   *  must sign, and the people on it confirm the owner is safe. 'blind' =
+   *  they see no amounts (the default); 'full' = they see the spend; null =
+   *  an ordinary path, whose people always see full details. */
+  wellness: 'blind' | 'full' | null;
 }
 
 // Mirrors protocol::MAX_RELATIVE_BLOCKS (60_000, ~13.7 months) --
@@ -110,7 +115,7 @@ function defaultPrimaryLeaf(): LeafDraft {
     id: 'primary', label: 'Everyday signers', plannedKeys: 1, quorum: 1, plannedRequired: 0,
     unlockType: 'immediate', afterBlocks: 0, olderBlocks: 0,
     decayEnabled: false, decayStepBlocks: 26_280, decayFloorQ: 1,
-    enabled: true,
+    enabled: true, wellness: null,
   };
 }
 
@@ -122,7 +127,19 @@ function defaultSecondaryLeaf(label = 'New path'): LeafDraft {
     // rather than silently defaulted to a number the user never chose.
     unlockType: 'after', afterBlocks: 0, olderBlocks: 26_280,
     decayEnabled: false, decayStepBlocks: 26_280, decayFloorQ: 1,
-    enabled: true,
+    enabled: true, wellness: null,
+  };
+}
+
+/** A wellness-check path (operator, 2026-11-25: "add as many of those keys
+ *  as they think they need. And threshold of those wellness checks. Along
+ *  with owner as a has to sign"). Starts at the operator's own example, 3 of
+ *  5 plus the owner; every number stays the builder's to change. */
+function wellnessLeaf(): LeafDraft {
+  return {
+    ...defaultSecondaryLeaf('Wellness check'),
+    plannedKeys: 5, quorum: 3, plannedRequired: 1,
+    unlockType: 'immediate', wellness: 'blind',
   };
 }
 
@@ -143,9 +160,14 @@ function leafUnlockOf(l: LeafDraft): LeafUnlock {
 // surface after keys were picked, at the Rust compiler, with "Back to
 // keys" as the only recovery option -- which can't fix a timing problem
 // Keys never had controls for in the first place.
-function leafShapeIssues(leafDrafts: LeafDraft[]): { hasImmediate: boolean; hasUnsetAfter: boolean; hasShortAfter: boolean } {
+function leafShapeIssues(leafDrafts: LeafDraft[]): { hasImmediate: boolean; hasUnsetAfter: boolean; hasShortAfter: boolean; wellnessNoFallback?: boolean } {
   const enabled = leafDrafts.filter(l => l.enabled);
   return {
+    // A wellness path needs a later path that does not depend on its
+    // people (operator's decision: refuse), so the vault cannot lock up if
+    // they cannot be reached, and has an escape if the owner's key is
+    // stolen. Mirrors packages/vault-rules leavesCheck.
+    wellnessNoFallback: enabled.some(l => l.wellness) && !enabled.some(l => l.unlockType !== 'immediate'),
     hasImmediate: enabled.some(l => l.unlockType === 'immediate'),
     hasUnsetAfter: enabled.some(l => l.unlockType === 'after' && l.afterBlocks <= 0),
     // A "fixed date" path below MIN_RECOVERY_BLOCKS compiles fine here
@@ -169,6 +191,7 @@ function leafDraftToSpec(l: LeafDraft, keys: string[], requiredKeys: string[] = 
     // compile-leaves.js builds the compiled list field by field and does
     // not carry it over.
     planned_keys: l.plannedKeys,
+    ...(l.wellness ? { wellness: { view: l.wellness } } : {}),
     id: l.id, label: l.label, keys, quorum: l.quorum, unlock: leafUnlockOf(l),
     decay: l.decayEnabled ? { step_blocks: l.decayStepBlocks, floor_quorum: l.decayFloorQ } : null,
   };
@@ -200,6 +223,7 @@ function leafDraftFromSpec(spec: LeafSpec): LeafDraft {
     decayStepBlocks: spec.decay?.step_blocks ?? 26_280,
     decayFloorQ: spec.decay?.floor_quorum ?? 1,
     enabled: true,
+    wellness: spec.wellness ? (spec.wellness.view === 'full' ? 'full' as const : 'blind' as const) : null,
   };
   if (spec.unlock.type === 'after') {
     return { ...base, unlockType: 'after', afterBlocks: spec.unlock.blocks, olderBlocks: 26_280 };
@@ -1173,8 +1197,8 @@ function ConfigureStep({
   // fixed date") could leave this step, get keys picked for it, and only
   // then fail at the real Rust compile step with no way to fix the actual
   // problem. Blocking here instead of just warning closes that dead end.
-  const leafIssues = shape === 'leaves' ? leafShapeIssues(leafDrafts) : { hasImmediate: true, hasUnsetAfter: false, hasShortAfter: false };
-  const leafShapeBlocked = shape === 'leaves' && (!leafIssues.hasImmediate || leafIssues.hasUnsetAfter || leafIssues.hasShortAfter);
+  const leafIssues = shape === 'leaves' ? leafShapeIssues(leafDrafts) : { hasImmediate: true, hasUnsetAfter: false, hasShortAfter: false, wellnessNoFallback: false };
+  const leafShapeBlocked = shape === 'leaves' && (!leafIssues.hasImmediate || leafIssues.hasUnsetAfter || leafIssues.hasShortAfter || !!leafIssues.wellnessNoFallback);
 
   // Standard and Bloc have the identical failure mode as leaf-list above --
   // a fixed-date path below MIN_RECOVERY_BLOCKS compiles fine client-side
@@ -1260,7 +1284,9 @@ function ConfigureStep({
       {err && <p style={{ color: colors.red, fontSize: 17 }}>{err}</p>}
       {leafShapeBlocked && (
         <p style={{ color: colors.red, fontSize: 17 }}>
-          {leafIssues.hasUnsetAfter
+          {leafIssues.wellnessNoFallback
+            ? 'A wellness-check path needs a later path that does not depend on its people -- add one ("+ Add another path", then "After a fixed date" or "If untouched") so the vault can never lock up.'
+            : leafIssues.hasUnsetAfter
             ? 'A path set to "After a fixed date" has no date yet -- pick one on that path to continue.'
             : !leafIssues.hasImmediate
               ? 'One path needs to open right away before you can continue.'
@@ -1601,7 +1627,7 @@ function LeavesConfigureFields({
   const [trustLabeled, setTrustLabeled] = useState(false);
   const [preTrustLabels, setPreTrustLabels] = useState<Record<string, string> | null>(null);
   const secondaries = leafDrafts.slice(1);
-  const { hasImmediate, hasUnsetAfter, hasShortAfter } = leafShapeIssues(leafDrafts);
+  const { hasImmediate, hasUnsetAfter, hasShortAfter, wellnessNoFallback } = leafShapeIssues(leafDrafts);
 
   function applyTab(tab: LeafShapeTab) {
     const built = tab.build();
@@ -1709,6 +1735,14 @@ function LeavesConfigureFields({
           move until a timelock opens. Set one path's timing to "Right away."
         </div>
       )}
+      {wellnessNoFallback && (
+        <div style={{ padding: 12, background: colors.red + '11', border: `1px solid ${colors.red}33`, borderRadius: radii.md, color: colors.red, fontSize: 16, lineHeight: 1.5 }}>
+          If the people on your wellness-check path can't be reached, the coins could never move. Add a
+          later path that doesn't need them -- "After a fixed date" or "If untouched" -- and keep it far
+          enough out that, if your own key is ever stolen, you can move the coins through the wellness
+          path first.
+        </div>
+      )}
       {hasUnsetAfter && (
         <div style={{ padding: 12, background: colors.red + '11', border: `1px solid ${colors.red}33`, borderRadius: radii.md, color: colors.red, fontSize: 16, lineHeight: 1.5 }}>
           A path set to "After a fixed date" still needs that date picked -- pick a preset, a calendar
@@ -1757,6 +1791,13 @@ function LeavesConfigureFields({
         style={{ alignSelf: 'flex-start' }}
       >
         + Add another path
+      </Button>
+      <Button
+        variant="ghost"
+        onClick={() => { setLeafDrafts(list => [...list, wellnessLeaf()]); setDirty(true); }}
+        style={{ alignSelf: 'flex-start' }}
+      >
+        + Add a wellness-check path
       </Button>
     </div>
   );
@@ -1932,6 +1973,45 @@ function ShapeStoryCard({
   );
 }
 
+// What a wellness-check path is, and what its people see
+// (docs/wellness-group-build-note.md). Trust and legal roles always see
+// full details; only this group may be blind (operator's decision).
+function WellnessPanel({ leaf, onChange }: { leaf: LeafDraft; onChange: (fn: (l: LeafDraft) => LeafDraft) => void }) {
+  const note = { fontSize: 17, color: colors.sub, lineHeight: 1.55, margin: 0 } as const;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 12, background: colors.inset, borderRadius: radii.md, borderLeft: `3px solid ${colors.green}` }}>
+      <p style={{ ...note, color: colors.text }}>
+        Before coins move this way, {leaf.quorum} of these {leaf.plannedKeys} people confirm you are safe, calm and not
+        under pressure -- on a call, with the safety phrase. Your own key (the must-sign key below) always signs too.
+      </p>
+      <p style={note}>
+        If your key is ever stolen it is not enough on its own: the thief still needs {leaf.quorum} of them, and that
+        buys you time to move the coins through your later path.
+      </p>
+      <div role="radiogroup" aria-label="What these people see" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {(['blind', 'full'] as const).map(v => (
+          <Button
+            key={v}
+            size="sm"
+            variant={leaf.wellness === v ? 'primary' : 'ghost'}
+            style={{ minHeight: 44 }}
+            role="radio"
+            aria-checked={leaf.wellness === v}
+            onClick={() => onChange(l => ({ ...l, wellness: v }))}
+          >
+            {v === 'blind' ? 'They see no amounts' : 'They see full spend details'}
+          </Button>
+        ))}
+      </div>
+      <p style={note}>
+        {leaf.wellness === 'blind'
+          ? "They confirm you, not the payment: they would not notice a payment to the wrong address. Their wallet still checks the change comes back to this vault."
+          : 'They see how much leaves the vault, where it goes, and the change coming back -- and can ask about a payment that looks wrong.'}
+      </p>
+    </div>
+  );
+}
+
 function LeafCard({
   leaf, step, removable, onChange, onRemove,
 }: {
@@ -1958,6 +2038,7 @@ function LeafCard({
           <Field label="Path name">
             <Input value={leaf.label} onChange={e => onChange(l => ({ ...l, label: e.target.value }))} />
           </Field>
+          {leaf.wellness && <WellnessPanel leaf={leaf} onChange={onChange} />}
           <Field label="How many people?">
             <CountStepper
               value={leaf.plannedKeys} min={1} label="signers" color={removable ? colors.blue : colors.gold}
@@ -1970,7 +2051,7 @@ function LeafCard({
           </p>
           <Field label="Keys that must always sign">
             <CountStepper
-              value={leaf.plannedRequired} min={0} max={5} label="must-sign" color={colors.orange}
+              value={leaf.plannedRequired} min={leaf.wellness ? 1 : 0} max={5} label="must-sign" color={colors.orange}
               onChange={n => onChange(l => ({ ...l, plannedRequired: n }))}
             />
             <p style={{ fontSize: 17, color: colors.sub, lineHeight: 1.55, margin: '8px 0 0' }}>

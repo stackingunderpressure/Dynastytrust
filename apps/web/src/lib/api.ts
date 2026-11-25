@@ -312,6 +312,10 @@ export interface LeafSpec {
   required_keys?: string[];
   /** Draft only: how many must-sign slots this path has. */
   planned_required?: number;
+  /** A wellness-check path (docs/wellness-group-build-note.md): its people
+   *  confirm the owner is safe; `view` is what they see. Absent on every
+   *  other path. */
+  wellness?: { view: 'blind' | 'full' };
 }
 
 /** The whole Bloc policy the compiler needs to rebuild the exact tree
