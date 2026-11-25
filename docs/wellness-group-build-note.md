@@ -165,3 +165,9 @@ Further decisions for the operator:
 6. Whether a duress hold also tells the other checkers immediately (a Tapit
    notice: "a duress phrase was used for this vault -- do not sign, call the
    others") (Recommended), or only blocks silently when they are asked.
+
+Operator's answers (2026-11-25):
+5. A duress hold is cleared only by the owner AND the circle's quorum (the
+   same threshold as the wellness path).
+6. The other checkers are told at once: their Tapit shows "A duress phrase
+   was used for this vault. Do not sign. Call the others."
