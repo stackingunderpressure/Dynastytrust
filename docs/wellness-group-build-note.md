@@ -108,3 +108,60 @@ Should we give option to blind within a vault of a family though."
 2. The wellness group is blind by default in a family vault.
 3. No later path: refuse to compile.
 4. Replace the per-member switch with the vault's design.
+
+## The duress phrase today, and what this slice must add (checked 2026-11-25)
+
+Operator: "Already talked about this thought we had duress words" -- then
+"Yes, check it and add to the note", on whether a duress phrase from one
+checker stops the others.
+
+What happens now (read from the code):
+- Tapit (`SignApprovalScreen.tsx`, `circlePhrase.ts`): the checker types the
+  phrase the owner reads them. The duress phrase makes THAT phone refuse and
+  show, in red, "That was the duress phrase. Do not approve this request",
+  telling the checker to contact the other members and the authorities by
+  another channel, and that the owner should halt the vault.
+- Nothing is sent anywhere. The result lives only on that screen
+  (`phraseResult` is component state; `checkCirclePhrase` resets its
+  counter and records nothing). The other checkers are not told, DynastyTrust
+  is not told, and the same request reopened -- or the next one -- is not
+  held.
+- The vault halt (`vaults.duress`, "blocks every signing path") can be set
+  only by the vault's OWNER (`vaults.js` PATCH matches `user_id`) -- the one
+  person who, in this situation, is under duress.
+- A signed duress signal already exists: Tapit's liveness feature can raise a
+  `duress-flag`, which DynastyTrust's server verifies (`_liveness.js`) and its
+  signing gate treats as red (`liveness-gate.ts`, `evaluateSigningGate`). But
+  the phrase check does not raise one, and Tapit's co-signing does not check
+  for red flags before signing (`signPsbtCosign.ts` reads neither).
+- The phrase is only asked above the vault's live-check amount
+  (`requiresCallbackConfirmation`); a smaller spend asks no phrase at all.
+
+So with 3 of 5 checkers, an attacker can keep calling until 3 sign: the one
+who heard the duress phrase refuses, and nothing stops the next.
+
+What this slice adds:
+1. **The duress phrase raises the signed duress flag automatically** -- the
+   existing `duress-flag` signal, signed by the checker's own key, sent the
+   way liveness signals already go, for this vault. Nothing new for the
+   checker to do in the moment.
+2. **Every checker's Tapit refuses while a red flag stands** for that vault:
+   `signPsbtCosign` reads the vault's flags first and refuses with "Someone
+   in this vault's circle reported duress. Nothing will be signed until the
+   owner and the circle clear it together."
+3. **DynastyTrust holds the whole vault** on a red flag from a member,
+   exactly as its signing gate already does for liveness red -- the owner's
+   own signer refuses too, and the vault page says why.
+4. **Clearing it takes more than the owner**, because the owner may be the
+   one under pressure: the decision for the operator below.
+5. **In a vault with a wellness group, every spend on that path asks for the
+   phrase**, not only spends above the live-check amount -- the group exists
+   to confirm the person on every move.
+
+Further decisions for the operator:
+5. Who can clear a duress hold: the owner AND a quorum of the circle
+   (Recommended -- the same 3 of 5), or the owner after a waiting period, or
+   the owner alone.
+6. Whether a duress hold also tells the other checkers immediately (a Tapit
+   notice: "a duress phrase was used for this vault -- do not sign, call the
+   others") (Recommended), or only blocks silently when they are asked.
