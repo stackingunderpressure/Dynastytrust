@@ -5662,8 +5662,9 @@ function rolePhaseHint(
   // what's actually open instead of guessing a persona.
   if (Array.isArray(vault.leaves) && vault.leaves.length > 0) {
     const leaves = buildVaultLeaves(vault, tip);
-    const available = leaves.filter(l => l.status !== "locked");
+    const available = leaves.filter(openNowStatus);
     const locked = leaves.filter(l => l.status === "locked" && l.absHeight != null);
+    const perCoin = leaves.filter(l => l.status === "per_coin");
     const lines: string[] = [];
     lines.push(
       available.length > 0
@@ -5674,6 +5675,7 @@ function rolePhaseHint(
       const next = locked.sort((a, b) => (a.absHeight ?? 0) - (b.absHeight ?? 0))[0];
       lines.push(`Next to open: "${next.label}", ${opensWords(next.absHeight ?? 0, tip, new Date())}. That date is fixed in the vault: it opens whatever happens before then.`);
     }
+    for (const l of perCoin) lines.push(perCoinWords(l));
     return { lines };
   }
 
@@ -5764,7 +5766,7 @@ function computePhase(vault: Vault, tip: number | null): VaultPhase {
   // buildVaultLeaves's header comment for the same discriminator.
   if (Array.isArray(vault.leaves) && vault.leaves.length > 0) {
     const leaves = buildVaultLeaves(vault, tip);
-    const available = leaves.filter(l => l.status !== "locked");
+    const available = leaves.filter(openNowStatus);
     const openNow = leaves.filter(l => l.status === "unlocked");
 
     const label = openNow.length > 0 && available.length === openNow.length
@@ -5779,6 +5781,9 @@ function computePhase(vault: Vault, tip: number | null): VaultPhase {
     const paths = leaves.map(l => {
       if (l.status === "locked" && l.absHeight != null) {
         return `${l.label} - locked until block ${l.absHeight.toLocaleString()} (${leafWho(l)})`;
+      }
+      if (l.status === "per_coin") {
+        return `${l.label} - ${leafWho(l)} - per coin, after about ${blocksToLabel(l.untouchedBlocks ?? 0)} unmoved`;
       }
       return `${l.label} - ${leafWho(l)}${l.status === "unlocked" ? " - OPEN" : ""}`;
     });
@@ -5945,7 +5950,15 @@ function VaultPhaseCard({ vault }: { vault: Vault }) {
 // "current phase" -- Bitcoin's OR-of-branches doesn't collapse to a
 // single active path (Recovery and Inheritance can both be unlocked at
 // once), so showing them as a single narrative would overclaim.
-type VaultLeafStatus = "active" | "unlocked" | "locked";
+// "per_coin": an "if untouched" path (older) opens separately for each coin,
+// once that coin has sat unmoved long enough -- never for the vault as a
+// whole, so it is never "can spend right now" here (operator, 2026-11-25, a
+// screenshot: the coin card said "Path 2: 100 blocks left" while this card
+// said Path 2 could spend right now). The coins list shows each coin's wait.
+type VaultLeafStatus = "active" | "unlocked" | "locked" | "per_coin";
+const openNowStatus = (l: { status: VaultLeafStatus }) => l.status === "active" || l.status === "unlocked";
+const perCoinWords = (l: VaultLeaf) =>
+  `"${l.label}" (${leafWho(l)}) opens for each coin once that coin has sat unmoved for about ${blocksToLabel(l.untouchedBlocks ?? 0)} -- the coins list above shows how long each one has left.`;
 
 interface VaultLeaf {
   id: string;
@@ -5958,6 +5971,8 @@ interface VaultLeaf {
   mustSign?: number;
   absHeight: number | null;
   status: VaultLeafStatus;
+  /** For a "per_coin" path: how many blocks a coin must sit unmoved. */
+  untouchedBlocks?: number;
   note?: string;
 }
 
@@ -5982,7 +5997,9 @@ function buildVaultLeaves(vault: Vault, tip: number | null): VaultLeaf[] {
     return vault.leaves.map((leaf, i) => {
       const absHeight = leaf.unlock.type === "after" ? leaf.unlock.blocks : null;
       const status: VaultLeafStatus =
-        leaf.unlock.type === "after" ? vaultLeafStatus(absHeight, tip) : "active";
+        leaf.unlock.type === "after" ? vaultLeafStatus(absHeight, tip)
+          : leaf.unlock.type === "older" ? "per_coin"
+          : "active";
       const note =
         leaf.unlock.type === "older"
           ? `Opens if the vault sits untouched for about ${blocksToLabel(leaf.unlock.blocks)} -- any spend from any path resets this clock.`
@@ -5998,6 +6015,7 @@ function buildVaultLeaves(vault: Vault, tip: number | null): VaultLeaf[] {
         mustSign: (leaf.required_keys ?? []).length,
         absHeight,
         status,
+        untouchedBlocks: leaf.unlock.type === "older" ? leaf.unlock.blocks : undefined,
         note: [mustSignMeaning((leaf.required_keys ?? []).length), note].filter(Boolean).join(" ") || undefined,
       };
     });
@@ -6079,6 +6097,13 @@ function VaultLeafStatusPill({ status, absHeight, tip }: { status: VaultLeafStat
     return (
       <span style={{ fontSize: 14, fontWeight: 700, letterSpacing: "0.06em", color: colors.gold, textTransform: "uppercase", whiteSpace: "nowrap" }}>
         Active now
+      </span>
+    );
+  }
+  if (status === "per_coin") {
+    return (
+      <span style={{ fontSize: 14, fontWeight: 700, letterSpacing: "0.06em", color: colors.muted, textTransform: "uppercase", whiteSpace: "nowrap" }}>
+        Per coin -- see coins
       </span>
     );
   }
