@@ -116,3 +116,9 @@ the right thing? Test it."
   exists).
 - Mainnet spends of the new vault shapes (after this, on his word).
 - Splitting `VaultDetail.tsx` (a known risk the package will name, not fix).
+
+## Operator's decisions (2026-11-25)
+
+1. Download a pinned, checksum-checked Bitcoin Core into the scratchpad.
+2. The blind review covers only the five new areas.
+3. Fix confirmed money-touching findings one at a time, each held for his word.

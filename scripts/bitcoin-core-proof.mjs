@@ -14,7 +14,7 @@
  *      our transactions, which the offline harness never had.
  *
  * NOT part of `npm test`: it needs a Bitcoin Core download.
- * Run (compiler on :8899 as scripts/offline-harness.sh starts it):
+ * Run (the in-process compiler by default):
  *   BITCOIN_BIN=/path/to/bitcoin-32.1/bin node --experimental-strip-types \
  *     --import ./scripts/register-ts-resolver.mjs scripts/bitcoin-core-proof.mjs
  */
@@ -30,7 +30,9 @@ import { signPsbtWithMnemonic, mergePsbts } from '../apps/web/src/lib/psbt-signe
 
 const BIN = process.env.BITCOIN_BIN;
 if (!BIN) { console.error('Set BITCOIN_BIN to a Bitcoin Core bin/ directory.'); process.exit(2); }
-const COMPILER = process.env.COMPILER_URL || 'http://127.0.0.1:8899';
+// Fly is retired (every compiler call runs the in-process wasm), so that is
+// the default; COMPILER_URL=http://127.0.0.1:8899 still drives a local Rust compiler.
+const COMPILER = process.env.COMPILER_URL || 'wasm';
 const SECRET = process.env.COMPILER_SECRET || 'testsecret';
 const NET = 'signet';
 

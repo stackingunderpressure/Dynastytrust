@@ -99,6 +99,23 @@ finalizer is rust-miniscript's satisfier, not a node, so this proves the
 compiler, signer and finalizer agree -- the live signet walk proves a
 network agrees.
 
+**4. Bitcoin Core as referee, re-run 2026-11-25 (in-house re-audit step 1,
+docs/in-house-reaudit-build-note.md).** Both proofs had rotted outside `npm
+test`: `bitcoin-core-proof.mjs` still expected the retired Fly compiler on
+:8899, and `bitcoin-core-ranged-proof.mjs`'s fake database lacked the calls the
+change-reuse code added. Repaired (the one-address proof now defaults to the
+in-process compiler) and run against stock Bitcoin Core 32.1 (tarball
+sha256 `61545c17...4963`, matching the release's SHA256SUMS; the SUMS file's
+own signatures were not checked). Results: `bitcoin-core-proof OK (14
+checks)`, `bitcoin-core-ranged-proof OK (10 checks)`. New in the ranged proof:
+receive and change addresses 0-499 match Core's own derivation; the
+signatures Core accepts are exactly the ones the app counts (each child key
+credited once to its own vault key, a repeated signature not double-counted,
+nothing credited without the vault descriptor); an issued-but-never-paid
+change address is reused and Core mines it. Not yet covered: a vault mixing a
+Tapit bare key with xpub keys judged by Core, and a spend with this vault's
+inputs but foreign change (covered only by the unit-level change checks).
+
 **Stale record to correct elsewhere:** AppCommander's
 `project-memory/foreman-memory/projects/dynastytrust/DOCTRINE.md` (written
 2026-05-16) still lists "end-to-end signet spend with real independent

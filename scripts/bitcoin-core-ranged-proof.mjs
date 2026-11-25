@@ -38,6 +38,7 @@ const bc = await import(L('browser-compiler.ts'));
 bc.useCompilerWasmBytes(new Uint8Array(readFileSync(new URL('../apps/web/src/lib/wasm/dynastytrust_compiler_wasm.wasm', import.meta.url))));
 const { signPsbtWithMnemonic, mergePsbts } = await import(L('psbt-signer.ts'));
 const { checkFreshSpendAddresses } = await import(L('fresh-addresses.ts'));
+const { signersOnEveryInput } = await import(L('psbt-signer.ts'));
 const { callWasm } = await import(F('_ranged-wasm.js'));
 const { buildRangedSpend } = await import(F('_ranged-spend.js'));
 
@@ -96,10 +97,11 @@ const info = cli(null, 'getdescriptorinfo', V.descriptor_multipath.split('#')[0]
 assert.equal(`${V.descriptor_multipath.split('#')[0]}#${info.checksum}`, V.descriptor_multipath);
 assert.equal(info.multipath_expansion.length, 2);
 for (const [branch, d] of [[0, info.multipath_expansion[0]], [1, info.multipath_expansion[1]]]) {
-  const core = cli(null, 'deriveaddresses', d, [0, 19]).map(spkOfAddr);
-  assert.deepEqual(core, ours(branch, 0, 20).map(a => a.script_pubkey));
+  const core = cli(null, 'deriveaddresses', d, [0, 499]).map(spkOfAddr);
+  const mine500 = [...ours(branch, 0, 200), ...ours(branch, 200, 200), ...ours(branch, 400, 100)];
+  assert.deepEqual(core, mine500.map(a => a.script_pubkey));
 }
-pass(`Core gives our fresh-address descriptor the same checksum (${info.checksum}) and the same receive and change addresses 0-19`);
+pass(`Core gives our fresh-address descriptor the same checksum (${info.checksum}) and the same receive and change addresses 0-499`);
 
 // 2. ONE watch-only import, exactly as the backup file says.
 cli(null, 'createwallet', 'vault', true, true);
@@ -148,13 +150,17 @@ const dest = cli('miner', 'getnewaddress', '', 'bech32m');
 const tip = () => cli(null, 'getblockcount');
 const coinFor = (c, branch, index) => ({ txid: c.txid, vout: c.vout, value: Math.round(c.value * 1e8), status: { confirmed: true, block_height: cli(null, 'getrawtransaction', c.txid, 1).confirmations && tip() - cli(null, 'getrawtransaction', c.txid, 1).confirmations + 1 }, address: at(branch, index).address, branch, index });
 let reserved = 0;
+// Change addresses already issued (an abandoned spend leaves one), and which
+// of them the chain says were ever paid -- the reuse rule's two inputs.
+let issuedChange = [];
+let usedChange = new Set();
 const supabase = {
-  from: () => { const o = { select: () => o, eq: () => o, then: (res) => res({ data: [{ branch: 0, next_index: 21 }, { branch: 1, next_index: reserved }], error: null }), insert: async () => ({ error: null }) }; return o; },
+  from: () => { const o = { select: () => o, eq: () => o, order: () => o, limit: async () => ({ data: issuedChange, error: null }), then: (res) => res({ data: [{ branch: 0, next_index: 21 }, { branch: 1, next_index: reserved }], error: null }), insert: async () => ({ error: null }) }; return o; },
   rpc: async () => ({ data: reserved++ + 10, error: null }),
 };
 const build = async (path, amount, list) => {
   const r = await buildRangedSpend({ supabase, vault: V, userId: 'u', body: { destination: toSignet(dest), amount_sats: amount, path, fee_rate: 2 } },
-    { coinsAt: async () => list, fetchTipHeight: async () => tip(), getFeeRate: async () => 2 });
+    { coinsAt: async () => list, fetchTipHeight: async () => tip(), getFeeRate: async () => 2, vaultUsed: async () => usedChange });
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.deepEqual(await checkFreshSpendAddresses(V, r.body.psbt_hex), { ok: true });
   return r.body;
@@ -172,6 +178,57 @@ const build = async (path, amount, list) => {
   assert.ok(change, 'change did not go to change address 10');
   assert.equal(cli('vault', 'getaddressinfo', bcrt(1, 10)).ismine, true);
   pass(`our server built and our browser signer signed a spend of receive 0 + receive 12; Core mined it; the change (${change.value}) is on never-used change address 10 and Core's watch-only wallet counts it as the vault's`);
+}
+
+// 4b. Who signed, as the app counts it (packages/vault-rules ranged-signers):
+// a child key's signature counts once, for its own vault key, and nothing
+// else is credited. Judged against the keys Core just accepted.
+{
+  // Coins of their own: receive 7 was spent by Core alone in step 3.
+  const r30 = fund(bcrt(0, 30), 1), r31 = fund(bcrt(0, 31), 1);
+  const b = await build('everyday', 40_000_000, [coinFor(r30, 0, 30)]);
+  const s0 = await signPsbtWithMnemonic(b.psbt_hex, MNEMONIC, S[0].path, 'testnet');
+  const s2 = await signPsbtWithMnemonic(b.psbt_hex, MNEMONIC, S[2].path, 'testnet');
+  const xonly = (k) => k.slice(2).toLowerCase();
+  assert.deepEqual(signersOnEveryInput(s0.psbt_hex, V.descriptor_multipath), [xonly(S[0].pubkey)]);
+  const both = mergePsbts([b.psbt_hex, s0.psbt_hex, s2.psbt_hex]);
+  assert.deepEqual(new Set(signersOnEveryInput(both, V.descriptor_multipath)), new Set([xonly(S[0].pubkey), xonly(S[2].pubkey)]));
+  assert.equal(signersOnEveryInput(mergePsbts([b.psbt_hex, s0.psbt_hex, s0.psbt_hex]), V.descriptor_multipath).length, 1);
+  // Without the vault's descriptor the child is not credited to anyone's
+  // vault key: no stand-in, no guess.
+  assert.ok(!signersOnEveryInput(both, null).includes(xonly(S[0].pubkey)));
+  const raw = wasm('/psbt-finalize', { psbt_hex: both }).raw_tx_hex;
+  assert.equal(cli(null, 'testmempoolaccept', [raw])[0].allowed, true);
+  pass('the signatures Core accepts are exactly the ones the app counts: each child key credited once to its own vault key, a repeated signature not double-counted, nothing credited without the vault descriptor');
+
+  // A change address issued for a spend never sent is reused, and Core
+  // accepts the result.
+  issuedChange = [{ idx: 11, address: at(1, 11).address }];
+  usedChange = new Set();
+  const b2 = await build('everyday', 40_000_000, [coinFor(r31, 0, 31)]);
+  const t = btc.Transaction.fromPSBT(Uint8Array.from(b2.psbt_hex.match(/../g).map(h => parseInt(h, 16))));
+  const outs = Array.from({ length: t.outputsLength }, (_, i) => btc.Address(btc.TEST_NETWORK).encode(btc.OutScript.decode(t.getOutput(i).script)));
+  assert.ok(outs.includes(at(1, 11).address), `change not on the abandoned change address 11: ${outs}`);
+  const m2 = mergePsbts([b2.psbt_hex, (await signPsbtWithMnemonic(b2.psbt_hex, MNEMONIC, S[0].path, 'testnet')).psbt_hex, (await signPsbtWithMnemonic(b2.psbt_hex, MNEMONIC, S[1].path, 'testnet')).psbt_hex]);
+  const raw2 = wasm('/psbt-finalize', { psbt_hex: m2 }).raw_tx_hex;
+  const txid2 = cli(null, 'sendrawtransaction', raw2); mine(1);
+  assert.ok(cli(null, 'getrawtransaction', txid2, 1).vout.some(o => o.scriptPubKey.address === bcrt(1, 11)));
+  assert.equal(cli('vault', 'getaddressinfo', bcrt(1, 11)).ismine, true);
+  pass('an issued-but-never-paid change address (11) is reused for the next spend; Core mines it and counts the change as the vault\'s');
+  issuedChange = []; usedChange = new Set();
+
+  // The same transaction checked against ANOTHER vault: its change is not
+  // that vault's, so the change check must refuse it.
+  const T = S.map(s2 => { const path = s2.path.replace("/2'", "/1'"); const acct = ROOT.derive(path); return { path, xpub: acct.publicExtendedKey, pubkey: toHex(acct.deriveChild(0).deriveChild(0).publicKey) }; });
+  const otherCompiled = wasm('/compile-leaves', { network: NET, leaves: leaves.map(l => ({ ...l, keys: T.map(t => t.pubkey) })) });
+  const other = wasm('/ranged-compile', { template: otherCompiled.descriptor, network: NET, origins: T.map(t => ({ fingerprint: FP, account_path: t.path, xpub: t.xpub })) });
+  const otherVault = { ...V, leaf_scripts: otherCompiled.leaf_scripts, descriptor_multipath: other.multipath, descriptor_receive: other.receive, descriptor_change: other.change, address: other.receive0 };
+  const verdict = await checkFreshSpendAddresses(otherVault, b2.psbt_hex);
+  assert.equal(verdict.ok, false, 'a spend checked against a different vault was accepted');
+  // Honest scope: this refusal fires on the INPUTS (they are not the other
+  // vault's). A spend with this vault's inputs but someone else's change is
+  // the case test-change-scripts / Tapit's change check cover, not this one.
+  pass(`the address check refuses this spend when judged against a different vault (${String(verdict.reason ?? verdict.error ?? 'refused').slice(0, 60)})`);
 }
 
 // 5. "If left untouched", by our stack and by Core alone.
