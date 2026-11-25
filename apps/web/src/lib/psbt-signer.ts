@@ -15,6 +15,7 @@
  * mnemonic and orchestrating signing across a PSBT's inputs.
  */
 
+import { canonicalSigner, multipathKeys } from '../../../../packages/vault-rules/src/ranged-signers.js';
 import { secp256k1, schnorr } from "@noble/curves/secp256k1";
 import { HDKey } from "@scure/bip32";
 import { mnemonicToSeedSync } from "@scure/bip39";
@@ -176,11 +177,15 @@ export function countSignatures(psbtHex: string): number {
  * the same name: "fully signed" is decided from WHO signed
  * (vault-spending-paths.ts, pathSignatureStatus), never from a count.
  */
-export function signersOnEveryInput(psbtHex: string): string[] {
+export function signersOnEveryInput(psbtHex: string, multipath: string | null = null): string[] {
   try {
     const parsed = parsePsbt(psbtHex);
+    // A vault with a new address every time: a signature by a key's CHILD
+    // counts as that vault key (packages/vault-rules ranged-signers.js).
+    const keys = multipathKeys(multipath);
     const perInput: string[][] = parsed.inputs.map((inp, i) =>
-      validSigs(parsed, i, inp.tapScriptSigs ?? []).map(sig => toHex(sig.pubkey)));
+      validSigs(parsed, i, inp.tapScriptSigs ?? []).map(sig =>
+        keys.length ? canonicalSigner(toHex(sig.pubkey), inp.tapBip32Derivation, keys) : toHex(sig.pubkey)));
     if (perInput.length === 0) return [];
     return [...new Set(perInput[0])].filter(k => perInput.every(keys => keys.includes(k)));
   } catch {

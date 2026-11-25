@@ -22,7 +22,7 @@ import { findSpendingPath, signerCapacity } from "./_vault-shape.js";
 
 // The vault fields getSpendingPaths reads (same list as psbt-merge.js).
 const VAULT_SHAPE_FIELDS =
-  "id, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, backup_quorum, backup_keys, second_heir_quorum, second_heir_keys, second_inheritance_after, leaves, founder_keys, heir_keys, consent_keys, consent_quorum";
+  "id, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, backup_quorum, backup_keys, second_heir_quorum, second_heir_keys, second_inheritance_after, leaves, founder_keys, heir_keys, consent_keys, consent_quorum, descriptor_version, descriptor_multipath";
 
 // Roles signer_sessions.signer_role accepted before
 // 20261112230000_signer_role_real.sql. Used only if the database still
@@ -126,7 +126,7 @@ export async function handler(event) {
     try {
       const { data: vault } = await supabase.from("vaults").select(VAULT_SHAPE_FIELDS).eq("id", proposal.vault_id).maybeSingle();
       const path = vault && proposal.path ? findSpendingPath(vault, proposal.path) : null;
-      signedAs = signersOnEveryInput(psbt_partial_hex).map((key) => ({ key, as: signerCapacity(path, key) }));
+      signedAs = signersOnEveryInput(psbt_partial_hex, vault?.descriptor_version === 2 ? vault.descriptor_multipath : null).map((key) => ({ key, as: signerCapacity(path, key) }));
     } catch (e) {
       console.error(`[signer-sessions] could not work out signer capacity: ${e?.message || e}`);
     }

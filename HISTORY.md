@@ -4980,3 +4980,18 @@ rebuild of the vault's own script (Tapit freshAddressLeaf.ts). Left undone:
 Tapit checking the change destination. Gates at the time: npm test exit 0,
 lint 0 errors, typecheck the same 10 pre-existing errors, build ok; Tapit
 1049/1049. docs/tapit-fresh-address-cosign-build-note.md.
+
+## 2026-11-25 -- a browser signature on a fresh-address vault did not count
+
+Operator's phone: "I signed it with browser. It showed signed but right
+above it wasn't recognizing it as signed." Root cause: on a vault with a new
+address every time, a key with an xpub signs each coin with its CHILD key;
+"who signed" (`signersOnEveryInput`, page and server) compared signature
+keys straight against the path's /0/0 keys, so those signatures were never
+counted -- only a bare Tapit key (same at every address) was. Missed because
+the sign test checked finalizing, not the "who signed" status. Fix:
+`packages/vault-rules/src/ranged-signers.js` maps a child key back to its
+vault key by deriving it from the vault's own stored descriptor (the PSBT's
+derivation is only a hint), used by the proposal page, psbt-merge's
+fully-signed decision and signer-sessions. Gates: npm test exit 0; lint 0
+errors; typecheck the same 10 pre-existing errors; build ok.

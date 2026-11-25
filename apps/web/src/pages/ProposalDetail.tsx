@@ -314,7 +314,7 @@ export default function ProposalDetail() {
   // would then refuse it. The count is kept only where the path is
   // unknown (a Bloc vault) or its keys cannot be matched by name.
   const sigStatus = pathSigners.summary && mergedPsbt
-    ? pathSignatureStatus(pathSigners.summary, signersOnEveryInput(mergedPsbt))
+    ? pathSignatureStatus(pathSigners.summary, signersOnEveryInput(mergedPsbt, vault.descriptor_version === 2 ? vault.descriptor_multipath ?? null : null))
     : null;
   const collected = sigStatus?.byName ? sigStatus.have : counted;
   const quorumMet = sigStatus ? sigStatus.satisfied : counted >= required;
@@ -620,7 +620,7 @@ export default function ProposalDetail() {
         // half (a hardware wallet, a key on another device). It CAN sign,
         // just not here -- saying "none of your keys are signers" to the
         // holder of the must-sign hardware wallet was simply wrong.
-        const signedNow = new Set(mergedPsbt ? signersOnEveryInput(mergedPsbt) : []);
+        const signedNow = new Set(mergedPsbt ? signersOnEveryInput(mergedPsbt, vault.descriptor_version === 2 ? vault.descriptor_multipath ?? null : null) : []);
         const mineElsewhere = listKeys().filter(k => k.status === "active" && k.origin !== "software" && pathSignerPubkeys.has(k.pubkey));
         const elsewhere = mineElsewhere.filter(k => !signedNow.has(k.pubkey.slice(2).toLowerCase()));
         if (!iSigned && mineElsewhere.length > 0 && elsewhere.length === 0) {

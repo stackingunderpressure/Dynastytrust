@@ -24,6 +24,7 @@
  * is "this PSBT now carries N valid signatures", which is what it says.
  */
 import { parsePsbt, leafCommitsToOutput, verifyTapScriptSig, toHex } from "@dynastytrust/bip341-psbt-signer";
+import { canonicalSigner, multipathKeys } from "../../packages/vault-rules/src/ranged-signers.js";
 
 function sameUnsignedTx(a, b) {
   if (a.tx.version !== b.tx.version || a.tx.locktime !== b.tx.locktime) return false;
@@ -47,16 +48,19 @@ function sameUnsignedTx(a, b) {
  * or a consent group is not satisfied by a COUNT of signatures.
  * Unreadable PSBT -> no signers.
  */
-export function signersOnEveryInput(psbtHex) {
+export function signersOnEveryInput(psbtHex, multipath = null) {
   let p;
   try { p = parsePsbt(psbtHex); } catch { return []; }
+  // A vault with a new address every time: a signature by a key's CHILD
+  // counts as that vault key (packages/vault-rules ranged-signers.js).
+  const keys = multipathKeys(multipath);
   let common = null;
   for (let i = 0; i < p.inputs.length; i++) {
     const spk = p.inputs[i].witnessUtxo?.scriptPubkey;
     const leaves = spk ? (p.inputs[i].tapLeafScript ?? []).filter((l) => leafCommitsToOutput(l, spk)) : [];
     const here = new Set();
     for (const s of p.inputs[i].tapScriptSigs ?? []) {
-      if (verifyTapScriptSig(p, i, s, leaves)) here.add(toHex(s.pubkey));
+      if (verifyTapScriptSig(p, i, s, leaves)) here.add(keys.length ? canonicalSigner(toHex(s.pubkey), p.inputs[i].tapBip32Derivation, keys) : toHex(s.pubkey));
     }
     common = common === null ? here : new Set([...common].filter((k) => here.has(k)));
   }

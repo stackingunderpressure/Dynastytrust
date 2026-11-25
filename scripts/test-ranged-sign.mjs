@@ -88,6 +88,29 @@ let fin = callWasm('/psbt-finalize', { psbt_hex: mergePsbts([built.psbt_hex, s1.
 assert.equal(fin.status, 200, JSON.stringify(fin.body)); assert.ok(fin.body.ok);
 pass('two phones sign coins on receive 2 and 3 (their /0/2 and /0/3 keys) and the spend finalizes');
 
+// 2b. Operator, 2026-11-25 ("I signed it with browser. It showed signed but
+// right above it wasn't recognizing it as signed"): each phone signed with
+// its CHILD key, which is not the key the path lists; "who signed" must map
+// it back -- in the page (psbt-signer.ts) and on the server (_psbt-verify.js).
+{
+  const merged = mergePsbts([built.psbt_hex, s1.psbt_hex, s2.psbt_hex]);
+  const { signersOnEveryInput: pageSigners } = await import(L('psbt-signer.ts'));
+  const { signersOnEveryInput: serverSigners } = await import(F('_psbt-verify.js'));
+  const { pathSignatureStatus, findSpendingPath } = await import(F('_vault-shape.js'));
+  const pathOf = findSpendingPath({ ...V, leaves: leaves.map(l => ({ ...l, keys: l.keys })) }, 'everyday');
+  const x = (k) => k.pubkey.slice(2);
+  for (const [name, fn] of [['page', pageSigners], ['server', serverSigners]]) {
+    assert.equal(pathSignatureStatus(pathOf, fn(merged)).satisfied, false, `${name}: without the descriptor it was not recognised (the bug)`);
+    const who = fn(merged, V.descriptor_multipath).sort();
+    assert.deepEqual(who, [x(k1), x(k2)].sort(), name);
+    assert.equal(pathSignatureStatus(pathOf, who).satisfied, true, name);
+    const one = fn(mergePsbts([built.psbt_hex, s1.psbt_hex]), V.descriptor_multipath);
+    assert.deepEqual(one, [x(k1)], name);
+    assert.equal(pathSignatureStatus(pathOf, one).satisfied, false, `${name}: one of two is not enough`);
+  }
+  pass("both phones' child-key signatures count as their vault keys, in the page and on the server; one of two does not satisfy 2-of-2");
+}
+
 // 3. "If left untouched": one phone alone, the old-enough coin only.
 const quiet = await build('quiet', 10_000, [coin(0, 1, 40_000, TIP - 150, 3), coin(0, 2, 40_000, TIP - 5, 4)]);
 assert.equal(quiet.summary.waiting.length, 1);

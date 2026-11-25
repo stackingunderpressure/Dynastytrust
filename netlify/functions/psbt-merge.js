@@ -43,7 +43,7 @@ export async function handler(event) {
   const supabase = getSupabaseAdmin();
   const { data: vault } = await supabase
     .from('vaults')
-    .select('id, name, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, backup_quorum, backup_keys, second_heir_quorum, second_heir_keys, second_inheritance_after, leaves, founder_keys, heir_keys, consent_keys, consent_quorum')
+    .select('id, name, founder_quorum, heir_quorum, recovery_quorum, recovery_after, inheritance_after, backup_quorum, backup_keys, second_heir_quorum, second_heir_keys, second_inheritance_after, leaves, founder_keys, heir_keys, consent_keys, consent_quorum, descriptor_version, descriptor_multipath')
     .eq('id', vault_id)
     .maybeSingle();
 
@@ -122,7 +122,7 @@ export async function handler(event) {
     // The count said "fully signed" for two phones on a path that needs
     // the hardware wallet, and for one signer across two inputs. The
     // count is kept only for a path that cannot be resolved.
-    const status = resolvedPath ? pathSignatureStatus(resolvedPath, signersOnEveryInput(data.psbt_hex)) : null;
+    const status = resolvedPath ? pathSignatureStatus(resolvedPath, signersOnEveryInput(data.psbt_hex, vault.descriptor_version === 2 ? vault.descriptor_multipath : null)) : null;
     const isFullySigned = status ? status.satisfied : data.signature_count >= requiredQuorum;
     if (proposal_id) {
       await supabase
