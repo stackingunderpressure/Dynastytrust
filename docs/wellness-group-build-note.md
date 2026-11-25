@@ -224,3 +224,5 @@ its cross-site headers, one migration, a new Nostr event kind in both apps,
 the membership request gaining the circle's keys.
 
 Decision 7 (operator, 2026-11-25): (a) straight to the server. Slice 1 shipped first ("Ship slice 1 now").
+
+Slice 2 built 2026-11-25 (DynastyTrust: migration 20261125120000, /api/vault-duress, _duress.js, the halt bar, vaults.js guard; Tapit: vaultDuress.ts, VaultDuressBanner, approval screen). Held for the ship word.

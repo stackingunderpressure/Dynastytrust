@@ -1,4 +1,5 @@
 import { compilerFetch } from "./_compiler.js";
+import { circleHoldOpen } from "./_duress.js";
 import { draftViewForMember } from "./_invite-rules.js";
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
@@ -544,6 +545,20 @@ export async function handler(event) {
       if (existing.user_id !== u.userId) return json(403, { error: "Not your vault" });
       if (existing.status !== "draft") {
         return json(400, { error: "Network can only be changed while the vault is still a draft, before it's compiled." });
+      }
+    }
+
+    // A hold raised by the vault's circle (a checker heard the duress phrase,
+    // vault-duress.js) is lifted only by the owner AND the circle's quorum --
+    // the owner may be the one under pressure (operator, 2026-11-25). The
+    // owner's own switch can still turn the halt ON, and OFF when it was
+    // their own.
+    if (updates.duress === false) {
+      const { data: existing, error: fetchErr } = await supabase
+        .from("vaults").select("id, user_id, leaves").eq("id", id).maybeSingle();
+      if (fetchErr) return json(500, { error: fetchErr.message });
+      if (existing && existing.user_id === u.userId && (await circleHoldOpen(supabase, existing))) {
+        return json(409, { error: "Someone in this vault's circle reported duress. Lifting that hold needs you AND your circle: ask from the vault page, and each of them confirms in Tapit." });
       }
     }
 

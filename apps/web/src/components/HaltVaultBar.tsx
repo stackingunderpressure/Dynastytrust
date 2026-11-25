@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import { colors, radii, space } from '../theme';
+import { api } from '../lib/api';
 import { Button } from './ui';
 import { useConfirm } from './dialog';
 
@@ -22,12 +24,64 @@ export function HaltVaultBar({
   duress,
   busy,
   onToggle,
+  vaultId,
+  isOwner,
 }: {
   duress: boolean;
   busy: boolean;
   onToggle: (next: boolean) => void;
+  /** For a hold raised by the circle (vault-duress.js): its status, and the
+   *  owner's "ask to lift". */
+  vaultId?: string;
+  isOwner?: boolean;
 }) {
   const askConfirm = useConfirm();
+  const [circle, setCircle] = useState<{ circle_hold: boolean; clears: number; needed: number; owner_cleared: boolean; raised_at: string | null } | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [askErr, setAskErr] = useState<string | null>(null);
+  useEffect(() => {
+    if (!duress || !vaultId) { setCircle(null); return; }
+    let live = true;
+    api.vaults.duressStatus(vaultId).then(r => { if (live) setCircle(r); }).catch(() => {});
+    return () => { live = false; };
+  }, [duress, vaultId]);
+
+  async function askToLift() {
+    if (!vaultId) return;
+    setAsking(true);
+    setAskErr(null);
+    try {
+      const r = await api.vaults.askToLiftDuress(vaultId);
+      setCircle(r);
+      if (!r.held) onToggle(false);
+    } catch (e) {
+      setAskErr(e instanceof Error ? e.message : 'Failed');
+    } finally {
+      setAsking(false);
+    }
+  }
+
+  // A hold raised by someone in the circle (a checker heard the duress
+  // phrase): lifting it takes the owner AND the circle (operator,
+  // 2026-11-25), because the owner may be the one under pressure.
+  if (duress && circle?.circle_hold) {
+    return (
+      <div style={{ background: colors.dangerBg, border: `1px solid ${colors.red}`, borderRadius: radii.md, padding: space[4], display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ fontWeight: 700, color: colors.red, fontSize: 17 }}>Someone in your circle reported duress</div>
+        <div style={{ fontSize: 16, color: colors.sub, lineHeight: 1.5 }}>
+          {circle.raised_at ? `${new Date(circle.raised_at).toLocaleString()}: ` : ''}a checker heard the duress phrase, so
+          no spend can be signed on this vault -- by you or anyone. It lifts only when you ask AND {circle.needed} of your
+          circle confirm in Tapit. {circle.clears} of {circle.needed} have confirmed{circle.owner_cleared ? '; you have asked.' : '.'}
+        </div>
+        {isOwner && !circle.owner_cleared && (
+          <Button variant="danger" size="sm" style={{ alignSelf: 'flex-start', minHeight: 44 }} disabled={asking} onClick={() => void askToLift()}>
+            {asking ? 'Asking...' : 'Ask to lift the hold'}
+          </Button>
+        )}
+        {askErr && <div style={{ fontSize: 15, color: colors.red }}>{askErr}</div>}
+      </div>
+    );
+  }
 
   async function handleHalt() {
     const ok = await askConfirm({

@@ -466,6 +466,10 @@ export function VaultMembershipSetup({
         rangedKeys: rangedKeysForScripts(vaultMultipath, roleLeaves),
         reviewMode,
         wellnessPath,
+        // The other people on the same wellness path, as x-only keys.
+        circleKeys: wellnessPath
+          ? [...new Set(((leaves ?? []).find(l => l.id === role)?.keys ?? []).map(k => k.toLowerCase().slice(-64)))].filter(k => k !== xOnlyPubkey.toLowerCase())
+          : undefined,
         changeScripts: change?.scripts,
         network: changeVault?.network,
         recipientXOnlyPubkey: xOnlyPubkey,

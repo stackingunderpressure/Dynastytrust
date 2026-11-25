@@ -518,7 +518,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
       <main className="dt-page-main dt-page-main--narrow" style={{ paddingBottom: 64 }}>
         {vault.status === "compiled" && (
           <div style={{ marginBottom: 16 }}>
-            <HaltVaultBar duress={effectiveDuress} busy={duressBusy} onToggle={toggleDuress} />
+            <HaltVaultBar duress={effectiveDuress} busy={duressBusy} onToggle={toggleDuress} vaultId={vault.id} isOwner={(vault as Vault & { my_role?: string }).my_role === "owner"} />
           </div>
         )}
         {vault.status === "compiled" && (

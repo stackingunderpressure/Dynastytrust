@@ -998,6 +998,16 @@ export const api = {
     // enforced at sign time -- see VaultDetail's signing flow). false lifts
     // it. No phrase, no per-signer targeting -- for when a member can act
     // freely and just needs to stop everything right now.
+    /** Where a hold raised by the vault's circle stands (vault-duress.js). */
+    duressStatus: (id: string) =>
+      req<{ ok: true; held: boolean; circle_hold: boolean; clears: number; needed: number; owner_cleared: boolean; raised_at: string | null }>(
+        `/vault-duress?vault_id=${encodeURIComponent(id)}`),
+
+    /** The owner's half of lifting a circle hold; the circle's quorum confirms in Tapit. */
+    askToLiftDuress: (id: string) =>
+      req<{ ok: true; held: boolean; circle_hold: boolean; clears: number; needed: number; owner_cleared: boolean; raised_at: string | null }>(
+        '/vault-duress', { method: 'POST', body: JSON.stringify({ vault_id: id, action: 'owner_clear' }) }),
+
     setDuress: (id: string, duress: boolean) =>
       opened(req<{ ok: true; vault: Vault }>(`/vaults?id=${id}`, {
         method: 'PATCH',

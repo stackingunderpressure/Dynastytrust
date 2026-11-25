@@ -140,6 +140,10 @@ export interface VaultMembershipRequestPayload {
   /** This member's path is a wellness-check path: Tapit asks the safety
    *  phrase on EVERY spend, not only above the live-check amount. */
   wellness_path?: boolean;
+  /** On a wellness path: the x-only keys of the other people on it, so a
+   *  duress phrase heard by one tells every other one at once
+   *  (docs/wellness-group-build-note.md, slice 2). */
+  circle_keys?: string[];
   /** The vault's own change addresses as output scripts (hex): its next 200
    *  change addresses, or its one address. Tapit refuses a spend whose
    *  "change" is anywhere else. */
@@ -247,6 +251,7 @@ export async function sendVaultMembershipRequestOverNostr(opts: {
   rangedKeys?: RangedKey[];
   reviewMode?: 'wellness' | 'full';
   wellnessPath?: boolean;
+  circleKeys?: string[];
   changeScripts?: string[];
   network?: 'bitcoin' | 'testnet' | 'signet';
   highValueThresholdSats?: bigint;
@@ -265,6 +270,7 @@ export async function sendVaultMembershipRequestOverNostr(opts: {
     ...(opts.rangedKeys?.length ? { ranged_keys: opts.rangedKeys } : {}),
     review_mode: opts.reviewMode ?? 'wellness',
     ...(opts.wellnessPath ? { wellness_path: true } : {}),
+    ...(opts.circleKeys?.length ? { circle_keys: opts.circleKeys } : {}),
     ...(opts.changeScripts?.length ? { change_scripts: opts.changeScripts } : {}),
     ...(opts.network ? { network: opts.network } : {}),
     ...(opts.highValueThresholdSats !== undefined
