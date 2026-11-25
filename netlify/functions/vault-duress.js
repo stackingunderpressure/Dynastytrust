@@ -7,7 +7,8 @@
  *   From a member's Tapit, no account: accepted ONLY if the signature
  *   verifies (_duress.js noticeProblem) and the key accepted membership in
  *   the vault with that descriptor. 'raise' puts the vault on hold at once
- *   (vaults.duress -- every DynastyTrust signing path already refuses on it)
+ *   (vaults.duress -- _duress-guard.js refuses building, filing, recording
+ *   and merging a spend; the request page and Send screen refuse too)
  *   and records it in the vault's history. 'clear' counts toward lifting.
  * POST { vault_id, action: 'owner_clear' }  (signed in, the vault's owner)
  *   The owner's half of lifting a circle hold.

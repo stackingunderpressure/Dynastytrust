@@ -11,6 +11,7 @@ import { requireUser, json } from './_auth.js';
 import { recordEvent } from './_ledger.js';
 import { canMutate } from './_authz.js';
 import { getSupabaseAdmin } from './_supabase.js';
+import { refuseIfHeld } from './_duress-guard.js';
 import { fetchTipHeight, MEMPOOL, mempoolFetch } from './_chain.js';
 import { checkNumberBounds, MIN_FEE_RATE_SAT_VB, MAX_FEE_RATE_SAT_VB } from './_numeric.js';
 import { isLeafListVault } from './_vault-shape.js';
@@ -179,6 +180,9 @@ export async function handler(event) {
       .maybeSingle();
     if (!membership) return json(403, { error: 'Not a member of this vault' });
     if (!canMutate(membership.role)) return json(403, { error: 'View-only members cannot propose a spend' });
+    // Duress hold: nothing moves forward while it stands (_duress-guard.js).
+    const heldP = await refuseIfHeld(supabase, vault_id);
+    if (heldP) return heldP;
 
     // A proposal may only point at a distribution wallet of its own vault.
     if (distribution_wallet_id) {
@@ -256,6 +260,13 @@ export async function handler(event) {
       .eq('id', id)
       .maybeSingle();
     if (!existing) return json(404, { error: 'Proposal not found' });
+    // A new transaction or signatures can't be attached while the vault is
+    // held; cancelling, a memo, or recording a broadcast that already
+    // happened still can.
+    if (updates.psbt_hex !== undefined || updates.psbt_b64 !== undefined || updates.psbt_signed_hex !== undefined) {
+      const heldU = await refuseIfHeld(supabase, existing.vault_id);
+      if (heldU) return heldU;
+    }
 
     // Once a proposal is broadcast/cancelled/fulfilled it's the
     // permanent record of what happened -- the audit PDF and activity

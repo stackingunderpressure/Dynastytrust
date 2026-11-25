@@ -19,6 +19,7 @@ import { requireUser, json } from './_auth.js';
 import { recordEvent } from './_ledger.js';
 import { canMutate, isTerminalProposalStatus } from './_authz.js';
 import { getSupabaseAdmin } from './_supabase.js';
+import { refuseIfHeld } from './_duress-guard.js';
 import { findSpendingPath, pathSignatureStatus } from './_vault-shape.js';
 import { signersOnEveryInput } from './_psbt-verify.js';
 
@@ -48,6 +49,9 @@ export async function handler(event) {
     .maybeSingle();
 
   if (!vault) return json(404, { error: 'Vault not found' });
+  // Duress hold: nothing moves forward while it stands (_duress-guard.js).
+  const heldM = await refuseIfHeld(supabase, vault_id);
+  if (heldM) return heldM;
 
   // Quorum is path-dependent -- an inheritance-path proposal is fully
   // signed at heir_quorum signatures, not founder_quorum, and a

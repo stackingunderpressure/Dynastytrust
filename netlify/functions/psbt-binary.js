@@ -14,6 +14,7 @@ import { compilerFetch } from './_compiler.js';
 import { requireUser, json } from './_auth.js';
 import { recordEvent } from './_ledger.js';
 import { getSupabaseAdmin } from './_supabase.js';
+import { refuseIfHeld } from './_duress-guard.js';
 import { pubkeyFromXpub } from './_xpub.js';
 import { MEMPOOL, mempoolFetch, getFeeRate } from './_chain.js';
 import { checkNumberBounds, MIN_FEE_RATE_SAT_VB, MAX_FEE_RATE_SAT_VB } from './_numeric.js';
@@ -65,6 +66,9 @@ export async function handler(event) {
     .maybeSingle();
 
   if (error || !vault) return json(404, { error: 'Vault not found' });
+  // Duress hold: nothing moves forward while it stands (_duress-guard.js).
+  const heldB = await refuseIfHeld(supabase, vault_id);
+  if (heldB) return heldB;
 
   const { data: membership } = await supabase
     .from('vault_members')

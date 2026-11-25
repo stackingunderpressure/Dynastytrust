@@ -5025,3 +5025,23 @@ screen cleanup (docs/screen-cleanse-build-note.md), not by a test. Now passes
 `descriptor_multipath` for descriptor_version 2, as ProposalDetail does; the
 re-walk shows "1 / 1 required" and Broadcast after one tap. Left undone: a
 test that renders the Send screen (none exists for any screen).
+
+## 2026-11-25 -- a duress hold did not stop the request page (blind review finding 1)
+
+`vaults.duress` was honoured by the Send screen and by Tapit only. The request
+page (`ProposalDetail.tsx`) signed and broadcast straight through a hold, and
+none of the server functions behind it read it -- while `vault-duress.js` and
+the halt confirmation told people "every signing path refuses". Found by the
+blind review (docs/audits/2026-11-25-blind-review-new-code.md), re-checked in
+the code. Fix: `netlify/functions/_duress-guard.js` `refuseIfHeld` (409 while
+held, 503 if the hold can't be read -- fails closed), called by
+signer-sessions (recording a signature), psbt-binary (building), psbt-merge,
+proposals POST and PATCH (attaching a transaction or signatures; cancelling
+and recording a broadcast still allowed). The request page shows the red
+banner, hides the ways to sign and Broadcast, and refuses in signWith,
+tapitSigned and broadcast. Test first: `scripts/test-duress-guard.mjs` failed
+before the fix (exit 1), passes after (5 cases). Honest limit, written into
+the guard: people holding enough keys can still sign outside this app; the
+hold is the app's brake and the circle's alarm, not a script change.
+Gates: npm test exit 0, lint 0 errors / 9 warnings, build ok, typecheck the
+same 10 pre-existing errors.

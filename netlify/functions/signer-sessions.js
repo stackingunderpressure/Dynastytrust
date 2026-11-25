@@ -14,6 +14,7 @@
  */
 
 import { getSupabaseAdmin } from "./_supabase.js";
+import { refuseIfHeld } from "./_duress-guard.js";
 import { requireUser, json } from "./_auth.js";
 import { recordEvent } from "./_ledger.js";
 import { canMutate } from "./_authz.js";
@@ -88,6 +89,9 @@ export async function handler(event) {
       .maybeSingle();
     if (pErr) return json(500, { error: pErr.message });
     if (!proposal) return json(404, { error: "Proposal not found" });
+    // Duress hold: nothing moves forward while it stands (_duress-guard.js).
+    const heldS = await refuseIfHeld(supabase, proposal.vault_id);
+    if (heldS) return heldS;
 
     // A "signature" is only recorded if the PSBT really is this
     // proposal's transaction and really carries a valid signature.

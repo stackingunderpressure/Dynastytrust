@@ -54,6 +54,8 @@ function mergedPsbtOf(proposal: Proposal, sessions: Session[]): string {
   return mergeChain[0] ?? "";
 }
 
+const HELD_WORDS = "Signing is halted on this vault. Nothing can be signed or sent until the hold is lifted.";
+
 function satsToBtc(sats: number): string {
   return (sats / 1e8).toFixed(8).replace(/\.?0+$/, "") || "0";
 }
@@ -373,6 +375,7 @@ export default function ProposalDetail() {
 
   async function tapitSigned(psbtHex: string, label: string) {
     if (!proposal) return;
+    if (vault?.duress) { toast.error(HELD_WORDS); return; }
     try {
       // Same defensive merge as ExternalPsbt.addSignature below, and for
       // the same reason: guarantee every psbt_partial_hex stored in
@@ -397,6 +400,7 @@ export default function ProposalDetail() {
 
   async function signWith(key: LocalKey) {
     if (!proposal || !vault) return;
+    if (vault.duress) { toast.error(HELD_WORDS); return; }
     setBusy(true);
     try {
       const needsPw = keyNeedsPassword(key);
@@ -448,6 +452,7 @@ export default function ProposalDetail() {
 
   async function broadcast() {
     if (!proposal || !vault || !mergedPsbt) return;
+    if (vault.duress) { toast.error(HELD_WORDS); return; }
     setBusy(true);
     try {
       const finalized = await api.psbt.finalize(mergedPsbt);
@@ -482,6 +487,8 @@ export default function ProposalDetail() {
     }
   }
 
+  const held = vault.duress === true;
+
   return (
     // Nothing here -- above all signing -- is shown until this phone has
     // re-derived the vault's address and found it equal: the change check
@@ -504,6 +511,17 @@ export default function ProposalDetail() {
       </button>
 
       <SummaryCard proposal={proposal} vault={vault} />
+
+      {/* Duress hold (blind review 2026-11-25, finding 1): this page used to
+          sign and broadcast straight through it. */}
+      {held && (
+        <div style={{ background: colors.dangerBg, border: `1px solid ${colors.red}`, borderRadius: radii.md, padding: "12px 14px", marginBottom: 14 }}>
+          <div style={{ fontWeight: 700, color: colors.red, fontSize: 17 }}>Signing is halted on this vault</div>
+          <div style={{ fontSize: 16, color: colors.sub, marginTop: 4, lineHeight: 1.5 }}>
+            Nothing can be signed or sent from here until the hold is lifted. The vault's page says who can lift it.
+          </div>
+        </div>
+      )}
 
       {isTrancheClaim ? (
         <div
@@ -547,7 +565,7 @@ export default function ProposalDetail() {
         </ActionCard>
       )}
 
-      {!terminal && !isTrancheClaim && quorumMet && (
+      {!terminal && !held && !isTrancheClaim && quorumMet && (
         <div ref={broadcastRef} style={{ marginBottom: 14 }}>
         <Button
           disabled={busy}
@@ -559,7 +577,7 @@ export default function ProposalDetail() {
         </div>
       )}
 
-      {!terminal && !isTrancheClaim && !quorumMet && signableKeys.length > 0 && (
+      {!terminal && !held && !isTrancheClaim && !quorumMet && signableKeys.length > 0 && (
         <ActionCard>
           <div style={{ fontSize: 17, fontWeight: 600, color: colors.text, marginBottom: 8 }}>
             Sign with your key
@@ -583,7 +601,7 @@ export default function ProposalDetail() {
         </ActionCard>
       )}
 
-      {!terminal && !isTrancheClaim && !quorumMet && (
+      {!terminal && !held && !isTrancheClaim && !quorumMet && (
         <NotifyCircleViaNostr
           subjectId={proposal.id}
           psbtHex={signablePsbt}
@@ -594,7 +612,7 @@ export default function ProposalDetail() {
         />
       )}
 
-      {!terminal && !isTrancheClaim && !quorumMet && (
+      {!terminal && !held && !isTrancheClaim && !quorumMet && (
         <ActionCard>
           <div style={{ fontSize: 17, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
             Sign with hardware wallet
