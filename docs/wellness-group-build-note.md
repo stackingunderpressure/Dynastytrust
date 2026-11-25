@@ -171,3 +171,54 @@ Operator's answers (2026-11-25):
    same threshold as the wellness path).
 6. The other checkers are told at once: their Tapit shows "A duress phrase
    was used for this vault. Do not sign. Call the others."
+
+## Slice 2 addendum: the plumbing the note assumed does not fit (2026-11-25)
+
+Slice 1 (the wellness path, views from the design, the fallback refusal,
+the phrase on every wellness spend) is built: DynastyTrust c3f0e16, Tapit
+9b25aad, held for the ship word.
+
+Reading the code for slice 2 contradicted "sent the way liveness signals
+already go":
+- `netlify/functions/liveness.js` accepts a signal only from a signed-in
+  DynastyTrust member of the vault (`requireUser`, `isActiveMember`). A Tapit
+  checker has no DynastyTrust account.
+- The signing gate applies red flags only when the vault has a liveness
+  circle (`loadVaultLivenessConfig` reads `vault.bloc_policy.liveness` -- the
+  Bloc shape). A path-builder vault has none, so red flags are ignored there.
+- DynastyTrust's functions send no cross-site headers, so Tapit's site cannot
+  call them today.
+- The flags are about a PERSON (subject key), not a vault.
+
+What slice 2 actually needs:
+1. **A vault duress notice** -- a small message signed by the checker's own
+   Tapit key, naming the vault, minted the moment the duress phrase is typed.
+2. **Getting it to DynastyTrust.** Options (operator's decision 7):
+   - (a) Tapit posts it straight to a new DynastyTrust function
+     (`/api/vault-duress`) that accepts it ONLY if its signature is from a
+     key that accepted membership in that vault (`vault_membership_grants`,
+     status accepted) -- no account needed, nothing else accepted -- and puts
+     the vault on hold at once (`vaults.duress`, which every DynastyTrust
+     signing path already honours), recording it in the vault's history.
+     Needs cross-site headers on that one function for Tapit's site only.
+     (Recommended: it works even if the owner's own device is in the
+     attacker's hands.)
+   - (b) Nostr only, through the reply channel each member's request
+     already has: DynastyTrust holds the vault when the OWNER'S browser next
+     receives it -- which depends on the device an attacker may be holding.
+3. **Telling the other checkers**: the request carries the Tapit keys of the
+   other people on the same wellness path; the notice goes to each over Nostr
+   (a new event kind beside the membership ones); their Tapit shows "A duress
+   phrase was used for this vault. Do not sign. Call the others." and refuses
+   that vault until cleared.
+4. **Clearing (decision 5: owner + quorum)**: a table of clear approvals (one
+   migration, shipped first): the owner asks from DynastyTrust, and K checkers
+   each send a signed clear from Tapit to the same function; at K the hold
+   lifts and a signed "cleared" notice goes to every checker.
+5. Tests: notice signed by a non-member refused; a member's notice holds the
+   vault; a second checker's Tapit refuses after the notice; clear below
+   quorum keeps the hold; at quorum it lifts.
+
+Blast radius beyond the note: a new public (signature-checked) function and
+its cross-site headers, one migration, a new Nostr event kind in both apps,
+the membership request gaining the circle's keys.
