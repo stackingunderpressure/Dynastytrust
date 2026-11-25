@@ -240,6 +240,14 @@ export default function ProposalDetail() {
     () => void load(),
   );
 
+  // When enough have signed, the Broadcast button appears at the top of the
+  // actions; bring it into view once, when it first shows (operator,
+  // 2026-11-25: "You might have to scroll to a section after you click a
+  // button"). A stable callback ref fires on mount only.
+  const broadcastRef = useCallback((el: HTMLDivElement | null) => {
+    if (el) requestAnimationFrame(() => el.scrollIntoView({ block: "center", behavior: "smooth" }));
+  }, []);
+
   if (loading) return <LoadingScreen />;
   if (error || !vault || !proposal) {
     // Fall back to the vault list when we have no usable vaultId, so the back
@@ -522,11 +530,36 @@ export default function ProposalDetail() {
         />
       )}
 
-      <MembersSection members={members} sessions={sessions} />
+      {/* Your move first (operator, 2026-11-25: "the right attention ... at the
+          right time"; docs/screen-cleanse-build-note.md): a "do not sign"
+          warning, then Broadcast once enough have signed, else the ways to
+          sign; the conversation after. */}
+      {!terminal && psbtMismatch && (
+        <ActionCard>
+          <div style={{ fontSize: 17, fontWeight: 600, color: colors.red, marginBottom: 4 }}>
+            Do not sign this request
+          </div>
+          <div style={{ fontSize: 16, color: colors.muted }}>
+            The transaction attached to this request does not match what the request says:{" "}
+            {psbtMismatch}. Signing has been disabled on this page. Ask the proposer to rebuild
+            it, and contact support if this persists.
+          </div>
+        </ActionCard>
+      )}
 
-      <DiscussionSection proposalId={proposal.id} vaultId={vault.id} members={members} />
+      {!terminal && !isTrancheClaim && quorumMet && (
+        <div ref={broadcastRef} style={{ marginBottom: 14 }}>
+        <Button
+          disabled={busy}
+          style={{ background: colors.green, width: "100%", padding: "14px", fontSize: 17 }}
+          onClick={() => void broadcast()}
+        >
+          {busy ? "Broadcasting..." : "Broadcast transaction"}
+        </Button>
+        </div>
+      )}
 
-      {!terminal && !isTrancheClaim && signableKeys.length > 0 && (
+      {!terminal && !isTrancheClaim && !quorumMet && signableKeys.length > 0 && (
         <ActionCard>
           <div style={{ fontSize: 17, fontWeight: 600, color: colors.text, marginBottom: 8 }}>
             Sign with your key
@@ -550,20 +583,7 @@ export default function ProposalDetail() {
         </ActionCard>
       )}
 
-      {!terminal && psbtMismatch && (
-        <ActionCard>
-          <div style={{ fontSize: 17, fontWeight: 600, color: colors.red, marginBottom: 4 }}>
-            Do not sign this request
-          </div>
-          <div style={{ fontSize: 16, color: colors.muted }}>
-            The transaction attached to this request does not match what the request says:{" "}
-            {psbtMismatch}. Signing has been disabled on this page. Ask the proposer to rebuild
-            it, and contact support if this persists.
-          </div>
-        </ActionCard>
-      )}
-
-      {!terminal && !isTrancheClaim && (
+      {!terminal && !isTrancheClaim && !quorumMet && (
         <NotifyCircleViaNostr
           subjectId={proposal.id}
           psbtHex={signablePsbt}
@@ -574,7 +594,7 @@ export default function ProposalDetail() {
         />
       )}
 
-      {!terminal && !isTrancheClaim && (
+      {!terminal && !isTrancheClaim && !quorumMet && (
         <ActionCard>
           <div style={{ fontSize: 17, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
             Sign with hardware wallet
@@ -591,16 +611,6 @@ export default function ProposalDetail() {
             onImported={() => void load()}
           />
         </ActionCard>
-      )}
-
-      {!terminal && !isTrancheClaim && quorumMet && (
-        <Button
-          disabled={busy}
-          style={{ background: colors.green, width: "100%", padding: "14px", fontSize: 17 }}
-          onClick={() => void broadcast()}
-        >
-          {busy ? "Broadcasting..." : "Broadcast transaction"}
-        </Button>
       )}
 
       {!terminal && !isTrancheClaim && !quorumMet && mustSignMissing.length > 0 && (
@@ -648,6 +658,10 @@ export default function ProposalDetail() {
         );
       })()}
 
+      <MembersSection members={members} sessions={sessions} />
+
+      <DiscussionSection proposalId={proposal.id} vaultId={vault.id} members={members} />
+
       {proposal.txid && (
         <a
           href={explorerTxUrl(vault.network, proposal.txid)}
@@ -667,7 +681,7 @@ export default function ProposalDetail() {
       {!terminal && !isTrancheClaim && (
         <Button
           variant="ghost"
-          style={{ marginTop: space[3], fontSize: 16 }}
+          style={{ marginTop: 32, fontSize: 16, minHeight: 44, color: colors.red }}
           onClick={() => void cancel()}
         >
           Cancel proposal
@@ -708,7 +722,7 @@ function SummaryCard({ proposal, vault }: { proposal: Proposal; vault: Vault }) 
           marginBottom: space[1],
         }}
       >
-        {vault.name.toUpperCase()} / {vault.network === "bitcoin" ? "MAINNET" : "TESTNET"}
+        {vault.name.toUpperCase()} / {vault.network === "bitcoin" ? "MAINNET" : vault.network.toUpperCase()}
       </div>
       <div
         style={{

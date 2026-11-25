@@ -86,7 +86,6 @@ import { tipHeight, txConfirmations, blocksToApproxLabel } from "../lib/chain";
 import { opensWords, durationWords, rotateDateWords, pathMoments, ROTATE_EXTENSIONS } from "../lib/timelock-words";
 import { buildStandardTrustDoc, standardConfigFromCompiledVault } from "../lib/trust-doc";
 import { SeedSignerNetworkHint } from "../components/SeedSignerNetworkHint";
-import { CurrentAddressCopy } from "../components/CurrentAddressCopy";
 import { ElectrumServerSettings } from "../components/ElectrumServerSettings";
 
 
@@ -226,6 +225,19 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
   // server), so a button that would open them -- "See who can sign" on a
   // nearing inheritance, an activity row -- shows the spending paths on
   // the overview instead: who holds which key, the one-person answer.
+  // Every tab change brings the opened tab to the top of the screen
+  // (operator, 2026-11-25: "You might have to scroll to a section after you
+  // click a button"). Overview goes back to the very top, where the balance is.
+  const showTab = useCallback((id: typeof tab) => {
+    setTab(id);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (id === "overview") { window.scrollTo({ top: 0, behavior: "smooth" }); return; }
+      const target = document.querySelector("[data-dt-tabs]");
+      if (!target) return;
+      const bar = document.querySelector("header")?.getBoundingClientRect().height ?? 0;
+      window.scrollTo({ top: window.scrollY + target.getBoundingClientRect().top - bar - 8, behavior: "smooth" });
+    }));
+  }, []);
   const openTab = useCallback((id: string) => {
     if (DOWNLOAD && (id === "members" || id === "messages" || id === "requests" || id === "trust")) {
       setTab("overview");
@@ -238,8 +250,8 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
       });
       return;
     }
-    setTab(id as typeof tab);
-  }, []);
+    showTab(id as typeof tab);
+  }, [showTab]);
   const [archiving, setArchiving] = useState(false);
   const [showRotate, setShowRotate] = useState(false);
   // Bumped when a rotation dialog closes, to remount the overview: its
@@ -247,7 +259,8 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
   // this the old vault showed no warning and no Sweep button until the
   // page was reloaded (caught walking the flow, 2026-11-11).
   const [rotationTick, setRotationTick] = useState(0);
-  const [showReceiveQr, setShowReceiveQr] = useState(false);
+  const [showReceive, setShowReceive] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [sendPrefill, setSendPrefill] = useState<SendPrefill | null>(null);
   const [myMember, setMyMember] = useState<VaultMember | null>(null);
@@ -273,7 +286,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
 
   function prefillSend(p: SendPrefill) {
     setSendPrefill(p);
-    setTab("send");
+    showTab("send");
   }
 
   const load = useCallback(async () => {
@@ -484,15 +497,6 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
               Rotate
             </Button>
           )}
-          <Button
-            variant="danger"
-            size="sm"
-            disabled={archiving}
-            style={{ fontSize: 16 }}
-            onClick={deleteVault}
-          >
-            Delete
-          </Button>
         </div>
       </header>
       {showRotate && isLeafListVault(vault) && (
@@ -517,7 +521,7 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
       )}
 
       <main className="dt-page-main dt-page-main--narrow" style={{ paddingBottom: 64 }}>
-        {vault.status === "compiled" && (
+        {vault.status === "compiled" && effectiveDuress && (
           <div style={{ marginBottom: 16 }}>
             <HaltVaultBar duress={effectiveDuress} busy={duressBusy} onToggle={toggleDuress} vaultId={vault.id} isOwner={(vault as Vault & { my_role?: string }).my_role === "owner"} />
           </div>
@@ -531,14 +535,17 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
           />
         )}
         {vault.status === "compiled" && <SentSecretsPanel vaultId={vault.id} />}
-        {/* Balance hero */}
+        {/* Balance (docs/screen-cleanse-build-note.md, operator 2026-11-25):
+            on Overview, the balance with Send and Receive as the two things
+            to do; on every other tab, one line, so the tab's own content is
+            what is on screen. */}
         <div
           style={{
             background: colors.surface,
             border: `1px solid ${colors.border}`,
             borderRadius: 16,
-            padding: "24px 20px",
-            marginBottom: 20,
+            padding: tab === "overview" ? "24px 20px" : "12px 16px",
+            marginBottom: tab === "overview" ? 20 : 12,
           }}
         >
           <div
@@ -554,106 +561,91 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
           </div>
           <div
             style={{
-              fontSize: 36,
+              fontSize: tab === "overview" ? 36 : 22,
               fontWeight: 700,
               color: colors.text,
               fontFamily: fonts.display,
-              margin: "8px 0 4px",
+              margin: tab === "overview" ? "8px 0 4px" : "2px 0 0",
             }}
           >
             {balance ? satsToBtc(balance.total_sats) : "--"}
-            <span style={{ fontSize: 18, color: colors.muted }}> BTC</span>
+            <span style={{ fontSize: tab === "overview" ? 18 : 15, color: colors.muted }}> BTC</span>
+            {tab !== "overview" && balance?.usd_value != null && (
+              <span style={{ fontSize: 15, color: colors.sub, fontFamily: fonts.sans, fontWeight: 400 }}>
+                {" "}. ${balance.usd_value.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+              </span>
+            )}
           </div>
-          {balance?.usd_value != null && (
-            <div style={{ fontSize: 18, color: colors.sub, marginBottom: 8 }}>
-              ${balance.usd_value.toLocaleString("en-US", { maximumFractionDigits: 0 })}
-            </div>
-          )}
-          {balance && balance.unconfirmed_sats !== 0 && (
-            <div style={{ fontSize: 16, color: colors.orange, marginBottom: 8 }}>
-              + {satsToBtc(balance.unconfirmed_sats)} BTC unconfirmed
-            </div>
-          )}
+          {tab === "overview" && (
+            <>
+              {balance?.usd_value != null && (
+                <div style={{ fontSize: 18, color: colors.sub, marginBottom: 8 }}>
+                  ${balance.usd_value.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                </div>
+              )}
+              {balance && balance.unconfirmed_sats !== 0 && (
+                <div style={{ fontSize: 16, color: colors.orange, marginBottom: 8 }}>
+                  + {satsToBtc(balance.unconfirmed_sats)} BTC unconfirmed
+                </div>
+              )}
 
-          <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-            {vault.status === "draft" ? (
-              // A path-builder draft is finished from its own card below
-              // (PathDraftCard); this button counts planned founders,
-              // which that shape does not have.
-              isLeafListVault(vault) ? null : <DraftCompileButton vault={vault} />
-            ) : (
-              <Button style={{ flex: 1, padding: "12px" }} onClick={() => setTab("send")}>
-                Send
-              </Button>
-            )}
-            {/* A fresh-address vault copies the address to give out NOW
-                (CurrentAddressCopy, below); this one copies its one address. */}
-            {!isFreshAddressVault(vault) && (
-              <Button
-                variant="ghost"
-                size="sm"
-                style={{ fontSize: 16 }}
-                disabled={!vault.address}
-                onClick={() => vault.address && copy(vault.address, "addr")}
-              >
-                {copied === "addr" ? "Copied!" : "Copy address"}
-              </Button>
-            )}
-            {balance && (
-              <a
-                href={balance.mempool_url}
-                target="_blank"
-                rel="noreferrer"
-                style={{
-                  padding: "9px 16px",
-                  background: "none",
-                  border: `1px solid ${colors.border}`,
-                  borderRadius: radii.md,
-                  color: colors.sub,
-                  fontSize: 16,
-                  fontFamily: fonts.sans,
-                  textDecoration: "none",
-                  display: "flex",
-                  alignItems: "center",
-                }}
-              >
-                Explorer
-              </a>
-            )}
-          </div>
-          {vault.address && vault.status !== "draft" && isFreshAddressVault(vault) && <CurrentAddressCopy vault={vault} />}
-          {vault.address && !isFreshAddressVault(vault) && (
-            <div style={{ marginTop: 10 }}>
-              <Button
-                variant="ghost"
-                size="sm"
-                style={{ fontSize: 16, minHeight: 40 }}
-                onClick={() => setShowReceiveQr(v => !v)}
-              >
-                {showReceiveQr ? "Hide deposit QR" : "Show deposit QR"}
-              </Button>
-              {showReceiveQr && (
-                <div style={{ marginTop: 10 }}>
+              <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+                {vault.status === "draft" ? (
+                  // A path-builder draft is finished from its own card below
+                  // (PathDraftCard); this button counts planned founders,
+                  // which that shape does not have.
+                  isLeafListVault(vault) ? null : <DraftCompileButton vault={vault} />
+                ) : (
+                  <>
+                    <Button style={{ flex: 1, padding: "12px", minHeight: 48 }} onClick={() => showTab("send")}>
+                      Send
+                    </Button>
+                    {vault.address && (
+                      <Button
+                        variant="ghost"
+                        style={{ flex: 1, padding: "12px", minHeight: 48 }}
+                        onClick={() => setShowReceive(v => !v)}
+                      >
+                        {showReceive ? "Close" : "Receive"}
+                      </Button>
+                    )}
+                  </>
+                )}
+              </div>
+              {showReceive && vault.address && vault.status !== "draft" && isFreshAddressVault(vault) && <NewReceiveAddress vault={vault} />}
+              {showReceive && vault.address && !isFreshAddressVault(vault) && (
+                <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-start" }}>
+                  <div style={{ fontFamily: fonts.mono, fontSize: 15, color: colors.text, wordBreak: "break-all" }}>{vault.address}</div>
+                  <Button style={{ minHeight: 44, alignSelf: "stretch" }} onClick={() => copy(vault.address!, "addr")}>
+                    {copied === "addr" ? "Copied" : "Copy address"}
+                  </Button>
                   <QrImage data={vault.address} size={220} />
-                  <div style={{ fontSize: 16, color: colors.sub, marginTop: 8, lineHeight: 1.5 }}>
-                    Scan this with the wallet you are sending FROM to deposit into this vault. Check that the
-                    address it shows ends in <span style={{ fontFamily: fonts.mono }}>{vault.address.slice(-8)}</span>.
+                  <div style={{ fontSize: 15, color: colors.sub, lineHeight: 1.5 }}>
+                    Check that the wallet you send from shows an address ending in{" "}
+                    <span style={{ fontFamily: fonts.mono, color: colors.text }}>{vault.address.slice(-8)}</span>.
+                    First deposit? Send a small amount, wait until it shows here, then send the rest.
+                  </div>
+                  <div style={{ fontSize: 15, color: colors.muted, lineHeight: 1.5 }}>
+                    This vault has one fixed address, reused for every deposit -- anyone who sees one payment to it can
+                    see every payment to it and the eventual full spend. That's the tradeoff for hardware-wallet
+                    compatibility; keep that in mind for how you fund it.
                   </div>
                 </div>
               )}
-              <div style={{ fontSize: 16, color: colors.sub, marginTop: 8, lineHeight: 1.5 }}>
-                First deposit? Send a small amount, wait until it shows here, then send the rest.
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0 16px", marginTop: 12 }}>
+                {balance && (
+                  <a href={balance.mempool_url} target="_blank" rel="noreferrer" style={{ fontSize: 15, color: colors.muted, minHeight: 44, display: "inline-flex", alignItems: "center" }}>
+                    See it on the explorer
+                  </a>
+                )}
+                {/* The halt switch: always one tap away, never above the
+                    balance (operator's chip, 2026-11-25). While a hold is on,
+                    the red banner at the top of the page says so. */}
+                {vault.status === "compiled" && !effectiveDuress && (
+                  <HaltVaultBar duress={false} busy={duressBusy} onToggle={toggleDuress} vaultId={vault.id} isOwner={(vault as Vault & { my_role?: string }).my_role === "owner"} />
+                )}
               </div>
-            </div>
-          )}
-          {vault.address && vault.status !== "draft" && isFreshAddressVault(vault) && <NewReceiveAddress vault={vault} />}
-          {vault.address && !isFreshAddressVault(vault) && (
-            <div style={{ fontSize: 15, color: colors.muted, marginTop: 10, lineHeight: 1.5 }}>
-              This vault has one fixed address, reused for every deposit --
-              anyone who sees one payment to it can see every payment to it
-              and the eventual full spend. That's the tradeoff for hardware-
-              wallet compatibility; keep that in mind for how you fund it.
-            </div>
+            </>
           )}
         </div>
 
@@ -683,79 +675,88 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
           </div>
         )}
 
-        {/* Tabs */}
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            rowGap: 2,
-            columnGap: 2,
-            borderBottom: `1px solid ${colors.border}`,
-            marginBottom: 20,
-          }}
-        >
-          {(vault.status === 'draft'
+        {/* Tabs: four, plus More for the rest (operator's chip, 2026-11-25) --
+            eight in two wrapped rows buried the one with a badge. */}
+        {(() => {
+          const all = vault.status === "draft"
             ? [
                 { id: "overview", label: "Overview" },
                 // Members and Messages need other people and our server:
-                // not in the download (lib/download.ts).
-                // Trust (members' signed agreements, proof of life) and
-                // Requests (a beneficiary asking for funds) need other
-                // people and our server too.
+                // not in the download (lib/download.ts). Trust (members'
+                // signed agreements, proof of life) needs them too.
                 ...(DOWNLOAD ? [] : [{ id: "members", label: "Members" }, { id: "messages", label: "Messages" }, { id: "trust", label: "Trust" }]),
                 { id: "activity", label: "Activity" },
               ]
             : [
                 { id: "overview", label: "Overview" },
                 { id: "send", label: "Send" },
-                ...(DOWNLOAD ? [] : [{ id: "requests", label: "Requests" }]),
                 { id: "history", label: "History", count: pendingCount },
-                ...(DOWNLOAD ? [] : [{ id: "members", label: "Members" }, { id: "messages", label: "Messages" }, { id: "trust", label: "Trust" }]),
+                ...(DOWNLOAD ? [] : [{ id: "members", label: "Members" }]),
+                // Requests (a beneficiary asking for funds) needs other
+                // people and our server too.
+                ...(DOWNLOAD ? [] : [{ id: "requests", label: "Requests" }, { id: "messages", label: "Messages" }, { id: "trust", label: "Trust" }]),
                 { id: "activity", label: "Activity" },
-              ]
-          ).map(t => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id as typeof tab)}
-              style={{
-                flex: "1 1 0",
-                minWidth: 76,
-                padding: "8px 10px",
-                border: "none",
-                fontSize: 17,
-                cursor: "pointer",
-                fontFamily: fonts.sans,
-                background: tab === t.id ? colors.input : "transparent",
-                color: tab === t.id ? colors.text : colors.muted,
-                borderBottom: tab === t.id ? `2px solid ${colors.gold}` : "2px solid transparent",
-                borderTopLeftRadius: 6,
-                borderTopRightRadius: 6,
-                marginBottom: -1,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 6,
-                whiteSpace: "nowrap",
-              }}
-            >
-              {t.label}
-              {t.count != null && t.count > 0 && (
-                <span
-                  style={{
-                    background: colors.orange,
-                    color: colors.bg,
-                    fontSize: 14,
-                    fontWeight: 700,
-                    borderRadius: 10,
-                    padding: "1px 6px",
-                  }}
-                >
-                  {t.count}
-                </span>
+              ];
+          const primary = all.slice(0, vault.status === "draft" ? 2 : 4);
+          const more = all.slice(primary.length);
+          const inMore = more.some(t => t.id === tab);
+          const tabStyle = (active: boolean) => ({
+            flex: "1 1 auto",
+            minWidth: 0,
+            minHeight: 44,
+            padding: "8px 4px",
+            border: "none",
+            fontSize: 16,
+            cursor: "pointer",
+            fontFamily: fonts.sans,
+            background: active ? colors.input : "transparent",
+            color: active ? colors.text : colors.muted,
+            borderBottom: active ? `2px solid ${colors.gold}` : "2px solid transparent",
+            borderTopLeftRadius: 6,
+            borderTopRightRadius: 6,
+            marginBottom: -1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            whiteSpace: "nowrap" as const,
+          });
+          const badge = (n?: number) => n != null && n > 0 && (
+            <span style={{ background: colors.orange, color: colors.bg, fontSize: 14, fontWeight: 700, borderRadius: 10, padding: "1px 6px" }}>{n}</span>
+          );
+          return (
+            <div data-dt-tabs style={{ marginBottom: 20 }}>
+              <div style={{ display: "flex", columnGap: 2, borderBottom: `1px solid ${colors.border}` }}>
+                {primary.map(t => (
+                  <button key={t.id} onClick={() => { setMoreOpen(false); showTab(t.id as typeof tab); }} style={tabStyle(tab === t.id && !moreOpen)}>
+                    {t.label}
+                    {badge((t as { count?: number }).count)}
+                  </button>
+                ))}
+                {more.length > 0 && (
+                  <button onClick={() => setMoreOpen(v => !v)} style={tabStyle(inMore || moreOpen)} aria-expanded={moreOpen}>
+                    {inMore && !moreOpen ? more.find(t => t.id === tab)?.label : "More"}
+                  </button>
+                )}
+              </div>
+              {moreOpen && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, paddingTop: 10 }}>
+                  {more.map(t => (
+                    <Button
+                      key={t.id}
+                      variant={tab === t.id ? "primary" : "ghost"}
+                      size="sm"
+                      style={{ fontSize: 16, minHeight: 44, flex: "1 1 40%" }}
+                      onClick={() => { setMoreOpen(false); showTab(t.id as typeof tab); }}
+                    >
+                      {t.label}
+                    </Button>
+                  ))}
+                </div>
               )}
-            </button>
-          ))}
-        </div>
+            </div>
+          );
+        })()}
 
         {tab === "overview" && (
           <OverviewTab
@@ -771,13 +772,25 @@ function VaultDetailInner({ vault, onBack }: { vault: Vault; onBack: () => void 
             onReloadBalance={() => { void load(); }}
           />
         )}
+        {tab === "overview" && (
+          // Delete lives at the bottom, away from everyday buttons
+          // (operator's chip, 2026-11-25); it still asks for the name.
+          <div style={{ marginTop: 32, paddingTop: 16, borderTop: `1px solid ${colors.border}` }}>
+            <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: "0.08em", color: colors.muted, marginBottom: 8 }}>
+              REMOVE THIS VAULT
+            </div>
+            <Button variant="danger" size="sm" style={{ fontSize: 16, minHeight: 44 }} disabled={archiving} onClick={() => void deleteVault()}>
+              Delete vault
+            </Button>
+          </div>
+        )}
         {tab === "send" && (
           <SendTab
             vault={duressOverride === null ? vault : { ...vault, duress: duressOverride }}
             balance={balance}
             prefill={sendPrefill}
             onPickCoins={prefillSend}
-            onDone={() => { setSendPrefill(null); void load(); setTab("history"); }}
+            onDone={() => { setSendPrefill(null); void load(); showTab("history"); }}
           />
         )}
         {tab === "history" && (
@@ -869,6 +882,7 @@ function OverviewTab({
     vault.inheritance_after === 0;
 
   const [showDescriptorQr, setShowDescriptorQr] = useState(false);
+  const [showBackups, setShowBackups] = useState(false);
 
   // Timelocks are stored as ABSOLUTE CLTV block heights (what the
   // Taproot leaf's `after(N)` bakes in). For display we subtract
@@ -988,16 +1002,9 @@ function OverviewTab({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      {/* Operator, 2026-11-24: the coins, and when each path opens for each
-          one, right under the balance (docs/coin-unlock-view-build-note.md). */}
-      {vault.status !== "draft" && (
-        <>
-          <UtxosSection vault={vault} onSendPrefill={onSendPrefill} refreshKey={coinsKey} balance={balance} />
-          {/* Which server looks the coins up, and the person's own Electrum
-              server (docs/chain-lookups-build-note.md). */}
-          <ElectrumServerSettings network={vault.network} source={balance?.source} onChanged={() => onReloadBalance?.()} />
-        </>
-      )}
+      {/* What needs the person comes first (operator, 2026-11-25: "the right
+          attention ... at the right time"; docs/screen-cleanse-build-note.md),
+          then the coins and when each path opens for each one. */}
       <RemindersBanner vaultId={vault.id} />
       <SuccessionBanner vault={vault} onSendPrefill={onSendPrefill} />
       <ActionGuide
@@ -1006,6 +1013,14 @@ function OverviewTab({
         onOpenTab={onOpenTab}
         onSendPrefill={onSendPrefill}
       />
+      {vault.status !== "draft" && (
+        <>
+          <UtxosSection vault={vault} onSendPrefill={onSendPrefill} refreshKey={coinsKey} balance={balance} />
+          {/* Which server looks the coins up, and the person's own Electrum
+              server (docs/chain-lookups-build-note.md). */}
+          <ElectrumServerSettings network={vault.network} source={balance?.source} onChanged={() => onReloadBalance?.()} />
+        </>
+      )}
       {!plain && <VaultPhaseCard vault={vault} />}
       {!plain && <VaultStructureTree vault={vault} />}
       <TrustDocSection vault={vault} />
@@ -1089,8 +1104,11 @@ function OverviewTab({
         </>
       )}
 
-      {/* Descriptor */}
+      {/* Backups and exports (operator, 2026-11-25: "cluttered from all the
+          building"): closed until asked for. The fingerprint stays in view --
+          it is the one thing to write down. */}
       <div
+        data-dt-backups
         style={{
           background: colors.surface,
           border: `1px solid ${colors.border}`,
@@ -1098,7 +1116,7 @@ function OverviewTab({
           padding: 16,
         }}
       >
-        <div style={{ marginBottom: 8 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
           <span
             style={{
               fontSize: 15,
@@ -1107,9 +1125,40 @@ function OverviewTab({
               color: colors.muted,
             }}
           >
-            DESCRIPTOR
+            BACKUPS AND EXPORTS
           </span>
+          <Button variant="ghost" size="sm" style={{ fontSize: 15, minHeight: 44 }} onClick={() => setShowBackups(v => !v)}>
+            {showBackups ? "Hide" : "Show"}
+          </Button>
         </div>
+        {shownDescriptor && (
+          <div
+            style={{
+              marginTop: 12,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 2,
+              padding: "8px 14px",
+              border: `1px solid ${colors.gold}`,
+              borderRadius: radii.md,
+            }}
+          >
+            <span style={{ fontSize: 14, color: colors.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+              Descriptor fingerprint
+            </span>
+            <span style={{ fontSize: 18, color: colors.gold, fontFamily: fonts.mono, letterSpacing: 2 }}>
+              {formatDescriptorFingerprint(shownDescriptor)}
+            </span>
+            <span style={{ fontSize: 14, color: colors.muted, textAlign: "center", maxWidth: 380 }}>
+              Write this down separately (paper, not this screen). Before trusting a
+              descriptor on a signer or a re-downloaded backup, recompute its
+              fingerprint and compare -- a mismatch means don't sign.
+            </span>
+          </div>
+        )}
+        {showBackups && (
+          <div style={{ marginTop: 12 }}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "flex-start", marginBottom: 8 }}>
             <Button
               variant="ghost"
@@ -1232,35 +1281,11 @@ function OverviewTab({
         >
           {shownDescriptor}
         </div>
-        {shownDescriptor && (
-          <div
-            style={{
-              marginTop: 12,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 2,
-              padding: "8px 14px",
-              border: `1px solid ${colors.gold}`,
-              borderRadius: radii.md,
-            }}
-          >
-            <span style={{ fontSize: 14, color: colors.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>
-              Descriptor fingerprint
-            </span>
-            <span style={{ fontSize: 18, color: colors.gold, fontFamily: fonts.mono, letterSpacing: 2 }}>
-              {formatDescriptorFingerprint(shownDescriptor)}
-            </span>
-            <span style={{ fontSize: 14, color: colors.muted, textAlign: "center", maxWidth: 380 }}>
-              Write this down separately (paper, not this screen). Before trusting a
-              descriptor on a signer or a re-downloaded backup, recompute its
-              fingerprint and compare -- a mismatch means don't sign.
-            </span>
-          </div>
-        )}
         {showDescriptorQr && shownDescriptor && (
           <div style={{ marginTop: 14, display: "flex", justifyContent: "center" }}>
             <DescriptorQr descriptor={shownDescriptor} label="Descriptor QR" size={240} />
+          </div>
+        )}
           </div>
         )}
       </div>
@@ -1517,6 +1542,20 @@ function SendTab({ vault, balance, onDone, prefill, onPickCoins }: {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [signing, setSigning] = useState<SigningState | null>(null);
+  // The review screen replaces the form: bring its top into view, not
+  // leave the person at the bottom where "Review & sign" was.
+  const reviewing = signing != null;
+  useEffect(() => {
+    if (!reviewing) return;
+    requestAnimationFrame(() => {
+      const target = document.querySelector("[data-dt-tabs]");
+      if (!target) return;
+      const bar = document.querySelector("header")?.getBoundingClientRect().height ?? 0;
+      window.scrollTo({ top: window.scrollY + target.getBoundingClientRect().top - bar - 8, behavior: "smooth" });
+    });
+  }, [reviewing]);
+  const [pickCoins, setPickCoins] = useState(false);
+  const confirmCancel = useConfirm();
   const [copied, setCopied] = useState<string | null>(null);
   const [slowHint, setSlowHint] = useState(false);
   const [showQrDisplay, setShowQrDisplay] = useState(false);
@@ -1591,7 +1630,13 @@ function SendTab({ vault, balance, onDone, prefill, onPickCoins }: {
   function signaturesTowardPath(psbtHex: string): number {
     if (isLeafList) {
       const summary = findSpendingPath(vault, standardPath);
-      const st = summary ? pathSignatureStatus(summary, signersOnEveryInput(psbtHex)) : null;
+      // A fresh-address vault's xpub keys sign with a child key per address;
+      // the multipath descriptor maps each back to its vault key (the same
+      // rule ProposalDetail and the server use). Without it the count here
+      // stayed at 0 after a browser key signed (caught walking the screens,
+      // 2026-11-25).
+      const multipath = vault.descriptor_version === 2 ? vault.descriptor_multipath ?? null : null;
+      const st = summary ? pathSignatureStatus(summary, signersOnEveryInput(psbtHex, multipath)) : null;
       if (st?.byName) return st.have;
     }
     return countSignatures(psbtHex);
@@ -2482,6 +2527,21 @@ function SendTab({ vault, balance, onDone, prefill, onPickCoins }: {
             fix -- startTapitCosign/lib/tapit-cosign.ts's window.open
             cross-tab bridge has no remaining caller anywhere in this
             repo as of that fix. */}
+        {/* Enough signatures: Broadcast is the next thing, right here
+            (operator, 2026-11-25: "No buried ... buttons"). The other ways
+            to sign are no longer needed. */}
+        {quorumMet && err && <p style={{ color: colors.red, fontSize: 17, margin: 0 }}>{err}</p>}
+        {quorumMet && (
+          <Button
+            disabled={busy}
+            style={{ background: colors.green, width: "100%", padding: "14px", fontSize: 18, minHeight: 52 }}
+            onClick={() => void broadcast()}
+          >
+            {busy ? "Broadcasting..." : err ? "Retry broadcast" : "Broadcast transaction"}
+          </Button>
+        )}
+
+        {!quorumMet && (
         <NotifyCircleViaNostr
           subjectId={signing.proposal_id ?? ""}
           psbtHex={signing.psbt_hex}
@@ -2490,8 +2550,10 @@ function SendTab({ vault, balance, onDone, prefill, onPickCoins }: {
           signers={signing.signers}
           onSigned={(hex, label) => externalImport(hex, label)}
         />
+        )}
 
         {/* Hardware wallet / external PSBT */}
+        {!quorumMet && (
         <div
           style={{
             background: colors.surface,
@@ -2564,19 +2626,11 @@ function SendTab({ vault, balance, onDone, prefill, onPickCoins }: {
           )}
           <ExternalPsbtInput onImport={externalImport} />
         </div>
+        )}
 
-        {/* Action buttons */}
-        {err && <p style={{ color: colors.red, fontSize: 17, margin: 0 }}>{err}</p>}
-
-        {quorumMet ? (
-          <Button
-            disabled={busy}
-            style={{ background: colors.green, width: "100%", padding: "14px", fontSize: 18 }}
-            onClick={() => void broadcast()}
-          >
-            {busy ? "Broadcasting..." : err ? "Retry broadcast" : "Broadcast transaction"}
-          </Button>
-        ) : (
+        {/* Still short: how many more, under the ways to sign. */}
+        {err && !quorumMet && <p style={{ color: colors.red, fontSize: 17, margin: 0 }}>{err}</p>}
+        {!quorumMet && (
           <div style={{ fontSize: 17, color: colors.muted, textAlign: "center", padding: "10px 0" }}>
             {needed} more signature{needed !== 1 ? "s" : ""} needed
           </div>
@@ -2584,11 +2638,15 @@ function SendTab({ vault, balance, onDone, prefill, onPickCoins }: {
 
         <Button
           variant="ghost"
-          style={{ width: "100%" }}
+          style={{ width: "100%", marginTop: 20, minHeight: 44, color: colors.red }}
           onClick={async () => {
             // This used to only clear the form: the spend stayed open in
             // History, waiting on signatures nobody meant to give.
             const id = signing?.proposal_id;
+            if (id && !signing?.txid && signing && signing.signaturesCollected > 0) {
+              const ok = await confirmCancel({ title: "Cancel this spend?", message: "The signatures collected so far are discarded.", confirmLabel: "Cancel this spend", danger: true });
+              if (!ok) return;
+            }
             if (id && !signing?.txid) {
               try {
                 await api.proposals.update(id, { status: "cancelled" });
@@ -2626,9 +2684,27 @@ function SendTab({ vault, balance, onDone, prefill, onPickCoins }: {
     <>
     {/* Operator's chips, 2026-11-24: the coins and when each path opens for
         each one; picking coins is optional -- the app picks the fewest. */}
+    {/* Optional, so closed: the form comes first (operator, 2026-11-25,
+        docs/screen-cleanse-build-note.md). */}
     {vault.status !== "draft" && onPickCoins && (
       <div style={{ marginBottom: 14, maxWidth: 480 }}>
-        <UtxosSection vault={vault} onSendPrefill={p => onPickCoins({ ...(prefill ?? {}), ...p })} refreshKey={`${balance?.total_sats ?? ""}:${balance?.utxo_count ?? ""}`} balance={balance} />
+        <button
+          type="button"
+          onClick={() => setPickCoins(v => !v)}
+          aria-expanded={pickCoins}
+          style={{ background: "none", border: "none", padding: "10px 0", minHeight: 44, fontSize: 16, color: colors.sub, cursor: "pointer", textDecoration: "underline", textAlign: "left" }}
+        >
+          {pickCoins ? "Hide the coins" : "Choose which coins to spend (optional -- the app picks if you don't)"}
+        </button>
+        {pickCoins && (
+          <div style={{ fontSize: 15, color: colors.muted, lineHeight: 1.5, marginBottom: 8 }}>
+            Left to itself, the app spends your largest confirmed coins first. If you are not spending the full
+            balance, that can join separate deposits in one public transaction. Pick coins here if that matters.
+          </div>
+        )}
+        {pickCoins && (
+          <UtxosSection vault={vault} onSendPrefill={p => onPickCoins({ ...(prefill ?? {}), ...p })} refreshKey={`${balance?.total_sats ?? ""}:${balance?.utxo_count ?? ""}`} balance={balance} />
+        )}
       </div>
     )}
     <form
@@ -2665,14 +2741,6 @@ function SendTab({ vault, balance, onDone, prefill, onPickCoins }: {
               </Button>
             </div>
           )}
-        </div>
-      )}
-      {(!prefill?.selected_utxos || prefill.selected_utxos.length === 0) && (
-        <div style={{ fontSize: 15, color: colors.muted, lineHeight: 1.5 }}>
-          This picks your largest confirmed deposits first. If you are not
-          spending the full balance, that may combine several previously-
-          separate deposits into one public transaction. Pick specific
-          coins under UTXOs below if that matters for this spend.
         </div>
       )}
 
@@ -6480,7 +6548,7 @@ function TrustDocSection({ vault }: { vault: Vault }) {
         </div>
         {empty ? (
           <div style={{ fontSize: 16, color: colors.muted, marginTop: 8 }}>
-            No trust document yet. {isOwner ? "Describe the purpose, beneficiaries, and distribution rules so every member signs with context." : "The trustee hasn't filled this in yet."}
+            {isOwner ? "None yet: the purpose and rules every member signs with." : "None yet."}
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -6790,7 +6858,7 @@ function StipendsSection({
 
       {list.length === 0 && !adding && isOwner && (
         <div style={{ fontSize: 16, color: colors.muted, marginTop: 8 }}>
-          No stipends yet. Add a recurring distribution (monthly living expenses, quarterly tuition, annual charitable grants) so trustees see what's due without tracking dates manually. Every spend still needs real trustee signatures.
+          None yet: regular payouts you want reminders for.
         </div>
       )}
 
@@ -7795,11 +7863,7 @@ function DistributionWalletsSection({
 
       {wallets.length === 0 && !creating && isOwner && (
         <div style={{ fontSize: 16, color: colors.muted, marginTop: 8 }}>
-          No distribution wallets yet. Create one to split a lump sum
-          into N tranches that unlock on a schedule (annual, quarterly,
-          monthly). Each tranche is claimable by the beneficiary alone
-          once its block height is reached; trustees always retain an
-          escape hatch on every tranche.
+          None yet: a lump sum paid out in parts on a schedule.
         </div>
       )}
 

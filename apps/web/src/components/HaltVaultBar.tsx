@@ -17,8 +17,9 @@ import { useConfirm } from './dialog';
  * flow, `duress: effectiveDuress` passed into evaluateSigningGate) -- this
  * component only surfaces the control, it enforces nothing itself.
  *
- * Always visible, not tucked into a tab: a halt is exactly the kind of
- * action that must never require hunting through the UI to find.
+ * Always one tap away, not tucked into a tab: a halt is exactly the kind of
+ * action that must never require hunting through the UI to find. Quiet under
+ * the balance until a hold is on; then the red banner tops the page.
  */
 export function HaltVaultBar({
   duress,
@@ -132,22 +133,11 @@ export function HaltVaultBar({
     );
   }
 
+  // Quiet until needed (operator's chip, 2026-11-25): one tap under the
+  // balance; the confirmation says what it does.
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: space[2],
-        flexWrap: 'wrap',
-      }}
-    >
-      <span style={{ fontSize: 16, color: colors.muted }}>
-        Not sure a request is really safe to sign? Halt all signing on this vault immediately.
-      </span>
-      <Button variant="ghost" size="sm" disabled={busy} onClick={handleHalt} style={{ color: colors.red }}>
-        Halt signing
-      </Button>
-    </div>
+    <Button variant="ghost" size="sm" disabled={busy} onClick={handleHalt} style={{ color: colors.red, minHeight: 44, fontSize: 15 }}>
+      Halt all signing
+    </Button>
   );
 }

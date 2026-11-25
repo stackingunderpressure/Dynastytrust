@@ -30,6 +30,7 @@ export function NewReceiveAddress({ vault }: { vault: Vault }) {
   const [list, setList] = useState<{ addresses: Listed[]; unpaid_run: number; gap_limit: number } | null>(null);
   const [listOpen, setListOpen] = useState(false);
   const [listErr, setListErr] = useState<string | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const loadList = useCallback(async () => {
     setListErr(null);
@@ -41,6 +42,19 @@ export function NewReceiveAddress({ vault }: { vault: Vault }) {
   }, [vault.id]);
 
   useEffect(() => { if (listOpen) void loadList(); }, [listOpen, loadList]);
+
+  // Opening Receive shows the address to give out now straight away
+  // (operator, 2026-11-25: "Copy address should pick the correct one"; then
+  // "No buried or camouflage buttons"): no second button to press first.
+  useEffect(() => {
+    let live = true;
+    setBusy(true);
+    api.vaults.newReceiveAddress(vault.id, undefined, 'current')
+      .then(r => { if (live) setShown({ index: r.index, address: r.address, label: r.label ?? null, reused: !!r.reused }); })
+      .catch(e => { if (live) setErr(e instanceof Error ? e.message : 'Could not get the address'); })
+      .finally(() => { if (live) setBusy(false); });
+    return () => { live = false; };
+  }, [vault.id]);
 
   async function get(mode: 'current' | 'new') {
     setBusy(true);
@@ -59,53 +73,62 @@ export function NewReceiveAddress({ vault }: { vault: Vault }) {
   }
 
   const note = { fontSize: 15, color: colors.muted, lineHeight: 1.5 } as const;
+  const linkStyle = { background: 'none', border: 'none', padding: '10px 0', minHeight: 44, fontSize: 15, color: colors.muted, cursor: 'pointer', textDecoration: 'underline', textAlign: 'left' } as const;
 
   return (
-    <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div style={note}>
-        This vault gives each payment its own address, so people who pay you cannot see your other payments or
-        your balance. The address below stays yours to give out until money arrives on it; then you get the next one.
-      </div>
-      <div>
-        <Label>Who is it for? (optional, only your vault sees it)</Label>
-        <Input value={label} maxLength={80} onChange={e => setLabel(e.target.value)} placeholder="e.g. Paycheck, Mom's gift" />
-      </div>
-      <Button disabled={busy} style={{ minHeight: 44 }} onClick={() => void get('current')}>
-        {busy ? 'Getting the address...' : 'Show receive address'}
-      </Button>
+    <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {busy && !shown && <div style={note}>Getting the address to give out...</div>}
       {err && <div style={{ fontSize: 15, color: colors.red, lineHeight: 1.5 }}>{err}</div>}
       {shown && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
-          {shown.label && <div style={{ fontSize: 15, color: colors.text }}>For: {shown.label}</div>}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}>
+          <div style={{ fontSize: 16, color: colors.text, lineHeight: 1.5 }}>
+            Address number {shown.index}, {shown.reused ? 'given out before and not paid yet' : 'never used before'}
+            {shown.label ? ` -- for ${shown.label}` : ''}.
+          </div>
           <div style={{ fontFamily: fonts.mono, fontSize: 15, color: colors.text, wordBreak: 'break-all' }}>{shown.address}</div>
           <Button
-            variant="ghost"
-            size="sm"
-            style={{ fontSize: 16, minHeight: 44 }}
+            style={{ minHeight: 44, alignSelf: 'stretch' }}
             onClick={() => { void navigator.clipboard.writeText(shown.address).then(() => setCopied(true)); }}
           >
-            {copied ? 'Copied!' : 'Copy this address'}
+            {copied ? 'Copied' : 'Copy address'}
           </Button>
           <QrImage data={shown.address} size={220} />
-          <div style={{ fontSize: 15, color: colors.sub, lineHeight: 1.5 }}>
-            Address number {shown.index}, {shown.reused ? 'given out before and not paid yet' : 'never used before'}. Check that
-            the wallet you send from shows an address ending in{' '}
-            <span style={{ fontFamily: fonts.mono }}>{shown.address.slice(-8)}</span>.
+          <div style={note}>
+            Check that the wallet you send from shows an address ending in{' '}
+            <span style={{ fontFamily: fonts.mono, color: colors.text }}>{shown.address.slice(-8)}</span>. It stays the one to
+            give out until money arrives on it; then you get the next one, so people who pay you never see your other
+            payments.
           </div>
+        </div>
+      )}
+      {shown && (
+        <button type="button" onClick={() => setMoreOpen(v => !v)} style={linkStyle}>
+          {moreOpen ? 'Hide note and other addresses' : 'Add a note, or get a different address'}
+        </button>
+      )}
+      {shown && moreOpen && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div>
+            <Label>Who is it for? (optional, only your vault sees it)</Label>
+            <Input value={label} maxLength={80} onChange={e => setLabel(e.target.value)} placeholder="e.g. Paycheck, Mom's gift" />
+          </div>
+          <Button variant="ghost" size="sm" style={{ fontSize: 16, minHeight: 44 }} disabled={busy || !label.trim()} onClick={() => void get('current')}>
+            Save the note on this address
+          </Button>
           <Button variant="ghost" size="sm" style={{ fontSize: 16, minHeight: 44 }} disabled={busy} onClick={() => void get('new')}>
             I need a different one
           </Button>
           <div style={note}>
-            Only when two people are paying you at the same time. Each unpaid address you take adds to a row that
-            wallets restoring this vault have to look past; after 20 in a row they stop, so this vault will not give
-            out more than that.
+            A different one is only for when two people are paying you at the same time. Each unpaid address you take adds
+            to a row that wallets restoring this vault have to look past; after 20 in a row they stop, so this vault will
+            not give out more than that.
           </div>
         </div>
       )}
       <button
         type="button"
         onClick={() => setListOpen(v => !v)}
-        style={{ background: 'none', border: 'none', padding: '10px 0', minHeight: 44, fontSize: 15, color: colors.muted, cursor: 'pointer', textDecoration: 'underline', textAlign: 'left' }}
+        style={linkStyle}
       >
         {listOpen ? 'Hide addresses given out' : 'Addresses given out'}
       </button>

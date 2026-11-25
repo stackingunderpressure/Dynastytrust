@@ -4995,3 +4995,16 @@ vault key by deriving it from the vault's own stored descriptor (the PSBT's
 derivation is only a hint), used by the proposal page, psbt-merge's
 fully-signed decision and signer-sessions. Gates: npm test exit 0; lint 0
 errors; typecheck the same 10 pre-existing errors; build ok.
+
+## 2026-11-25 -- the Send screen's signature count missed the same fix
+
+The fix above (child key -> vault key) reached the proposal page and the
+server but not the Send tab's review screen: `SendTab.signaturesTowardPath`
+called `signersOnEveryInput(psbtHex)` without the vault's multipath
+descriptor, so on a fresh-address vault a browser key showed "Signed" while
+the count above it stayed "0 / 1 required" and Broadcast never appeared.
+Found walking the screens at phone width against a faked server for the
+screen cleanup (docs/screen-cleanse-build-note.md), not by a test. Now passes
+`descriptor_multipath` for descriptor_version 2, as ProposalDetail does; the
+re-walk shows "1 / 1 required" and Broadcast after one tap. Left undone: a
+test that renders the Send screen (none exists for any screen).
