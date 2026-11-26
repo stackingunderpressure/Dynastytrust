@@ -51,6 +51,12 @@ gates, and the operator's word (decision 3 in the re-audit note).
 | 4 | Only the owner reserves a new receive address (operator's chip) | 93a5315 (1ae06f8) |
 | 5 | Tapit: when the hold can't be checked, ask first ("I called the owner and they are safe") | Tapit bc342fc |
 
-Still open, logged: 6 (psbt-merge same-transaction check), 7 (Send overcount
-on named-field fresh-address vaults), 8 (IPv6-mapped Electrum blocklist), 9
-(design note).
+| 6 | `mergeMatchesProposal`: a merge may set a status only from the proposal's own transaction and coins | f8c9add |
+| 7 | `lib/send-signatures.ts`: the Send screen counts keys on every input, not signatures added up | 9a6d8a3 |
+| 8 | Electrum blocklist reads IPv6 by its bytes (mapped, compatible, NAT64, 6to4) | 230f349 |
+
+9 is a design note, not a defect: in wellness view the checker confirms the
+person, not the payment, so Tapit's change check only covers outputs that
+claim to be the vault's. Protection against a hostile destination rests on
+the full-view signers. Left as designed; written here so a later review
+doesn't read it as an output check.

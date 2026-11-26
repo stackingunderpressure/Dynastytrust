@@ -5100,3 +5100,18 @@ only its own owner. Test first: test-vault-addresses case 2 failed before
 (a member reserved address 2), passes after (12 cases).
 Gates: npm test exit 0, lint 0 errors / 9 warnings, build ok, typecheck the
 same 10 pre-existing errors.
+
+## 2026-11-26 -- blind review low findings 6-8 fixed; 9 recorded as design
+
+6: psbt-merge took signatures, leaves and coin amounts all from the submitted
+PSBT, so a different transaction could mark a proposal signed (label only;
+finalize would fail). `mergeMatchesProposal` (_psbt-verify.js) now requires
+the stored proposal's unsigned transaction, coins and leaves. 7: the Send
+screen summed signatures across inputs for shapes it couldn't read by name --
+one signer on two coins read as two (pinned: countSignatures gives 2);
+`lib/send-signatures.ts` counts keys on every input. 8: the Electrum
+blocklist matched IPv6 text, so ::ffff:7f00:1 and kin passed; it now reads
+the 16 bytes. 9: design note (wellness checkers confirm the person, not the
+payment), recorded in docs/audits, no code change. Tests first: merge-same-
+tx 4, ranged-sign 8, electrum 16. Gates: npm test exit 0, lint 0 errors / 9
+warnings, build ok, typecheck the same 10 pre-existing errors.
