@@ -18,16 +18,18 @@ const { noticeDigest, holdState } = await import(F('_duress.js'));
 assert.equal(hex(noticeDigest('raise', 'tr(abc,{multi_a(1,x)})', '2026-11-25T12:00:00.000Z')), '28ee8aa77e89b45a5c3f6781bea52c5833e3ab821aaefe3171ca42f90e136b86');
 pass("the notice bytes match Tapit's (same fixed value as vaultDuress.test.ts)");
 
-const DESC = 'tr(50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0,{x})';
 const priv = (i) => Uint8Array.from(Buffer.from(i.toString(16).padStart(64, '0'), 'hex'));
 const pub = (i) => hex(schnorr.getPublicKey(priv(i)));
 const CHECKERS = [1, 2, 3, 4, 5];
+const OWNER = 11;
+// The compiled vault: owner must sign + 3 of the 5 checkers; a later owner path.
+const DESC = `tr(50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0,{and_v(v:pk(${pub(OWNER)}),multi_a(3,${CHECKERS.map(pub).join(',')})),and_v(v:pk(${pub(OWNER)}),after(30000))})`;
 const notice = (kind, i, at = new Date().toISOString()) => ({ kind, descriptor: DESC, signed_at: at, pubkey: pub(i), sig: hex(schnorr.sign(noticeDigest(kind, DESC, at), priv(i))) });
 
 let db;
 const reset = () => {
   db = {
-    vault: { id: 'v1', user_id: 'owner', status: 'compiled', descriptor: DESC, duress: false, leaves: [{ id: 'wellness', quorum: 3, wellness: { view: 'blind' } }] },
+    vault: { id: 'v1', user_id: 'owner', status: 'compiled', descriptor: DESC, duress: false, leaves: [{ id: 'wellness', quorum: 3, keys: CHECKERS.map(pub), required_keys: [pub(OWNER)], wellness: { view: 'blind' } }] },
     grants: CHECKERS.map((i) => ({ recipient_pubkey: pub(i), status: 'accepted' })),
     notices: [], events: [], t: 0,
   };
@@ -125,5 +127,29 @@ user = 'owner';
 r = await vaults({ httpMethod: 'PATCH', headers: {}, queryStringParameters: { id: 'v1' }, body: JSON.stringify({ duress: false }) });
 assert.equal(r.statusCode, 409, JSON.stringify(r.body)); assert.equal(db.vault.duress, true);
 pass("the owner's halt switch cannot lift a hold the circle raised");
+
+// 7. Blind review 2026-11-25 finding 2: the membership list is the owner's
+// to write, so it cannot decide who the circle is. Grants the owner made for
+// keys of their own (accepted on their word) do not count toward a clear;
+// only the wellness path's keys in the compiled vault do.
+reset(); user = null;
+await post({ notice: notice('raise', 1) });
+const MINE = [31, 32, 33];
+db.grants.push(...MINE.map((i) => ({ recipient_pubkey: pub(i), status: 'accepted' })));
+for (const i of MINE) await post({ notice: notice('clear', i) });
+user = 'owner';
+r = await post({ vault_id: 'v1', action: 'owner_clear' });
+assert.equal(db.vault.duress, true, 'the owner lifted a circle hold with keys of their own');
+assert.equal(r.body.clears, 0);
+pass("keys the owner added to the membership list can't clear a circle hold: only the vault's own wellness keys count");
+
+// 8. ...and the owner can't stop a real checker raising one by declining
+// or re-sending that checker's grant.
+reset(); user = null;
+db.grants = db.grants.map((g) => ({ ...g, status: 'declined' }));
+r = await post({ notice: notice('raise', 4) });
+assert.equal(r.statusCode, 200, JSON.stringify(r.body)); assert.equal(db.vault.duress, true);
+assert.equal((await post({ notice: notice('raise', OWNER) })).statusCode, 403);
+pass("a wellness checker can raise a hold whatever the membership list says; the owner's own key is not a checker");
 
 console.log(`vault-duress tests passed (${n} cases)`);

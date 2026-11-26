@@ -5045,3 +5045,22 @@ the guard: people holding enough keys can still sign outside this app; the
 hold is the app's brake and the circle's alarm, not a script change.
 Gates: npm test exit 0, lint 0 errors / 9 warnings, build ok, typecheck the
 same 10 pre-existing errors.
+
+## 2026-11-25 -- the owner could lift a circle hold alone (blind review finding 2)
+
+The duress server decided who the circle was from `vault_membership_grants`
+rows marked accepted -- rows the OWNER creates and marks accepted, with no
+check that the key is in the vault. An owner (the person who may be under
+duress) could add grants for keys of their own, sign the clears and lift a
+hold the circle raised; or decline a real checker's grant so that checker's
+raise was refused. Fix: `_duress.js` `circleKeys(vault)` -- the wellness
+path's keys (never its must-sign owner keys), each required to appear in the
+compiled descriptor the notice signs over; `leaves` can't change after
+compile (vaults.js). Used for raise, clear and the owner's halt-switch guard
+(which now loads the descriptor). Test first: test-vault-duress cases 7 and 8
+failed before ("the owner lifted a circle hold with keys of their own"), pass
+after (9 cases). Checked against a real compiled wellness vault: all five
+checkers in the circle, the owner out. Not changed: Tapit still learns its
+fellow checkers from the membership request; that list is display-only now.
+Gates: npm test exit 0, lint 0 errors / 9 warnings, build ok, typecheck the
+same 10 pre-existing errors.

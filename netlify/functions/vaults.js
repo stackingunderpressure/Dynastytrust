@@ -555,7 +555,7 @@ export async function handler(event) {
     // their own.
     if (updates.duress === false) {
       const { data: existing, error: fetchErr } = await supabase
-        .from("vaults").select("id, user_id, leaves").eq("id", id).maybeSingle();
+        .from("vaults").select("id, user_id, leaves, descriptor").eq("id", id).maybeSingle();
       if (fetchErr) return json(500, { error: fetchErr.message });
       if (existing && existing.user_id === u.userId && (await circleHoldOpen(supabase, existing))) {
         return json(409, { error: "Someone in this vault's circle reported duress. Lifting that hold needs you AND your circle: ask from the vault page, and each of them confirms in Tapit." });

@@ -5,8 +5,8 @@
  *
  * POST { notice: { kind: 'raise'|'clear', descriptor, signed_at, pubkey, sig } }
  *   From a member's Tapit, no account: accepted ONLY if the signature
- *   verifies (_duress.js noticeProblem) and the key accepted membership in
- *   the vault with that descriptor. 'raise' puts the vault on hold at once
+ *   verifies (_duress.js noticeProblem) and the key is a checker on the
+ *   wellness path of the vault with that descriptor (circleKeys). 'raise' puts the vault on hold at once
  *   (vaults.duress -- _duress-guard.js refuses building, filing, recording
  *   and merging a spend; the request page and Send screen refuse too)
  *   and records it in the vault's history. 'clear' counts toward lifting.
@@ -28,7 +28,7 @@ import { json, requireUser } from "./_auth.js";
 import { getSupabaseAdmin } from "./_supabase.js";
 import { overLimit, TOO_MANY } from "./_rate-limit.js";
 import { recordEvent } from "./_ledger.js";
-import { noticeProblem, holdState, clearQuorum, acceptedMembers, noticesOf } from "./_duress.js";
+import { noticeProblem, holdState, clearQuorum, circleKeys, noticesOf } from "./_duress.js";
 
 const ORIGIN = process.env.TAPIT_ORIGIN || "https://tapit-wallet.netlify.app";
 
@@ -45,8 +45,7 @@ async function vaultBy(supabase, column, value) {
 }
 
 async function standing(supabase, vault) {
-  const [notices, members] = await Promise.all([noticesOf(supabase, vault.id), acceptedMembers(supabase, vault.id)]);
-  const s = holdState(notices, members, clearQuorum(vault));
+  const s = holdState(await noticesOf(supabase, vault.id), circleKeys(vault), clearQuorum(vault));
   return { held: !!vault.duress, circle_hold: s.open, clears: s.clears, needed: s.needed, owner_cleared: s.ownerCleared, raised_at: s.raisedAt ?? null };
 }
 
@@ -102,8 +101,9 @@ export async function handler(event) {
     if (problem) return withCors(event, json(400, { error: `Notice refused: ${problem}.` }));
     const vault = await vaultBy(supabase, "descriptor", n.descriptor);
     if (!vault) return withCors(event, json(404, { error: "Vault not found" }));
-    const members = await acceptedMembers(supabase, vault.id);
-    if (!members.includes(n.pubkey.toLowerCase())) return withCors(event, json(403, { error: "That key is not an accepted member of this vault." }));
+    // Only a checker on the vault's own wellness path (circleKeys), never a
+    // key the membership list -- which the owner writes -- says is one.
+    if (!circleKeys(vault).includes(n.pubkey.toLowerCase())) return withCors(event, json(403, { error: "That key is not one of this vault's wellness checkers." }));
     const { error } = await supabase.from("vault_duress_notices").insert({
       vault_id: vault.id, kind: n.kind, signer_pubkey: n.pubkey.toLowerCase(), sig: n.sig.toLowerCase(), signed_at: n.signed_at,
     });

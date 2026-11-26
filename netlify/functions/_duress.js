@@ -46,7 +46,8 @@ export function clearQuorum(vault) {
 
 /**
  * Where a vault's circle hold stands, from its notices (oldest first).
- * `members`: x-only keys allowed to clear (accepted grants). A hold is open
+ * `members`: x-only keys allowed to clear (circleKeys: the vault's own
+ * wellness checkers). A hold is open
  * from the latest 'raise' until, after it, the owner has asked to clear AND
  * `quorum` distinct members have each signed a clear.
  */
@@ -61,12 +62,33 @@ export function holdState(notices, members, quorum) {
   return { open: !(ownerCleared && clears >= quorum), clears, needed: quorum, ownerCleared, raisedAt: new Date(since).toISOString() };
 }
 
-/** Accepted Tapit members of a vault (x-only, lower case). */
-export async function acceptedMembers(supabase, vaultId) {
-  const { data, error } = await supabase
-    .from("vault_membership_grants").select("recipient_pubkey").eq("vault_id", vaultId).eq("status", "accepted");
-  if (error) throw new Error(error.message);
-  return [...new Set((data ?? []).map((g) => String(g.recipient_pubkey).toLowerCase()))];
+/**
+ * The circle: the checkers of the vault's wellness path(s), as x-only keys,
+ * each one present in the vault's compiled descriptor.
+ *
+ * Blind review 2026-11-25, finding 2 (docs/audits/2026-11-25-blind-review-
+ * new-code.md): this used to be "accepted membership grants". Those rows
+ * are created, and marked accepted, by the OWNER -- the one person who may
+ * be under duress -- so an owner could add grants for keys of their own,
+ * sign the clears, and lift a hold the circle raised; or decline a real
+ * checker's grant so that checker's raise was refused. The circle now comes
+ * from the vault itself: `leaves` can't change after compile (vaults.js),
+ * and each key must also appear in the descriptor the notice signs over.
+ * The wellness path's must-sign keys (the owner's) are never checkers.
+ */
+export function circleKeys(vault) {
+  const desc = String(vault?.descriptor ?? "").toLowerCase();
+  const xonly = (k) => String(k ?? "").toLowerCase().slice(-64);
+  const out = new Set();
+  for (const leaf of Array.isArray(vault?.leaves) ? vault.leaves : []) {
+    if (!leaf?.wellness) continue;
+    const owners = new Set((leaf.required_keys ?? []).map(xonly));
+    for (const k of leaf.keys ?? []) {
+      const x = xonly(k);
+      if (/^[0-9a-f]{64}$/.test(x) && !owners.has(x) && desc.includes(x)) out.add(x);
+    }
+  }
+  return [...out];
 }
 
 /** A vault's notices, oldest first. */
@@ -79,6 +101,5 @@ export async function noticesOf(supabase, vaultId) {
 
 /** Is a circle hold open on this vault right now? */
 export async function circleHoldOpen(supabase, vault) {
-  const [notices, members] = await Promise.all([noticesOf(supabase, vault.id), acceptedMembers(supabase, vault.id)]);
-  return holdState(notices, members, clearQuorum(vault)).open;
+  return holdState(await noticesOf(supabase, vault.id), circleKeys(vault), clearQuorum(vault)).open;
 }
