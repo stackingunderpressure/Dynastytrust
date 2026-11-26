@@ -40,3 +40,17 @@ The reviewer traced each of these and found them sound:
 
 Each fix is shipped one at a time. Each gets a test that fails first, the
 gates, and the operator's word (decision 3 in the re-audit note).
+
+## Fixes shipped (each with a test that failed first, gates green, operator's word)
+
+| # | Fix | Commit (release) |
+|---|---|---|
+| 1 | `_duress-guard.js` on signer-sessions, psbt-binary, psbt-merge, proposals; request page refuses and shows the hold | 33978ef (e2f668a) |
+| 2 | `circleKeys(vault)`: the circle comes from the compiled wellness path, not the owner-written member list | 31ba408 (714f51e) |
+| 3 | `_change-check.js`: change only to a recorded change address; devices refuse change past 1,000 | 004b644 (d707b49) |
+| 4 | Only the owner reserves a new receive address (operator's chip) | 93a5315 (1ae06f8) |
+| 5 | Tapit: when the hold can't be checked, ask first ("I called the owner and they are safe") | Tapit bc342fc |
+
+Still open, logged: 6 (psbt-merge same-transaction check), 7 (Send overcount
+on named-field fresh-address vaults), 8 (IPv6-mapped Electrum blocklist), 9
+(design note).
