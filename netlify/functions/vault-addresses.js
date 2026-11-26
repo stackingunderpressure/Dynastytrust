@@ -136,6 +136,17 @@ export async function handler(event) {
     });
   }
 
+  // Only the owner reserves a NEW address (operator's chip, 2026-11-25;
+  // blind review finding 4). The 20-unpaid limit is judged by the caller's
+  // own server when they have one, so a member with a server that says every
+  // address is paid could otherwise push the counter far past what a
+  // restoring wallet scans. A lying server now fools only its own owner.
+  if (vault.user_id !== u.userId) {
+    return json(403, { error: mode === "new"
+      ? "Only the vault's owner can get a different address. Use the one shown, or ask the owner."
+      : "Every address this vault has given out has been paid. Only the vault's owner can get a new one -- ask them for the next address." });
+  }
+
   // 4-5. Reserve, derive, record. Receive address 0 IS the vault's own
   // address (shown when it was made, and for its first deposit), so it is
   // never handed out as new: when the reservation lands on 0, that address

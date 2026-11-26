@@ -31,6 +31,7 @@ export function NewReceiveAddress({ vault }: { vault: Vault }) {
   const [listOpen, setListOpen] = useState(false);
   const [listErr, setListErr] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const isOwner = (vault as Vault & { my_role?: string }).my_role === 'owner';
 
   const loadList = useCallback(async () => {
     setListErr(null);
@@ -103,7 +104,7 @@ export function NewReceiveAddress({ vault }: { vault: Vault }) {
       )}
       {shown && (
         <button type="button" onClick={() => setMoreOpen(v => !v)} style={linkStyle}>
-          {moreOpen ? 'Hide note and other addresses' : 'Add a note, or get a different address'}
+          {moreOpen ? 'Hide' : isOwner ? 'Add a note, or get a different address' : 'Add a note for who it is for'}
         </button>
       )}
       {shown && moreOpen && (
@@ -115,14 +116,17 @@ export function NewReceiveAddress({ vault }: { vault: Vault }) {
           <Button variant="ghost" size="sm" style={{ fontSize: 16, minHeight: 44 }} disabled={busy || !label.trim()} onClick={() => void get('current')}>
             Save the note on this address
           </Button>
+          {/* Only the owner can take a new address (blind review finding 4). */}
+          {isOwner && (
           <Button variant="ghost" size="sm" style={{ fontSize: 16, minHeight: 44 }} disabled={busy} onClick={() => void get('new')}>
             I need a different one
           </Button>
-          <div style={note}>
+          )}
+          {isOwner && <div style={note}>
             A different one is only for when two people are paying you at the same time. Each unpaid address you take adds
             to a row that wallets restoring this vault have to look past; after 20 in a row they stop, so this vault will
             not give out more than that.
-          </div>
+          </div>}
         </div>
       )}
       <button

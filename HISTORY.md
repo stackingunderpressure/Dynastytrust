@@ -5084,3 +5084,19 @@ happens to pay one of the vault's own far change addresses would read as the
 destination -- co-signers see that address as where the money goes.
 Gates: npm test exit 0, lint 0 errors / 9 warnings, build ok, typecheck the
 same 10 pre-existing errors.
+
+## 2026-11-26 -- a member's own server could push the address counter past the gap limit (blind review finding 4)
+
+The 20-unpaid refusal in vault-addresses.js judged "paid" with the caller's
+own Electrum server when they had one (the operator's own-server rule), and
+any active member -- view-only included -- could reserve addresses. A member
+whose server said every address was paid could take new addresses without
+limit; later the owner's "Receive" handed out ones far past what a
+restoring wallet scans. Operator's chip: owner only takes new. Fix: a
+non-owner gets the current unpaid address (or address 0), never a new
+reservation (403, nothing reserved), in either mode. The Receive panel
+hides "I need a different one" for non-owners. A lying server now fools
+only its own owner. Test first: test-vault-addresses case 2 failed before
+(a member reserved address 2), passes after (12 cases).
+Gates: npm test exit 0, lint 0 errors / 9 warnings, build ok, typecheck the
+same 10 pre-existing errors.

@@ -112,8 +112,23 @@ assert.equal(prog(r.body.address), prog(shape.receive[3]));
 pass("and it is Bitcoin Core's receive/3 for this vault");
 
 // 2. A member may ask; a stranger may not; nobody signed out.
-reset(V2); state.user = MEMBER;
-assert.equal((await call({ vault_id: V2.id })).statusCode, 200);
+// Blind review 2026-11-25 finding 4: only the OWNER may take a brand-new
+// address -- a member's own (possibly lying) server must not be able to say
+// every address is paid and push the counter past what a restoring wallet
+// scans. A member gets the current unpaid one, or is told to ask the owner.
+reset(V2);
+assert.equal((await call({ vault_id: V2.id })).statusCode, 200); // the owner takes address 1
+const ownersOne = state.inserted.at(-1).address;
+state.user = MEMBER;
+r = await call({ vault_id: V2.id });
+assert.equal(r.statusCode, 200, JSON.stringify(r.body)); assert.equal(r.body.address, ownersOne); assert.equal(r.body.reused, true);
+const reservedBefore = state.reserved;
+r = await call({ vault_id: V2.id, mode: 'new' });
+assert.equal(r.statusCode, 403, JSON.stringify(r.body)); assert.match(r.body.error, /owner/); assert.equal(state.reserved, reservedBefore);
+state.used.add(ownersOne); // the member's server says it was paid
+r = await call({ vault_id: V2.id });
+assert.equal(r.statusCode, 403, JSON.stringify(r.body)); assert.equal(state.reserved, reservedBefore);
+pass("a member gets the current unpaid address but can never reserve a new one, however their server answers; only the owner can");
 reset(V2); state.user = STRANGER;
 r = await call({ vault_id: V2.id });
 assert.equal(r.statusCode, 403); assert.equal(state.reserved, 0);
