@@ -3,7 +3,7 @@ import { api, type Vault, type DistributionWallet, type DistributionTranche } fr
 import { supabase } from "../../lib/supabase";
 import { explorerTxUrl } from "../../config";
 import { useToast } from "../../components/toast";
-import { colors, fonts } from "../../theme";
+import { colors, fonts, } from "../../theme";
 import { Button } from "../../components/ui";
 import { useRealtimeRefresh } from "../../lib/realtime";
 import { downloadDistributionWalletBackup } from "../../lib/descriptor-backup";

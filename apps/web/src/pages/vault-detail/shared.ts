@@ -1,6 +1,8 @@
-import { type StipendInterval } from "../../lib/api";
+import { api, type Vault, type StipendInterval } from "../../lib/api";
 import { colors } from "../../theme";
 import { sha256 } from "@noble/hashes/sha256";
+import { tipHeight } from "../../lib/chain";
+import { buildStandardTrustDoc, standardConfigFromCompiledVault } from "../../lib/trust-doc";
 
 function toHexBytes(bytes: Uint8Array): string {
   return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
@@ -75,4 +77,26 @@ export function roleLabel(role: string): string {
 
 export function isTrusteeRole(role: string): boolean {
   return role === "owner" || role === "founder";
+}
+
+// Best-effort trust-doc auto-fill for a draft compiled from VaultDetail
+// itself (DraftReadinessCard / DraftCompileButton below) -- members
+// brought their own keys via invite, so this never passes through
+// VaultWizard.tsx's own runCompile, which has the identical hook for the
+// wizard's own compile path (lib/trust-doc.ts's buildStandardTrustDoc
+// generates the same content either way). Never overwrites a doc the
+// owner already started writing before compiling; a failed save never
+// blocks navigating to the now-successfully-compiled vault.
+export function autofillTrustDocIfEmpty(preCompile: Vault, compiled: Vault) {
+  const d = preCompile.trust_doc;
+  const alreadyHasContent =
+    !!d && (!!d.purpose || !!d.distribution_rules || !!d.succession_notes || !!(d.beneficiaries ?? []).length);
+  if (alreadyHasContent) return;
+  tipHeight(compiled.network)
+    .catch(() => null)
+    .then(tip => api.vaults.updateTrustDoc(
+      compiled.id,
+      buildStandardTrustDoc({ vaultName: compiled.name, config: standardConfigFromCompiledVault(compiled, tip) }),
+    ))
+    .catch(() => {});
 }

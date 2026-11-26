@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { api, type Vault, type BalanceResult } from "../../lib/api";
 import { explorerTxUrl } from "../../config";
 import { useToast } from "../../components/toast";
-import { colors, fonts, radii } from "../../theme";
+import { colors, fonts, radii, } from "../../theme";
 import { Button } from "../../components/ui";
 import { coinUnlocks, vaultPaths, waitWords } from "../../lib/coin-unlock";
 import { SendPrefill } from "./SendTab";

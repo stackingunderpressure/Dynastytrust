@@ -4,7 +4,7 @@ import { api, type Vault, type Proposal } from "../../lib/api";
 import { explorerTxUrl } from "../../config";
 import { useToast } from "../../components/toast";
 import { useConfirm } from "../../components/dialog";
-import { colors, fonts } from "../../theme";
+import { colors, fonts, } from "../../theme";
 import { Button } from "../../components/ui";
 import { txConfirmations } from "../../lib/chain";
 import { satsToBtc, statusColor } from "./shared";

@@ -8,7 +8,7 @@ import { evaluateSigningGate, ceremonyFromProposal } from "@dynastytrust/policy-
 import { broadcastTxUrl, explorerTxUrl } from "../../config";
 import { useToast } from "../../components/toast";
 import { useConfirm, usePrompt } from "../../components/dialog";
-import { colors, fonts, radii } from "../../theme";
+import { colors, fonts, radii, } from "../../theme";
 import { Button, Input, Label } from "../../components/ui";
 import { PsbtQrDisplay } from "../../components/PsbtQrDisplay";
 import { PsbtQrScanner } from "../../components/PsbtQrScanner";
