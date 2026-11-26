@@ -5139,3 +5139,12 @@ Broadcast is missing once signed, or the page throws. First run: OK, 7 taps.
 Proven to catch a regression: with the 2026-11-25 Send-count bug put back by
 hand, it failed on "1 / 1" and "Broadcast transaction" not visible; restored.
 Not part of `npm test` (it starts a dev server and a browser).
+
+## 2026-11-26 -- the vault page split into one file per part
+
+`VaultDetail.tsx` 9,147 -> 671 lines; 24 files under `pages/vault-detail/`,
+all under 800 lines except `SendTab.tsx` (1,527, one function). Seven pure-
+move slices (docs/vault-page-split-build-note.md), each checked: npm test
+exit 0, typecheck the same 10 pre-existing errors, lint 0 errors / 9
+warnings, build ok, walk:screens OK. The production bundle before and after
+has the same JS files at the same byte sizes.

@@ -113,3 +113,33 @@ Not in this plan, and for the operator to decide after it: three more files
 are over the 800-line limit. These are `VaultWizard.tsx` (2,916),
 `KeyManager.tsx` (1,489) and `ProposalDetail.tsx` (1,475). They would get
 the same treatment later.
+
+## Built (2026-11-26): all seven slices
+
+Each slice was applied by a tool (`split.py`, kept with the session's
+scratch files). It copies every top-level block byte for byte and asserts
+it, so the only edits are an added `export` and the relative path of one
+dynamic `import("../lib/supabase")`, one folder deeper. Imports were worked
+out per file, and unused ones were pruned by the linter. After every slice:
+npm test exit 0; typecheck the same 10 pre-existing errors (some now
+reported from the moved files); lint 0 errors / 9 warnings; build ok;
+`walk:screens` OK, 7 taps. Commits: d0cd9a7, 2cdd226, 1e32662, 7681f39,
+5c32797, 95136a1, f7b731e.
+
+Bundle check: the production build before the split (`d0cd9a7~1`) and after
+it have the same JS files at the same byte sizes. For example, `index` is
+1,484,471 bytes in both, and `PDFButton` is 428,567 in both. Only the hash
+names differ.
+
+Result: `VaultDetail.tsx` went from 9,147 lines to 671. There are 24 files
+in `pages/vault-detail/`, and all but one are under 800 lines. The
+exception is `SendTab.tsx`, at 1,527 lines. It is one function, so cutting
+it smaller means splitting inside a function. That is not a pure move, so
+it is left for its own Build Note.
+
+Two small plan changes made while building:
+- `autofillTrustDocIfEmpty` went to `shared.ts` in slice 4 instead of
+  `TrustDoc.tsx`, because the draft card uses it.
+- The leaf helpers went to `leaves.ts`, separate from the components in
+  `VaultLeaves.tsx`. That keeps the hot-reload lint warnings at the same
+  count.
