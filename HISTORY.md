@@ -5148,3 +5148,4 @@ move slices (docs/vault-page-split-build-note.md), each checked: npm test
 exit 0, typecheck the same 10 pre-existing errors, lint 0 errors / 9
 warnings, build ok, walk:screens OK. The production bundle before and after
 has the same JS files at the same byte sizes.
+Operator walked it live on his phone (2026-11-26, release c25da34): "Walked it, all looks the same."
