@@ -41,6 +41,30 @@ function sameUnsignedTx(a, b) {
 }
 
 /**
+ * May a merged PSBT stand for this proposal? Same unsigned transaction, and
+ * every input's coin (witnessUtxo amount and script) and leaves exactly as
+ * the stored proposal has them -- so the signers counted from it are counted
+ * against the proposal's own coins (blind review 2026-11-25, finding 6).
+ * A reason string, or null when it matches.
+ */
+export function mergeMatchesProposal(mergedHex, proposalPsbtHex) {
+  let m, base;
+  try { m = parsePsbt(mergedHex); } catch { return "the merged PSBT is unreadable"; }
+  try { base = parsePsbt(proposalPsbtHex); } catch { return "this proposal's stored PSBT is unreadable"; }
+  if (!sameUnsignedTx(base, m)) return "this PSBT is for a different transaction than the proposal";
+  for (let i = 0; i < base.inputs.length; i++) {
+    const a = base.inputs[i].witnessUtxo, b = m.inputs[i].witnessUtxo;
+    if (!a || !b || a.amount !== b.amount || toHex(a.scriptPubkey) !== toHex(b.scriptPubkey)) {
+      return `input ${i + 1}'s coin does not match the proposal`;
+    }
+    const la = (base.inputs[i].tapLeafScript ?? []).map((l) => toHex(l.script)).sort().join(",");
+    const lb = (m.inputs[i].tapLeafScript ?? []).map((l) => toHex(l.script)).sort().join(",");
+    if (la !== lb) return `input ${i + 1}'s spending path does not match the proposal`;
+  }
+  return null;
+}
+
+/**
  * The public keys (x-only hex) that have a REAL signature on EVERY input
  * of this PSBT -- each one verified against a leaf the coin commits to.
  * A key that signed one input of two has not signed the spend. This is

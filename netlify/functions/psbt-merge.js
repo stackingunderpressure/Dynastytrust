@@ -21,7 +21,7 @@ import { canMutate, isTerminalProposalStatus } from './_authz.js';
 import { getSupabaseAdmin } from './_supabase.js';
 import { refuseIfHeld } from './_duress-guard.js';
 import { findSpendingPath, pathSignatureStatus } from './_vault-shape.js';
-import { signersOnEveryInput } from './_psbt-verify.js';
+import { signersOnEveryInput, mergeMatchesProposal } from './_psbt-verify.js';
 
 
 export async function handler(event) {
@@ -68,14 +68,16 @@ export async function handler(event) {
   let requiredQuorum = vault.founder_quorum;
   let resolvedPath = null;
   let proposalStatus;
+  let proposalPsbtHex = null;
   if (proposal_id) {
     const { data: proposalForQuorum } = await supabase
       .from('proposals')
-      .select('path, status')
+      .select('path, status, psbt_hex')
       .eq('id', proposal_id)
       .eq('vault_id', vault_id)
       .maybeSingle();
     proposalStatus = proposalForQuorum ? proposalForQuorum.status : null;
+    proposalPsbtHex = proposalForQuorum?.psbt_hex ?? null;
     if (proposalForQuorum?.path) {
       const resolved = findSpendingPath(vault, proposalForQuorum.path);
       if (resolved) { requiredQuorum = resolved.quorum; resolvedPath = resolved; }
@@ -126,6 +128,13 @@ export async function handler(event) {
     // The count said "fully signed" for two phones on a path that needs
     // the hardware wallet, and for one signer across two inputs. The
     // count is kept only for a path that cannot be resolved.
+    // Only the proposal's own transaction, with its own coins, may set its
+    // status (blind review 2026-11-25, finding 6).
+    if (proposal_id) {
+      if (!proposalPsbtHex) return json(409, { error: 'This proposal has no transaction on file to merge signatures into.' });
+      const mismatch = mergeMatchesProposal(data.psbt_hex, proposalPsbtHex);
+      if (mismatch) return json(400, { error: `Merge refused: ${mismatch}.` });
+    }
     const status = resolvedPath ? pathSignatureStatus(resolvedPath, signersOnEveryInput(data.psbt_hex, vault.descriptor_version === 2 ? vault.descriptor_multipath : null)) : null;
     const isFullySigned = status ? status.satisfied : data.signature_count >= requiredQuorum;
     if (proposal_id) {
