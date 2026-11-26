@@ -122,3 +122,14 @@ the right thing? Test it."
 1. Download a pinned, checksum-checked Bitcoin Core into the scratchpad.
 2. The blind review covers only the five new areas.
 3. Fix confirmed money-touching findings one at a time, each held for his word.
+
+## Status (2026-11-26)
+
+1. Bitcoin Core referee: done. Both proofs repaired and extended, 14 + 14
+   checks, including the mixed Tapit + xpub vault.
+2. Hostile-input tests: folded into the blind-review fixes, each of which
+   has a test that failed first.
+3. Blind review: done. 8 findings fixed and live, 1 recorded as design
+   (`docs/audits/2026-11-25-blind-review-new-code.md`).
+4. Screen walk kept: `npm run walk:screens`.
+5. Audit package: `docs/audits/2026-12-package.md`.
