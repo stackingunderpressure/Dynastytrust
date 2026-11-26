@@ -12,6 +12,7 @@ import { recordEvent } from './_ledger.js';
 import { canMutate } from './_authz.js';
 import { getSupabaseAdmin } from './_supabase.js';
 import { refuseIfHeld } from './_duress-guard.js';
+import { changeProblem } from './_change-check.js';
 import { fetchTipHeight, MEMPOOL, mempoolFetch } from './_chain.js';
 import { checkNumberBounds, MIN_FEE_RATE_SAT_VB, MAX_FEE_RATE_SAT_VB } from './_numeric.js';
 import { isLeafListVault } from './_vault-shape.js';
@@ -183,6 +184,10 @@ export async function handler(event) {
     // Duress hold: nothing moves forward while it stands (_duress-guard.js).
     const heldP = await refuseIfHeld(supabase, vault_id);
     if (heldP) return heldP;
+    // Fresh-address vault: change only to a change address it handed out
+    // (_change-check.js, blind review finding 3).
+    const changeP = await changeProblem(supabase, vault, psbt_hex);
+    if (changeP) return json(400, { error: changeP });
 
     // A proposal may only point at a distribution wallet of its own vault.
     if (distribution_wallet_id) {
@@ -266,6 +271,11 @@ export async function handler(event) {
     if (updates.psbt_hex !== undefined || updates.psbt_b64 !== undefined || updates.psbt_signed_hex !== undefined) {
       const heldU = await refuseIfHeld(supabase, existing.vault_id);
       if (heldU) return heldU;
+    }
+    if (updates.psbt_hex !== undefined) {
+      const { data: vaultU } = await supabase.from('vaults').select('id, descriptor_version').eq('id', existing.vault_id).maybeSingle();
+      const changeU = await changeProblem(supabase, vaultU, updates.psbt_hex);
+      if (changeU) return json(400, { error: changeU });
     }
 
     // Once a proposal is broadcast/cancelled/fulfilled it's the

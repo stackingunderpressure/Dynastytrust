@@ -5064,3 +5064,23 @@ checkers in the circle, the owner out. Not changed: Tapit still learns its
 fellow checkers from the membership request; that list is display-only now.
 Gates: npm test exit 0, lint 0 errors / 9 warnings, build ok, typecheck the
 same 10 pre-existing errors.
+
+## 2026-11-25 -- change could go to a far-off change address (blind review finding 3)
+
+On a fresh-address vault, `checkFreshSpendAddresses` accepted change at any
+change index the descriptor derives, and proposals.js stored whatever PSBT a
+member supplied. A member could file a spend whose change sat at change/
+1000000: browser and hardware co-signers' checks passed it, the app watches
+only a few past its counter, and a restoring wallet (gap limit 20) would
+never find the money. Tapit was already bounded (200 change scripts).
+Operator's chip: recorded addresses only. Fix: `_change-check.js`
+`changeProblem` -- every output claiming a branch-1 derivation must match,
+script for script, a change row in vault_addresses (only _ranged-spend.js
+writes them, after deriving); called by proposals POST and by PATCH when
+psbt_hex changes. Backstop on signing devices: `CHANGE_INDEX_LIMIT` 1000 in
+fresh-addresses.ts. Test first: test-change-recorded.mjs failed before (no
+check), passes after (5 cases). Left as is: an output with no derivation that
+happens to pay one of the vault's own far change addresses would read as the
+destination -- co-signers see that address as where the money goes.
+Gates: npm test exit 0, lint 0 errors / 9 warnings, build ok, typecheck the
+same 10 pre-existing errors.

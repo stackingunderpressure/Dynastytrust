@@ -9,6 +9,10 @@ export function isFreshAddressVault(v: Pick<Vault, 'descriptor_version'>): boole
   return v.descriptor_version === 2;
 }
 
+/** Change past this many change addresses is refused on the signing
+ *  device (the server refuses any change address it never handed out). */
+export const CHANGE_INDEX_LIMIT = 1000;
+
 type FreshVault = Pick<Vault, 'address' | 'network' | 'descriptor_multipath' | 'descriptor_receive' | 'descriptor_change'>;
 type Derive = (branch: 0 | 1, index: number) => Promise<{ address: string; script_pubkey: string }>;
 
@@ -70,6 +74,9 @@ export async function checkFreshSpendAddresses(
     if (p.tx.outputs.length === 2) {
       const where = placeOf(p.outputMaps?.[1]?.tapBip32Derivation);
       if (!where || where === 'mixed' || where.branch !== 1) return { ok: false, reason: "The PSBT's change output does not say which of this vault's change addresses it is" };
+      // Backstop for blind review finding 3 (2026-11-25): change far past
+      // anything handed out would be lost to a restoring wallet.
+      if (where.index >= CHANGE_INDEX_LIMIT) return { ok: false, reason: `The change goes to change address ${where.index.toLocaleString('en-US')}, past the first 1,000. A wallet restoring this vault would not find it, so this device will not sign it.` };
       const own = await derive(1, where.index);
       if (toHex(p.tx.outputs[1].scriptPubkey) !== own.script_pubkey) return { ok: false, reason: "The PSBT's change output does not return to this vault" };
     }
