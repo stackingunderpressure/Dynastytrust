@@ -71,7 +71,7 @@ const build = async (amount) => {
   assert.equal(r.statusCode, 200, JSON.stringify(r.body));
   return r.body;
 };
-// As the Send page checks it (VaultDetail.tsx SendTab).
+// As the Send page checks it (pages/vault-detail/SendTab.tsx).
 const phoneCheck = (res) => verifyPsbtMatchesRequest(res.psbt_hex, {
   destination: DEST, amountSats: res.summary.amount_sats, network: 'testnet', ownAddress: vault.address,
   feeSats: res.summary.fee_sats, changeSats: res.summary.change_sats,
