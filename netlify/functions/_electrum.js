@@ -86,12 +86,44 @@ export function isBlockedIp(ip) {
       (a === 192 && b === 0) || (a === 198 && (b === 18 || b === 19));
   }
   if (net.isIPv6(ip)) {
-    const v = ip.toLowerCase();
-    const mapped = v.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-    if (mapped) return isBlockedIp(mapped[1]);
-    return v === "::" || v === "::1" || /^f[cd]/.test(v) || /^fe[89ab]/.test(v) || /^ff/.test(v) || /^64:ff9b:/.test(v) || /^2001:db8:/.test(v);
+    // Read the 16 bytes, not the spelling (blind review 2026-11-25, finding
+    // 8): "::ffff:7f00:1", "0:0:0:0:0:ffff:7f00:1" and "::127.0.0.1" are all
+    // this machine, and text patterns let them through.
+    const b = ipv6Bytes(ip);
+    if (!b) return true;
+    const zero = (from, to) => b.slice(from, to).every((x) => x === 0);
+    const v4 = () => b.slice(12).join(".");
+    if (zero(0, 10) && b[10] === 0xff && b[11] === 0xff) return isBlockedIp(v4()); // ::ffff:a.b.c.d
+    if (zero(0, 12)) return true; // ::, ::1, and the old ::a.b.c.d form -- never a public server
+    if (b[0] === 0x00 && b[1] === 0x64 && b[2] === 0xff && b[3] === 0x9b && zero(4, 12)) return isBlockedIp(v4()); // NAT64 64:ff9b::/96
+    if ((b[0] & 0xfe) === 0xfc) return true; // fc00::/7 unique local
+    if (b[0] === 0xfe && (b[1] & 0xc0) === 0x80) return true; // fe80::/10 link local
+    if (b[0] === 0xff) return true; // multicast
+    if (b[0] === 0x20 && b[1] === 0x01 && b[2] === 0x0d && b[3] === 0xb8) return true; // 2001:db8::/32 documentation
+    if (b[0] === 0x20 && b[1] === 0x02) return isBlockedIp(b.slice(2, 6).join(".")); // 6to4 carries an IPv4
+    return false;
   }
   return true;
+}
+
+/** An IPv6 address as 16 bytes, or null if it can't be read. */
+function ipv6Bytes(ip) {
+  let s = ip.toLowerCase().split("%")[0];
+  const dotted = s.match(/(\d+\.\d+\.\d+\.\d+)$/);
+  if (dotted) {
+    const q = dotted[1].split(".").map(Number);
+    if (q.some((x) => !(x >= 0 && x <= 255))) return null;
+    s = s.slice(0, -dotted[1].length) + ((q[0] << 8) | q[1]).toString(16) + ":" + ((q[2] << 8) | q[3]).toString(16);
+  }
+  const halves = s.split("::");
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(":") : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(":") : [];
+  const fill = halves.length === 2 ? 8 - head.length - tail.length : 0;
+  if (fill < 0 || (halves.length === 1 && head.length !== 8)) return null;
+  const groups = [...head, ...Array(fill).fill("0"), ...tail];
+  if (groups.length !== 8 || groups.some((g) => !/^[0-9a-f]{1,4}$/.test(g))) return null;
+  return groups.flatMap((g) => { const n = parseInt(g, 16); return [n >> 8, n & 0xff]; });
 }
 
 /** Resolve a user's server to ONE public address, or throw. */

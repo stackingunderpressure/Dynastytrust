@@ -51,6 +51,12 @@ await t("private, local and metadata addresses are refused; public ones pass", (
     assert.equal(isBlockedIp(ip), true, ip);
   }
   for (const ip of ["1.1.1.1", "95.216.10.1", "2606:4700::1111"]) assert.equal(isBlockedIp(ip), false, ip);
+  // Blind review 2026-11-25, finding 8: IPv4 inside IPv6 written in hex, or
+  // spelled out in full, slipped past the list.
+  for (const ip of ["::ffff:7f00:1", "::ffff:a9fe:a9fe", "0:0:0:0:0:ffff:7f00:1", "::127.0.0.1", "::ffff:0a00:0001", "64:ff9b::a9fe:a9fe", "0:0:0:0:0:0:0:1", "FE80::1"]) {
+    assert.equal(isBlockedIp(ip), true, ip);
+  }
+  for (const ip of ["::ffff:808:808", "64:ff9b::808:808"]) assert.equal(isBlockedIp(ip), false, ip);
 });
 
 await t("a name that resolves to ANY private address is refused", async () => {
