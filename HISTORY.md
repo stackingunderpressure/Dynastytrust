@@ -5127,3 +5127,15 @@ the 16 bytes. 9: design note (wellness checkers confirm the person, not the
 payment), recorded in docs/audits, no code change. Tests first: merge-same-
 tx 4, ranged-sign 8, electrum 16. Gates: npm test exit 0, lint 0 errors / 9
 warnings, build ok, typecheck the same 10 pre-existing errors.
+
+## 2026-11-26 -- the screen walk is kept (in-house re-audit step 4)
+
+`npm run walk:screens` (scripts/screen-walk/): the real web app at 375 x 812
+in a real browser, against a faked server and a vault built by our own
+compiler from public test seeds. It taps Receive, Copy, Send, Review & sign,
+signing on the Send screen, More, and signing on the request page, and FAILS
+if a result is not fully on screen, the count after signing is wrong,
+Broadcast is missing once signed, or the page throws. First run: OK, 7 taps.
+Proven to catch a regression: with the 2026-11-25 Send-count bug put back by
+hand, it failed on "1 / 1" and "Broadcast transaction" not visible; restored.
+Not part of `npm test` (it starts a dev server and a browser).

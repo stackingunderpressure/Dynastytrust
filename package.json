@@ -17,6 +17,7 @@
     "test:harness": "bash scripts/offline-harness.sh",
     "verify:live": "node scripts/verify-live-bundle.mjs",
     "test:ledger-db": "bash scripts/test-ledger-db.sh",
-    "test:no-client-writes-db": "bash scripts/test-no-client-writes-db.sh"
+    "test:no-client-writes-db": "bash scripts/test-no-client-writes-db.sh",
+    "walk:screens": "node scripts/screen-walk/walk.cjs"
   }
 }
