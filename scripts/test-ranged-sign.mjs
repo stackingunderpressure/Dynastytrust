@@ -141,4 +141,19 @@ const r6 = await checkFreshSpendAddresses({ ...V, address: oc.address }, built.p
 assert.equal(r6.ok, false); assert.match(r6.reason, /does not start at its own address/);
 pass("another vault's coins are refused; so is a vault whose address list does not start at its own address");
 
+// Blind review 2026-11-25, finding 7: the Send screen counted signatures
+// by adding them up across inputs for any vault it could not read by name,
+// so ONE signer on a two-coin spend looked like two -- a 2-of-3 shown as met.
+// Now: how many keys signed EVERY input.
+{
+  const { signaturesTowardPath } = await import(L('send-signatures.ts'));
+  const named = { ...V, leaves: undefined }; // a vault shape the path list can't read by name
+  assert.equal(signaturesTowardPath(named, 'founders_now', s1.psbt_hex), 1);
+  const { countSignatures } = await import(L('psbt-signer.ts'));
+  assert.equal(countSignatures(s1.psbt_hex), 2, 'the old count (what the screen used) added one signer up twice');
+  assert.equal(signaturesTowardPath(named, 'founders_now', mergePsbts([built.psbt_hex, s1.psbt_hex, s2.psbt_hex])), 2);
+  assert.equal(signaturesTowardPath({ ...V, leaves }, 'everyday', s1.psbt_hex), 1);
+  pass('one signer on a two-coin spend counts as one on the Send screen, whatever the vault shape');
+}
+
 console.log(`ranged-sign tests passed (${n} cases)`);

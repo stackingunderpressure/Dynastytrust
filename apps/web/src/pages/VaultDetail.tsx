@@ -23,7 +23,7 @@ import {
 import { supabase } from "../lib/supabase";
 import { keyNeedsPassword, listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
 import { keyNetworkMatches } from "../lib/network";
-import { signPsbtWithMnemonic, countSignatures, mergePsbts, verifyPsbtMatchesRequest, signersOnEveryInput } from "../lib/psbt-signer";
+import { signPsbtWithMnemonic, countSignatures, mergePsbts, verifyPsbtMatchesRequest } from "../lib/psbt-signer";
 import { whoSignsShort, mustSignMeaning } from "../lib/path-words";
 import { fetchTapitDisplayNames } from "../lib/tapit-profile-lookup";
 import { assembleLivenessGateInput } from "../lib/liveness-gate";
@@ -48,7 +48,8 @@ import { coinUnlocks, vaultPaths, waitWords } from "../lib/coin-unlock";
 import { RotatePathVault } from "../components/RotatePathVault";
 import { PathDraftCard } from "../components/PathDraftCard";
 import { pubkeyFromXpub, fingerprintFromXpub } from "../lib/xpub";
-import { isLeafListVault, findSpendingPath, pathSignatureStatus, signaturesNeeded } from "../lib/vault-spending-paths";
+import { isLeafListVault, findSpendingPath, signaturesNeeded } from "../lib/vault-spending-paths";
+import { signaturesTowardPath as sendSignaturesToward } from "../lib/send-signatures";
 import { buildPsbtKeyOrigins } from "../lib/descriptor-keys";
 import { sha256 } from "@noble/hashes/sha256";
 import { blocDecayLadder } from "../lib/blocks";
@@ -1622,25 +1623,9 @@ function SendTab({ vault, balance, onDone, prefill, onPickCoins }: {
     return prefill?.path && available[prefill.path] ? prefill.path : "founders_now";
   });
 
-  // How far a signed PSBT has got toward THIS path's rule. On a
-  // path-builder vault that is decided by who signed (a must-sign key
-  // counts once and nothing stands in for it; the others count only up to
-  // their quorum), so it reaches the required number exactly when the
-  // spend can really be finished. Other vault shapes keep the plain count.
-  function signaturesTowardPath(psbtHex: string): number {
-    if (isLeafList) {
-      const summary = findSpendingPath(vault, standardPath);
-      // A fresh-address vault's xpub keys sign with a child key per address;
-      // the multipath descriptor maps each back to its vault key (the same
-      // rule ProposalDetail and the server use). Without it the count here
-      // stayed at 0 after a browser key signed (caught walking the screens,
-      // 2026-11-25).
-      const multipath = vault.descriptor_version === 2 ? vault.descriptor_multipath ?? null : null;
-      const st = summary ? pathSignatureStatus(summary, signersOnEveryInput(psbtHex, multipath)) : null;
-      if (st?.byName) return st.have;
-    }
-    return countSignatures(psbtHex);
-  }
+  // How far a signed PSBT has got toward THIS path's rule
+  // (lib/send-signatures.ts).
+  const signaturesTowardPath = (psbtHex: string) => sendSignaturesToward(vault, standardPath, psbtHex);
 
   const confirmedSats = balance?.confirmed_sats ?? 0;
   const amountSats = Math.round(parseFloat(amountBtc || "0") * 1e8);
