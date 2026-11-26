@@ -87,3 +87,29 @@ same checks, and ships only on the operator's word.
 - Any clean-up, renaming or "while I'm here" fix inside the moved code.
   Anything found goes in a list for later.
 - Splitting `ProposalDetail.tsx` (1,443 lines).
+
+## The whole plan (operator asked "Is there more? Give me the plan", 2026-11-26)
+
+Sizes are measured from the file today. Each slice is a move only, with the
+same checks (tests, typecheck count, screen walk, the moved-lines script and
+the bundle size), and each ships on the operator's word.
+
+| Slice | What moves out | Lines | Page after |
+|---|---|---|---|
+| 1 | Send screen (1,453) + coins list (332) + paste-a-signed-PSBT box + shared helpers | ~1,900 | ~7,200 |
+| 2 | History and spend requests: HistoryTab, ProposalCard (248), MyKeyModal (139) | ~700 | ~6,500 |
+| 3 | Distributions (money-touching): TrancheClaimModal (422), DistributionWalletCreator (306), DistributionWalletsSection | ~950 | ~5,550 |
+| 4 | Overview's vault pictures: VaultStructureTree (282), VaultPhaseCard (149), the leaf builders, ActionGuide (274), SuccessionBanner (143), DraftReadinessCard (279) | ~1,300 | ~4,250 |
+| 5 | Trust document and stipends: TrustDocSection (244), StipendsSection (178), StipendEditor (184) | ~600 | ~3,650 |
+| 6 | The other tabs: Members (317), Messages (319), Requests (195) + NewRequestModal (179), Activity | ~1,300 | ~2,350 |
+| 7 | The rest: RotateVaultModal (174), BlocOverviewTab (182), Overview itself (488), smaller pieces; the page shell (598) stays | ~1,500 | ~800 |
+
+End state: `VaultDetail.tsx` is just the page shell (header, balance, tabs),
+about 800 lines. Each tab and section lives in its own file under
+`pages/vault-detail/`, every one under 800 lines, and the Send screen's
+signing step is split off if needed.
+
+Not in this plan, and for the operator to decide after it: three more files
+are over the 800-line limit. These are `VaultWizard.tsx` (2,916),
+`KeyManager.tsx` (1,489) and `ProposalDetail.tsx` (1,475). They would get
+the same treatment later.
