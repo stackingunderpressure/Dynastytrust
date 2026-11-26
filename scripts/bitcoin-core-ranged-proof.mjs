@@ -256,5 +256,69 @@ const build = async (path, amount, list) => {
   pass(`Core alone: one person spends the "if left untouched" path with createpsbt sequence ${QUIET} -- mined`);
 }
 
+// 6. A vault MIXING a bare Tapit key (no xpub: the same key at every
+// address) with two xpub keys -- the shape a family with one Tapit co-signer
+// makes. Core is the referee and also stands in for Tapit's signer (a
+// wallet holding only that one bare key).
+{
+  const tapPriv = ROOT.derive("m/86'/1'/0'/0/7").privateKey;
+  const tapX = toHex(ROOT.derive("m/86'/1'/0'/0/7").publicKey.slice(1));
+  const tapC = toHex(ROOT.derive("m/86'/1'/0'/0/7").publicKey);
+  const mixLeaves = [
+    { id: 'everyday', label: 'everyday', keys: [S[0].pubkey, S[1].pubkey, tapC], quorum: 2, unlock: { type: 'immediate' } },
+    { id: 'later', label: 'later', keys: [S[0].pubkey, S[1].pubkey, tapC], quorum: 1, unlock: { type: 'after', blocks: 900_000 } },
+  ];
+  const mc = wasm('/compile-leaves', { network: NET, leaves: mixLeaves });
+  const mr = wasm('/ranged-compile', { template: mc.descriptor, network: NET, origins: [S[0], S[1]].map(k => ({ fingerprint: FP, account_path: k.path, xpub: k.xpub })) });
+  assert.equal(mr.receive0, mc.address);
+  assert.ok(mr.multipath.includes(tapX), 'the bare key is not in the multipath descriptor as itself');
+  const MV = { ...V, id: '99999999-9999-9999-9999-999999999999', address: mc.address, leaf_scripts: mc.leaf_scripts,
+    leaves: mixLeaves.map(l => ({ id: l.id, unlock: l.unlock })), descriptor_multipath: mr.multipath, descriptor_receive: mr.receive, descriptor_change: mr.change };
+  const minfo = cli(null, 'getdescriptorinfo', MV.descriptor_multipath.split('#')[0]);
+  assert.equal(`${MV.descriptor_multipath.split('#')[0]}#${minfo.checksum}`, MV.descriptor_multipath);
+  const mours = (branch, start, count) => wasm('/ranged-addresses', { multipath: MV.descriptor_multipath, receive: MV.descriptor_receive, change: MV.descriptor_change, network: NET, branch, start, count }).addresses;
+  for (const branch of [0, 1]) {
+    const core = cli(null, 'deriveaddresses', minfo.multipath_expansion[branch], [0, 199]).map(spkOfAddr);
+    assert.deepEqual(core, mours(branch, 0, 200).map(a => a.script_pubkey));
+  }
+  pass(`mixed vault (2 xpub keys + 1 bare Tapit key): Core gives the same checksum (${minfo.checksum}) and the same receive and change addresses 0-199`);
+
+  // Core as Tapit: a wallet holding ONLY the bare key's private half.
+  const wif = btc.WIF(btc.TEST_NETWORK).encode(tapPriv);
+  const md = MV.descriptor_multipath.split('#')[0];
+  const tapDesc = md.includes(tapC) ? md.split(tapC).join(wif) : md.split(tapX).join(wif);
+  cli(null, 'createwallet', 'tapit', false, true);
+  const ti = cli('tapit', 'importdescriptors', [{ desc: `${tapDesc}#${cli(null, 'getdescriptorinfo', tapDesc).checksum}`, timestamp: 0, range: [0, 999], active: true }]);
+  assert.equal(ti[0].success, true, JSON.stringify(ti));
+  const mbcrt = (branch, index) => cli(null, 'deriveaddresses', minfo.multipath_expansion[branch], [index, index])[0];
+  const mcoin = fund(mbcrt(0, 5), 1);
+
+  // Our server builds; our browser signer signs with xpub key 0 (a CHILD
+  // key at receive 5); Core-as-Tapit signs with the bare key; our
+  // finalizer finishes; Core judges and mines.
+  const supa = { from: () => { const o = { select: () => o, eq: () => o, order: () => o, limit: async () => ({ data: [], error: null }), then: (res) => res({ data: [{ branch: 0, next_index: 6 }, { branch: 1, next_index: 0 }], error: null }), insert: async () => ({ error: null }) }; return o; }, rpc: async () => ({ data: 0, error: null }) };
+  const r = await buildRangedSpend({ supabase: supa, vault: MV, userId: 'u', body: { destination: toSignet(dest), amount_sats: 40_000_000, path: 'everyday', fee_rate: 2 } },
+    { coinsAt: async () => [{ ...coinFor(mcoin, 0, 5), address: mours(0, 5, 1)[0].address }], fetchTipHeight: async () => tip(), getFeeRate: async () => 2, vaultUsed: async () => new Set() });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(await checkFreshSpendAddresses(MV, r.body.psbt_hex), { ok: true });
+  const ours0 = await signPsbtWithMnemonic(r.body.psbt_hex, MNEMONIC, S[0].path, 'testnet');
+  const b64 = Buffer.from(r.body.psbt_hex, 'hex').toString('base64');
+  const tapSigned = cli('tapit', 'walletprocesspsbt', b64, true, 'DEFAULT', true, false);
+  const tapHex = Buffer.from(tapSigned.psbt, 'base64').toString('hex');
+  const merged = mergePsbts([r.body.psbt_hex, ours0.psbt_hex, tapHex]);
+  const xonly = (k) => k.slice(2).toLowerCase();
+  assert.deepEqual(new Set(signersOnEveryInput(merged, MV.descriptor_multipath)), new Set([xonly(S[0].pubkey), tapX]));
+  pass('the app counts exactly the two who signed: xpub key 0 (its child at receive 5, mapped back) and the bare Tapit key as itself');
+  const raw = wasm('/psbt-finalize', { psbt_hex: merged }).raw_tx_hex;
+  assert.equal(cli(null, 'testmempoolaccept', [raw])[0].allowed, true);
+  const txid = cli(null, 'sendrawtransaction', raw); mine(1);
+  assert.ok(cli(null, 'getrawtransaction', txid, 1).confirmations >= 1);
+  pass('built by our server, signed by our browser signer + a bare-key signer (Core standing in for Tapit), finalized by us: Core mines it');
+
+  // One signature alone is not enough, whoever it is.
+  assert.throws(() => wasm('/psbt-finalize', { psbt_hex: mergePsbts([r.body.psbt_hex, tapHex]) }));
+  pass('the bare Tapit key alone cannot complete a 2-of-3 spend');
+}
+
 console.log(`\nbitcoin-core-ranged-proof OK (${n} checks) against ${version}`);
 process.exit(0);

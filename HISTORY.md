@@ -112,9 +112,21 @@ receive and change addresses 0-499 match Core's own derivation; the
 signatures Core accepts are exactly the ones the app counts (each child key
 credited once to its own vault key, a repeated signature not double-counted,
 nothing credited without the vault descriptor); an issued-but-never-paid
-change address is reused and Core mines it. Not yet covered: a vault mixing a
-Tapit bare key with xpub keys judged by Core, and a spend with this vault's
-inputs but foreign change (covered only by the unit-level change checks).
+change address is reused and Core mines it. Not yet covered at that point: a vault mixing a
+Tapit bare key with xpub keys judged by Core (added 2026-11-26, below), and a
+spend with this vault's inputs but foreign change (covered only by the
+unit-level change checks).
+
+**5. Mixed Tapit + xpub vault, judged by Bitcoin Core (2026-11-26).** Added to
+`bitcoin-core-ranged-proof.mjs` (now `OK (14 checks)` against Core 32.1):
+a fresh-address vault of two xpub keys and one bare Tapit-style key. Core
+gives the same checksum and the same receive and change addresses 0-199; a
+spend built by our server, signed by our browser signer (xpub key 0's child at
+receive 5) and by a Core wallet holding only the bare key (standing in for
+Tapit's signer -- not Tapit itself), finalized by our compiler, is mined; the
+app counts exactly those two signers; the bare key alone cannot complete the
+2-of-3. What this does NOT prove: Tapit's own signing code on this shape
+(covered by Tapit's own tests and the operator's signet walk).
 
 **Stale record to correct elsewhere:** AppCommander's
 `project-memory/foreman-memory/projects/dynastytrust/DOCTRINE.md` (written
