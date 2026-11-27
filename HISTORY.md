@@ -5273,3 +5273,39 @@ PASS.
    called without a shell. 500 tests pass (the same 5 old l10n failures).
 5. Later, own branch: rust-bitcoin 0.32, miniscript 13, secp256k1,
    @noble/@scure v2. Not started.
+
+## 2026-11-27 -- Distribution wallets work on path-builder vaults
+
+Found while mapping the Family Bitcoin Game's Stage 4 (operator: "Fix
+DynastyTrust first"). `DistributionWalletCreator` built its trustees from
+`vault.founder_keys` / `vault.founder_quorum`. Every vault made with the path
+builder (the only builder a new vault reaches) never fills those columns --
+they sit at the DB defaults, `[]` and `2` -- so the creator sent no trustees and
+`compile-tranche.js` refuses with "Missing: trustee_keys". Reproduced before the
+fix by running the creator's own trustee rule against a vault shaped as the
+builder stores it (no trustees), and the real in-process compiler with that
+vault's right-away path as trustees (status 200, a bc1p tranche address).
+
+Fix: `apps/web/src/lib/tranche-trustees.ts` picks the trustees. A vault built
+the older way still uses its founders, unchanged. A path-builder vault uses a
+path that opens right away; one such path is used automatically, several give
+a picker. A path with must-sign keys or a wellness check is never offered --
+the tranche script is a plain "Q of N" and flattening either into it would let
+a tranche skip the key or check the owner required -- and the screen says why.
+The tranche row records its own trustees, so the claim and Trustee escape read
+from the tranche and are unchanged. Also corrected the screen's "via the Fly.io
+compiler" (retired 2026-11-24).
+
+Test: `scripts/test-tranche-trustees.mjs` (14 assertions, compiles a mainnet
+tranche through the real compiler), in `npm test`; it fails with the old rule
+put back ("actual: 0"). Gates: lint 0 errors (9 warnings, all pre-existing);
+typecheck 15 errors, identical line for line with and without this change
+(pre-existing); build green with Netlify's own command; full `npm test` run
+recorded in the commit that follows this one.
+
+NOT done: the creator's hardware-wallet key origins for trustees still come
+from `vault_members`, which may not list every path key on a path-builder
+vault (browser and Tapit signing unaffected). A tranche funded from outside the
+app still never shows Claim (it only learns `funded_txid` from the in-app
+Fund). Not walked in a browser: it needs a signed-in account and a compiled
+vault.
