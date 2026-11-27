@@ -70,6 +70,27 @@ function nonceOf(challenge: unknown): string {
 
 const API = '/api';
 
+// This device's Tapit public key (x-only hex), remembered after a successful
+// Tapit sign-in, sign-up or link, so the next sign-in can go straight to that
+// Tapit's inbox. Public, not a secret; kept on this device only.
+// (docs/tapit-signin-inbox-build-note.md: on an iPhone a link never opens a
+// home-screen Tapit, so the inbox is the way that works between apps.)
+const TAPIT_KEY = 'dt:tapitKey:v1';
+export function rememberedTapitKey(): string | null {
+  try {
+    const v = localStorage.getItem(TAPIT_KEY);
+    return v && /^[0-9a-f]{64}$/.test(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+export function rememberTapitKey(xOnlyHex: string | null): void {
+  try {
+    if (xOnlyHex && /^[0-9a-f]{64}$/i.test(xOnlyHex)) localStorage.setItem(TAPIT_KEY, xOnlyHex.toLowerCase());
+    else localStorage.removeItem(TAPIT_KEY);
+  } catch { /* private mode: asked for again next time */ }
+}
+
 // The Tapit wallet's sign handler. Override per-env with VITE_TAPIT_WALLET_URL.
 // Exported so other Tapit sign-request intents (e.g. lib/tapit-cosign.ts's
 // psbt-cosign, Cut B stage B2) hit the same wallet without a second env

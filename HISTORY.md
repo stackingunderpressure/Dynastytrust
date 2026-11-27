@@ -5221,3 +5221,20 @@ opening tab was chosen before the keys loaded, and the list didn't refresh
 after restoring an archived key. Gates: npm test exit 0; lint 0 errors;
 typecheck the same 10; build ok; walk:screens OK, 13 taps. Full account:
 `docs/key-manager-tidy-build-note.md`.
+
+## 2026-11-27 -- Tapit sign-in goes through Tapit's inbox
+
+Operator: "signing in with tapit to dynasty is broken. Not making the full
+round trip" -- in Tapit "never saw sign in one", only an old spend; both apps
+are on the home screen. Cause: the sign-in page's only route was an "Open
+Tapit" link, and on an iPhone a link opens a Safari tab (its own storage,
+no wallet), never the home-screen Tapit; the way back would land in Safari,
+not the DynastyTrust app. Fix: "Sign in with Tapit" and "Create an account
+with Tapit" open the connect window, which sends the request to the Tapit's
+inbox over Nostr (the route "Link an existing wallet" already used) and
+finishes when the answer returns. This device remembers the Tapit key after
+the first success. The QR and Safari link stay under "Other ways". Checks
+unchanged: sign-in number, started-in-this-browser, answer signed by the
+addressed key. Gates: npm test exit 0; lint 0 errors; typecheck the same 10;
+build ok; walk:screens OK (13 taps); new walk:signin OK. Not walked: the
+real round trip with a real Tapit on a phone.

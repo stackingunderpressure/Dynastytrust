@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   startTapitConnectRequest, startTapitPubkeyConnectRequest, completeTapitCallback,
+  rememberedTapitKey, rememberTapitKey,
   type TapitMode,
 } from '../lib/wallet-signin';
 import { subscribeSignInResponses } from '../lib/tapit-signin-response-channel';
@@ -42,31 +43,44 @@ const XONLY_PUBKEY_RE = /^[0-9a-f]{64}$/i;
 // reloads the page at all. Runs ALONGSIDE the QR listener above, not
 // instead of it -- both are just different delivery paths for the same
 // challenge-response; whichever the person actually completes wins.
+// 2026-11-27 (operator: "signing in with tapit to dynasty is broken. Not
+// making the full round trip"; both are home-screen apps). On an iPhone a
+// link never opens a home-screen app -- it opens a Safari tab with its own
+// storage -- so "open Tapit" handed the request to a Tapit with no wallet,
+// and the way back landed in Safari. The inbox route is the one that works
+// between apps, so it now comes first, and this device remembers the Tapit
+// key after it works once (docs/tapit-signin-inbox-build-note.md). The QR
+// and the Safari link stay under "Other ways".
 export function TapitConnectModal({ mode, onClose, onDone }: { mode: TapitMode; onClose: () => void; onDone: () => void }) {
   const toast = useToast();
-  const [state, setState] = useState<
+  // The QR request (another device, or the Safari link) -- prepared in the background.
+  const [qr, setQr] = useState<
     | { kind: 'loading' }
     | { kind: 'error'; message: string }
-    | { kind: 'waiting'; requestUrl: string; screenCode: string }
-    | { kind: 'connecting' }
+    | { kind: 'ready'; requestUrl: string; screenCode: string }
   >({ kind: 'loading' });
+  const [finishing, setFinishing] = useState<{ kind: 'connecting' } | { kind: 'error'; message: string } | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
   const pubkeyCleanupRef = useRef<(() => void) | null>(null);
 
-  const [pubkeyInput, setPubkeyInput] = useState('');
+  const remembered = rememberedTapitKey();
+  const [pubkeyInput, setPubkeyInput] = useState(remembered ?? '');
   const [sendingPubkey, setSendingPubkey] = useState(false);
   // The pushed request has its own challenge, so its own number (threat model G).
-  const [pubkeySent, setPubkeySent] = useState<string | null>(null);
+  const [pubkeySent, setPubkeySent] = useState<{ code: string; key: string } | null>(null);
+  const [otherWays, setOtherWays] = useState(false);
+  const autoSent = useRef(false);
 
-  function finishWithGrant(grant: unknown) {
-    setState({ kind: 'connecting' });
+  function finishWithGrant(grant: unknown, signerPubkey: string) {
+    setFinishing({ kind: 'connecting' });
     void (async () => {
       try {
         const result = await completeTapitCallback({ mode, grant });
+        rememberTapitKey(signerPubkey);
         toast.success(result.mode === 'link' ? 'Tapit wallet linked.' : result.mode === 'signup' ? 'Your account is made. Your Tapit wallet is how you sign in.' : 'Signed in with your Tapit wallet.');
         onDone();
       } catch (e) {
-        setState({ kind: 'error', message: e instanceof Error ? e.message : 'Could not complete sign-in' });
+        setFinishing({ kind: 'error', message: e instanceof Error ? e.message : 'Could not complete sign-in' });
       }
     })();
   }
@@ -81,18 +95,23 @@ export function TapitConnectModal({ mode, onClose, onDone }: { mode: TapitMode; 
           replyPrivateKey,
           replyPublicKey,
           response => {
-            if (!cancelled) finishWithGrant(response.grant);
+            if (!cancelled) finishWithGrant(response.grant, response.signerPubkey);
           },
         );
         cleanupRef.current = () => {
           subscription.close();
           transport.close();
         };
-        setState({ kind: 'waiting', requestUrl, screenCode });
+        setQr({ kind: 'ready', requestUrl, screenCode });
       } catch (e) {
-        if (!cancelled) setState({ kind: 'error', message: e instanceof Error ? e.message : 'Could not start' });
+        if (!cancelled) setQr({ kind: 'error', message: e instanceof Error ? e.message : 'Could not start' });
       }
     })();
+    // A Tapit this device already knows: send straight to its inbox.
+    if (remembered && !autoSent.current) {
+      autoSent.current = true;
+      void handlePubkeyConnect(remembered);
+    }
     return () => {
       cancelled = true;
       cleanupRef.current?.();
@@ -101,14 +120,15 @@ export function TapitConnectModal({ mode, onClose, onDone }: { mode: TapitMode; 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
-  async function handlePubkeyConnect() {
-    const clean = pubkeyInput.trim().toLowerCase();
+  async function handlePubkeyConnect(key?: string) {
+    const clean = (key ?? pubkeyInput).trim().toLowerCase();
     if (!XONLY_PUBKEY_RE.test(clean)) {
       toast.error("That doesn't look like a Tapit public key -- expected 64 hex characters.");
       return;
     }
     setSendingPubkey(true);
     try {
+      pubkeyCleanupRef.current?.();
       const { replyPrivateKey, replyPublicKey, delivered, screenCode } = await startTapitPubkeyConnectRequest(mode, clean);
       const { subscription, transport } = subscribeSignInResponses(
         replyPrivateKey,
@@ -124,14 +144,14 @@ export function TapitConnectModal({ mode, onClose, onDone }: { mode: TapitMode; 
             toast.error("Received a connect response that wasn't signed by the pasted public key -- ignored.");
             return;
           }
-          finishWithGrant(response.grant);
+          finishWithGrant(response.grant, clean);
         },
       );
       pubkeyCleanupRef.current = () => {
         subscription.close();
         transport.close();
       };
-      setPubkeySent(screenCode);
+      setPubkeySent({ code: screenCode, key: clean });
       if (!delivered) {
         toast.error("Couldn't reach a relay just now -- the request is queued and will retry automatically. Keep this open.");
       }
@@ -142,72 +162,98 @@ export function TapitConnectModal({ mode, onClose, onDone }: { mode: TapitMode; 
     }
   }
 
+  function useDifferentTapit() {
+    pubkeyCleanupRef.current?.();
+    pubkeyCleanupRef.current = null;
+    rememberTapitKey(null);
+    setPubkeySent(null);
+    setPubkeyInput('');
+  }
+
+  const title = mode === 'link' ? 'Connect Tapit wallet' : mode === 'signup' ? 'Create your account with Tapit' : 'Sign in with Tapit';
+  const short = (k: string) => `${k.slice(0, 8)}...${k.slice(-6)}`;
+
   return (
-    <Modal title="Connect Tapit wallet" onClose={onClose}>
-      {state.kind === 'loading' && <p style={{ color: colors.muted, fontSize: 17 }}>Preparing request...</p>}
-      {state.kind === 'error' && (
+    <Modal title={title} onClose={onClose}>
+      {finishing?.kind === 'connecting' && <p style={{ color: colors.muted, fontSize: 17 }}>Approved -- finishing...</p>}
+      {finishing?.kind === 'error' && (
         <>
-          <p style={{ color: colors.red, fontSize: 17, marginBottom: 16 }}>{state.message}</p>
-          <Button variant="ghost" onClick={onClose}>Close</Button>
+          <p style={{ color: colors.red, fontSize: 17, marginBottom: 16 }}>{finishing.message}</p>
+          <Button variant="ghost" onClick={onClose} style={{ minHeight: 44 }}>Close</Button>
         </>
       )}
-      {state.kind === 'connecting' && <p style={{ color: colors.muted, fontSize: 17 }}>Connecting...</p>}
-      {state.kind === 'waiting' && (
+      {!finishing && (
         <>
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: space[3] }}>
-            <QrImage data={state.requestUrl} />
-          </div>
-          <ScreenNumber code={state.screenCode} />
-          <p style={{ fontSize: 17, color: colors.sub, textAlign: 'center', lineHeight: 1.6, marginBottom: 12 }}>
-            Scan this with the phone your Tapit wallet is on. Tapit will ask for the number above. Approving there signs you in here
-            automatically -- this tab does not need to redirect anywhere.
-          </p>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', marginBottom: 4 }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: colors.gold }} />
-            <span style={{ fontSize: 16, color: colors.muted }}>Waiting for approval...</span>
-          </div>
-          <div style={{ textAlign: 'center', marginTop: 16, paddingTop: 16, borderTop: `1px solid ${colors.border}` }}>
-            <a
-              href={state.requestUrl}
-              onClick={onClose}
-              style={{ fontSize: 16, color: colors.gold, fontFamily: fonts.sans }}
-            >
-              Or open Tapit directly on this device
-            </a>
-          </div>
-
-          <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${colors.border}` }}>
-            <p style={{ fontSize: 16, color: colors.muted, marginBottom: 8, textAlign: 'center' }}>
-              Wallet already open on this device? Skip the QR -- paste its public key instead.
-            </p>
-            {pubkeySent ? (
-              <div>
-                <ScreenNumber code={pubkeySent} />
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: colors.gold }} />
-                  <span style={{ fontSize: 16, color: colors.muted }}>
-                    Sent -- check your Tapit wallet's Inbox to approve. It will ask for this number.
-                  </span>
-                </div>
+          {pubkeySent ? (
+            <div>
+              <ScreenNumber code={pubkeySent.code} />
+              <p style={{ fontSize: 17, color: colors.sub, lineHeight: 1.6, textAlign: 'center', margin: '0 0 10px' }}>
+                Sent to your Tapit (<span style={{ fontFamily: fonts.mono }}>{short(pubkeySent.key)}</span>). Open Tapit and approve it
+                there -- it shows on Tapit's home screen and in its Inbox, and asks for this number. This screen finishes on its own.
+              </p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', marginBottom: 8 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: colors.gold }} />
+                <span style={{ fontSize: 16, color: colors.muted }}>Waiting for approval...</span>
               </div>
-            ) : (
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+                <Button variant="ghost" size="sm" style={{ minHeight: 44 }} disabled={sendingPubkey} onClick={() => void handlePubkeyConnect(pubkeySent.key)}>
+                  {sendingPubkey ? 'Sending...' : 'Send again'}
+                </Button>
+                <Button variant="ghost" size="sm" style={{ minHeight: 44 }} onClick={useDifferentTapit}>
+                  Use a different Tapit
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <p style={{ fontSize: 17, color: colors.sub, lineHeight: 1.6, margin: '0 0 10px' }}>
+                Send this to your Tapit's inbox. Paste your Tapit public key -- in Tapit, Settings, Public key. This device remembers it
+                after it works once.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <Input
                   mono
                   value={pubkeyInput}
                   onChange={e => setPubkeyInput(e.target.value)}
-                  placeholder="Tapit public key (64 hex characters)"
-                  style={{ flex: 1 }}
+                  placeholder="Tapit public key (64 characters)"
+                  aria-label="Tapit public key"
                 />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handlePubkeyConnect}
-                  disabled={sendingPubkey || !pubkeyInput.trim()}
-                >
-                  {sendingPubkey ? 'Sending...' : 'Send'}
+                <Button style={{ minHeight: 48, fontSize: 17 }} onClick={() => void handlePubkeyConnect()} disabled={sendingPubkey || !pubkeyInput.trim()}>
+                  {sendingPubkey ? 'Sending...' : 'Send to my Tapit'}
                 </Button>
               </div>
+            </div>
+          )}
+
+          <div style={{ marginTop: 18, paddingTop: 12, borderTop: `1px solid ${colors.border}` }}>
+            <button
+              type="button"
+              onClick={() => setOtherWays(v => !v)}
+              aria-expanded={otherWays}
+              style={{ background: 'none', border: 'none', padding: '10px 0', minHeight: 44, fontSize: 16, color: colors.sub, textDecoration: 'underline', cursor: 'pointer' }}
+            >
+              {otherWays ? 'Hide other ways' : 'Other ways: scan a QR from another device, or open Tapit in Safari'}
+            </button>
+            {otherWays && qr.kind === 'loading' && <p style={{ color: colors.muted, fontSize: 17 }}>Preparing request...</p>}
+            {otherWays && qr.kind === 'error' && <p style={{ color: colors.red, fontSize: 17 }}>{qr.message}</p>}
+            {otherWays && qr.kind === 'ready' && (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'center', margin: `${space[2]}px 0 ${space[3]}px` }}>
+                  <QrImage data={qr.requestUrl} />
+                </div>
+                <ScreenNumber code={qr.screenCode} />
+                <p style={{ fontSize: 16, color: colors.sub, textAlign: 'center', lineHeight: 1.6, marginBottom: 12 }}>
+                  Scan with the phone your Tapit is on; approving there finishes here. This number goes with the QR.
+                </p>
+                <div style={{ textAlign: 'center' }}>
+                  <a href={qr.requestUrl} onClick={onClose} style={{ fontSize: 16, color: colors.gold, fontFamily: fonts.sans }}>
+                    Open Tapit in this browser instead
+                  </a>
+                  <p style={{ fontSize: 15, color: colors.muted, lineHeight: 1.5, margin: '6px 0 0' }}>
+                    Only works when Tapit and DynastyTrust are both open in the same browser, not as home-screen apps.
+                  </p>
+                </div>
+              </>
             )}
           </div>
         </>

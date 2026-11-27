@@ -3,7 +3,8 @@ import { supabase } from '../lib/supabase';
 import { APP_NAME } from '../config';
 import { colors, fonts, radii, space } from '../theme';
 import { Button, Input } from '../components/ui';
-import { prepareTapitFlow, rememberSignupName, WALLET_BASE_URL, type TapitStart } from '../lib/wallet-signin';
+import { rememberSignupName, WALLET_BASE_URL } from '../lib/wallet-signin';
+import { TapitConnectModal } from '../components/TapitConnectModal';
 import { friendlyAuthError } from '../lib/auth-errors';
 import { signInAddress, usernameProblem, normalizeUsername } from '../lib/username';
 import { passwordProblem } from '../lib/password-rules';
@@ -33,7 +34,10 @@ export default function Auth() {
   const [tapitCreate, setTapitCreate] = useState(false);
   const [tapitName, setTapitName] = useState('');
   // Threat model G: the sign-in number is shown here before Tapit opens.
-  const [tapitStart, setTapitStart] = useState<TapitStart | null>(null);
+  // Which Tapit window is open. The request goes to Tapit's inbox, not via a
+  // link: on an iPhone a link can't open a home-screen Tapit
+  // (docs/tapit-signin-inbox-build-note.md).
+  const [tapitStart, setTapitStart] = useState<'signin' | 'signup' | null>(null);
   // Create account: with an email (can be reset) or a username (no email,
   // no reset). Operator, 2026-11-13: "user name password ... or email for
   // future proof of getting locked out".
@@ -156,20 +160,13 @@ export default function Auth() {
     setMode('login');
   }
 
-  // Sign in by proving control of a linked Tapit wallet key. Prepares the
-  // request and shows its sign-in number; the person then opens Tapit, which
-  // asks for that number (threat model G).
-  async function tapit(kind: 'signin' | 'signup' = 'signin') {
-    setBusy(true);
+  // Sign in by proving control of a linked Tapit wallet key: the request goes
+  // to the person's Tapit inbox and its answer comes back here; Tapit asks for
+  // the sign-in number this window shows (threat model G).
+  function tapit(kind: 'signin' | 'signup' = 'signin') {
     setError(null);
-    try {
-      if (kind === 'signup') rememberSignupName(tapitName);
-      setTapitStart(await prepareTapitFlow(kind));
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Could not start Tapit sign-in');
-    } finally {
-      setBusy(false);
-    }
+    if (kind === 'signup') rememberSignupName(tapitName);
+    setTapitStart(kind);
   }
 
   if (pending) {
@@ -388,20 +385,7 @@ export default function Auth() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: space[2], padding: space[3], border: `1px solid ${colors.gold}55`, borderRadius: radii.md }}>
               <p style={{ ...s.tapitHint, color: colors.text, fontWeight: 600, margin: 0 }}>Sovereign sign-in with Tapit</p>
               {tapitStart && (
-                <div role="status" style={{ display: 'flex', flexDirection: 'column', gap: space[2], padding: space[3], background: colors.inset, borderRadius: radii.md, textAlign: 'center' }}>
-                  <p style={{ ...s.tapitHint, margin: 0, color: colors.text }}>Your sign-in number</p>
-                  <p aria-label={`Sign-in number ${tapitStart.screenCode.split('').join(' ')}`} style={{ margin: 0, fontFamily: fonts.mono, fontSize: 44, letterSpacing: '0.2em', color: colors.gold }}>{tapitStart.screenCode}</p>
-                  <p style={{ ...s.tapitHint, margin: 0 }}>
-                    Tapit will ask you to type it. That is how it knows this screen is the one you are signing in on.
-                    Never type a number someone else gives you.
-                  </p>
-                  <a href={tapitStart.url} style={{ display: 'block', padding: '14px', fontSize: 17, borderRadius: radii.md, background: colors.gold, color: colors.bg, fontWeight: 600, textDecoration: 'none' }}>
-                    Open Tapit
-                  </a>
-                  <Button variant="ghost" type="button" onClick={() => setTapitStart(null)} style={{ width: '100%', minHeight: 44, fontSize: 16 }}>
-                    Cancel
-                  </Button>
-                </div>
+                <TapitConnectModal mode={tapitStart} onClose={() => setTapitStart(null)} onDone={() => setTapitStart(null)} />
               )}
               <p style={{ ...s.tapitHint, margin: 0 }}>
                 No email and no password here. Your own Tapit wallet proves it is you; its key never leaves the wallet,
