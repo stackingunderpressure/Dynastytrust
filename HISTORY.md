@@ -5254,3 +5254,22 @@ what sat next to it in the minified code, which broke when a constant moved
 in between; it now takes the one Tapit address in the bundle (a misread
 would make the rebuild differ, never pass wrongly). Re-run against 4b459cd:
 PASS.
+
+## 2026-11-27 -- the library list (outside review), done in its order
+
+1. Netlify `NODE_VERSION` 20 -> 22: live as 6bbc513 (entry above).
+2. Desktop app (Tauri): `cargo update -p url -p cookie` -> url 2.5.9,
+   cookie 0.18.3 (form_urlencoded 1.2.3 came along). `cargo check` passes
+   with the download web build in place (a2ef960).
+3. `npm audit` to 0 in the root and in tapit-attest (68b6ca5): `npm audit
+   fix` without --force, plus the exact pins it couldn't move -- vite 7.3.2
+   -> 7.3.8 and typescript-eslint 8.58.2 -> 8.74.0, same majors; esbuild is
+   now 0.28.2 via vite. `npm audit --omit=dev` was already 0. Gates green;
+   tapit-attest 77 pass.
+4. SeedSigner fork (46b20b07): Pillow 13.0.0, which needs Python >= 3.11, so
+   the minimum Python, CI matrix and Pi guide moved to 3.11 (operator's
+   chip). Pillow 13 crashed the sign-message screen (it can't measure a line
+   break); the font loader now measures one exactly as 10.3 did. qrencode is
+   called without a shell. 500 tests pass (the same 5 old l10n failures).
+5. Later, own branch: rust-bitcoin 0.32, miniscript 13, secp256k1,
+   @noble/@scure v2. Not started.
