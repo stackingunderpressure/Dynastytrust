@@ -167,6 +167,37 @@ async function main() {
       expectInView(signed, ['1 / 1', 'Broadcast transaction']);
       expectAbsent(signed, 'more signature');
       await shot(page, 'send-signed', 'Send after one signature');
+      // Broadcast: the done screen and its txid on screen, the spend recorded
+      // with that txid, sent exactly once, and no Broadcast button left to press.
+      M.state.broadcasts.length = 0; M.state.patches.length = 0;
+      const sent = await tap(page, page.getByRole('button', { name: /Broadcast transaction/ }).first(), 'Broadcast (Send)', 1500, ['Transaction broadcast', 'Broadcast transaction', 'Record it in history']);
+      expectInView(sent, ['Transaction broadcast']);
+      expectAbsent(sent, 'Broadcast transaction');
+      expectAbsent(sent, 'Record it in history');
+      const txid = M.state.finalTxid;
+      if (!txid) failures.push('Broadcast (Send): the finalizer gave no txid');
+      else expectInView({ label: 'Broadcast (Send)', landmarks: await landmarksOf(page, [txid]) }, [txid]);
+      if (M.state.broadcasts.length !== 1) failures.push(`Broadcast (Send): sent ${M.state.broadcasts.length} times, expected 1`);
+      const rec = M.state.patches.filter(x => x.status === 'broadcast');
+      if (rec.length !== 1 || rec[0].txid !== txid) failures.push(`Broadcast (Send): recorded ${JSON.stringify(M.state.patches)}, expected one "broadcast" with txid ${txid}`);
+      await shot(page, 'send-done', 'Send after Broadcast');
+      await context.close();
+    }
+    { // Send: once a signature is collected, Cancel asks first, and nothing is
+      // cancelled until it's confirmed. (With no signatures it cancels at once.)
+      const { context, page } = await newPage(browser);
+      await page.goto(VAULT_URL); await ready(page);
+      M.state.patches.length = 0;
+      await tap(page, page.getByRole('button', { name: 'Send', exact: true }).first(), 'Send (for Cancel)', 2000, ['Review & sign']);
+      await page.locator('input').filter({ hasNot: page.locator('[type=checkbox]') }).nth(0).fill('tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx');
+      await page.locator('input[type=number]').first().fill('0.00005');
+      await tap(page, page.getByRole('button', { name: /Review & sign/ }), 'Review & sign (for Cancel)', 4000, ['My phone key']);
+      await tap(page, page.getByText('Tap to sign', { exact: false }).first(), 'Tap to sign (for Cancel)', 4000, ['1 / 1']);
+      M.state.patches.length = 0;
+      const ask = await tap(page, page.getByRole('button', { name: 'Cancel this spend', exact: true }).first(), 'Cancel this spend', 1000, ['Cancel this spend?', 'My phone key']);
+      expectInView(ask, ['Cancel this spend?']);
+      if (M.state.patches.length) failures.push(`Cancel this spend: changed the request before it was confirmed: ${JSON.stringify(M.state.patches)}`);
+      await shot(page, 'send-cancel-ask', 'Cancel asks first');
       await context.close();
     }
     { // More: the four other tabs appear on screen.

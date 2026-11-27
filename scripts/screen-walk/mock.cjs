@@ -47,7 +47,7 @@ const MEMBERS = [
   { id: 'm-owner', created_at: '2026-11-20T12:00:00Z', vault_id: VAULT_ID, user_id: USER_ID, role: 'owner', label: 'Me', xpub: FX.origins[0].xpub, fingerprint: FX.origins[0].fingerprint, pubkey: FX.pk[0], derivation_path: FX.keyOrigins[0].derivation_path, key_label: null, status: 'active', messaging_pubkey: null, leaf_id: null },
 ];
 
-const state = { prop: null, vk: { version: 0, checks: {}, wraps: [] }, messagingPub: null, proposalSigned: false, psbtHex: FX.proposalPsbt.psbt_hex, psbtB64: FX.proposalPsbt.psbt_b64 };
+const state = { prop: null, vk: { version: 0, checks: {}, wraps: [] }, messagingPub: null, proposalSigned: false, psbtHex: FX.proposalPsbt.psbt_hex, psbtB64: FX.proposalPsbt.psbt_b64, finalTxid: null, broadcasts: [], patches: [] };
 function resetProposal() {
   state.prop = { hex: FX.proposalPsbt.psbt_hex, merged: FX.merged, destination: FX.proposalPsbt.summary.destination, amount: 5000, fee: FX.proposalPsbt.summary.fee_sats };
   state.proposalSigned = false; state.submittedPartial = null;
@@ -115,7 +115,7 @@ function apiHandle(u, method, body) {
     return { ok: true, proposals: [proposal()] };
   }
   if (p === '/proposals' && method === 'POST') { const b = JSON.parse(body || '{}'); return { ok: true, proposal: { ...proposal(), ...b, id: PROPOSAL_ID, status: 'pending' } }; }
-  if (p === '/proposals' && method === 'PATCH') return { ok: true, proposal: proposal() };
+  if (p === '/proposals' && method === 'PATCH') { state.patches.push(JSON.parse(body || '{}')); return { ok: true, proposal: proposal() }; }
   if (p === '/utxos') return { ok: true, vault_address: VAULT.address, network: 'signet', tip: TIP, utxos: [COIN], source: 'mempool.space' };
   if (p === '/signer-sessions' && method === 'POST') {
     const b = JSON.parse(body || '{}'); state.proposalSigned = true; state.submittedPartial = b.psbt_partial_hex;
@@ -206,6 +206,7 @@ async function install(context, opts = {}) {
           const cwd = process.cwd(); process.chdir(ROOT);
           let r; try { const { callWasm } = await import(ROOT + '/netlify/functions/_ranged-wasm.js'); r = callWasm('/psbt-finalize', JSON.parse(req.postData() || '{}')); } finally { process.chdir(cwd); }
           handledLog.push('POST /api/psbt-finalize -> ' + r.status);
+          if (r.body && r.body.txid) state.finalTxid = r.body.txid;
           return route.fulfill({ status: r.status, contentType: 'application/json', body: JSON.stringify(r.body) });
         }
         if (u.pathname === '/api/psbt-binary' && method === 'POST') {
@@ -230,6 +231,17 @@ async function install(context, opts = {}) {
       return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
     }
     if (u.hostname === 'mempool.space') {
+      // Broadcast: the first send is accepted and answered with the txid the
+      // finalizer computed; any later send of the same hex gets the network's
+      // real "already in mempool" refusal.
+      if (method === 'POST' && /^\/(signet|testnet)?\/?api\/tx$/.test(u.pathname.replace(/^\//, '/'))) {
+        const hex = req.postData() || '';
+        const again = state.broadcasts.includes(hex);
+        state.broadcasts.push(hex);
+        handledLog.push(`POST mempool ${u.pathname} (${again ? 'again' : 'first'})`);
+        if (again) return route.fulfill({ status: 400, contentType: 'text/plain', body: 'sendrawtransaction RPC error: {"code":-27,"message":"Transaction already in block chain"}' });
+        return route.fulfill({ status: 200, contentType: 'text/plain', body: state.finalTxid || '' });
+      }
       const r = mempoolHandle(u);
       if (r) {
         handledLog.push(`${method} mempool ${u.pathname}`);
