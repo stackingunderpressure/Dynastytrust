@@ -95,9 +95,15 @@ export function rememberTapitKey(xOnlyHex: string | null): void {
 // Exported so other Tapit sign-request intents (e.g. lib/tapit-cosign.ts's
 // psbt-cosign, Cut B stage B2) hit the same wallet without a second env
 // override to keep in sync.
-export const WALLET_SIGN_URL =
-  (import.meta.env?.VITE_TAPIT_WALLET_URL as string | undefined) ??
-  'https://tapit-wallet.netlify.app/sign';
+// The setting may name the wallet's root ("https://tapit-wallet.netlify.app/",
+// as production's does) or its /sign page; Tapit reads a request only on
+// /sign, and its home page ignores ?req= -- so a root value silently sent
+// every link and QR to a page that dropped the request (found 2026-11-27).
+export function walletSignUrl(setting: string | undefined): string {
+  const base = (setting ?? 'https://tapit-wallet.netlify.app').trim().replace(/\/+$/, '').replace(/\/sign$/, '');
+  return `${base}/sign`;
+}
+export const WALLET_SIGN_URL = walletSignUrl(import.meta.env?.VITE_TAPIT_WALLET_URL as string | undefined);
 
 // The wallet's plain root -- visiting it with no existing session routes
 // into Tapit's own FreshOnboarding (tapit-wallet's WalletProvider/

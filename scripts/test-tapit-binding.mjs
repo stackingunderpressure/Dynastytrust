@@ -79,4 +79,12 @@ await assert.rejects(ws.completeTapitCallback({ mode: 'signin', grant: approve(o
 assert.ok(old.screenCode);
 pass('a sign-in started more than ten minutes ago is not finished');
 
+// Production's setting names the wallet's root, which ignores ?req= (found
+// 2026-11-27): every request must still go to /sign.
+for (const v of ['https://tapit-wallet.netlify.app/', 'https://tapit-wallet.netlify.app', 'https://tapit-wallet.netlify.app/sign', 'https://tapit-wallet.netlify.app/sign/', undefined]) {
+  assert.equal(ws.walletSignUrl(v), 'https://tapit-wallet.netlify.app/sign', String(v));
+}
+assert.match(ws.WALLET_SIGN_URL, /\/sign$/);
+pass('a request always goes to the wallet\'s /sign page, whatever form the setting takes');
+
 console.log(`tapit-binding tests passed (${n} cases)`);

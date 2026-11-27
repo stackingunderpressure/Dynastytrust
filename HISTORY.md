@@ -5238,3 +5238,19 @@ unchanged: sign-in number, started-in-this-browser, answer signed by the
 addressed key. Gates: npm test exit 0; lint 0 errors; typecheck the same 10;
 build ok; walk:screens OK (13 taps); new walk:signin OK. Not walked: the
 real round trip with a real Tapit on a phone.
+
+## 2026-11-27 -- Tapit links and QR went to Tapit's home page, not /sign
+
+Found while checking the sign-in release live: production's
+`VITE_TAPIT_WALLET_URL` is the wallet's root (`https://tapit-wallet.netlify.app/`),
+and the code used it as the /sign page. Tapit reads `?req=` only on /sign; its
+home page ignores it. So every "Open Tapit" link and every QR (sign-in, link,
+sign-up) opened Tapit's home page and dropped the request -- the second
+reason the operator never saw a sign-in request. The inbox route (shipped
+4b459cd) never used this address. Fix: `walletSignUrl()` always ends in
+/sign, whether the setting names the root or /sign; test in
+`test-tapit-binding.mjs`. Also: `verify-live-bundle.mjs` read that setting by
+what sat next to it in the minified code, which broke when a constant moved
+in between; it now takes the one Tapit address in the bundle (a misread
+would make the rebuild differ, never pass wrongly). Re-run against 4b459cd:
+PASS.

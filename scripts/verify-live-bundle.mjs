@@ -63,7 +63,11 @@ const liveJs = (await get(entry)).toString('utf8');
 const env = {
   VITE_SUPABASE_URL: liveJs.match(/"(https:\/\/[a-z0-9]+\.supabase\.co\/?)"/)?.[1],
   VITE_SUPABASE_ANON_KEY: liveJs.match(/"(eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)"/)?.[1],
-  VITE_TAPIT_WALLET_URL: liveJs.match(/="\/api",[A-Za-z0-9_$]+="(https:\/\/[^"]+)"/)?.[1],
+  // The one Tapit wallet address in the bundle. (It used to be found by what
+  // sat next to it in the minified code, which broke when an unrelated
+  // constant moved in between, 2026-11-27.) If it were misread, the rebuild
+  // below would differ and this check would fail, never pass wrongly.
+  VITE_TAPIT_WALLET_URL: (() => { const u = [...new Set([...liveJs.matchAll(/"(https:\/\/[^"]*tapit[^"]*)"/g)].map(m => m[1]))]; return u.length === 1 ? u[0] : undefined; })(),
 };
 for (const [k, v] of Object.entries(env)) {
   if (!v) die(`UNVERIFIED: could not read the public setting ${k} out of the live bundle`);
