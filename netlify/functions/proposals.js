@@ -13,7 +13,7 @@ import { canMutate } from './_authz.js';
 import { getSupabaseAdmin } from './_supabase.js';
 import { refuseIfHeld } from './_duress-guard.js';
 import { changeProblem } from './_change-check.js';
-import { fetchTipHeight, MEMPOOL, mempoolFetch } from './_chain.js';
+import { fetchTipHeight, MEMPOOL, fetchTxPatiently } from './_chain.js';
 import { checkNumberBounds, MIN_FEE_RATE_SAT_VB, MAX_FEE_RATE_SAT_VB } from './_numeric.js';
 import { isLeafListVault } from './_vault-shape.js';
 import { jsGovernanceAuditLeafList } from './governance.js';
@@ -327,7 +327,7 @@ export async function handler(event) {
       const base = MEMPOOL[v?.network] || MEMPOOL.testnet;
       let tx;
       try {
-        tx = await mempoolFetch(`${base}/tx/${txid}`);
+        tx = await fetchTxPatiently(base, txid);
       } catch (e) {
         return json(400, { error: `Could not find transaction ${txid} on ${v?.network || 'testnet'}: ${e.message}` });
       }

@@ -10,7 +10,8 @@ import {
   type ProposalVote,
 } from "../lib/api";
 import { supabase } from "../lib/supabase";
-import { broadcastTxUrl, explorerTxUrl } from "../config";
+import { explorerTxUrl } from "../config";
+import { sendRawTx, recordBroadcast } from "../lib/broadcast";
 import { keyNeedsPassword, listKeys, revealMnemonic, type LocalKey } from "../lib/keystore";
 import {
   countSignatures,
@@ -456,17 +457,16 @@ export default function ProposalDetail() {
     setBusy(true);
     try {
       const finalized = await api.psbt.finalize(mergedPsbt);
-      const res = await fetch(broadcastTxUrl(vault.network), {
-        method: "POST",
-        body: finalized.raw_tx_hex,
-        headers: { "Content-Type": "text/plain" },
-      });
-      const txid = (await res.text()).trim();
-      if (!res.ok || txid.length !== 64) {
-        throw new Error("Broadcast failed: " + txid.slice(0, 100));
+      // Re-sending a transaction the network already has counts as sent
+      // (lib/broadcast.ts); recording it is retried, and a recording failure
+      // is reported as such, never as a failed send.
+      const txid = await sendRawTx(vault.network, finalized.raw_tx_hex, finalized.txid);
+      try {
+        await recordBroadcast(() => api.proposals.update(proposal.id, { status: "broadcast", txid }));
+        toast.success("Transaction broadcast");
+      } catch (e) {
+        toast.error(`Sent (${txid.slice(0, 12)}...), but not yet in this vault's history: ${e instanceof Error ? e.message : "could not record it"}. Press Broadcast again in a minute to record it -- it will not send twice.`);
       }
-      await api.proposals.update(proposal.id, { status: "broadcast", txid });
-      toast.success("Transaction broadcast");
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Broadcast failed");

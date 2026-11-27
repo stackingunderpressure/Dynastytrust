@@ -5149,3 +5149,21 @@ exit 0, typecheck the same 10 pre-existing errors, lint 0 errors / 9
 warnings, build ok, walk:screens OK. The production bundle before and after
 has the same JS files at the same byte sizes.
 Operator walked it live on his phone (2026-11-26, release c25da34): "Walked it, all looks the same."
+
+## 2026-11-27 -- a sent spend reported as "Could not find transaction ... 404"
+
+Operator's phone screenshot: after Broadcast on signet the Send screen showed
+"Could not find transaction 6118ab4f... on signet: mempool.space 404" and a
+"Retry broadcast" button. The transaction was in the signet mempool (checked
+on mempool.space). The send had worked; proposals.js PATCH looked it up once,
+immediately, before mempool.space had indexed it. Pressing Retry would have
+re-sent a transaction the network already had, which mempool.space refuses
+-- a second false failure. Fix: `_chain.js` `fetchTxPatiently` (retries "not
+found" for ~6 s; other errors final), used by the broadcast check;
+`lib/broadcast.ts` `sendRawTx` (a re-send the network already knows counts as
+sent, using the finalizer's txid; a txid mismatch is refused) and
+`recordBroadcast` (retries the record; a failure is reported as "the money is
+sent, not yet in history" with "Record it in history"), used by the Send
+screen and the request page. Test first: test-broadcast-record.mjs (5).
+Gates: npm test exit 0, lint 0 errors / 9 warnings, build ok, typecheck the
+same 10 pre-existing errors, walk:screens OK.

@@ -45,6 +45,24 @@ export async function mempoolFetch(url) {
   return res.json();
 }
 
+/**
+ * Look a transaction up, waiting for mempool.space to index one that was
+ * only just sent (operator's screenshot, 2026-11-26: a spend in the signet
+ * mempool reported as "Could not find transaction ... 404" seconds after it
+ * was sent). Retries only "not found"; any other error is final.
+ */
+export async function fetchTxPatiently(base, txid, { tries = 5, waitMs = 1500, fetchFn = fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  let last;
+  for (let i = 0; i < tries; i++) {
+    const res = await fetchFn(`${base}/tx/${txid}`);
+    if (res.ok) return res.json();
+    last = new Error(`mempool.space ${res.status}: ${base}/tx/${txid}`);
+    if (res.status !== 404) throw last;
+    if (i < tries - 1) await sleep(waitMs);
+  }
+  throw last;
+}
+
 /** Current recommended fee rate (sat/vB) for a network. Falls back to 5 sat/vB on any failure. */
 export async function getFeeRate(network) {
   try {

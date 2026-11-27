@@ -5,7 +5,8 @@ import { signPsbtWithMnemonic, mergePsbts, verifyPsbtMatchesRequest } from "../.
 import { whoSignsShort } from "../../lib/path-words";
 import { assembleLivenessGateInput } from "../../lib/liveness-gate";
 import { evaluateSigningGate, ceremonyFromProposal } from "@dynastytrust/policy-engine";
-import { broadcastTxUrl, explorerTxUrl } from "../../config";
+import { explorerTxUrl } from "../../config";
+import { sendRawTx, recordBroadcast } from "../../lib/broadcast";
 import { useToast } from "../../components/toast";
 import { useConfirm, usePrompt } from "../../components/dialog";
 import { colors, fonts, radii, } from "../../theme";
@@ -96,6 +97,22 @@ export function SendTab({ vault, balance, onDone, prefill, onPickCoins }: {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [signing, setSigning] = useState<SigningState | null>(null);
+  // Set when the spend was sent but recording it in the vault's history
+  // failed (lib/broadcast.ts) -- never shown as a failed send.
+  const [recordErr, setRecordErr] = useState<string | null>(null);
+  async function recordAgain() {
+    if (!signing?.proposal_id || !signing.txid) return;
+    const pid = signing.proposal_id, txid = signing.txid;
+    setBusy(true);
+    try {
+      await recordBroadcast(() => api.proposals.update(pid, { status: "broadcast", txid }));
+      setRecordErr(null);
+    } catch (e) {
+      setRecordErr(e instanceof Error ? e.message : "Could not record it");
+    } finally {
+      setBusy(false);
+    }
+  }
   // The review screen replaces the form: bring its top into view, not
   // leave the person at the bottom where "Review & sign" was.
   const reviewing = signing != null;
@@ -766,20 +783,25 @@ export function SendTab({ vault, balance, onDone, prefill, onPickCoins }: {
       // Finalize via Fly.io
       const finalized = await api.psbt.finalize(signing.psbt_hex);
 
-      const res = await fetch(broadcastTxUrl(vault.network), {
-        method: "POST",
-        body: finalized.raw_tx_hex,
-        headers: { "Content-Type": "text/plain" },
-      });
-      const txid = (await res.text()).trim();
+      // Sending again a transaction the network already has counts as sent
+      // (lib/broadcast.ts), so this button can safely be pressed twice.
+      const txid = await sendRawTx(vault.network, finalized.raw_tx_hex, finalized.txid);
+      // From here the money has moved: nothing below may call it a failure.
+      setSigning(prev => prev ? { ...prev, txid } : prev);
 
-      if (!res.ok || txid.length !== 64) {
-        throw new Error("Broadcast failed: " + txid.slice(0, 100));
-      }
-
-      // Update proposal
+      // Update proposal. mempool.space can take a few seconds to show a
+      // transaction that was just sent; the record is retried, and if it
+      // still fails the done screen says so and offers to record it.
+      let recorded = true;
       if (signing.proposal_id) {
-        await api.proposals.update(signing.proposal_id, { status: "broadcast", txid });
+        const pid = signing.proposal_id;
+        try {
+          await recordBroadcast(() => api.proposals.update(pid, { status: "broadcast", txid }));
+          setRecordErr(null);
+        } catch (e) {
+          recorded = false;
+          setRecordErr(e instanceof Error ? e.message : "Could not record it");
+        }
 
         // Close the loop on a beneficiary's distribution request: it
         // was pending/approved while this proposal was being built,
@@ -836,9 +858,10 @@ export function SendTab({ vault, balance, onDone, prefill, onPickCoins }: {
         }
       }
 
-      setSigning(prev => prev ? { ...prev, txid } : prev);
       setStep("done");
-      setTimeout(onDone, 3000);
+      // As before: on to History after a moment -- unless the record still
+      // needs doing, which the done screen offers.
+      if (recorded) setTimeout(onDone, 3000);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Broadcast failed");
     } finally {
@@ -881,6 +904,14 @@ export function SendTab({ vault, balance, onDone, prefill, onPickCoins }: {
         >
           View on mempool.space
         </a>
+        {recordErr ? (
+          <div style={{ marginTop: 20, textAlign: "left", fontSize: 16, color: colors.sub, lineHeight: 1.5 }}>
+            The money is sent. It isn't in this vault's history yet: {recordErr}
+            <Button style={{ width: "100%", marginTop: 12, minHeight: 44 }} disabled={busy} onClick={() => void recordAgain()}>
+              {busy ? "Recording..." : "Record it in history"}
+            </Button>
+          </div>
+        ) : null}
       </div>
     );
   }
