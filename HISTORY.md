@@ -5198,3 +5198,13 @@ collected); it passed before and after, 12 taps. Gates: npm test exit 0; lint
 0 errors / 9 warnings; typecheck the same 10 pre-existing errors; build ok.
 Left undone: splitting the money functions themselves. Full account:
 `docs/send-screen-split-build-note.md`.
+
+## 2026-11-27 -- Netlify on Node 22
+
+`netlify.toml` `NODE_VERSION` 20 -> 22 (Node 20 is end of life; relayed outside
+review). Released alone as 6bbc513 after the Send split (f546fc4). Live
+checks: `version.json` reports 6bbc513; `npm run verify:live` PASS, every file
+byte-identical to a clean build of that commit; `/api/health` 200; `/api/balance`
+for a signet address returned a real mempool.space answer; `vaults` 401 and
+`compile` 405 answered by the functions themselves. A signed-in action (compile,
+build a spend) was not exercised from here.
