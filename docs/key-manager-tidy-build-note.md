@@ -135,3 +135,47 @@ changes. This is the list and the page layout only.
   follow on its own.
 - Adding a Tapit key from this page. It still comes from the vault wizard.
 - Any change to how a key is locked, backed up or deleted.
+
+## Built (2026-11-27)
+
+Operator's chips:
+- account cards go below the keys;
+- tap a row for its actions;
+- the page opens on Phone keys.
+
+New files:
+- `pages/key-manager/KeyList.tsx`: the tabs, rows and the "Needs you" strip.
+- `pages/key-manager/kinds.ts`: which tab a key belongs on and how it
+  opens.
+
+`KeyManager.tsx` went from 1,489 to 1,265 lines.
+
+Measured at 375 px with one key of each kind: the page was 3,127 px tall
+and is now 2,225. The first key used to sit about 2,000 px down; it's now
+on the first screen. The Face ID and Tapit sign-in cards sit under their
+tab's keys.
+
+Three changes beyond the note, each found while building:
+- The opening tab was decided before the keys had loaded, so the page
+  always opened on Phone keys, even when that tab was empty. The screen walk
+  caught it. The opening tab is now worked out from the loaded keys until
+  the person picks one.
+- The key detail screen listed its actions (Edit, Back up, Archive, Delete,
+  and the password ones) at the very bottom, under the xpub and public key.
+  With every row action now behind that screen, they would have been
+  buried. They moved to the top of the detail screen; it's the same
+  buttons, in the same order.
+- Closing the detail screen now refreshes the list. Before, a key you
+  restored from Archived stayed on the wrong tab until the page reloaded.
+
+The persona chips show only when a tab holds more than four keys.
+
+Gates:
+- npm test: exit 0. The readability test caught a 13 px badge, which was
+  raised to 14.
+- lint: 0 errors, 9 warnings.
+- typecheck: the same 10 pre-existing errors.
+- build: ok.
+- `walk:screens`: OK, 13 taps. It adds a Keys check: the tabs exist, the
+  page opens on the tab that has keys, and opening a key shows Edit,
+  Archive and Delete on screen.

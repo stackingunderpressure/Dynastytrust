@@ -11,7 +11,7 @@ import { downloadFile } from "../lib/download-file";
 import { DOWNLOAD } from "../lib/download";
 import { useToast } from "../components/toast";
 import { useConfirm, usePrompt } from "../components/dialog";
-import { colors, fonts, radii, space, personaPalette } from "../theme";
+import { colors, fonts, radii, space } from "../theme";
 import { Button, Input, Label, Textarea } from "../components/ui";
 import { QrImage } from "../components/QrImage";
 import { XpubQrScanner } from "../components/XpubQrScanner";
@@ -21,6 +21,7 @@ import { TwoStepCard } from "../components/TwoStepCard";
 import { FaceIdLockAll } from "../components/FaceIdLockAll";
 import { FaceIdSignInSetting } from "../components/FaceIdSignIn";
 import { PasskeyProtect } from "../components/PasskeyProtect";
+import { KeyList } from "./key-manager/KeyList";
 import { KeySafety } from "../components/KeySafety";
 import { RESTORE_WARNING } from "../lib/key-education";
 import { passwordProblem } from "../lib/password-rules";
@@ -824,6 +825,59 @@ function DetailModal({
 
   return (
     <Modal title={k.label} onClose={onClose} wide>
+      {/* Actions first: the Keys list sends every action here (2026-11-27). */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+        <Button variant="ghost" style={{ fontSize: 17 }} onClick={onEdit}>
+          Edit
+        </Button>
+        {k.origin === "software" && (
+          <Button variant="ghost" style={{ fontSize: 17 }} onClick={onReveal}>
+            {k.testMnemonic ? "View recovery phrase" : "View / backup"}
+          </Button>
+        )}
+        {k.testMnemonic && (
+          <Button
+            variant="ghost"
+            style={{ fontSize: 17, color: colors.gold, borderColor: colors.goldDim }}
+            onClick={onSecure}
+          >
+            Add password
+          </Button>
+        )}
+        {k.origin === "software" && k.encryptedMnemonic && (
+          <>
+            <Button variant="ghost" style={{ fontSize: 17 }} onClick={onChangePassword}>
+              Change password
+            </Button>
+            {k.network !== "mainnet" && (
+              <Button variant="ghost" style={{ fontSize: 17 }} onClick={onRemovePassword}>
+                Remove password
+              </Button>
+            )}
+          </>
+        )}
+        <PasskeyProtect k={k} onChanged={onClose} />
+        {k.status === "active" && (
+          <Button variant="ghost" style={{ fontSize: 17 }} onClick={onArchive}>
+            Archive
+          </Button>
+        )}
+        {k.status === "archived" && (
+          <Button
+            variant="ghost"
+            style={{ fontSize: 17 }}
+            onClick={() => {
+              updateKeyStatus(k.keyId, "active");
+              onClose();
+            }}
+          >
+            Restore
+          </Button>
+        )}
+        <Button variant="danger" style={{ fontSize: 17, marginLeft: "auto" }} onClick={onDelete}>
+          Delete
+        </Button>
+      </div>
       <div style={{ background: colors.inset, borderRadius: 10, overflow: "hidden", marginBottom: 14 }}>
         {rows.map(([rowLabel, value]) => (
           <div
@@ -936,58 +990,6 @@ function DetailModal({
           </div>
         </div>
       )}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <Button variant="ghost" style={{ fontSize: 17 }} onClick={onEdit}>
-          Edit
-        </Button>
-        {k.origin === "software" && (
-          <Button variant="ghost" style={{ fontSize: 17 }} onClick={onReveal}>
-            {k.testMnemonic ? "View recovery phrase" : "View / backup"}
-          </Button>
-        )}
-        {k.testMnemonic && (
-          <Button
-            variant="ghost"
-            style={{ fontSize: 17, color: colors.gold, borderColor: colors.goldDim }}
-            onClick={onSecure}
-          >
-            Add password
-          </Button>
-        )}
-        {k.origin === "software" && k.encryptedMnemonic && (
-          <>
-            <Button variant="ghost" style={{ fontSize: 17 }} onClick={onChangePassword}>
-              Change password
-            </Button>
-            {k.network !== "mainnet" && (
-              <Button variant="ghost" style={{ fontSize: 17 }} onClick={onRemovePassword}>
-                Remove password
-              </Button>
-            )}
-          </>
-        )}
-        <PasskeyProtect k={k} onChanged={onClose} />
-        {k.status === "active" && (
-          <Button variant="ghost" style={{ fontSize: 17 }} onClick={onArchive}>
-            Archive
-          </Button>
-        )}
-        {k.status === "archived" && (
-          <Button
-            variant="ghost"
-            style={{ fontSize: 17 }}
-            onClick={() => {
-              updateKeyStatus(k.keyId, "active");
-              onClose();
-            }}
-          >
-            Restore
-          </Button>
-        )}
-        <Button variant="danger" style={{ fontSize: 17, marginLeft: "auto" }} onClick={onDelete}>
-          Delete
-        </Button>
-      </div>
     </Modal>
   );
 }
@@ -1011,36 +1013,12 @@ export default function KeyManager() {
   const askPrompt = usePrompt();
   const [keys, setKeys] = useState<LocalKey[]>([]);
   const [modal, setModal] = useState<ModalState | null>(null);
-  const [filter, setFilter] = useState<"active" | "archived" | "all">("active");
-  const [search, setSearch] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   const reload = useCallback(() => setKeys(listAllKeys()), []);
   useEffect(() => {
     reload();
   }, [reload]);
-
-  const personas = ["all", ...Array.from(new Set(keys.map(k => k.persona)))];
-  const [personaFilter, setPersonaFilter] = useState("all");
-
-  const visible = keys.filter(k => {
-    if (filter === "active" && k.status !== "active") return false;
-    if (filter === "archived" && k.status === "active") return false;
-    if (personaFilter !== "all" && k.persona !== personaFilter) return false;
-    if (
-      search &&
-      !k.label.toLowerCase().includes(search.toLowerCase()) &&
-      !k.fingerprint.includes(search.toLowerCase())
-    )
-      return false;
-    return true;
-  });
-
-  const palette = personaPalette;
-  const personaColors: Record<string, string> = {};
-  Array.from(new Set(keys.map(k => k.persona))).forEach((p, i) => {
-    personaColors[p] = palette[i % palette.length];
-  });
 
   async function handleArchive(keyId: string) {
     if (!(await confirm({ title: "Archive key", message: "Archive this key? It will be hidden from the active list but not deleted." }))) return;
@@ -1110,257 +1088,52 @@ export default function KeyManager() {
     e.target.value = "";
   }
 
-  const activeCount = keys.filter(k => k.status === "active").length;
-  const archivedCount = keys.filter(k => k.status === "archived").length;
-
   return (
     <div style={{ fontFamily: fonts.sans }}>
-      {/* Tapit sign-in, Face ID sign-in and two-step sign-in all belong to
-          the account; the download has none. Locking keys stays. */}
-      {!DOWNLOAD && <WalletLinkCard />}
-      <FaceIdLockAll keysVersion={keys.length + keys.filter(k => k.passkeyMnemonic).length} onChanged={reload} />
-      {!DOWNLOAD && <FaceIdSignInSetting />}
-      {!DOWNLOAD && <AccountPrivacyCard />}
-      {!DOWNLOAD && (
-        <div style={{ marginBottom: 16 }}>
-          <TwoStepCard />
+      <KeyList
+        keys={keys}
+        onOpen={key => setModal({ type: "detail", key })}
+        onBackup={key => setModal({ type: "reveal", key })}
+        onGenerate={() => setModal({ type: "generate" })}
+        onRestore={() => setModal({ type: "restore" })}
+        onImportXpub={() => setModal({ type: "import" })}
+        phoneTop={<FaceIdLockAll keysVersion={keys.length + keys.filter(k => k.passkeyMnemonic).length} onChanged={reload} />}
+        tapitTop={!DOWNLOAD ? <WalletLinkCard /> : undefined}
+        accountId="account-and-sign-in"
+      />
+
+      {/* Smaller tools, below the keys. */}
+      <div style={{ marginTop: 22, paddingTop: 14, borderTop: `1px solid ${colors.border}` }}>
+        <p style={{ fontSize: 16, color: colors.muted, lineHeight: 1.5, margin: "0 0 10px" }}>
+          Keys live only in this browser, on this device. If you clear its data or change phones, each key comes
+          back only from the words you wrote down for it. The key list file below holds public keys only -- it is
+          not a backup of your words.
+        </p>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <Button variant="ghost" size="sm" style={{ minHeight: 44 }} onClick={doExport}>Export key list (JSON)</Button>
+          <Button variant="ghost" size="sm" style={{ minHeight: 44 }} onClick={() => fileRef.current?.click()}>Import key list</Button>
+          <input ref={fileRef} type="file" accept=".json" style={{ display: "none" }} onChange={doImport} />
         </div>
-      )}
-      <div style={{ marginBottom: 16 }}>
         <Link
           to="/recover-descriptor"
-          style={{ color: colors.muted, fontSize: 17, textDecoration: "underline" }}
+          style={{ display: "inline-block", marginTop: 12, color: colors.muted, fontSize: 16, textDecoration: "underline", lineHeight: 1.5 }}
         >
           Found a key but not sure which vault it belongs to? Check for a hidden recovery share
         </Link>
       </div>
-      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-        <Button style={{ background: colors.green, fontSize: 17 }} onClick={() => setModal({ type: "generate" })}>
-          + New key
-        </Button>
-        <Button variant="ghost" onClick={() => setModal({ type: "restore" })}>
-          Restore from words
-        </Button>
-        <Button variant="ghost" onClick={() => setModal({ type: "import" })}>
-          Import xpub
-        </Button>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <Button variant="ghost" onClick={doExport}>
-            Export JSON
-          </Button>
-          <Button variant="ghost" onClick={() => fileRef.current?.click()}>
-            Import JSON
-          </Button>
-          <input ref={fileRef} type="file" accept=".json" style={{ display: "none" }} onChange={doImport} />
-        </div>
-      </div>
-      <p style={{ fontSize: 17, color: colors.sub, lineHeight: 1.55, margin: "0 0 16px" }}>
-        Your keys live only in this browser, on this device. If you clear the browser's data or change phones,
-        each key comes back only from the words you wrote down for it (Restore from words). Export JSON saves
-        public keys only -- it is not a backup of your words.
-      </p>
 
-      <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
-        <Input
-          placeholder="Search by name or fingerprint..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{ flex: 1, minWidth: 160, padding: "8px 12px" }}
-        />
-        <div style={{ display: "flex", gap: 4 }}>
-          {(["active", "archived", "all"] as const).map(f => (
-            <Button
-              key={f}
-              variant="ghost"
-              size="sm"
-              onClick={() => setFilter(f)}
-              style={{
-                padding: "6px 12px",
-                fontSize: 16,
-                borderColor: filter === f ? colors.gold : colors.border,
-                color: filter === f ? colors.gold : colors.sub,
-              }}
-            >
-              {f === "active" ? "Active (" + activeCount + ")" : f === "archived" ? "Archived (" + archivedCount + ")" : "All"}
-            </Button>
-          ))}
-        </div>
-      </div>
-
-      {personas.length > 2 && (
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
-          {personas.map(p => {
-            const accent = p === "all" ? colors.gold : (personaColors[p] ?? colors.gold);
-            const active = personaFilter === p;
-            return (
-              <Button
-                key={p}
-                variant="ghost"
-                size="sm"
-                onClick={() => setPersonaFilter(p)}
-                style={{
-                  padding: "4px 11px",
-                  fontSize: 16,
-                  borderColor: active ? accent : colors.border,
-                  color: active ? accent : colors.sub,
-                }}
-              >
-                {p === "all" ? "All personas" : p}
-              </Button>
-            );
-          })}
-        </div>
+      {/* Tapit sign-in (in the Tapit tab), Face ID sign-in and two-step
+          sign-in all belong to the account; the download has none. */}
+      {!DOWNLOAD && (
+        <section id="account-and-sign-in" style={{ marginTop: 26, scrollMarginTop: 80 }}>
+          <h2 style={{ fontSize: 19, fontWeight: 600, color: colors.text, fontFamily: fonts.display, margin: "0 0 12px" }}>
+            Account &amp; sign-in
+          </h2>
+          <FaceIdSignInSetting />
+          <AccountPrivacyCard />
+          <TwoStepCard />
+        </section>
       )}
-
-      {visible.length === 0 && (
-        <div
-          style={{
-            textAlign: "center",
-            padding: "56px 24px",
-            background: colors.surface,
-            borderRadius: 14,
-            border: `1px solid ${colors.border}`,
-          }}
-        >
-          <p style={{ fontSize: 18, fontWeight: 600, color: colors.text, marginBottom: 8 }}>
-            {search ? "No keys match your search" : "Start with a key"}
-          </p>
-          <p
-            style={{
-              color: colors.muted,
-              fontSize: 17,
-              maxWidth: 380,
-              margin: "0 auto 24px",
-              lineHeight: 1.55,
-            }}
-          >
-            {search
-              ? "Try a different search term."
-              : "A key is one signer in a vault. Each person (founder, heir) holds their own. Keys never leave this browser. Generate one -- Face ID locks it on this phone -- or make an unlocked test key to explore."}
-          </p>
-          {!search && (
-            <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
-              <Button style={{ background: colors.green }} onClick={() => setModal({ type: "generate" })}>
-                Generate a key
-              </Button>
-              <Button variant="ghost" onClick={() => setModal({ type: "restore" })}>
-                I have my recovery words
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {Array.from(new Set(visible.map(k => k.persona))).map(persona => (
-        <div key={persona} style={{ marginBottom: 22 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <span style={{ fontSize: 17, fontWeight: 600, color: personaColors[persona] ?? colors.gold }}>
-              {persona}
-            </span>
-            <span style={{ fontSize: 15, color: colors.muted }}>
-              {visible.filter(k => k.persona === persona).length} key(s)
-            </span>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-            {visible
-              .filter(k => k.persona === persona)
-              .map(key => (
-                <div
-                  key={key.keyId}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 14,
-                    background: colors.surface,
-                    border: `1px solid ${colors.border}`,
-                    borderRadius: 12,
-                    padding: "13px 16px",
-                    cursor: "pointer",
-                  }}
-                  onClick={() => setModal({ type: "detail", key })}
-                >
-                  <div
-                    style={{
-                      width: 38,
-                      height: 38,
-                      borderRadius: 9,
-                      flexShrink: 0,
-                      background: key.origin === "tapit" ? colors.gold + "14" : key.testMnemonic ? colors.green + "14" : colors.blue + "14",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: 18,
-                    }}
-                  >
-                    {key.origin === "tapit" ? "🔐" : key.origin === "software" ? (key.testMnemonic ? "T" : "S") : "H"}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 17, fontWeight: 600, color: colors.text }}>{key.label}</span>
-                      {key.origin === "tapit" && (
-                        <span style={{ fontSize: 14, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: colors.gold + "22", color: colors.gold }}>
-                          TAPIT
-                        </span>
-                      )}
-                      {key.testMnemonic && (
-                        <span style={{ fontSize: 14, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: colors.green + "22", color: colors.green }}>
-                          TEST
-                        </span>
-                      )}
-                      {key.status === "archived" && (
-                        <span style={{ fontSize: 14, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: colors.muted + "22", color: colors.muted }}>
-                          ARCHIVED
-                        </span>
-                      )}
-                      {!key.backedUp && key.origin === "software" && (
-                        <span style={{ fontSize: 14, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: colors.orange + "22", color: colors.orange }}>
-                          NOT BACKED UP
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 15, fontFamily: fonts.mono, color: colors.muted }}>
-                        {key.fingerprint}
-                      </span>
-                      <span style={{ fontSize: 15, color: key.network === "mainnet" ? colors.gold : colors.green }}>
-                        {key.network.toUpperCase()}
-                      </span>
-                      <span style={{ fontSize: 15, color: colors.muted }}>{key.derivationPath}</span>
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", gap: 8, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      style={{ fontSize: 16, padding: "5px 10px" }}
-                      onClick={() => setModal({ type: "edit", key })}
-                    >
-                      Edit
-                    </Button>
-                    {key.origin === "software" && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        style={{ fontSize: 16, padding: "5px 10px" }}
-                        onClick={() => setModal({ type: "reveal", key })}
-                      >
-                        {key.testMnemonic ? "Phrase" : "Backup"}
-                      </Button>
-                    )}
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      style={{ fontSize: 16, padding: "5px 10px" }}
-                      onClick={() => handleDelete(key.keyId)}
-                    >
-                      Delete
-                    </Button>
-                  </div>
-                </div>
-              ))}
-          </div>
-        </div>
-      ))}
 
       {modal?.type === "generate" && (
         <GenerateKeyModal
@@ -1442,7 +1215,10 @@ export default function KeyManager() {
       {modal?.type === "detail" && (
         <DetailModal
           k={modal.key}
-          onClose={() => setModal(null)}
+          onClose={() => {
+            reload();
+            setModal(null);
+          }}
           onReveal={() => setModal({ type: "reveal", key: modal.key })}
           onSecure={() => setModal({ type: "upgrade", key: modal.key })}
           onChangePassword={() => setModal({ type: "change-password", key: modal.key })}

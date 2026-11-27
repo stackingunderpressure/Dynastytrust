@@ -5208,3 +5208,16 @@ byte-identical to a clean build of that commit; `/api/health` 200; `/api/balance
 for a signet address returned a real mempool.space answer; `vaults` 401 and
 `compile` 405 answered by the functions themselves. A signed-in action (compile,
 build a spend) was not exercised from here.
+
+## 2026-11-27 -- Key Manager: tabs by kind, compact rows
+
+Operator: "Tabs for each kind of key instead of mixed. Tapit keys also a tab."
+Tabs: Phone keys / Hardware / Tapit / Test / Archived, each with a count and an
+orange dot for a key not backed up; a "Needs you" strip lists only what's
+outstanding. Rows are two lines (name + how it opens, fingerprint, network,
+persona); tapping one opens the detail screen, whose actions now sit at its
+top. Account and sign-in cards moved below the keys. Fixed while building: the
+opening tab was chosen before the keys loaded, and the list didn't refresh
+after restoring an archived key. Gates: npm test exit 0; lint 0 errors;
+typecheck the same 10; build ok; walk:screens OK, 13 taps. Full account:
+`docs/key-manager-tidy-build-note.md`.

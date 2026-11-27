@@ -200,6 +200,22 @@ async function main() {
       await shot(page, 'send-cancel-ask', 'Cancel asks first');
       await context.close();
     }
+    { // Keys page: tabs by kind; the seeded test key opens on its tab, and
+      // tapping its row offers every action (Phrase, Archive, Delete).
+      const { context, page } = await newPage(browser);
+      await page.goto(`${BASE}/keys`);
+      await page.getByRole('tab', { name: /Phone keys/ }).first().waitFor({ timeout: 30000 });
+      for (const t of ['Phone keys', 'Hardware', 'Tapit', 'Test']) {
+        if (!(await page.getByRole('tab', { name: new RegExp(t) }).count())) failures.push(`Keys: no "${t}" tab`);
+      }
+      if ((await page.getByRole('tab', { name: /Test/ }).first().getAttribute('aria-selected')) !== 'true') failures.push('Keys: with no phone keys, the page should open on the Test tab');
+      const d = await tap(page, page.getByRole('button', { name: /My phone key: details/ }).first(), 'Keys: open a key', 1500, ['Archive', 'Delete', 'Edit']);
+      expectInView(d, ['Archive', 'Edit']);
+      expectInView(d, ['Delete']);
+      for (const n of ['Archive', 'View recovery phrase', 'Edit']) if (!(await page.getByRole('button', { name: n, exact: true }).count())) failures.push(`Keys: detail screen has no "${n}"`);
+      await shot(page, 'keys-detail', 'Keys page, a key opened');
+      await context.close();
+    }
     { // More: the four other tabs appear on screen.
       const { context, page } = await newPage(browser);
       await page.goto(VAULT_URL); await ready(page);
