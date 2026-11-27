@@ -6,6 +6,7 @@ import { useToast } from "../../components/toast";
 import { colors, fonts, radii } from "../../theme";
 import { Button, Input, Label } from "../../components/ui";
 import { pubkeyFromXpub } from "../../lib/xpub";
+import { trancheTrusteeOptions } from "../../lib/tranche-trustees";
 import { buildPsbtKeyOrigins } from "../../lib/descriptor-keys";
 import { tipHeight } from "../../lib/chain";
 import { blocksToLabel } from "./shared";
@@ -53,27 +54,16 @@ export function DistributionWalletCreator({
       .catch(() => setFirstUnlockBlockText("100000"));
   }, [vault.network]);
 
-  // vault.founder_keys already holds pubkey hex (the /0/0 child,
-  // per the Nunchuk key-material parity fix) for any vault compiled
-  // under the current PolicyBuilder -- calling pubkeyFromXpub on
-  // that unconditionally threw, since HDKey.fromExtendedKey rejects
-  // a bare hex string. Mirror the same defensive length check
-  // buildAndSign already uses for this exact ambiguity (a handful
-  // of pre-fix vaults may still hold a bare xpub) instead of
-  // assuming one shape.
-  function deriveTrusteePubkeys(): string[] {
-    const pubkeys: string[] = [];
-    for (const x of vault.founder_keys) {
-      if (typeof x !== "string") continue;
-      if (x.length === 66) { pubkeys.push(x); continue; }
-      try {
-        pubkeys.push(pubkeyFromXpub(x));
-      } catch {
-        /* skip malformed rows */
-      }
-    }
-    return pubkeys;
-  }
+  // Who can use the "Trustee escape" on these tranches. Path-builder
+  // vaults have no founder_keys, so the trustees come from a path that
+  // opens right away -- see lib/tranche-trustees.ts for why must-sign and
+  // wellness-check paths are never offered.
+  const trusteeOptions = trancheTrusteeOptions(vault);
+  const [trusteeChoiceId, setTrusteeChoiceId] = useState(
+    () => trusteeOptions.choices[0]?.id ?? "",
+  );
+  const trusteeChoice =
+    trusteeOptions.choices.find(c => c.id === trusteeChoiceId) ?? trusteeOptions.choices[0];
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
@@ -82,6 +72,7 @@ export function DistributionWalletCreator({
     if (amountSats < 546) { setErr("Amount per tranche must be at least 546 sats"); return; }
     if (trancheCount < 1 || trancheCount > 60) { setErr("Tranche count must be 1-60"); return; }
     if (!firstUnlockBlock || firstUnlockBlock < 1) { setErr("First unlock block required"); return; }
+    if (!trusteeChoice) { setErr("This vault has no path that can back a tranche -- see the note under Backup."); return; }
 
     let beneficiaryPubkey = "";
     let beneficiaryXpubEffective = beneficiaryXpub.trim();
@@ -106,7 +97,7 @@ export function DistributionWalletCreator({
     setBusy(true);
     setErr(null);
     try {
-      const trusteeKeys = await deriveTrusteePubkeys();
+      const trusteeKeys = trusteeChoice.keys;
 
       // BIP32 origins for hardware-wallet compatibility (2026-08-12 fix --
       // the same 2026-08-06 fix already applied to the standard vault and
@@ -154,7 +145,7 @@ export function DistributionWalletCreator({
           network: vault.network,
           beneficiary_key: beneficiaryPubkey,
           trustee_keys: trusteeKeys,
-          trustee_quorum: vault.founder_quorum,
+          trustee_quorum: trusteeChoice.quorum,
           unlock_block: unlock,
         });
         tranches.push({
@@ -172,7 +163,7 @@ export function DistributionWalletCreator({
         beneficiary_xpub: beneficiaryXpubEffective,
         beneficiary_pubkey: beneficiaryPubkey,
         trustee_keys: trusteeKeys,
-        trustee_quorum: vault.founder_quorum,
+        trustee_quorum: trusteeChoice.quorum,
         network: vault.network,
         tranches,
         key_origins: keyOrigins,
@@ -293,9 +284,49 @@ export function DistributionWalletCreator({
           </div>
         </div>
       </div>
+      <div>
+        <Label>Backup (trustee escape)</Label>
+        {trusteeOptions.choices.length > 1 ? (
+          <select
+            value={trusteeChoice?.id ?? ""}
+            onChange={e => setTrusteeChoiceId(e.target.value)}
+            style={{
+              width: "100%",
+              padding: "8px 10px",
+              background: colors.bg,
+              border: `1px solid ${colors.border}`,
+              borderRadius: radii.md,
+              color: colors.text,
+              fontFamily: fonts.sans,
+              fontSize: 17,
+            }}
+          >
+            {trusteeOptions.choices.map(c => (
+              <option key={c.id} value={c.id}>
+                {c.label} ({c.quorum} of {c.keys.length})
+              </option>
+            ))}
+          </select>
+        ) : trusteeChoice ? (
+          <div style={{ fontSize: 16 }}>
+            {trusteeChoice.label}: {trusteeChoice.quorum} of {trusteeChoice.keys.length}{" "}
+            {trusteeChoice.keys.length === 1 ? "key" : "keys"}
+          </div>
+        ) : (
+          <div style={{ fontSize: 16, color: colors.orange }}>
+            No path in this vault can back a tranche. It needs a path that opens
+            right away, with no must-sign keys and no wellness check.
+          </div>
+        )}
+        <div style={{ fontSize: 15, color: colors.muted, marginTop: 4 }}>
+          These keys can move a tranche at any time -- the way back if the
+          beneficiary loses their key before it unlocks.
+          {trusteeOptions.skipped.map(s => ` "${s.label}" is not offered: ${s.reason}.`).join("")}
+        </div>
+      </div>
       {err && <div style={{ color: colors.orange, fontSize: 16 }}>{err}</div>}
       <div style={{ fontSize: 15, color: colors.muted }}>
-        Compiles one Taproot address per tranche via the Fly.io
+        Compiles one Taproot address per tranche with the vault
         compiler. Each tranche: beneficiary alone after its unlock
         block, or trustees any time (escape hatch).
       </div>
