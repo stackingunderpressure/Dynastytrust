@@ -1,29 +1,22 @@
 import { useEffect, useState } from "react";
 import { api, type Vault, type BalanceResult, type StipendInterval } from "../../lib/api";
-import { keyNeedsPassword, listKeys, revealMnemonic, type LocalKey } from "../../lib/keystore";
+import { keyNeedsPassword, listKeys, revealMnemonic } from "../../lib/keystore";
 import { signPsbtWithMnemonic, mergePsbts, verifyPsbtMatchesRequest } from "../../lib/psbt-signer";
-import { whoSignsShort } from "../../lib/path-words";
 import { assembleLivenessGateInput } from "../../lib/liveness-gate";
 import { evaluateSigningGate, ceremonyFromProposal } from "@dynastytrust/policy-engine";
-import { explorerTxUrl } from "../../config";
 import { sendRawTx, recordBroadcast } from "../../lib/broadcast";
 import { useToast } from "../../components/toast";
 import { useConfirm, usePrompt } from "../../components/dialog";
-import { colors, fonts, radii, } from "../../theme";
-import { Button, Input, Label } from "../../components/ui";
-import { PsbtQrDisplay } from "../../components/PsbtQrDisplay";
-import { PsbtQrScanner } from "../../components/PsbtQrScanner";
 import { checkFreshSpendAddresses, isFreshAddressVault } from "../../lib/fresh-addresses";
 import { pubkeyFromXpub } from "../../lib/xpub";
 import { findSpendingPath, signaturesNeeded } from "../../lib/vault-spending-paths";
 import { signaturesTowardPath as sendSignaturesToward } from "../../lib/send-signatures";
 import { blocDecayLadder } from "../../lib/blocks";
-import { selectStyle } from "../../components/vault-builder";
-import { NotifyCircleViaNostr } from "../../components/NotifyCircleViaNostr";
-import { SeedSignerNetworkHint } from "../../components/SeedSignerNetworkHint";
-import { ExternalPsbtInput } from "./ExternalPsbtInput";
-import { UtxosSection } from "./UtxosSection";
 import { advanceDueDate, blocksToLabel, psbtBindingHash, satsToBtc } from "./shared";
+import { SendDone } from "./SendDone";
+import { SendForm } from "./SendForm";
+import { SendSigning } from "./SendSigning";
+import type { BlocPath, SigningState } from "./send-types";
 
 
 // // -- Send tab
@@ -57,23 +50,6 @@ export interface SendPrefill {
   // broadcast that tranche's funded_txid is patched in.
   distribution_wallet_id?: string;
   tranche_index?: number;
-}
-
-interface SigningState {
-  psbt_hex: string;
-  psbt_b64: string;
-  summary: {
-    amount_sats: number;
-    fee_sats: number;
-    change_sats: number;
-    fee_rate: number;
-    destination: string;
-  };
-  proposal_id?: string;
-  signers: Array<{ key: LocalKey; status: "pending" | "signing" | "signed" | "error"; error?: string }>;
-  signaturesCollected: number;
-  requiredSignatures: number;
-  txid?: string;
 }
 
 export function SendTab({ vault, balance, onDone, prefill, onPickCoins }: {
@@ -125,12 +101,8 @@ export function SendTab({ vault, balance, onDone, prefill, onPickCoins }: {
       window.scrollTo({ top: window.scrollY + target.getBoundingClientRect().top - bar - 8, behavior: "smooth" });
     });
   }, [reviewing]);
-  const [pickCoins, setPickCoins] = useState(false);
   const confirmCancel = useConfirm();
-  const [copied, setCopied] = useState<string | null>(null);
   const [slowHint, setSlowHint] = useState(false);
-  const [showQrDisplay, setShowQrDisplay] = useState(false);
-  const [showQrScanner, setShowQrScanner] = useState(false);
   // 2026-08-15 (operator: "did max spend should be no change but there
   // was some back to wallet miscalculation") -- the old "Max" button
   // wrote a GUESSED amount (balance minus a flat 2000-sat fee estimate)
@@ -149,7 +121,7 @@ export function SendTab({ vault, balance, onDone, prefill, onPickCoins }: {
   // standard vaults, which only ever propose founders_now.
   const bp = vault.bloc_policy;
   const blocLadder = bp ? blocDecayLadder(bp) : [];
-  const [blocPath, setBlocPath] = useState<"parents_now" | "coparent_kids" | "parent_solo" | "kids_decay">("parents_now");
+  const [blocPath, setBlocPath] = useState<BlocPath>("parents_now");
   const [blocRungIdx, setBlocRungIdx] = useState(0);
 
   // A custom leaf-list vault never populates founder_keys/heir_keys/
@@ -869,690 +841,60 @@ export function SendTab({ vault, balance, onDone, prefill, onPickCoins }: {
     }
   }
 
+  // Cancel this spend: lifted unchanged from the signing screen's button.
+  async function cancelSpend() {
+    // This used to only clear the form: the spend stayed open in
+    // History, waiting on signatures nobody meant to give.
+    const id = signing?.proposal_id;
+    if (id && !signing?.txid && signing && signing.signaturesCollected > 0) {
+      const ok = await confirmCancel({ title: "Cancel this spend?", message: "The signatures collected so far are discarded.", confirmLabel: "Cancel this spend", danger: true });
+      if (!ok) return;
+    }
+    if (id && !signing?.txid) {
+      try {
+        await api.proposals.update(id, { status: "cancelled" });
+      } catch (e) {
+        setErr(`This spend could not be cancelled: ${e instanceof Error ? e.message : "failed"}. It is still open in History.`);
+        return;
+      }
+    }
+    setStep("form");
+    setSigning(null);
+    setErr(null);
+  }
+  function leaveOpen() {
+    setStep("form");
+    setSigning(null);
+    setErr(null);
+  }
+
   // Done screen
   if (step === "done" && signing?.txid) {
-    return (
-      <div
-        style={{
-          background: colors.successBg,
-          border: `1px solid ${colors.green}44`,
-          borderRadius: 16,
-          padding: 32,
-          textAlign: "center",
-        }}
-      >
-        <div style={{ fontSize: 52, marginBottom: 12 }}>sent</div>
-        <div style={{ fontSize: 20, fontWeight: 600, color: colors.green, marginBottom: 8 }}>
-          Transaction broadcast
-        </div>
-        <div
-          style={{
-            fontFamily: fonts.mono,
-            fontSize: 15,
-            color: colors.muted,
-            marginBottom: 20,
-            wordBreak: "break-all",
-          }}
-        >
-          {signing.txid}
-        </div>
-        <a
-          href={explorerTxUrl(vault.network, signing.txid)}
-          target="_blank"
-          rel="noreferrer"
-          style={{ color: colors.gold, fontSize: 17 }}
-        >
-          View on mempool.space
-        </a>
-        {recordErr ? (
-          <div style={{ marginTop: 20, textAlign: "left", fontSize: 16, color: colors.sub, lineHeight: 1.5 }}>
-            The money is sent. It isn't in this vault's history yet: {recordErr}
-            <Button style={{ width: "100%", marginTop: 12, minHeight: 44 }} disabled={busy} onClick={() => void recordAgain()}>
-              {busy ? "Recording..." : "Record it in history"}
-            </Button>
-          </div>
-        ) : null}
-      </div>
-    );
+    return <SendDone vault={vault} signing={{ txid: signing.txid }} recordErr={recordErr} busy={busy} recordAgain={recordAgain} />;
   }
 
   // Signing screen
   if (step === "signing" && signing) {
-    const quorumMet = signing.signaturesCollected >= signing.requiredSignatures;
-    const needed = signing.requiredSignatures - signing.signaturesCollected;
-
-    function copyPsbt(text: string, id: string) {
-      navigator.clipboard.writeText(text);
-      setCopied(id);
-      setTimeout(() => setCopied(null), 1600);
-    }
-
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        {/* Summary card */}
-        <div
-          style={{
-            background: colors.surface,
-            border: `1px solid ${colors.border}`,
-            borderRadius: 12,
-            padding: 20,
-          }}
-        >
-          <div style={{ fontSize: 17, fontWeight: 600, color: colors.text, marginBottom: 14 }}>
-            Transaction
-          </div>
-          {[
-            ["To", signing.summary.destination],
-            ["Amount", `${satsToBtc(signing.summary.amount_sats)} BTC`],
-            ["Fee", `${satsToBtc(signing.summary.fee_sats)} BTC (~${signing.summary.fee_rate} sat/vb)`],
-            ["Change back", `${satsToBtc(signing.summary.change_sats)} BTC`],
-          ].map(([k, v]) => (
-            <div
-              key={k}
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                padding: "8px 0",
-                borderBottom: `1px solid ${colors.border}`,
-              }}
-            >
-              <span style={{ fontSize: 17, color: colors.muted }}>{k}</span>
-              <span
-                style={{
-                  fontSize: 17,
-                  color: colors.text,
-                  fontFamily: k === "To" ? fonts.mono : "inherit",
-                  wordBreak: "break-all",
-                  textAlign: "right",
-                  maxWidth: "60%",
-                }}
-              >
-                {v}
-              </span>
-            </div>
-          ))}
-
-          {/* Signature progress */}
-          <div style={{ marginTop: 14 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-              <span style={{ fontSize: 16, color: colors.muted }}>Signatures</span>
-              <span style={{ fontSize: 16, color: quorumMet ? colors.green : colors.orange }}>
-                {signing.signaturesCollected} / {signing.requiredSignatures} required
-              </span>
-            </div>
-            <div style={{ height: 4, background: colors.border, borderRadius: 2 }}>
-              <div
-                style={{
-                  height: "100%",
-                  borderRadius: 2,
-                  background: quorumMet ? colors.green : colors.gold,
-                  width: `${Math.min(100, (signing.signaturesCollected / signing.requiredSignatures) * 100)}%`,
-                  transition: "width 0.3s",
-                }}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Browser keys signing -- Tapit-origin keys hold no local private
-            material (importTapitPubkey stores pubkey only, see keystore.ts)
-            so they can never actually unlock here; they're excluded from
-            this list and only ever offered via "Notify circle via Nostr"
-            below, which is what they were always meant for. Filtering by
-            index (not a plain .filter()) keeps each row's signWithKey(i)
-            call pointed at the right entry in the full signing.signers
-            array, which NotifyCircleViaNostr and the quorum progress bar
-            above both still read unfiltered. */}
-        {signing.signers.some(s => s.key.origin !== "tapit") && (
-          <div
-            style={{
-              background: colors.surface,
-              border: `1px solid ${colors.border}`,
-              borderRadius: 12,
-              padding: 20,
-            }}
-          >
-            <div style={{ fontSize: 17, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
-              Sign with browser keys
-            </div>
-            <div style={{ fontSize: 16, color: colors.muted, marginBottom: 14 }}>
-              Tap a key to sign.{" "}
-              {signing.requiredSignatures > 1
-                ? `Need ${signing.requiredSignatures} signatures.`
-                : "Only 1 signature needed."}
-            </div>
-            {signing.signers.map((signer, i) => {
-              if (signer.key.origin === "tapit") return null;
-              const statusIcon =
-                signer.status === "signed"
-                  ? "Signed"
-                  : signer.status === "signing"
-                    ? "Signing..."
-                    : signer.status === "error"
-                      ? "Error"
-                      : "Tap to sign";
-              const accent =
-                signer.status === "signed"
-                  ? colors.green
-                  : signer.status === "error"
-                    ? colors.red
-                    : signer.status === "signing"
-                      ? colors.gold
-                      : colors.muted;
-              return (
-                <div
-                  key={signer.key.keyId}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "12px 14px",
-                    borderRadius: 10,
-                    marginBottom: 8,
-                    background: signer.status === "signed" ? `${colors.green}0D` : colors.inset,
-                    border: `1px solid ${signer.status === "signed" ? `${colors.green}44` : colors.border}`,
-                    cursor:
-                      signer.status === "pending" || signer.status === "error"
-                        ? "pointer"
-                        : "default",
-                    opacity: signer.status === "signing" ? 0.7 : 1,
-                  }}
-                  onClick={() =>
-                    (signer.status === "pending" || signer.status === "error") &&
-                    void signWithKey(i)
-                  }
-                >
-                  <div>
-                    <div style={{ fontSize: 17, fontWeight: 500, color: colors.text }}>
-                      {signer.key.label}
-                    </div>
-                    <div style={{ fontSize: 15, color: colors.muted }}>
-                      {signer.key.persona} / {signer.key.fingerprint}
-                      {signer.key.testMnemonic ? " / test key" : ""}
-                    </div>
-                    {signer.error && (
-                      <div style={{ fontSize: 15, color: colors.red, marginTop: 4 }}>
-                        {signer.error} -- tap to retry
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: accent }}>
-                    {statusIcon}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* "Sign via Tapit" (Cut B stage B2 -- window.open a new tab to
-            Tapit's /sign route) is retired from this vault flow: it forced
-            a fresh browser tab to re-establish its own Tapit session,
-            which read as "trying to log me in" (operator, 2026-08-08).
-            NotifyCircleViaNostr below does the same job silently over
-            Nostr with no navigation and no second tab. 2026-08-15: the
-            Tranche distribution-wallet claim flow (TrancheClaimModal,
-            below in this file) hit the identical bug and got the same
-            fix -- startTapitCosign/lib/tapit-cosign.ts's window.open
-            cross-tab bridge has no remaining caller anywhere in this
-            repo as of that fix. */}
-        {/* Enough signatures: Broadcast is the next thing, right here
-            (operator, 2026-11-25: "No buried ... buttons"). The other ways
-            to sign are no longer needed. */}
-        {quorumMet && err && <p style={{ color: colors.red, fontSize: 17, margin: 0 }}>{err}</p>}
-        {quorumMet && (
-          <Button
-            disabled={busy}
-            style={{ background: colors.green, width: "100%", padding: "14px", fontSize: 18, minHeight: 52 }}
-            onClick={() => void broadcast()}
-          >
-            {busy ? "Broadcasting..." : err ? "Retry broadcast" : "Broadcast transaction"}
-          </Button>
-        )}
-
-        {!quorumMet && (
-        <NotifyCircleViaNostr
-          subjectId={signing.proposal_id ?? ""}
-          psbtHex={signing.psbt_hex}
-          vaultDescriptor={vault.descriptor}
-          vaultName={vault.name}
-          signers={signing.signers}
-          onSigned={(hex, label) => externalImport(hex, label)}
-        />
-        )}
-
-        {/* Hardware wallet / external PSBT */}
-        {!quorumMet && (
-        <div
-          style={{
-            background: colors.surface,
-            border: `1px solid ${colors.border}`,
-            borderRadius: 12,
-            padding: 20,
-          }}
-        >
-          <div style={{ fontSize: 17, fontWeight: 600, color: colors.text, marginBottom: 4 }}>
-            Sign with hardware wallet
-          </div>
-          <div style={{ fontSize: 16, color: colors.muted, marginBottom: 14 }}>
-            Export this transaction to your signing device, then paste or scan the signed result back here.
-          </div>
-          <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-            <Button
-              variant="ghost"
-              size="sm"
-              style={{ fontSize: 16 }}
-              onClick={() => copyPsbt(signing.psbt_hex, "hex")}
-            >
-              {copied === "hex" ? "Copied!" : "Copy PSBT hex"}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              style={{ fontSize: 16 }}
-              onClick={() => copyPsbt(signing.psbt_b64, "b64")}
-            >
-              {copied === "b64" ? "Copied!" : "Copy base64"}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              style={{ fontSize: 16 }}
-              onClick={() => setShowQrDisplay(s => !s)}
-            >
-              {showQrDisplay ? "Hide QR" : "Show QR"}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              style={{ fontSize: 16 }}
-              onClick={() => setShowQrScanner(s => !s)}
-            >
-              {showQrScanner ? "Hide scanner" : "Scan signed QR"}
-            </Button>
-          </div>
-          {showQrDisplay && (
-            <div style={{ marginBottom: 14 }}>
-              <PsbtQrDisplay psbtHex={signing.psbt_hex} />
-              <div style={{ fontSize: 15, color: colors.muted, marginTop: 6, textAlign: "center" }}>
-                UR `crypto-psbt` animated. Stateless -- no pairing needed. Point your air-gapped signer at the screen.
-              </div>
-              <SeedSignerNetworkHint network={vault.network} />
-            </div>
-          )}
-          {showQrScanner && (
-            <div style={{ marginBottom: 14 }}>
-              <PsbtQrScanner
-                onResult={hex => {
-                  setShowQrScanner(false);
-                  // Reuse the existing import path so signer-sessions
-                  // logging + state-set logic stays in one place.
-                  externalImport(hex);
-                }}
-                onCancel={() => setShowQrScanner(false)}
-              />
-            </div>
-          )}
-          <ExternalPsbtInput onImport={externalImport} />
-        </div>
-        )}
-
-        {/* Still short: how many more, under the ways to sign. */}
-        {err && !quorumMet && <p style={{ color: colors.red, fontSize: 17, margin: 0 }}>{err}</p>}
-        {!quorumMet && (
-          <div style={{ fontSize: 17, color: colors.muted, textAlign: "center", padding: "10px 0" }}>
-            {needed} more signature{needed !== 1 ? "s" : ""} needed
-          </div>
-        )}
-
-        <Button
-          variant="ghost"
-          style={{ width: "100%", marginTop: 20, minHeight: 44, color: colors.red }}
-          onClick={async () => {
-            // This used to only clear the form: the spend stayed open in
-            // History, waiting on signatures nobody meant to give.
-            const id = signing?.proposal_id;
-            if (id && !signing?.txid && signing && signing.signaturesCollected > 0) {
-              const ok = await confirmCancel({ title: "Cancel this spend?", message: "The signatures collected so far are discarded.", confirmLabel: "Cancel this spend", danger: true });
-              if (!ok) return;
-            }
-            if (id && !signing?.txid) {
-              try {
-                await api.proposals.update(id, { status: "cancelled" });
-              } catch (e) {
-                setErr(`This spend could not be cancelled: ${e instanceof Error ? e.message : "failed"}. It is still open in History.`);
-                return;
-              }
-            }
-            setStep("form");
-            setSigning(null);
-            setErr(null);
-          }}
-        >
-          Cancel this spend
-        </Button>
-        {signing?.proposal_id && !signing.txid && (
-          <Button
-            variant="ghost"
-            style={{ width: "100%" }}
-            onClick={() => {
-              setStep("form");
-              setSigning(null);
-              setErr(null);
-            }}
-          >
-            Leave it open for the others to sign
-          </Button>
-        )}
-      </div>
+      <SendSigning
+        vault={vault} signing={signing} busy={busy} err={err}
+        signWithKey={signWithKey} broadcast={broadcast} externalImport={externalImport}
+        cancelSpend={cancelSpend} leaveOpen={leaveOpen}
+      />
     );
   }
 
   // Form screen
   return (
-    <>
-    {/* Operator's chips, 2026-11-24: the coins and when each path opens for
-        each one; picking coins is optional -- the app picks the fewest. */}
-    {/* Optional, so closed: the form comes first (operator, 2026-11-25,
-        docs/screen-cleanse-build-note.md). */}
-    {vault.status !== "draft" && onPickCoins && (
-      <div style={{ marginBottom: 14, maxWidth: 480 }}>
-        <button
-          type="button"
-          onClick={() => setPickCoins(v => !v)}
-          aria-expanded={pickCoins}
-          style={{ background: "none", border: "none", padding: "10px 0", minHeight: 44, fontSize: 16, color: colors.sub, cursor: "pointer", textDecoration: "underline", textAlign: "left" }}
-        >
-          {pickCoins ? "Hide the coins" : "Choose which coins to spend (optional -- the app picks if you don't)"}
-        </button>
-        {pickCoins && (
-          <div style={{ fontSize: 15, color: colors.muted, lineHeight: 1.5, marginBottom: 8 }}>
-            Left to itself, the app spends your largest confirmed coins first. If you are not spending the full
-            balance, that can join separate deposits in one public transaction. Pick coins here if that matters.
-          </div>
-        )}
-        {pickCoins && (
-          <UtxosSection vault={vault} onSendPrefill={p => onPickCoins({ ...(prefill ?? {}), ...p })} refreshKey={`${balance?.total_sats ?? ""}:${balance?.utxo_count ?? ""}`} balance={balance} />
-        )}
-      </div>
-    )}
-    <form
-      onSubmit={e => void buildAndSign(e)}
-      style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 480 }}
-    >
-      {prefill?.selected_utxos && prefill.selected_utxos.length > 0 && (
-        <div
-          style={{
-            padding: "8px 10px",
-            background: colors.gold + "11",
-            border: `1px solid ${colors.gold}44`,
-            borderRadius: radii.md,
-            fontSize: 16,
-            color: colors.gold,
-          }}
-        >
-          Locked to {prefill.selected_utxos.length} UTXO
-          {prefill.selected_utxos.length === 1 ? "" : "s"}:{" "}
-          <span style={{ fontFamily: fonts.mono, fontSize: 15 }}>
-            {prefill.selected_utxos.map(u => `${u.txid.slice(0, 8)}:${u.vout}`).join(", ")}
-          </span>
-          {prefill.selected_utxos.length > 1 && (
-            <div style={{ marginTop: 4, color: colors.muted }}>
-              Spending these together publicly links them to the same
-              owner forever, even if they arrived separately.
-            </div>
-          )}
-          {onPickCoins && (
-            <div style={{ marginTop: 6 }}>
-              <Button type="button" variant="ghost" size="sm" style={{ fontSize: 15, minHeight: 44 }}
-                onClick={() => onPickCoins({ ...(prefill ?? {}), selected_utxos: undefined })}>
-                Let the app choose the coins
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {bp && (
-        <div>
-          <Label>Spend path</Label>
-          <select
-            value={blocPath}
-            onChange={e => { setBlocPath(e.target.value as typeof blocPath); setBlocRungIdx(0); }}
-            style={selectStyle}
-          >
-            <option value="parents_now">Parents together ({bp.parents_together_quorum} of {bp.parent_pubkeys.length}) -- now</option>
-            <option value="coparent_kids">One parent + the kids ({bp.coparent_quorum} parent + {bp.kids_with_parent_quorum} of {bp.kid_pubkeys.length} kids) -- now</option>
-            <option value="parent_solo">One parent alone ({bp.parent_solo_quorum} of {bp.parent_pubkeys.length}) -- after timelock</option>
-            <option value="kids_decay">Kids alone (decaying quorum) -- after timelock</option>
-          </select>
-          {blocPath === "kids_decay" && (
-            <select
-              value={blocRungIdx}
-              onChange={e => setBlocRungIdx(Number(e.target.value))}
-              style={{ ...selectStyle, marginTop: 8 }}
-            >
-              {blocLadder.map((rung, i) => (
-                <option key={i} value={i}>
-                  {rung.q} of {bp.kid_pubkeys.length} kids -- after block {rung.absAfter.toLocaleString()}
-                </option>
-              ))}
-            </select>
-          )}
-        </div>
-      )}
-
-      {!bp && (hasRecovery || hasInheritance || hasBackup || hasSecondInheritance) && (
-        <div>
-          <Label>Spend path</Label>
-          <select
-            value={standardPath}
-            onChange={e => setStandardPath(e.target.value as typeof standardPath)}
-            style={selectStyle}
-          >
-            <option value="founders_now">
-              Founders now ({vault.founder_quorum} of {vault.founder_keys.length}) -- no waiting
-            </option>
-            {hasRecovery && (
-              <option value="recovery">
-                Recovery ({vault.recovery_quorum ?? vault.founder_quorum} of {vault.founder_keys.length} founders) -- after timelock
-              </option>
-            )}
-            {hasInheritance && (
-              <option value="inheritance">
-                Inheritance ({vault.heir_quorum} of {vault.heir_keys.length} heirs) -- after timelock
-              </option>
-            )}
-            {hasBackup && (
-              <option value="backup">
-                Backup ({vault.backup_quorum} of {vault.backup_keys.length}) -- anytime, no timelock
-              </option>
-            )}
-            {hasSecondInheritance && (
-              <option value="second_inheritance">
-                Second inheritance ({vault.second_heir_quorum} of {vault.second_heir_keys.length} heirs) -- after its own timelock
-              </option>
-            )}
-          </select>
-          {standardPath !== "founders_now" && (
-            <div style={{ fontSize: 15, color: colors.muted, marginTop: 5 }}>
-              {standardPath === "backup"
-                ? "This path has no timelock, but it needs a separate set of keys from the day-to-day founders."
-                : standardPath === "second_inheritance"
-                  ? "This path is a separate heir group from the main inheritance path, with its own timelock -- only spendable once that timelock has passed."
-                  : "This path is only spendable once its timelock has passed -- the compiler will reject the build otherwise."}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Leaf-list vault: the path picker uses each leaf's own id, not the
-          named-field ids above -- see isLeafList's header comment. Hidden
-          entirely for a single-leaf vault, matching the named-field
-          dropdown's own "only show a picker once there's a real choice"
-          behavior. */}
-      {!bp && isLeafList && vault.leaves!.length > 1 && (
-        <div>
-          <Label>Spend path</Label>
-          <select
-            value={standardPath}
-            onChange={e => setStandardPath(e.target.value)}
-            style={selectStyle}
-          >
-            {vault.leaves!.map(leaf => (
-              <option key={leaf.id} value={leaf.id}>
-                {leaf.label} ({whoSignsShort(leaf.quorum, leaf.keys.length, leaf.required_keys?.length ?? 0)})
-                {leaf.unlock.type === "immediate"
-                  ? " -- no waiting"
-                  : leaf.unlock.type === "after"
-                    ? ` -- after block ${leaf.unlock.blocks.toLocaleString()}`
-                    : " -- once untouched for a while"}
-              </option>
-            ))}
-          </select>
-          {vault.leaves!.find(l => l.id === standardPath)?.unlock.type !== "immediate" && (
-            <div style={{ fontSize: 15, color: colors.muted, marginTop: 5 }}>
-              This path is only spendable once its timelock has passed -- the compiler will reject
-              the build otherwise.
-            </div>
-          )}
-        </div>
-      )}
-
-      <div>
-        <Label>Send to</Label>
-        <Input
-          mono
-          value={dest}
-          onChange={e => setDest(e.target.value)}
-          required
-          placeholder="tb1p... or bc1p..."
-        />
-      </div>
-
-      <div style={{ display: "flex", gap: 12 }}>
-        <div style={{ flex: 2 }}>
-          <Label>Amount (BTC)</Label>
-          {sweep ? (
-            <div
-              style={{
-                border: `1px solid ${colors.border}`,
-                borderRadius: 8,
-                padding: "10px 12px",
-                fontSize: 17,
-                color: colors.text,
-              }}
-            >
-              Entire confirmed balance -- exact amount is computed when you build (fee comes off the top, no change back to the vault)
-            </div>
-          ) : (
-            <Input
-              type="number"
-              step="0.00000001"
-              min="0.00000546"
-              value={amountBtc}
-              onChange={e => setAmountBtc(e.target.value)}
-              required
-              placeholder="0.001"
-            />
-          )}
-          {confirmedSats > 0 && (
-            <div style={{ fontSize: 15, color: colors.muted, marginTop: 5 }}>
-              {satsToBtc(confirmedSats)} BTC available
-              <button
-                type="button"
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: colors.gold,
-                  cursor: "pointer",
-                  fontSize: 15,
-                  marginLeft: 8,
-                }}
-                onClick={() => {
-                  setSweep(s => !s);
-                  setAmountBtc("");
-                }}
-              >
-                {sweep ? "Enter amount instead" : "Max"}
-              </button>
-            </div>
-          )}
-        </div>
-        <div style={{ flex: 1 }}>
-          <Label>Fee (sat/vb)</Label>
-          <Input
-            type="number"
-            step="0.1"
-            min="1"
-            value={feeRate}
-            onChange={e => setFeeRate(e.target.value)}
-            placeholder="Auto"
-          />
-        </div>
-      </div>
-
-      {rules.length > 0 && (
-        <div>
-          <Label>Distribution rule</Label>
-          <select
-            value={ruleId}
-            onChange={e => setRuleId(e.target.value)}
-            style={{
-              width: "100%",
-              padding: "11px 13px",
-              background: colors.input,
-              border: `1px solid ${colors.border}`,
-              borderRadius: radii.md,
-              color: colors.text,
-              fontSize: 17,
-              fontFamily: fonts.sans,
-              boxSizing: "border-box",
-            }}
-          >
-            <option value="">-- pick a rule --</option>
-            {rules.map(r => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-                {r.max_sats ? ` (max ${satsToBtc(r.max_sats)} BTC)` : ""}
-              </option>
-            ))}
-          </select>
-          {selectedRule?.notes && (
-            <div style={{ fontSize: 15, color: colors.muted, marginTop: 6 }}>
-              {selectedRule.notes}
-            </div>
-          )}
-        </div>
-      )}
-
-      <div>
-        <Label>
-          {selectedRule?.requires_comment
-            ? "Reason (required by this rule)"
-            : "Memo (optional)"}
-        </Label>
-        <Input
-          value={memo}
-          onChange={e => setMemo(e.target.value)}
-          placeholder={
-            selectedRule?.requires_comment
-              ? "Why this spend? Which clause of the trust does it satisfy?"
-              : "Note"
-          }
-        />
-      </div>
-
-      {err && <p style={{ color: colors.red, fontSize: 17, margin: 0 }}>{err}</p>}
-
-      <Button
-        type="submit"
-        disabled={busy}
-        style={{ padding: "14px", fontSize: 17 }}
-      >
-        {busy ? (slowHint ? "Waking compiler..." : "Building transaction...") : "Review & sign"}
-      </Button>
-    </form>
-    </>
+    <SendForm
+      vault={vault} balance={balance} prefill={prefill} onPickCoins={onPickCoins}
+      bp={bp} blocLadder={blocLadder} blocPath={blocPath} setBlocPath={setBlocPath} blocRungIdx={blocRungIdx} setBlocRungIdx={setBlocRungIdx}
+      isLeafList={isLeafList} hasRecovery={hasRecovery} hasInheritance={hasInheritance} hasBackup={hasBackup} hasSecondInheritance={hasSecondInheritance}
+      standardPath={standardPath} setStandardPath={setStandardPath}
+      dest={dest} setDest={setDest} sweep={sweep} setSweep={setSweep} amountBtc={amountBtc} setAmountBtc={setAmountBtc}
+      confirmedSats={confirmedSats} feeRate={feeRate} setFeeRate={setFeeRate}
+      rules={rules} ruleId={ruleId} setRuleId={setRuleId} selectedRule={selectedRule} memo={memo} setMemo={setMemo}
+      err={err} busy={busy} slowHint={slowHint} buildAndSign={buildAndSign}
+    />
   );
 }

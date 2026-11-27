@@ -48,7 +48,10 @@ assert.equal(tries, 3);
 pass('recording the send is retried; if it still fails, the error is the recording, not the sending');
 
 const src = (await import('node:fs')).readFileSync(new URL('../apps/web/src/pages/vault-detail/SendTab.tsx', import.meta.url), 'utf8');
-assert.match(src, /sendRawTx\(/); assert.match(src, /recordBroadcast\(/); assert.match(src, /Record it in history/);
+assert.match(src, /sendRawTx\(/); assert.match(src, /recordBroadcast\(/);
+// The done screen's markup lives in SendDone.tsx (the Send split, 2026-11-27).
+const done = (await import('node:fs')).readFileSync(new URL('../apps/web/src/pages/vault-detail/SendDone.tsx', import.meta.url), 'utf8');
+assert.match(done, /Record it in history/); assert.match(done, /recordAgain\(/);
 const pd = (await import('node:fs')).readFileSync(new URL('../apps/web/src/pages/ProposalDetail.tsx', import.meta.url), 'utf8');
 assert.match(pd, /sendRawTx\(/); assert.match(pd, /recordBroadcast\(/);
 const pr = (await import('node:fs')).readFileSync(new URL('../netlify/functions/proposals.js', import.meta.url), 'utf8');

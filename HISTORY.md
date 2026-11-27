@@ -5183,3 +5183,18 @@ same 10 pre-existing errors, walk:screens OK.
 Test first: scripts/test-review-lows.mjs (4). Rust 130 + 13 tests passed.
 Gates: npm test exit 0, lint 0 errors / 9 warnings, build ok, typecheck the
 same 10 pre-existing errors, walk:screens OK, Core proofs 15 + 14 OK.
+
+## 2026-11-27 -- Send screen split (markup only)
+
+`pages/vault-detail/SendTab.tsx` (1,558 lines, one function) split: the form,
+signing and done screens' markup moved to `SendForm.tsx`, `SendSigning.tsx`
+and `SendDone.tsx`; shared types to `send-types.ts`. The money functions
+(`buildAndSign`, `signWithKey`, `externalImport`, `broadcast`, `recordAgain`)
+are byte-identical and still in `SendTab.tsx` (now 900 lines). The Cancel
+handler moved into `SendTab` as `cancelSpend()` with the same statements.
+Before the split, the screen walk was extended to tap Broadcast (done screen,
+txid, sent once, recorded once) and Cancel (asks first once a signature is
+collected); it passed before and after, 12 taps. Gates: npm test exit 0; lint
+0 errors / 9 warnings; typecheck the same 10 pre-existing errors; build ok.
+Left undone: splitting the money functions themselves. Full account:
+`docs/send-screen-split-build-note.md`.

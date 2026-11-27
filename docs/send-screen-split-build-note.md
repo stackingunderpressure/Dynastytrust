@@ -110,3 +110,46 @@ separate decision.
    argument list, not `shell=True`.
 5. **Later, on their own branch:** rust-bitcoin 0.32, miniscript 13,
    secp256k1, @noble/@scure v2. None has an open advisory.
+
+## Built (2026-11-27)
+
+Operator's chips: "Markup only (Recommended)", and Node 22 right after.
+
+- The screen walk was extended first and passed on the code before the
+  split: 12 taps. It now taps Broadcast and checks the done screen and its
+  txid, that the spend was sent once and recorded once with that txid,
+  that no Broadcast button is left, and that Cancel asks first once a
+  signature is collected. While writing it, one thing was confirmed as
+  designed rather than a bug: with no signatures yet, Cancel cancels
+  straight away without asking.
+- The split was applied by a script (`sendsplit/split.py`, kept with the
+  session's scratch files), working from a saved copy of the original.
+  `SendTab.tsx` went from 1,558 lines to 900. The new files are
+  `SendForm.tsx` (370), `SendSigning.tsx` (336), `SendDone.tsx` (59) and
+  `send-types.ts` (21).
+- Plan change: the new files sit next to `SendTab.tsx` in
+  `pages/vault-detail/` instead of in a `send/` folder. That way no import
+  of `SendTab` or `SendPrefill` anywhere had to change.
+- A check script compared the code before and after:
+  - `buildAndSign`, `signWithKey`, `externalImport`, `broadcast` and
+    `recordAgain` are identical, byte for byte.
+  - Every markup line of the three screens was carried over verbatim,
+    except the two handlers listed below.
+  - The Cancel button's handler moved into `SendTab` as `cancelSpend()`,
+    with the same statements (re-indented only). "Leave it open" became
+    `leaveOpen()`.
+- One small behaviour difference: the QR show/hide, the "copied" flash and
+  the coins list's open/closed now belong to their screens. So they reset
+  when you leave a screen and come back, instead of being remembered.
+- Gates:
+  - npm test: exit 0. `test-broadcast-record.mjs` now reads the done
+    screen from `SendDone.tsx`.
+  - lint: 0 errors, 9 warnings (same as before).
+  - typecheck: the same 10 pre-existing errors, compared line for line.
+    One of them is in `SendTab.tsx` and has only moved line.
+  - build: ok.
+  - `walk:screens`: OK, 12 taps.
+  - Bundle: `index` 1,486.50 kB before, 1,487.64 kB after (+1.1 kB of
+    props wiring).
+- Still over 800 lines: `SendTab.tsx` at 900. The rest is the money
+  functions, which this slice deliberately didn't touch.
