@@ -124,6 +124,20 @@ assert.equal(listed.length, 5);
 assert.deepEqual(new Set(listed.map(u => u.address)), new Set([bcrt(0, 0), bcrt(0, 7), bcrt(1, 3), bcrt(0, 12), bcrt(0, 20)]));
 pass('one watch-only import of the one descriptor sees coins on receive 0, 7, 12, 20 and change 3: balance 5.00000000, and listunspent lists all five');
 
+// 2b. The backup's two single-branch descriptors (for Bitcoin Core 28 and
+// older, which cannot read <0;1>; outside review 2026-11-27, low 2), loaded
+// exactly as the backup file says, see the same coins. Run on Core 32.1 --
+// an older Core itself is not run here.
+cli(null, 'createwallet', 'halves', true, true);
+const halves = cli('halves', 'importdescriptors', [
+  { desc: V.descriptor_receive, timestamp: 0, range: [0, 999], active: true, internal: false },
+  { desc: V.descriptor_change, timestamp: 0, range: [0, 999], active: true, internal: true },
+]);
+assert.ok(halves.every(h => h.success), JSON.stringify(halves));
+assert.equal(cli('halves', 'getbalance'), 5);
+assert.deepEqual(new Set(cli('halves', 'listunspent').map(u => u.address)), new Set(listed.map(u => u.address)));
+pass("the backup's two single-branch descriptors, loaded as the backup says, see the same five coins (Core 32.1)");
+
 // 3. Core alone: two people, one seed each, coins from two addresses.
 const withKeys = (held) => S.reduce((d, s) => (held.includes(s.n) ? d.split(s.xpub).join(s.xprv) : d), V.descriptor_multipath.split('#')[0]);
 const signer = (name, held) => {
@@ -155,7 +169,7 @@ let reserved = 0;
 let issuedChange = [];
 let usedChange = new Set();
 const supabase = {
-  from: () => { const o = { select: () => o, eq: () => o, order: () => o, limit: async () => ({ data: issuedChange, error: null }), then: (res) => res({ data: [{ branch: 0, next_index: 21 }, { branch: 1, next_index: reserved }], error: null }), insert: async () => ({ error: null }) }; return o; },
+  from: () => { const o = { select: () => o, eq: () => o, in: () => o, order: () => o, limit: async () => ({ data: issuedChange, error: null }), then: (res) => res({ data: [{ branch: 0, next_index: 21 }, { branch: 1, next_index: reserved }], error: null }), insert: async () => ({ error: null }) }; return o; },
   rpc: async () => ({ data: reserved++ + 10, error: null }),
 };
 const build = async (path, amount, list) => {
@@ -296,7 +310,7 @@ const build = async (path, amount, list) => {
   // Our server builds; our browser signer signs with xpub key 0 (a CHILD
   // key at receive 5); Core-as-Tapit signs with the bare key; our
   // finalizer finishes; Core judges and mines.
-  const supa = { from: () => { const o = { select: () => o, eq: () => o, order: () => o, limit: async () => ({ data: [], error: null }), then: (res) => res({ data: [{ branch: 0, next_index: 6 }, { branch: 1, next_index: 0 }], error: null }), insert: async () => ({ error: null }) }; return o; }, rpc: async () => ({ data: 0, error: null }) };
+  const supa = { from: () => { const o = { select: () => o, eq: () => o, in: () => o, order: () => o, limit: async () => ({ data: [], error: null }), then: (res) => res({ data: [{ branch: 0, next_index: 6 }, { branch: 1, next_index: 0 }], error: null }), insert: async () => ({ error: null }) }; return o; }, rpc: async () => ({ data: 0, error: null }) };
   const r = await buildRangedSpend({ supabase: supa, vault: MV, userId: 'u', body: { destination: toSignet(dest), amount_sats: 40_000_000, path: 'everyday', fee_rate: 2 } },
     { coinsAt: async () => [{ ...coinFor(mcoin, 0, 5), address: mours(0, 5, 1)[0].address }], fetchTipHeight: async () => tip(), getFeeRate: async () => 2, vaultUsed: async () => new Set() });
   assert.equal(r.status, 200, JSON.stringify(r.body));

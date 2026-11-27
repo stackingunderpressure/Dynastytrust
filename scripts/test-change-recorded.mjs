@@ -35,7 +35,7 @@ const dest = ranged(0, 40).address;
 
 // A spend built with change at `idx`, and the change rows the vault has.
 async function spendWithChange(idx) {
-  const supabase = { from: () => { const o = { select: () => o, eq: () => o, order: () => o, limit: () => o, then: (res) => res({ data: [], error: null }), insert: async () => ({ error: null }) }; return o; },
+  const supabase = { from: () => { const o = { select: () => o, eq: () => o, in: () => o, order: () => o, limit: () => o, then: (res) => res({ data: [], error: null }), insert: async () => ({ error: null }) }; return o; },
     rpc: async () => ({ data: idx, error: null }) };
   const r = await buildRangedSpend({ supabase, vault: V, userId: 'u', body: { destination: dest, amount_sats: 30_000, path: 'everyday', fee_rate: 2 } },
     { coinsAt: async () => coins, fetchTipHeight: async () => TIP, getFeeRate: async () => 2, vaultUsed: async () => new Set() });

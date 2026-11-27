@@ -13,8 +13,9 @@
 // is fewest coins (largest first, selectCoins), and the answer says when a
 // spend combines coins from several addresses.
 
+import { parsePsbt, toHex } from "@dynastytrust/bip341-psbt-signer";
 import { callWasm, rangedAddress } from "./_ranged-wasm.js";
-import { nextIndexes, vaultCoins, vaultUsed, watchedAddresses } from "./_vault-coins.js";
+import { batchedLookups, nextIndexes, vaultCoins, vaultUsed, watchedAddresses } from "./_vault-coins.js";
 import { reusableChange } from "./_receive-choice.js";
 import { fetchTipHeight, getFeeRate } from "./_chain.js";
 import { inputVbytesFor, selectCoins } from "../../packages/vault-rules/src/spend.js";
@@ -52,6 +53,20 @@ export function oldEnough(coins, tip, blocks) {
  * Build the spend. Returns { status, body } for the handler to send.
  * `deps` lets tests stand in the chain and the wasm.
  */
+/** Every output script of the open spends' transactions (lower-case hex). */
+function heldChangeScripts(open) {
+  const out = new Set();
+  for (const p of open) {
+    if (!p?.psbt_hex) continue;
+    try {
+      for (const o of parsePsbt(p.psbt_hex).tx.outputs) out.add(toHex(o.scriptPubkey).toLowerCase());
+    } catch {
+      // an unreadable stored PSBT holds nothing we can see; skip it
+    }
+  }
+  return out;
+}
+
 export async function buildRangedSpend({ supabase, vault, userId, body, userServers = {} }, deps = {}) {
   const call = deps.callWasm ?? callWasm;
   // Electrum when there is a server for this network (the person's own, or
@@ -68,7 +83,7 @@ export async function buildRangedSpend({ supabase, vault, userId, body, userServ
 
   let watched;
   try {
-    watched = watchedAddresses(vault, await nextIndexes(supabase, vault.id), call);
+    watched = watchedAddresses(vault, await nextIndexes(supabase, vault.id), call, { wide: await (deps.batchedLookups ?? batchedLookups)(vault.network, userServers) });
   } catch (e) {
     return { status: 500, body: { error: `This vault's addresses could not be worked out, so nothing was built: ${e.message}` } };
   }
@@ -104,13 +119,21 @@ export async function buildRangedSpend({ supabase, vault, userId, body, userServ
   if (picked.hasChange) {
     const usedOf = deps.vaultUsed ?? vaultUsed;
     const { data: issuedChange, error: cErr } = await supabase
-      .from("vault_addresses").select("idx, address").eq("vault_id", vault.id).eq("branch", CHANGE).order("idx", { ascending: true }).limit(5000);
+      .from("vault_addresses").select("idx, address, script_pubkey").eq("vault_id", vault.id).eq("branch", CHANGE).order("idx", { ascending: true }).limit(5000);
     if (cErr) return { status: 500, body: { error: `Could not read the change addresses: ${cErr.message}` } };
+    // A change address another OPEN spend already pays is not free to reuse:
+    // two spends sharing it would tie them together on chain (outside review
+    // 2026-11-27, low 1).
+    const { data: open, error: oErr } = await supabase
+      .from("proposals").select("psbt_hex").eq("vault_id", vault.id).in("status", ["draft", "pending", "signed"]);
+    if (oErr) return { status: 500, body: { error: `Could not read the open spends: ${oErr.message}` } };
+    const held = heldChangeScripts(open ?? []);
     let reuse = null;
-    if (issuedChange?.length) {
+    const free = (issuedChange ?? []).filter((a) => !held.has(String(a.script_pubkey ?? "").toLowerCase()));
+    if (free.length) {
       try {
-        const used = await usedOf(network, issuedChange.map((a) => ({ branch: CHANGE, index: a.idx, address: a.address })), userServers);
-        reuse = reusableChange(issuedChange, used);
+        const used = await usedOf(network, free.map((a) => ({ branch: CHANGE, index: a.idx, address: a.address })), userServers);
+        reuse = reusableChange(free, used);
       } catch (e) {
         return { status: 502, body: { error: "Could not check the change addresses: " + e.message } };
       }

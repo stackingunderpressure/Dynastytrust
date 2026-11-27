@@ -32,7 +32,7 @@ const V = { id: '77777777-7777-7777-7777-777777777777', name: 'My Vault', status
 const addr = (b, i) => callWasm('/ranged-address', { multipath: V.descriptor_multipath, receive: V.descriptor_receive, change: V.descriptor_change, network: 'signet', branch: b, index: i }).body.address;
 const TIP = 200_000;
 const coin = (b, i, value, k) => ({ txid: k.toString(16).padStart(64, '0'), vout: 0, value, status: { confirmed: true, block_height: TIP - 10 }, address: addr(b, i), branch: b, index: i });
-const supabase = { from: (t) => { const o = { select: () => o, eq: () => o, order: () => o, limit: () => o, then: (res) => res(t === 'vault_addresses' ? { data: [], error: null } : { data: [{ branch: 0, next_index: 6 }, { branch: 1, next_index: 3 }], error: null }), insert: async () => ({ error: null }) }; return o; }, rpc: async () => ({ data: 3, error: null }) };
+const supabase = { from: (t) => { const o = { select: () => o, eq: () => o, in: () => o, order: () => o, limit: () => o, then: (res) => res(t === 'vault_addresses' ? { data: [], error: null } : { data: [{ branch: 0, next_index: 6 }, { branch: 1, next_index: 3 }], error: null }), insert: async () => ({ error: null }) }; return o; }, rpc: async () => ({ data: 3, error: null }) };
 const r = await buildRangedSpend({ supabase, vault: V, userId: 'u', body: { destination: addr(0, 30), amount_sats: 70_000, path: 'everyday' } },
   { coinsAt: async () => [coin(0, 0, 20_000, 1), coin(0, 5, 30_000, 2), coin(1, 2, 40_000, 3)], fetchTipHeight: async () => TIP, getFeeRate: async () => 2 });
 assert.equal(r.status, 200, JSON.stringify(r.body));

@@ -178,7 +178,7 @@ async function psbtBinary(body) {
   try {
     const { buildRangedSpend } = await import(ROOT + '/netlify/functions/_ranged-spend.js');
     let nextChange = 0;
-    const sb = { from: () => { const o = { select: () => o, eq: () => o, order: () => o, limit: () => o,
+    const sb = { from: () => { const o = { select: () => o, eq: () => o, in: () => o, order: () => o, limit: () => o,
         then: (res) => res({ data: [], error: null }), insert: async () => ({ error: null }) }; return o; },
       rpc: async () => ({ data: nextChange++, error: null }) };
     const coins = [{ txid: COIN_TXID, vout: 0, value: 9071, status: { confirmed: true, block_height: 332478 }, address: addrs[2], branch: 0, index: 2 }];

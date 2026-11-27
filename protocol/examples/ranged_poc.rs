@@ -52,16 +52,11 @@ fn main() {
             recompile.push(bitcoin::Address::p2tr_tweaked(out.spend_info.output_key(), network).to_string());
         }
     }
-    let mut res = json!({"template_address": bitcoin::Address::p2tr_tweaked(tmpl.spend_info.output_key(), network).to_string(),
+    let res = json!({"template_address": bitcoin::Address::p2tr_tweaked(tmpl.spend_info.output_key(), network).to_string(),
         "ranged_descriptor": ranged, "receive": recv, "change": chg, "recompile_per_index": recompile,
         "compile_ms": compile_ms, "derive_10_addresses_ms": derive_ms});
-    if let Some(sp) = v.get("spend") {
-        let ins: Vec<RangedInput> = sp["inputs"].as_array().unwrap().iter().map(|i| RangedInput {
-            txid: i["txid"].as_str().unwrap().into(), vout: i["vout"].as_u64().unwrap() as u32, value_sats: i["value"].as_u64().unwrap(),
-            branch: if i["branch"].as_u64().unwrap() == 1 { Branch::Change } else { Branch::Receive }, index: i["index"].as_u64().unwrap() as u32 }).collect();
-        let p = vault.build_spend_psbt(&ins, sp["dest"].as_str().unwrap(), sp["amount"].as_u64().unwrap(),
-            sp["fee"].as_u64().unwrap(), sp["change_index"].as_u64().unwrap() as u32, sp["lock_time"].as_u64().unwrap_or(0) as u32).unwrap();
-        res["psbt_hex"] = json!(hex::encode(p.serialize()));
-    }
+    // (The spend step that used RangedVault::build_spend_psbt is gone: that
+    // builder is private since the 2026-11-27 outside review; spends go
+    // through build_path_spend_psbt, exercised in tests/ranged.rs.)
     println!("{}", serde_json::to_string_pretty(&res).unwrap());
 }

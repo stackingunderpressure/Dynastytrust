@@ -10,7 +10,7 @@
 
 import { requireUser, json } from "./_auth.js";
 import { getSupabaseAdmin } from "./_supabase.js";
-import { nextIndexes, vaultCoins, watchedAddresses } from "./_vault-coins.js";
+import { batchedLookups, nextIndexes, vaultCoins, watchedAddresses } from "./_vault-coins.js";
 import { userServersFrom } from "./_electrum.js";
 
 async function assertMember(supabase, vaultId, userId) {
@@ -56,7 +56,7 @@ export async function handler(event) {
 
   let watched;
   try {
-    watched = watchedAddresses(vault, vault.descriptor_version === 2 ? await nextIndexes(supabase, vaultId) : undefined);
+    watched = watchedAddresses(vault, vault.descriptor_version === 2 ? await nextIndexes(supabase, vaultId) : undefined, undefined, { wide: await batchedLookups(vault.network, userServersFrom(event)) });
   } catch (err) {
     return json(500, { error: `This vault's addresses could not be worked out, so no coins are shown: ${err.message}` });
   }

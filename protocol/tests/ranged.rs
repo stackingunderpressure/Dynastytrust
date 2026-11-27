@@ -160,8 +160,11 @@ fn multi_input_spend_carries_each_coins_own_derivation() {
         RangedInput { txid: txid(3), vout: 0, value_sats: 30_000, branch: Branch::Change, index: 2 },
     ];
     let dest = vlt.address(Branch::Receive, 0).unwrap(); // any valid regtest address
-    let psbt = vlt.build_spend_psbt(&ins, &dest, 100_000, 1_000, 4, 352_560).unwrap();
-    assert_eq!(psbt.unsigned_tx.lock_time.to_consensus_u32(), 352_560);
+    // The path that opens right away (no after/older): build_spend_psbt is
+    // private now (outside review 2026-11-27, low 4), so through the path builder.
+    let now = leaf_scripts(&vlt, 0).into_iter().find(|(t, _)| !t.contains("after(") && !t.contains("older(")).expect("an immediate path").1;
+    let psbt = vlt.build_path_spend_psbt(&ins, &dest, 100_000, 1_000, 4, &now).unwrap();
+    assert_eq!(psbt.unsigned_tx.lock_time.to_consensus_u32(), 0);
     for (n, i) in ins.iter().enumerate() {
         let inp = &psbt.inputs[n];
         let want = vlt.definite(i.branch, i.index).unwrap().script_pubkey();
@@ -187,8 +190,8 @@ fn multi_input_spend_carries_each_coins_own_derivation() {
         assert_eq!(&path[path.len() - 2..], &[ChildNumber::Normal { index: 1 }, ChildNumber::Normal { index: 4 }]);
     }
     // Not enough, and change below dust goes to the fee.
-    assert!(matches!(vlt.build_spend_psbt(&ins, &dest, 200_000, 1_000, 4, 0).unwrap_err(), RangedError::Insufficient { .. }));
-    let no_change = vlt.build_spend_psbt(&ins, &dest, 118_700, 1_000, 4, 0).unwrap();
+    assert!(matches!(vlt.build_path_spend_psbt(&ins, &dest, 200_000, 1_000, 4, &now).unwrap_err(), RangedError::Insufficient { .. }));
+    let no_change = vlt.build_path_spend_psbt(&ins, &dest, 118_700, 1_000, 4, &now).unwrap();
     assert_eq!(no_change.unsigned_tx.output.len(), 1);
 }
 

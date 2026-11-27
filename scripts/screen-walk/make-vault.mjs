@@ -36,7 +36,7 @@ const addrs = [0, 1, 2, 3, 4, 5].map(i => addr(0, i));
 const TIP = 332480, COIN_TXID = 'a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00';
 const V = { id: 'x', name: 'Walk', status: 'compiled', network: 'signet', address: compiled.address, leaf_scripts: compiled.leaf_scripts,
   leaves: leaves.map(l => ({ id: l.id, unlock: l.unlock })), descriptor_version: 2, descriptor_multipath: ranged.multipath, descriptor_receive: ranged.receive, descriptor_change: ranged.change };
-const sb = { from: () => { const o = { select: () => o, eq: () => o, order: () => o, limit: () => o, then: (res) => res({ data: [], error: null }), insert: async () => ({ error: null }) }; return o; }, rpc: async () => ({ data: 0, error: null }) };
+const sb = { from: () => { const o = { select: () => o, eq: () => o, in: () => o, order: () => o, limit: () => o, then: (res) => res({ data: [], error: null }), insert: async () => ({ error: null }) }; return o; }, rpc: async () => ({ data: 0, error: null }) };
 const DEST = 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx';
 const r = await buildRangedSpend({ supabase: sb, vault: V, userId: 'u', body: { destination: DEST, amount_sats: 5000, path: 'everyday' } },
   { coinsAt: async () => [{ txid: COIN_TXID, vout: 0, value: 9071, status: { confirmed: true, block_height: 332478 }, address: addrs[2], branch: 0, index: 2 }], fetchTipHeight: async () => TIP, getFeeRate: async () => 2, vaultUsed: async () => new Set(addrs.slice(0, 3)) });

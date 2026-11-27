@@ -24,7 +24,7 @@ const V = { id: '66666666-6666-6666-6666-666666666666', name: 'Test', status: 'c
 const w0 = watchedAddresses(V, { 0: 5, 1: 3 }).find(w => w.branch === 0 && w.index === 0);
 const TIP = 300_000;
 const dest = callWasm('/ranged-address', { multipath: V.descriptor_multipath, receive: V.descriptor_receive, change: V.descriptor_change, network: 'signet', branch: 0, index: 40 }).body.address;
-const supabase = { from: () => { const o = { select: () => o, eq: () => o, order: () => o, limit: () => o, then: (res) => res({ data: [], error: null }), insert: async () => ({ error: null }) }; return o; }, rpc: async () => ({ data: 4, error: null }) };
+const supabase = { from: () => { const o = { select: () => o, eq: () => o, in: () => o, order: () => o, limit: () => o, then: (res) => res({ data: [], error: null }), insert: async () => ({ error: null }) }; return o; }, rpc: async () => ({ data: 4, error: null }) };
 const spend = async (amount, txid = '1') => (await buildRangedSpend({ supabase, vault: V, userId: 'u', body: { destination: dest, amount_sats: amount, path: 'everyday', fee_rate: 2 } },
   { coinsAt: async () => [{ txid: txid.padStart(64, '0'), vout: 0, value: 80_000, status: { confirmed: true, block_height: TIP - 10 }, address: w0.address, branch: 0, index: 0 }],
     fetchTipHeight: async () => TIP, getFeeRate: async () => 2, vaultUsed: async () => new Set() })).body.psbt_hex;

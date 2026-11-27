@@ -5167,3 +5167,19 @@ sent, not yet in history" with "Record it in history"), used by the Send
 screen and the request page. Test first: test-broadcast-record.mjs (5).
 Gates: npm test exit 0, lint 0 errors / 9 warnings, build ok, typecheck the
 same 10 pre-existing errors, walk:screens OK.
+
+## 2026-11-27 -- outside review low findings fixed
+
+1. Two open spends no longer share a change address (_ranged-spend.js skips
+   change addresses that an open proposal's transaction already pays).
+2. Backups also carry the receive and change single-branch descriptors, with
+   Core 28-or-older import steps. Proven on Core 32.1 (Core ranged proof,
+   15 checks); an actual Core 28 was not run.
+3. Electrum (batched) watches 20 addresses ahead on each branch; the website
+   fallback is trimmed to 5 and 2; `addresses_watched` reports what was
+   actually looked up.
+4. `RangedVault::build_spend_psbt` is private; the compiler wasm was rebuilt.
+
+Test first: scripts/test-review-lows.mjs (4). Rust 130 + 13 tests passed.
+Gates: npm test exit 0, lint 0 errors / 9 warnings, build ok, typecheck the
+same 10 pre-existing errors, walk:screens OK, Core proofs 15 + 14 OK.

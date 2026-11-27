@@ -22,7 +22,7 @@ before the fix and passes after. Full fork suite: 495 passed. The 5 l10n
 tests fail the same with and without the fix (no compiled translations in
 the test environment).
 
-## Low — logged, not yet fixed
+## Low — fixed 2026-11-27 (test first: `scripts/test-review-lows.mjs`, 4 cases, failed before each fix)
 
 1. Two spend proposals open at the same time can both reuse the lowest
    unpaid change address. That's a privacy leak only.
@@ -34,6 +34,22 @@ the test environment).
    fails closed.
 4. `RangedVault::build_spend_psbt` is still public, with
    `ENABLE_RBF_NO_LOCKTIME`. Production calls only `build_path_spend_psbt`.
+
+How each low was fixed:
+1. `_ranged-spend.js` no longer reuses a change address that an open
+   spend's transaction already pays (draft, pending or signed). Once that
+   spend is gone, the address can be reused again.
+2. The backup file also carries `descriptor_receive` and
+   `descriptor_change`, with the exact Core 28-or-older import command
+   (receive `internal:false`, change `internal:true`). Proven on Core 32.1
+   in `bitcoin-core-ranged-proof.mjs` (now 15 checks): the two halves see
+   the same five coins. An actual Core 28 was not run.
+3. Electrum lookups are batched, so they now watch 20 past the last
+   address handed out on each branch. The website fallback is trimmed back
+   to 5 and 2, so it makes no more calls than before. The balance reports
+   how many addresses were actually looked up.
+4. `build_spend_psbt` is now private. The Rust test and the POC example
+   were moved onto `build_path_spend_psbt`, and the compiler wasm rebuilt.
 
 ## What the review found sound
 

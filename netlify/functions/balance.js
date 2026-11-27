@@ -14,7 +14,7 @@
 import { json, requireUser } from './_auth.js';
 import { MEMPOOL, mempoolFetch } from './_chain.js';
 import { getSupabaseAdmin } from './_supabase.js';
-import { canSeeVault, nextIndexes, vaultCoins, watchedAddresses } from './_vault-coins.js';
+import { batchedLookups, canSeeVault, nextIndexes, vaultCoins, watchedAddresses } from './_vault-coins.js';
 import { userServersFrom } from './_electrum.js';
 
 async function btcPrice(network) {
@@ -40,12 +40,13 @@ async function vaultBalance(event, vaultId) {
   if (!vault.address) return json(400, { error: 'This vault has no address yet' });
   const network = vault.network || 'testnet';
   try {
-    const watched = watchedAddresses(vault, vault.descriptor_version === 2 ? await nextIndexes(supabase, vault.id) : undefined);
+    const servers = userServersFrom(event);
+    const watched = watchedAddresses(vault, vault.descriptor_version === 2 ? await nextIndexes(supabase, vault.id) : undefined, undefined, { wide: await batchedLookups(vault.network, servers) });
     // One scan serves both the balance and the coins card (2026-11-24: two
     // scans per page view got the server refused by mempool.space).
     // Electrum when there is a server for this network (the person's own, or
     // the default), else the website (_vault-coins.js vaultCoins).
-    const { coins, tip, source } = await vaultCoins(network, watched, userServersFrom(event));
+    const { coins, tip, source, looked_up } = await vaultCoins(network, watched, userServersFrom(event));
     const confirmed_sats = coins.filter(c => c.status?.confirmed).reduce((n, c) => n + (c.value || 0), 0);
     const unconfirmed_sats = coins.filter(c => !c.status?.confirmed).reduce((n, c) => n + (c.value || 0), 0);
     const total_sats = confirmed_sats + unconfirmed_sats;
@@ -65,7 +66,9 @@ async function vaultBalance(event, vaultId) {
       confirmed_utxos: coins.filter(c => c.status?.confirmed).length,
       mempool_url: `${(MEMPOOL[network] || MEMPOOL.testnet).replace(/\/api$/, '')}/address/${vault.address}`,
       tx_count: coins.length,
-      addresses_watched: watched.length,
+      // How many addresses were actually looked up (the website fallback
+      // looks at fewer than an Electrum server does).
+      addresses_watched: looked_up ?? watched.length,
       source,
       tip: typeof tip === 'number' ? tip : null,
       // The same shape utxos.js answers, so the coins card needs no second scan.

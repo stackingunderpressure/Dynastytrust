@@ -42,7 +42,7 @@ const supabase = {
   from: (t) => {
     // vault_addresses: the change addresses already issued (db.change);
     // vault_address_branches: the counters.
-    const o = { select: () => o, eq: () => o, order: () => o, limit: () => o,
+    const o = { select: () => o, eq: () => o, in: () => o, order: () => o, limit: () => o,
       then: (res) => res(t === 'vault_addresses'
         ? { data: db.change, error: null }
         : { data: Object.entries(db.next).map(([branch, next_index]) => ({ branch: Number(branch), next_index })), error: null }),

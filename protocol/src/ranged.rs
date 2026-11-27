@@ -377,8 +377,12 @@ impl RangedVault {
     ///
     /// `lock_time_height` is the absolute height for an `after()` path (0
     /// for a path that opens right away). `older()` paths are not supported
-    /// here yet.
-    pub fn build_spend_psbt(
+    /// here.
+    ///
+    /// Private (outside review 2026-11-27, low 4): it neither reads a path's
+    /// own locks nor keeps only that path's leaf, so the one public way to
+    /// build a spend is `build_path_spend_psbt`, which does both.
+    fn build_spend_psbt(
         &self,
         inputs: &[RangedInput],
         destination: &str,

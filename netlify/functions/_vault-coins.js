@@ -21,6 +21,11 @@ import { electrumCoins, electrumUsed, serverFor } from "./_electrum.js";
  *  many requests") the scans of a fresh-address vault's page (measured:
  *  views 3-6 of 6 all refused). */
 export const LOOK_AHEAD = { 0: 5, 1: 2 };
+/** Where lookups go to an Electrum server they are batched (one request
+ *  for the lot), so the look-ahead can match the 20-address gap wallets
+ *  restoring a vault use (outside review 2026-11-27, low 3). The website
+ *  fallback still sees only LOOK_AHEAD (vaultCoins/vaultUsed trim it). */
+export const ELECTRUM_LOOK_AHEAD = { 0: 20, 1: 20 };
 /** Lookups in flight at once, and how often a refused one is retried. */
 const PARALLEL = 3;
 const RETRIES = 2;
@@ -29,6 +34,22 @@ const ROUTE_MAX = 200; // the wasm route's own cap per call
 // Addresses watched per branch. Was 200 (the route's cap) until 2026-11-24,
 // which would have stopped a long-lived vault seeing its newest addresses.
 const MAX_PER_BRANCH = 5000;
+
+/** The website (one request per address) only looks LOOK_AHEAD past the
+ *  addresses handed out, whatever the list was built for. */
+function forWebsite(watched) {
+  return watched.filter((w) => w.ahead === undefined || w.ahead < LOOK_AHEAD[w.branch]);
+}
+
+/** Will lookups for this network be batched (an Electrum server, the
+ *  person's own or the default)? Then the wider look-ahead is cheap. */
+export async function batchedLookups(network, userServers = {}, deps = {}) {
+  try {
+    return !!(await (deps.serverFor ?? serverFor)(network, userServers, deps));
+  } catch {
+    return false;
+  }
+}
 
 /** Reserved-index counters for a v2 vault: { 0: n, 1: m } (0 when unset). */
 export async function nextIndexes(supabase, vaultId) {
@@ -46,12 +67,13 @@ export async function nextIndexes(supabase, vaultId) {
  * Every address to watch: [{ branch, index, address }]. Throws rather than
  * return a partial or wrong list.
  */
-export function watchedAddresses(vault, next = { 0: 0, 1: 0 }, call = callWasm) {
+export function watchedAddresses(vault, next = { 0: 0, 1: 0 }, call = callWasm, { wide = false } = {}) {
   if (!vault.address) return [];
   if (vault.descriptor_version !== 2) return [{ branch: 0, index: 0, address: vault.address }];
   const out = [];
   for (const branch of [0, 1]) {
-    const count = Math.min(MAX_PER_BRANCH, Math.max(1, next[branch] ?? 0) + LOOK_AHEAD[branch]);
+    const handedOut = Math.max(1, next[branch] ?? 0);
+    const count = Math.min(MAX_PER_BRANCH, handedOut + (wide ? ELECTRUM_LOOK_AHEAD : LOOK_AHEAD)[branch]);
     // The wasm route answers at most ROUTE_MAX per call; ask in runs so a
     // vault past 200 addresses keeps watching its newest ones (2026-11-24).
     for (let start = 0; start < count; start += ROUTE_MAX) {
@@ -67,7 +89,9 @@ export function watchedAddresses(vault, next = { 0: 0, 1: 0 }, call = callWasm) 
       if (r.status !== 200 || !r.body?.ok || !Array.isArray(r.body.addresses)) {
         throw new Error(r.body?.error || `address list refused (${r.status})`);
       }
-      for (const a of r.body.addresses) out.push({ branch, index: a.index, address: a.address });
+      // `ahead`: how far past the addresses handed out (0 = the first one
+      // after them); absent for an address handed out.
+      for (const a of r.body.addresses) out.push({ branch, index: a.index, address: a.address, ...(a.index >= handedOut ? { ahead: a.index - handedOut } : {}) });
     }
   }
   const zero = out.find((a) => a.branch === 0 && a.index === 0);
@@ -120,17 +144,18 @@ export async function coinsAt(network, watched, fetchJson = mempoolFetch, parall
 export async function vaultCoins(network, watched, userServers = {}, deps = {}) {
   const viaWebsite = async () => {
     const base = MEMPOOL[network] || MEMPOOL.testnet;
+    const list = forWebsite(watched);
     const [coins, tip] = await Promise.all([
-      (deps.coinsAt ?? coinsAt)(network, watched),
+      (deps.coinsAt ?? coinsAt)(network, list),
       (deps.fetchJson ?? mempoolFetch)(`${base}/blocks/tip/height`).catch(() => null),
     ]);
-    return { coins, tip: typeof tip === "number" ? tip : null, source: "mempool.space" };
+    return { coins, tip: typeof tip === "number" ? tip : null, source: "mempool.space", looked_up: list.length };
   };
   const server = await (deps.serverFor ?? serverFor)(network, userServers, deps);
   if (!server) return viaWebsite();
   try {
     const { coins, tip } = await (deps.electrumCoins ?? electrumCoins)(server, network, watched, deps);
-    return { coins, tip, source: server.own ? "your Electrum server" : `Electrum (${server.host})` };
+    return { coins, tip, source: server.own ? "your Electrum server" : `Electrum (${server.host})`, looked_up: watched.length };
   } catch (e) {
     if (server.own) throw e;
     console.warn(`default Electrum server failed, using the website lookups: ${e.message}`);
@@ -151,14 +176,15 @@ export async function vaultUsed(network, watched, userServers = {}, deps = {}) {
     const used = new Set();
     let next = 0;
     const fetchJson = deps.fetchJson ?? mempoolFetch;
+    const list = forWebsite(watched);
     async function worker() {
-      while (next < watched.length) {
-        const w = watched[next++];
+      while (next < list.length) {
+        const w = list[next++];
         const st = await withRetry(() => fetchJson(`${base}/address/${w.address}`), deps.retryWaitMs);
         if ((st?.chain_stats?.tx_count ?? 0) + (st?.mempool_stats?.tx_count ?? 0) > 0) used.add(w.address);
       }
     }
-    await Promise.all(Array.from({ length: Math.min(PARALLEL, watched.length) }, worker));
+    await Promise.all(Array.from({ length: Math.min(PARALLEL, list.length) }, worker));
     return used;
   };
   if (!watched.length) return new Set();

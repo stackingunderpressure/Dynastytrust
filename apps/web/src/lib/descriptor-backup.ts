@@ -70,6 +70,11 @@ export interface VaultBackupLike {
    *  and change address), never the one-address `descriptor`. */
   descriptor_version?: number | null;
   descriptor_multipath?: string | null;
+  /** The two single-branch halves of `descriptor_multipath` (receive `/0/*`,
+   *  change `/1/*`), for Bitcoin Core 28 and older, which cannot read
+   *  `<0;1>` (outside review 2026-11-27, low 2). */
+  descriptor_receive?: string | null;
+  descriptor_change?: string | null;
 }
 
 /** The descriptor a backup must carry: for a vault with a new address every
@@ -159,6 +164,20 @@ export function vaultBackupText(v: VaultBackupLike): string {
       : `# Output descriptor (load it into Bitcoin Core -- see RECOVERY below)`,
     descriptor ?? '(not compiled yet)',
     ``,
+    ...(fresh && v.descriptor_receive && v.descriptor_change
+      ? [
+          `# The same vault as TWO descriptors, for Bitcoin Core 28 or older (which`,
+          `# cannot read the <0;1> form above). Receive addresses:`,
+          v.descriptor_receive,
+          `# Change addresses:`,
+          v.descriptor_change,
+          `# Load both into one watch-only wallet (Core 28 or older):`,
+          `#   bitcoin-cli -rpcwallet=vault importdescriptors '[`,
+          `#     {"desc":"RECEIVE DESCRIPTOR","timestamp":0,"range":[0,999],"active":true,"internal":false},`,
+          `#     {"desc":"CHANGE DESCRIPTOR","timestamp":0,"range":[0,999],"active":true,"internal":true}]'`,
+          ``,
+        ]
+      : []),
     `# Descriptor fingerprint -- write this down SEPARATELY from this file`,
     `# (a sticky note, a second sheet of paper, memorized). Before trusting`,
     `# any future copy of this descriptor -- on a signer, on a screen, in`,

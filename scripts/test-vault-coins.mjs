@@ -57,7 +57,7 @@ mock.module(F('_auth.js'), { namedExports: {
   json: (statusCode, body) => ({ statusCode, body }),
 } });
 
-const { watchedAddresses, coinsAt, LOOK_AHEAD } = await import(F('_vault-coins.js'));
+const { watchedAddresses, coinsAt, LOOK_AHEAD, ELECTRUM_LOOK_AHEAD } = await import(F('_vault-coins.js'));
 
 // 1. v1: its one address.
 assert.deepEqual(watchedAddresses(V1), [{ branch: 0, index: 0, address: V1.address }]);
@@ -93,6 +93,10 @@ let r = await get({ vault_id: V2.id });
 assert.equal(r.statusCode, 200, JSON.stringify(r.body));
 assert.equal(r.body.confirmed_sats, 3300); assert.equal(r.body.unconfirmed_sats, 500); assert.equal(r.body.total_sats, 3800);
 assert.equal(r.body.utxo_count, 4); assert.equal(r.body.address, V2.address);
+// Signet has a default Electrum server, so the wider look-ahead is built
+// (outside review 2026-11-27, low 3); here Electrum cannot be reached and
+// the website fallback looks at the narrow window -- and says so.
+assert.ok(ELECTRUM_LOOK_AHEAD[0] > LOOK_AHEAD[0]);
 assert.equal(r.body.addresses_watched, 4 + LOOK_AHEAD[0] + 2 + LOOK_AHEAD[1]);
 pass('the vault balance adds up coins on receive 0, receive 3 and change 1');
 
