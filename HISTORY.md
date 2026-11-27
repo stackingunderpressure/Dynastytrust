@@ -5300,8 +5300,11 @@ Test: `scripts/test-tranche-trustees.mjs` (14 assertions, compiles a mainnet
 tranche through the real compiler), in `npm test`; it fails with the old rule
 put back ("actual: 0"). Gates: lint 0 errors (9 warnings, all pre-existing);
 typecheck 15 errors, identical line for line with and without this change
-(pre-existing); build green with Netlify's own command; full `npm test` run
-recorded in the commit that follows this one.
+(pre-existing); build green with Netlify's own command; full `npm test` exit 0
+(the Rust `ranged` tests and the offline vault harness included), run after
+installing `netlify/functions` dependencies -- the first run stopped at
+`test-vault-duress.mjs` only because `jose` was not installed in the fresh
+checkout.
 
 NOT done: the creator's hardware-wallet key origins for trustees still come
 from `vault_members`, which may not list every path key on a path-builder
