@@ -24,7 +24,9 @@
   publish = "apps/web/dist"
 
 [build.environment]
-  NODE_VERSION = "20"
+  # Node 20 reached end of life (no more security patches); CI and local
+  # gates already run on 22. Outside review relayed 2026-11-27.
+  NODE_VERSION = "22"
 
 [functions]
   directory = "netlify/functions"
