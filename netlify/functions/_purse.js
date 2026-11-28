@@ -8,6 +8,9 @@
  * (operator, 2026-11-28: "With all inputs configurable").
  */
 
+import { createHash } from "node:crypto";
+import { verifyAttestationSignature } from "./_attest.js";
+
 export const PURSE_DEFAULTS = Object.freeze({
   approvals_needed: 3,
   /** vault_members ids whose yes counts; empty = every active member. */
@@ -100,4 +103,50 @@ export function canVote(settings, member, request) {
   if (member.user_id === request.requested_by) return false;
   const voters = Array.isArray(settings?.voters) ? settings.voters : [];
   return voters.length === 0 || voters.includes(member.id);
+}
+
+// ---- Slice 3: paying --------------------------------------------------
+
+/** sha256 hex of the exact text every yes signs, from a stored request row. */
+export function payoutTargetHash(row) {
+  return createHash("sha256")
+    .update(payoutTargetText({ vault_id: row.vault_id, request_id: row.id, amount_sats: row.amount_sats, road: row.road, invoice_sha256: row.invoice_sha256 }), "utf8")
+    .digest("hex");
+}
+
+const xOnlyKey = (k) => {
+  const s = String(k ?? "").toLowerCase();
+  return /^0[23][0-9a-f]{64}$/.test(s) ? s.slice(2) : s;
+};
+
+/**
+ * The yeses that still count NOW: re-checked from scratch against today's
+ * members and rules, so a yes from someone since removed, or no longer a
+ * voter, or a signature that does not verify, is not counted. One per
+ * member. Used before anything is paid, never trusting the stored status.
+ */
+export function goodYeses({ yeses, members, settings, request }) {
+  const target = payoutTargetHash(request);
+  const seen = new Set();
+  return (yeses ?? []).filter((y) => {
+    if (y.request_id !== request.id || y.target_hash !== target || seen.has(y.member_id)) return false;
+    const m = (members ?? []).find((x) => x.id === y.member_id);
+    if (!m || !canVote(settings, m, request) || xOnlyKey(m.pubkey) !== y.pubkey) return false;
+    if (!verifyAttestationSignature({ attestationType: YES_TYPE, targetHash: target, signature: y.sig, pubkey: y.pubkey })) return false;
+    seen.add(y.member_id);
+    return true;
+  });
+}
+
+/** The first instant of the calendar month (UTC) that `now` is in. */
+export function monthStartIso(now = new Date()) {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+}
+
+/** Sats already spoken for this month: paid, or started and not yet ended. */
+export function spentThisMonth(payments, now = new Date()) {
+  const from = monthStartIso(now);
+  return (payments ?? [])
+    .filter((p) => (p.status === "paid" || p.status === "started") && p.started_at >= from)
+    .reduce((sum, p) => sum + Number(p.amount_sats), 0);
 }

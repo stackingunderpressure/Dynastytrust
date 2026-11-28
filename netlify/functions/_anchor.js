@@ -31,6 +31,8 @@ export const MILESTONE_EVENTS = new Set([
   "purse_rules_set", "purse_rules_handed_to_family",
   // The family reaching enough yeses for a purse payout.
   "purse_payout_approved",
+  // The treasurer paid it, with a receipt only the payee could give.
+  "purse_payout_paid",
 ]);
 export function isMilestone(eventType) {
   return MILESTONE_EVENTS.has(eventType);

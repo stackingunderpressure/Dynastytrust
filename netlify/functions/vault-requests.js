@@ -28,7 +28,7 @@ import { recordEvent } from "./_ledger.js";
 import { PURSE_DEFAULTS } from "./_purse.js";
 
 const FIELDS =
-  "id, created_at, updated_at, vault_id, requested_by, rule_id, rule_name, amount_sats, recipient_name, reason, status, linked_proposal_id, resolved_by, resolved_at, resolution_note, road, invoice, invoice_sha256, expires_at";
+  "id, created_at, updated_at, vault_id, requested_by, rule_id, rule_name, amount_sats, recipient_name, reason, status, linked_proposal_id, resolved_by, resolved_at, resolution_note, road, invoice, invoice_sha256, expires_at, payment_hash";
 
 async function membership(supabase, vaultId, userId) {
   const { data } = await supabase
@@ -99,8 +99,11 @@ export async function handler(event) {
         if (!/^[0-9a-f]{64}$/.test(sha)) return json(400, { error: "A Lightning request needs its invoice fingerprint (invoice_sha256)." });
         if (typeof body.invoice !== "string" || !body.invoice) return json(400, { error: "A Lightning request needs its invoice." });
         if (body.invoice.length > 4000) return json(400, { error: "That invoice is too long." });
+        const ph = typeof body.payment_hash === "string" ? body.payment_hash.toLowerCase() : "";
+        if (!/^[0-9a-f]{64}$/.test(ph)) return json(400, { error: "A Lightning request needs its invoice's payment hash." });
         purseFields.invoice = body.invoice;
         purseFields.invoice_sha256 = sha;
+        purseFields.payment_hash = ph;
       }
     }
 
@@ -199,6 +202,15 @@ export async function handler(event) {
     }
     if (wantsStatus === "approved" && existing.road === "lightning") {
       return json(403, { error: "A Lightning purse payout is approved only by the family's signed yeses, not by hand." });
+    }
+    if (wantsStatus === "cancelled" && existing.road === "lightning") {
+      const { data: pay } = await supabase.from("purse_payments").select("status").eq("request_id", id).maybeSingle();
+      if (pay && pay.status !== "failed") {
+        return json(409, { error: "The treasurer has already started paying this, so it cannot be cancelled now." });
+      }
+    }
+    if (wantsStatus === "fulfilled" && existing.road === "lightning") {
+      return json(403, { error: "A Lightning purse payout is marked paid only by its receipt, not by hand." });
     }
     if (
       wantsStatus === "cancelled" && !isRequester

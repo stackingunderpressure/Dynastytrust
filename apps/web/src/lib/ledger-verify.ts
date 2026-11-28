@@ -405,6 +405,7 @@ const EVENT_WORDS: Record<string, string> = {
   purse_rules_set: "The family purse's rules were changed",
   purse_rules_handed_to_family: "The family purse's rules were handed to the family",
   purse_payout_approved: "Enough of the family said yes to a purse payout",
+  purse_payout_paid: "The treasurer paid a purse payout, with a receipt only the person paid could give",
 };
 
 /** What an entry says, in the member's words; unknown kinds are shown

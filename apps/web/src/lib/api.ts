@@ -558,6 +558,22 @@ export interface VaultRequest {
   /** sha256 of the invoice text, in the clear; every yes signs it. */
   invoice_sha256?: string | null;
   expires_at?: string | null;
+  /** The invoice's payment hash, in the clear; the receipt is checked against it. */
+  payment_hash?: string | null;
+}
+
+/** The treasurer paying one purse payout (/api/vault-purse-pay). */
+export interface PursePayment {
+  request_id: string;
+  vault_id: string;
+  amount_sats: number;
+  status: 'started' | 'paid' | 'failed';
+  started_by: string;
+  started_at: string;
+  preimage: string | null;
+  fee_sats: number | null;
+  failure: string | null;
+  ended_at: string | null;
 }
 
 /** One member's signed yes to one purse payout (/api/vault-purse-yes). */
@@ -1568,6 +1584,14 @@ export const api = {
     /** signature + pubkey come from lib/local-sign over lib/purse payoutTargetHash. */
     sayYes: (body: { request_id: string; signature: string; pubkey: string }) =>
       req<{ ok: true; yeses: number; needed: number; status: VaultRequestStatus }>('/vault-purse-yes', { method: 'POST', body: JSON.stringify(body) }),
+    payments: (vault_id: string) =>
+      req<{ ok: true; payments: PursePayment[]; month_spent_sats: number; month_left_sats: number }>(`/vault-purse-pay?vault_id=${vault_id}`),
+    payStart: (request_id: string) =>
+      req<{ ok: true; resumed: boolean; month_left_sats?: number }>('/vault-purse-pay', { method: 'POST', body: JSON.stringify({ action: 'start', request_id }) }),
+    payDone: (request_id: string, preimage: string, fee_sats: number | null) =>
+      req<{ ok: true }>('/vault-purse-pay', { method: 'POST', body: JSON.stringify({ action: 'paid', request_id, preimage, fee_sats }) }),
+    payFailed: (request_id: string, reason: string) =>
+      req<{ ok: true }>('/vault-purse-pay', { method: 'POST', body: JSON.stringify({ action: 'failed', request_id, reason }) }),
   },
 
   vaultRequests: {
@@ -1586,6 +1610,7 @@ export const api = {
       /** Plain invoice text; sealed here, and its sha256 sent in the clear. */
       invoice?: string;
       invoice_sha256?: string;
+      payment_hash?: string;
     }) =>
       (async () => {
         const v = body.vault_id;

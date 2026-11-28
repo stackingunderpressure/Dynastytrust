@@ -92,6 +92,12 @@ expect_refused "nobody can insert a purse yes directly" \
   "insert into purse_yeses (request_id, vault_id, member_id, user_id, pubkey, sig, target_hash) values (gen_random_uuid(), '22222222-2222-2222-2222-222222222222', gen_random_uuid(), '$OWNER', repeat('a',64), repeat('b',128), repeat('c',64));"
 expect_refused "nobody can delete a purse yes directly" \
   "delete from purse_yeses;"
+# The treasurer's payments: a browser that could write one could mark a
+# payout paid without a receipt, or free up the monthly cap.
+expect_refused "nobody can record a purse payment directly" \
+  "insert into purse_payments (request_id, vault_id, amount_sats, status, started_by) values (gen_random_uuid(), '22222222-2222-2222-2222-222222222222', 1, 'started', '$OWNER');"
+expect_refused "nobody can mark a purse payment failed directly" \
+  "update purse_payments set status = 'failed';"
 out=$(as_owner "select address from vaults;")
 echo "$out" | grep -q "bc1p-real" && ok "the owner can still READ their vault"
 policies=$($PSQL -c "select count(*) from pg_policies where schemaname='public' and cmd <> 'SELECT'")

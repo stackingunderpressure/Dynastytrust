@@ -215,6 +215,10 @@ function describeEvent(e: VaultEvent, actor: string): { icon: string; title: str
       return { icon: "P", title: `${actor} handed the family purse's rules to the family`, color: colors.orange };
     case "purse_yes":
       return { icon: "P", title: `${actor} said yes to a purse payout${meta.amount_sats ? ` of ${Number(meta.amount_sats).toLocaleString("en-US")} sats` : ""}`, color: colors.sub };
+    case "purse_payout_paid":
+      return { icon: "P", title: `${actor} paid a purse payout${meta.amount_sats ? ` of ${Number(meta.amount_sats).toLocaleString("en-US")} sats` : ""}${meta.fee_sats != null ? `, fee ${String(meta.fee_sats)} sats` : ""}`, color: colors.green };
+    case "purse_payment_failed":
+      return { icon: "P", title: `The purse wallet refused a payout; nothing was sent${meta.reason ? ` (${String(meta.reason)})` : ""}`, color: colors.orange };
     case "purse_payout_approved":
       return { icon: "P", title: `Enough of the family said yes to a purse payout${meta.yeses ? ` (${String(meta.yeses)} yeses)` : ""}`, color: colors.green };
     case "broadcast":

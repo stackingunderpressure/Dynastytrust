@@ -5407,3 +5407,54 @@ signature check verified red with the verify disabled);
 test-no-client-writes-db.sh on real Postgres 16: 27 checks (two new: a
 browser cannot insert or delete a yes). NOT walked in a browser: it needs a
 signed-in session on a real vault with several members' keys.
+
+## 2026-11-28 -- The family purse, slice 3: the treasurer pays, and the receipt is checked
+
+Operator, 2026-11-28: "Yes love it" (to slice 3). Builds on slices 1 and 2.
+
+What landed:
+- Migration 20261128140000: `vault_requests.payment_hash` (the invoice's
+  payment hash, in the clear; reveals nothing about who is paid) and
+  `purse_payments`, one row per request (primary key = request, so two
+  phones cannot both start paying it). Written only by
+  `/api/vault-purse-pay`; owner and active members read.
+- `vault-purse-pay.js`: `start` only for the purse's treasurer, only on an
+  approved Lightning request, only if its yeses STILL count when re-checked
+  from scratch against today's members, voters and keys (`goodYeses` in
+  `_purse.js`, signatures re-verified), only if not paid, and only if it
+  fits this calendar month's cap (UTC; paid plus started). Starting again
+  after an unknown outcome is allowed: an invoice can be paid only once.
+  `paid` only with a preimage whose sha256 is the payment hash; the request
+  becomes fulfilled and `purse_payout_paid` is a milestone (anchored).
+  `failed` frees the cap and leaves the payout approved.
+- `vault-requests.js`: a Lightning request must carry its payment hash; a
+  Lightning payout cannot be marked fulfilled by hand, and cannot be
+  cancelled once paying has started.
+- Browser: `lib/purse.ts` reads the payment hash from the invoice (BOLT11
+  tag p; the spec vector's hash checks) and `receiptMatches`; signers'
+  phones now also refuse when the request's payment hash is not the
+  invoice's. `lib/nwc.ts`: NIP-47 pay_invoice over the repo's own Nostr
+  transport -- nip44_v2 when the wallet's info event offers it, NIP-04
+  otherwise (as NIP-47 says), a one-minute expiration tag, and three
+  outcomes: paid (receipt matches), failed (a definite no from the
+  wallet), unknown (anything else; never counted either way).
+  `lib/nwc-store.ts`: the connection string lives only on the treasurer's
+  phone, encrypted with their password (keystore's PBKDF2 + AES-GCM).
+  `PursePay.tsx`: the treasurer sees every check before the Pay button,
+  and there is no button if one fails; everyone sees the receipt, re-checked
+  on their own phone. Approved Lightning payouts stay in the waiting list.
+
+Deliberately not done yet: the game linking its levels to purse receipts
+(slice 4), on-chain refills and payouts from the vault (slice 5),
+family-voted rule changes. The server cannot bind whoever runs the purse
+wallet; the wallet's own budget is the backstop, and the screen tells the
+treasurer to set it no higher than the purse's cap.
+
+Gates: typecheck 10 errors and lint 9 warnings, unchanged; build green;
+`npm test` exit 0 with test-purse-pay (14 checks, against a fake wallet on
+a fake relay in both encryptions; the receipt rule verified red with the
+check disabled) and test-purse-yes (15). The readability gate caught a
+13px line, fixed. test-no-client-writes-db.sh on real Postgres 16: 29
+checks. NOT verified: a real wallet (Alby Hub, Coinos) has never been
+paid through this; the NIP-04 code has only been checked against itself
+(a cross-check against nostr-tools was not run); not walked in a browser.

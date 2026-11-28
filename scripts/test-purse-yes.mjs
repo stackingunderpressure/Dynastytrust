@@ -29,13 +29,20 @@ pass('browser and server build the identical yes target');
 // 2. Reading an invoice before anyone signs.
 const V = 'lnbc2500u1pvjluezsp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygspp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdq5xysxxatsyp3k7enxv4jsxqzpu9qrsgquk0rl77nj30yxdy8j9vdx85fkpmdla2087ne0xh8nhedh8w27kyke0lp53ut353s06fv3qfegext0eh0ymjpf39tuven09sam30g4vgpfna3rh';
 const r = purse.readInvoice('lightning:' + V.toUpperCase(), 'bitcoin');
-assert.equal(r.ok, true); assert.equal(r.amount_sats, 250000); assert.equal(r.sha256, createHash('sha256').update(V).digest('hex'));
+assert.equal(r.ok, true); assert.equal(r.amount_sats, 250000); assert.equal(r.payment_hash, '0001020304050607080900010203040506070809000102030405060708090102'); assert.equal(r.sha256, createHash('sha256').update(V).digest('hex'));
 pass('reads the BOLT11 spec vector: 2500u is 250,000 sats, and fingerprints the lowercase text');
 assert.match(purse.readInvoice(V, 'testnet').error, /for bitcoin, but this vault is on testnet/);
 assert.match(purse.readInvoice(V.slice(0, 40) + (V[40] === 'q' ? 'p' : 'q') + V.slice(41), 'bitcoin').error, /did not copy whole/);
 assert.match(purse.readInvoice('bc1qsomething', 'bitcoin').error, /not a Lightning invoice/);
-const mk = (hrp) => bech32.encode(hrp, bech32.toWords(new Uint8Array(40)), false);
+// A synthetic invoice laid out as BOLT11 is: 7 words of timestamp, a 'p'
+// tag (type 1, 52 words) carrying the payment hash, 104 words of signature.
+const mk = (hrp, hash = new Uint8Array(32).fill(7)) => {
+  const ph = bech32.toWords(hash);
+  return bech32.encode(hrp, [...new Array(7).fill(1), 1, Math.floor(ph.length / 32), ph.length % 32, ...ph, ...new Array(104).fill(0)], false);
+};
 assert.match(purse.readInvoice(mk('lnbc'), 'bitcoin').error, /no amount/);
+assert.match(purse.readInvoice(bech32.encode('lnbc10u', new Array(120).fill(0), false), 'bitcoin').error, /no payment hash/);
+assert.equal(purse.readInvoice(mk('lnbc10u', new Uint8Array(32).fill(9)), 'bitcoin').payment_hash, '09'.repeat(32));
 assert.equal(purse.readInvoice(mk('lnbc1500n'), 'bitcoin').amount_sats, 150);
 assert.equal(purse.readInvoice(mk('lntbs10u'), 'signet').amount_sats, 1000);
 assert.equal(purse.readInvoice(mk('lntb10u'), 'testnet').amount_sats, 1000);
@@ -109,10 +116,12 @@ assert.equal(res.statusCode, 400); assert.match(res.body.error, /fingerprint/);
 res = await post(reqFn, { vault_id: 'v1', amount_sats: 33400, road: 'sideways' });
 assert.equal(res.statusCode, 400);
 pass('a Lightning request over the per-payout limit, without its fingerprint, or on an unknown road is refused');
-res = await post(reqFn, { vault_id: 'v1', amount_sats: 33400, road: 'lightning', invoice: 'sealed-invoice', invoice_sha256: SHA.toUpperCase() });
+res = await post(reqFn, { vault_id: 'v1', amount_sats: 33400, road: 'lightning', invoice: 'sealed-invoice', invoice_sha256: SHA });
+assert.equal(res.statusCode, 400); assert.match(res.body.error, /payment hash/);
+res = await post(reqFn, { vault_id: 'v1', amount_sats: 33400, road: 'lightning', invoice: 'sealed-invoice', invoice_sha256: SHA.toUpperCase(), payment_hash: 'EF'.repeat(32) });
 assert.equal(res.statusCode, 201);
 const reqRow = db.vault_requests[0];
-assert.equal(reqRow.road, 'lightning'); assert.equal(reqRow.invoice_sha256, SHA); assert.equal(reqRow.invoice, 'sealed-invoice');
+assert.equal(reqRow.road, 'lightning'); assert.equal(reqRow.invoice_sha256, SHA); assert.equal(reqRow.payment_hash, 'ef'.repeat(32)); assert.equal(reqRow.invoice, 'sealed-invoice');
 const days = (new Date(reqRow.expires_at).getTime() - Date.now()) / 86400000;
 assert.ok(days > 13.9 && days <= 14);
 pass('a good Lightning request keeps its sealed invoice, lowercases the fingerprint, and lapses in the purse\'s 14 days');

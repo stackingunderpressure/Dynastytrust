@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { api, type PurseView, type PurseYes, type Vault, type VaultMember, type VaultRequest } from "../../lib/api";
+import { api, type PursePayment, type PurseView, type PurseYes, type Vault, type VaultMember, type VaultRequest } from "../../lib/api";
+import { PursePay } from "./PursePay";
 import { useToast } from "../../components/toast";
 import { usePrompt } from "../../components/dialog";
 import { colors, fonts, radii } from "../../theme";
@@ -40,6 +41,8 @@ export function PurseYesBlock({
   members,
   purse,
   yeses,
+  payment,
+  monthLeft,
   onChanged,
 }: {
   vault: Vault;
@@ -48,6 +51,8 @@ export function PurseYesBlock({
   members: VaultMember[];
   purse: PurseView | null;
   yeses: PurseYes[];
+  payment?: PursePayment;
+  monthLeft?: number | null;
   onChanged: () => void;
 }) {
   const toast = useToast();
@@ -71,6 +76,7 @@ export function PurseYesBlock({
       const inv = readInvoice(r.invoice ?? "", vault.network);
       if (!inv.ok) throw new Error(inv.error);
       if (inv.sha256 !== r.invoice_sha256) throw new Error("This invoice is not the one the request was filed with. Do not sign it.");
+      if (inv.payment_hash !== r.payment_hash) throw new Error("This request's payment hash does not match its invoice, so its receipt could not be checked. Do not sign it.");
       if (inv.amount_sats !== r.amount_sats) {
         throw new Error(`The invoice asks for ${inv.amount_sats.toLocaleString("en-US")} sats but the request says ${r.amount_sats.toLocaleString("en-US")}. Do not sign it.`);
       }
@@ -104,7 +110,17 @@ export function PurseYesBlock({
           Invoice fingerprint {r.invoice_sha256.slice(0, 8)}...{r.invoice_sha256.slice(-6)}
         </div>
       )}
-      {r.status === "approved" && <div style={{ fontSize: 15, color: colors.green }}>Enough yeses. Waiting for the treasurer to pay.</div>}
+      <PursePay
+        vault={vault}
+        request={r}
+        me={me}
+        purse={purse}
+        goodYesCount={good.length}
+        yesNames={names}
+        payment={payment}
+        monthLeft={monthLeft ?? null}
+        onChanged={onChanged}
+      />
       {r.status === "pending" && lapsed && <div style={{ fontSize: 15, color: colors.muted }}>This request has lapsed.</div>}
       {r.status === "pending" && !lapsed && mayVote && !mine && (
         <>

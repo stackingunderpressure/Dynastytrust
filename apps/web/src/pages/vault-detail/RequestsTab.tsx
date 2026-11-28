@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { PANEL_FIT } from "../../components/ui/panelFit";
-import { api, type PurseView, type PurseYes, type Vault, type VaultMember, type VaultRequest, type VaultRequestStatus } from "../../lib/api";
+import { api, type PursePayment, type PurseView, type PurseYes, type Vault, type VaultMember, type VaultRequest, type VaultRequestStatus } from "../../lib/api";
 import { supabase } from "../../lib/supabase";
 import { useToast } from "../../components/toast";
 import { usePrompt } from "../../components/dialog";
@@ -29,6 +29,8 @@ export function RequestsTab({ vault, onSendPrefill }: { vault: Vault; onSendPref
   const [showCreate, setShowCreate] = useState(false);
   const [purse, setPurse] = useState<PurseView | null>(null);
   const [yeses, setYeses] = useState<PurseYes[]>([]);
+  const [payments, setPayments] = useState<PursePayment[]>([]);
+  const [monthLeft, setMonthLeft] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -39,12 +41,15 @@ export function RequestsTab({ vault, onSendPrefill }: { vault: Vault; onSendPref
       setRequests(r.requests);
       setMembers(m.members);
       // The purse is additive: if it cannot load, requests still show.
-      const [pv, ys] = await Promise.all([
+      const [pv, ys, pay] = await Promise.all([
         api.vaultPurse.get(vault.id).catch(() => null),
         api.vaultPurse.yeses(vault.id).catch(() => ({ yeses: [] as PurseYes[] })),
+        api.vaultPurse.payments(vault.id).catch(() => null),
       ]);
       setPurse(pv);
       setYeses(ys.yeses);
+      setPayments(pay?.payments ?? []);
+      setMonthLeft(pay ? pay.month_left_sats : null);
     } catch {
       /* silent */
     } finally {
@@ -68,6 +73,10 @@ export function RequestsTab({ vault, onSendPrefill }: { vault: Vault; onSendPref
   );
   useRealtimeRefresh(
     { table: "purse_yeses", filter: `vault_id=eq.${vault.id}` },
+    () => void load(),
+  );
+  useRealtimeRefresh(
+    { table: "purse_payments", filter: `vault_id=eq.${vault.id}` },
     () => void load(),
   );
 
@@ -109,8 +118,10 @@ export function RequestsTab({ vault, onSendPrefill }: { vault: Vault; onSendPref
 
   if (loading) return <p style={{ color: colors.muted, fontSize: 17 }}>Loading...</p>;
 
-  const pending = requests.filter(r => r.status === "pending");
-  const resolved = requests.filter(r => r.status !== "pending");
+  // An approved purse payout is still waiting -- for the treasurer.
+  const waiting = (r: VaultRequest) => r.status === "pending" || (r.road === "lightning" && r.status === "approved");
+  const pending = requests.filter(waiting);
+  const resolved = requests.filter(r => !waiting(r));
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -157,7 +168,7 @@ export function RequestsTab({ vault, onSendPrefill }: { vault: Vault; onSendPref
               requesterLabel={members.find(m => m.user_id === r.requested_by)?.label ?? "Member"}
               iAmTrustee={iAmTrustee}
               iAmRequester={r.requested_by === currentUserId}
-              purse={<PurseYesBlock vault={vault} request={r} me={me} members={members} purse={purse} yeses={yeses} onChanged={() => void load()} />}
+              purse={<PurseYesBlock vault={vault} request={r} me={me} members={members} purse={purse} yeses={yeses} payment={payments.find(p => p.request_id === r.id)} monthLeft={monthLeft} onChanged={() => void load()} />}
               onApprove={() => {
                 void resolve(r, "approved", "Create the proposal in Send.");
                 startProposalFromRequest(r);
@@ -210,7 +221,7 @@ export function RequestsTab({ vault, onSendPrefill }: { vault: Vault; onSendPref
               requesterLabel={members.find(m => m.user_id === r.requested_by)?.label ?? "Member"}
               iAmTrustee={false}
               iAmRequester={false}
-              purse={<PurseYesBlock vault={vault} request={r} me={me} members={members} purse={purse} yeses={yeses} onChanged={() => void load()} />}
+              purse={<PurseYesBlock vault={vault} request={r} me={me} members={members} purse={purse} yeses={yeses} payment={payments.find(p => p.request_id === r.id)} monthLeft={monthLeft} onChanged={() => void load()} />}
             />
           ))}
         </div>
@@ -386,6 +397,7 @@ function NewRequestModal({
         road: road || undefined,
         invoice: inv && inv.ok ? inv.invoice : undefined,
         invoice_sha256: inv && inv.ok ? inv.sha256 : undefined,
+        payment_hash: inv && inv.ok ? inv.payment_hash : undefined,
       });
       toast.success("Request filed");
       onCreated();

@@ -8,9 +8,10 @@
  *
  * readInvoice: just enough of a BOLT11 Lightning invoice to refuse the
  * wrong one before anyone signs -- the bech32 checksum, the network
- * prefix, and the amount. It does NOT read the payee, the expiry or the
- * description, and it does not prove the invoice is payable; the
- * treasurer's wallet does that when it pays (slice 3).
+ * prefix, the amount, and the payment hash (the receipt, a preimage, is
+ * checked against it). It does NOT read the payee, the expiry or the
+ * description, and it does not check the invoice's own signature or prove
+ * it is payable; the treasurer's wallet does that when it pays.
  */
 import { bech32 } from '@scure/base';
 import { sha256 } from '@noble/hashes/sha256';
@@ -52,7 +53,7 @@ const PREFIXES: { prefix: string; network: Vault['network'] | 'regtest' }[] = [
 const MSAT_PER: Record<string, bigint> = { m: 100000000n, u: 100000n, n: 100n };
 
 export type InvoiceRead =
-  | { ok: true; invoice: string; network: string; amount_sats: number; sha256: string }
+  | { ok: true; invoice: string; network: string; amount_sats: number; sha256: string; payment_hash: string }
   | { ok: false; error: string };
 
 export function readInvoice(raw: string, network: Vault['network']): InvoiceRead {
@@ -61,8 +62,11 @@ export function readInvoice(raw: string, network: Vault['network']): InvoiceRead
   inv = inv.toLowerCase();
   if (!inv.startsWith('ln')) return { ok: false, error: 'That is not a Lightning invoice. It should start with lnbc.' };
   let hrp: string;
+  let words: number[];
   try {
-    hrp = bech32.decode(inv as `${string}1${string}`, false).prefix;
+    const d = bech32.decode(inv as `${string}1${string}`, false);
+    hrp = d.prefix;
+    words = d.words;
   } catch {
     return { ok: false, error: 'That invoice did not copy whole: its check letters do not add up.' };
   }
@@ -88,5 +92,31 @@ export function readInvoice(raw: string, network: Vault['network']): InvoiceRead
   if (msat % 1000n !== 0n) return { ok: false, error: 'That invoice asks for a part of a sat. Ask for a whole number of sats.' };
   const sats = msat / 1000n;
   if (sats > BigInt(Number.MAX_SAFE_INTEGER)) return { ok: false, error: 'That invoice amount is far too large.' };
-  return { ok: true, invoice: inv, network: found.network, amount_sats: Number(sats), sha256: sha256Hex(inv) };
+  const payment_hash = paymentHashOf(words);
+  if (!payment_hash) return { ok: false, error: 'That invoice has no payment hash, so a receipt for it could not be checked.' };
+  return { ok: true, invoice: inv, network: found.network, amount_sats: Number(sats), sha256: sha256Hex(inv), payment_hash };
+}
+
+/** BOLT11 data: 7 words of timestamp, tagged fields, 104 words of signature.
+ *  Tag 'p' (type 1) is the 256-bit payment hash, 52 words. */
+function paymentHashOf(words: number[]): string | null {
+  const end = words.length - 104;
+  let i = 7;
+  while (i + 3 <= end) {
+    const type = words[i];
+    const len = words[i + 1] * 32 + words[i + 2];
+    const data = words.slice(i + 3, i + 3 + len);
+    if (i + 3 + len > end) return null;
+    if (type === 1 && len === 52) return toHex(bech32.fromWordsUnsafe(data)?.slice(0, 32) ?? new Uint8Array());
+    i += 3 + len;
+  }
+  return null;
+}
+
+/** True when `preimageHex` is the receipt for `paymentHashHex`. */
+export function receiptMatches(preimageHex: string, paymentHashHex: string): boolean {
+  if (!/^[0-9a-f]{64}$/i.test(preimageHex) || !/^[0-9a-f]{64}$/i.test(paymentHashHex)) return false;
+  const bytes = new Uint8Array(32);
+  for (let k = 0; k < 32; k++) bytes[k] = parseInt(preimageHex.slice(k * 2, k * 2 + 2), 16);
+  return toHex(sha256(bytes)) === paymentHashHex.toLowerCase();
 }
