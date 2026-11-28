@@ -503,6 +503,32 @@ export interface ScheduledStipend {
   active: boolean;
 }
 
+/** The family purse's rules (netlify/functions/_purse.js holds the bar). */
+export interface PurseSettings {
+  approvals_needed: number;
+  /** vault_members ids whose yes counts; empty means every active member. */
+  voters: string[];
+  treasurer_member_id: string | null;
+  per_payout_limit_sats: number;
+  monthly_cap_sats: number;
+  onchain_threshold_sats: number;
+  refill_sats: number;
+  request_expiry_days: number;
+}
+
+export interface PurseView {
+  ok: true;
+  saved: boolean;
+  settings: PurseSettings;
+  /** 'owner': the vault owner sets the rules; 'family': changes need the family's yeses. */
+  governance: 'owner' | 'family';
+  handed_over_at: string | null;
+  updated_at: string | null;
+  can_edit: boolean;
+  is_owner: boolean;
+  members: { id: string; label: string | null; role: string }[];
+}
+
 export interface VaultRequest {
   id: string;
   created_at: string;
@@ -1504,6 +1530,14 @@ export const api = {
         verification: LedgerCheck;
         anchoring: AnchorCheck;
       }>(`/vault-ledger?vault_id=${vault_id}`),
+  },
+
+  vaultPurse: {
+    get: (vault_id: string) => req<PurseView>(`/vault-purse?vault_id=${vault_id}`),
+    save: (vault_id: string, settings: PurseSettings) =>
+      req<PurseView>('/vault-purse', { method: 'PUT', body: JSON.stringify({ vault_id, settings }) }),
+    handOver: (vault_id: string) =>
+      req<PurseView>('/vault-purse', { method: 'POST', body: JSON.stringify({ vault_id, action: 'handover', confirm: true }) }),
   },
 
   vaultRequests: {

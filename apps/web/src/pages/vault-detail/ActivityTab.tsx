@@ -209,6 +209,10 @@ function describeEvent(e: VaultEvent, actor: string): { icon: string; title: str
       return { icon: "K", title: `${actor} renamed a key${meta.to ? ` to "${String(meta.to)}"` : ""}`, color: colors.sub };
     case "key_origins_repaired":
       return { icon: "K", title: `${actor} changed a key's hardware wallet details`, color: colors.orange };
+    case "purse_rules_set":
+      return { icon: "P", title: `${actor} changed the family purse's rules`, color: colors.orange };
+    case "purse_rules_handed_to_family":
+      return { icon: "P", title: `${actor} handed the family purse's rules to the family`, color: colors.orange };
     case "broadcast":
       return {
         icon: "B",

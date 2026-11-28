@@ -9,6 +9,7 @@ import { Button, Input, Label, Textarea } from "../../components/ui";
 import { useRealtimeRefresh } from "../../lib/realtime";
 import { SendPrefill } from "./SendTab";
 import { isTrusteeRole, satsToBtc } from "./shared";
+import { PursePanel } from "./PursePanel";
 
 
 // // -- Requests tab
@@ -98,6 +99,7 @@ export function RequestsTab({ vault, onSendPrefill }: { vault: Vault; onSendPref
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <PursePanel vault={vault} />
       <div
         style={{
           display: "flex",

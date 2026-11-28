@@ -26,6 +26,9 @@ export const MILESTONE_EVENTS = new Set([
   // so is a change to what a hardware wallet is told about a key
   // (operator, 2026-11-12: "Duress + hardware key repair").
   "duress_raised", "duress_cleared", "key_origins_repaired",
+  // The family purse's rules, and handing them to the family (operator,
+  // 2026-11-28: "Game master sets it at the start, family vote later").
+  "purse_rules_set", "purse_rules_handed_to_family",
 ]);
 export function isMilestone(eventType) {
   return MILESTONE_EVENTS.has(eventType);

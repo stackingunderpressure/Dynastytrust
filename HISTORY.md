@@ -5312,3 +5312,45 @@ vault (browser and Tapit signing unaffected). A tranche funded from outside the
 app still never shows Claim (it only learns `funded_txid` from the in-app
 Fund). Not walked in a browser: it needs a signed-in account and a compiled
 vault.
+
+## 2026-11-28 -- The family purse, slice 1: its rules, and handing them to the family
+
+Operator, 2026-11-28: "I want it a feature of dynasty after a game ... if
+someone from the family brings something of value to the family ... we pay
+out 50 bucks either through on-chain or lightning way after the game even
+ends"; "Game master sets it at the start, family vote later"; "With all
+inputs configurable". Mockup: claude.ai/artifact/PPYsb251zCkHEewFprrkNs.
+
+What landed (rules only; nothing moves money yet):
+- `vault_purse` (migration 20261128120000): one row per vault, the
+  settings and `governance` ('owner' | 'family'). Written only by
+  `/api/vault-purse` (service role); owner and active members read.
+- `_purse.js`: the bar every setting is held to -- yeses needed (1..the
+  number of voters), who votes (active members; empty = all), treasurer
+  (an active member or none), most one Lightning payout can be, monthly
+  cap (not below one payout), the on-chain threshold (no Lightning payout
+  above it), refill size, request expiry (1..90 days).
+- `vault-purse.js`: GET for members; PUT and the handover for the vault
+  owner only, while governance is 'owner'. The handover needs an explicit
+  confirm and is one-way: afterwards both are refused (409) until the
+  family-vote slice lands.
+- Both changes go into the sealed ledger (`purse_rules_set` with what
+  changed, `purse_rules_handed_to_family`) and are milestones, so they are
+  anchored to Bitcoin at once; plain words for both in ledger-verify.ts and
+  the Activity tab.
+- Requests tab: a "Family purse" panel at the top -- a one-line summary, the
+  rules read-only for members (and for everyone after the handover), the
+  editor plus "Hand the rules to the family" for the owner.
+
+Deliberately not done yet: payout requests on the Lightning road, signed
+family yeses, the treasurer's wallet connection (Nostr Wallet Connect), the
+receipt, and family-voted rule changes. The settings are plain, not sealed
+with the vault key (amounts and member ids; revisit if that is wrong).
+
+Gates: typecheck 10 errors and lint 9 warnings, identical before and after
+(none in the new files); build green; `npm test` exit 0 including
+test-vault-purse (10 checks) and the Rust and offline harness;
+test-no-client-writes-db.sh against a real Postgres: 25 checks, with the
+purse table refusing direct writes, a lowered yes-count and a faked
+handover. NOT walked in a browser: the panel needs a signed-in session on
+a real vault.

@@ -75,6 +75,17 @@ expect_refused "nobody can write a messaging-key backup directly" \
   "insert into messaging_key_backups (user_id, pubkey, wrapped_priv_b64, salt_b64, nonce_b64) values ('$OWNER','p','w','s','n');"
 expect_refused "nobody can bind a sign-in key directly" \
   "insert into wallet_identities (user_id, pubkey) values ('$OWNER', 'aa');"
+# The family purse's rules: written only by /api/vault-purse, so a member
+# cannot hand themselves a lower yes-count or skip the family handover.
+expect_refused "nobody can write the family purse rules directly" \
+  "insert into vault_purse (vault_id, settings) values ('22222222-2222-2222-2222-222222222222', '{\"approvals_needed\":1}');"
+$PSQL -c "set role service_role; insert into vault_purse (vault_id, settings) values ('22222222-2222-2222-2222-222222222222', '{\"approvals_needed\":3}');" >/dev/null
+expect_refused "nobody can lower the purse's yes-count directly" \
+  "update vault_purse set settings = '{\"approvals_needed\":1}';"
+expect_refused "nobody can hand the purse rules over directly" \
+  "update vault_purse set governance = 'family', handed_over_at = now();"
+out=$(as_owner "select settings->>'approvals_needed' from vault_purse;")
+echo "$out" | grep -q "^3$" && ok "the owner can still READ the purse rules, and they are unchanged"
 out=$(as_owner "select address from vaults;")
 echo "$out" | grep -q "bc1p-real" && ok "the owner can still READ their vault"
 policies=$($PSQL -c "select count(*) from pg_policies where schemaname='public' and cmd <> 'SELECT'")

@@ -402,6 +402,8 @@ const EVENT_WORDS: Record<string, string> = {
   halt_off: 'Halt lifted -- signing allowed again',
   key_label_changed: 'A key was renamed',
   key_origins_repaired: "A key's hardware wallet details were changed",
+  purse_rules_set: "The family purse's rules were changed",
+  purse_rules_handed_to_family: "The family purse's rules were handed to the family",
 };
 
 /** What an entry says, in the member's words; unknown kinds are shown
