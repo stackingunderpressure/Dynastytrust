@@ -5354,3 +5354,56 @@ test-no-client-writes-db.sh against a real Postgres: 25 checks, with the
 purse table refusing direct writes, a lowered yes-count and a faked
 handover. NOT walked in a browser: the panel needs a signed-in session on
 a real vault.
+
+## 2026-11-28 -- The family purse, slice 2: payout requests pick a road, and the family's yes is a signature
+
+Operator, 2026-11-28: "Yes keep going slice 2". Builds on slice 1 above.
+
+What landed (still no money moves -- paying is slice 3):
+- Migration 20261128130000: `vault_requests` gains `road` ('onchain' |
+  'lightning'; null = a request from before the purse, unchanged),
+  `invoice` (sealed with the vault key, field `request.invoice`),
+  `invoice_sha256` (its fingerprint, in the clear) and `expires_at`. New
+  table `purse_yeses`, one per member per request, written only by
+  `/api/vault-purse-yes`; owner and active members read; on the realtime
+  publication (guarded).
+- `vault-requests.js` POST: a Lightning request must fit the purse's
+  per-payout limit, sit below the on-chain threshold, and carry its sealed
+  invoice and fingerprint; every road request lapses after the purse's
+  expiry days. PATCH: a trustee can no longer mark a Lightning request
+  approved by hand (403). Decline and cancel work as before.
+- `vault-purse-yes.js`: a yes counts only if the request is a pending,
+  unlapsed Lightning request; the caller is an active member signing with
+  their own registered vault key; they are a voter and not the person
+  being paid; and the DT-ATT-v1 `purse_payout_yes` signature verifies over
+  `DT-PURSE-v1|vault|request|amount|road|invoice fingerprint`, recomputed
+  on the server from the stored row. Reaching the purse's number approves
+  the request; `purse_payout_approved` is a ledger milestone (anchored at
+  once), `purse_yes` an ordinary entry.
+- Browser: `lib/purse.ts` (the same target bytes; reads a BOLT11 invoice's
+  checksum, network prefix and amount -- lntbs is signet, lnbcrt refused --
+  and refuses no-amount and part-sat invoices); `lib/local-sign.ts` (the
+  TrustTab signer, moved so the purse uses the identical path); Requests
+  tab gains "How it is paid", an invoice box that takes the amount from the
+  invoice, and on each Lightning request the yes count, names, and "Say
+  yes". Before signing, the phone re-reads the invoice and refuses if its
+  fingerprint or amount differ from the request. The yes count shown is
+  re-verified on the phone, signature by signature, not taken from the
+  server.
+- Fixed from slice 1: the purse panel showed member labels as sealed
+  ciphertext. `api.vaultPurse` now opens them with the vault key.
+
+Deliberately not done yet: the treasurer paying (Nostr Wallet Connect),
+the monthly cap check (it binds at pay time, slice 3), the receipt and
+preimage, the on-chain road beyond recording it (approve still goes
+through the existing trustee path), family-voted rule changes. The
+invoice reader does not read the payee, expiry or description. Whether a
+Coinos Lightning address can hand an invoice straight to the browser is
+unconfirmed; for now the invoice is pasted.
+
+Gates: typecheck 10 errors and lint 9 warnings, identical to before; build
+green; `npm test` exit 0 including the new test-purse-yes (15 checks,
+signature check verified red with the verify disabled);
+test-no-client-writes-db.sh on real Postgres 16: 27 checks (two new: a
+browser cannot insert or delete a yes). NOT walked in a browser: it needs a
+signed-in session on a real vault with several members' keys.

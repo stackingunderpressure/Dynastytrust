@@ -86,6 +86,12 @@ expect_refused "nobody can hand the purse rules over directly" \
   "update vault_purse set governance = 'family', handed_over_at = now();"
 out=$(as_owner "select settings->>'approvals_needed' from vault_purse;")
 echo "$out" | grep -q "^3$" && ok "the owner can still READ the purse rules, and they are unchanged"
+# The family's yeses: written only by /api/vault-purse-yes, which checks the
+# signature. A browser that could insert one could approve a payout alone.
+expect_refused "nobody can insert a purse yes directly" \
+  "insert into purse_yeses (request_id, vault_id, member_id, user_id, pubkey, sig, target_hash) values (gen_random_uuid(), '22222222-2222-2222-2222-222222222222', gen_random_uuid(), '$OWNER', repeat('a',64), repeat('b',128), repeat('c',64));"
+expect_refused "nobody can delete a purse yes directly" \
+  "delete from purse_yeses;"
 out=$(as_owner "select address from vaults;")
 echo "$out" | grep -q "bc1p-real" && ok "the owner can still READ their vault"
 policies=$($PSQL -c "select count(*) from pg_policies where schemaname='public' and cmd <> 'SELECT'")

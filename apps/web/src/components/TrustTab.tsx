@@ -22,13 +22,11 @@ import type {
   Vault,
   VaultMember,
   VaultAttestation,
-  AttestationType,
 } from '../lib/api';
 import { api } from '../lib/api';
 import { supabase } from '../lib/supabase';
-import { keyNeedsPassword, listKeys, revealMnemonic } from '../lib/keystore';
+import { signWithLocalKey } from '../lib/local-sign';
 import {
-  signAttestation,
   trustDocHash,
   proofOfLifeHash,
   deathDeclarationHash,
@@ -77,11 +75,6 @@ function relativeTime(iso: string): string {
   return Math.round(months / 12) + 'y ago';
 }
 
-function attestNetwork(n: Vault['network']): 'testnet' | 'signet' | 'mainnet' {
-  if (n === 'bitcoin') return 'mainnet';
-  if (n === 'signet') return 'signet';
-  return 'testnet';
-}
 
 export function TrustTab({ vault }: { vault: Vault }) {
   const toast = useToast();
@@ -223,40 +216,6 @@ function xOnlyOf(stored: string): string {
   return /^0[23][0-9a-f]{64}$/.test(k) ? k.slice(2) : k;
 }
 
-async function signWithLocalKey(opts: {
-  pubkey: string | null | undefined;
-  attestationType: AttestationType;
-  targetHash: string;
-  network: Vault['network'];
-  // Supplied by the calling component so the password is collected through a
-  // styled dialog rather than the native window.prompt.
-  requestPassword: (label: string) => Promise<string | null>;
-}): Promise<{ signature: string; pubkey: string }> {
-  if (!opts.pubkey) throw new Error('You have no pubkey on this vault yet');
-  const keys = listKeys();
-  const match = keys.find(
-    k => k.status === 'active' && k.pubkey === opts.pubkey,
-  );
-  if (!match) {
-    throw new Error(
-      "No local key matches your vault pubkey. Import the mnemonic on this device.",
-    );
-  }
-  const needsPw = keyNeedsPassword(match);
-  const pw = needsPw
-    ? (await opts.requestPassword(match.label)) ?? undefined
-    : undefined;
-  if (needsPw && !pw) throw new Error('Password required');
-  const mnemonic = await revealMnemonic(match.keyId, pw);
-  const res = signAttestation({
-    mnemonic,
-    derivationPath: match.derivationPath,
-    network: attestNetwork(opts.network),
-    attestationType: opts.attestationType,
-    targetHash: opts.targetHash,
-  });
-  return res;
-}
 
 function MemberAttestList({
   attestations,

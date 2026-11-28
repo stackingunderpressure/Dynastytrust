@@ -80,3 +80,24 @@ export function validatePurseSettings(input, memberIds) {
 export function changedKeys(before, after) {
   return Object.keys(after).filter((k) => JSON.stringify(before?.[k]) !== JSON.stringify(after[k]));
 }
+
+/** The attestation type a family yes is signed under (DT-ATT-v1). */
+export const YES_TYPE = "purse_payout_yes";
+
+/**
+ * What a yes commits to: this vault, this request, this amount, this road,
+ * this exact invoice (by fingerprint). Any of them changing makes every
+ * earlier yes stop counting. Byte-for-byte the same as
+ * apps/web/src/lib/purse.ts payoutTargetHash (test-vault-purse checks).
+ */
+export function payoutTargetText({ vault_id, request_id, amount_sats, road, invoice_sha256 }) {
+  return ["DT-PURSE-v1", vault_id, request_id, String(amount_sats), road, invoice_sha256 ?? ""].join("|");
+}
+
+/** Who may say yes: the chosen voters (or every active member), never the person being paid. */
+export function canVote(settings, member, request) {
+  if (!member || member.status !== "active") return false;
+  if (member.user_id === request.requested_by) return false;
+  const voters = Array.isArray(settings?.voters) ? settings.voters : [];
+  return voters.length === 0 || voters.includes(member.id);
+}

@@ -21,6 +21,7 @@ export const F = {
   requestRecipient: 'request.recipient_name',
   requestReason: 'request.reason',
   requestNote: 'request.resolution_note',
+  requestInvoice: 'request.invoice',
   stipendName: 'stipend.name',
   stipendRecipient: 'stipend.recipient_name',
   walletName: 'wallet.name',
@@ -78,6 +79,7 @@ export function openRequest<T>(r: T): T {
   openStr(row, vid, 'recipient_name', F.requestRecipient);
   openStr(row, vid, 'reason', F.requestReason);
   openStr(row, vid, 'resolution_note', F.requestNote);
+  openStr(row, vid, 'invoice', F.requestInvoice);
   return row as T;
 }
 

@@ -29,6 +29,8 @@ export const MILESTONE_EVENTS = new Set([
   // The family purse's rules, and handing them to the family (operator,
   // 2026-11-28: "Game master sets it at the start, family vote later").
   "purse_rules_set", "purse_rules_handed_to_family",
+  // The family reaching enough yeses for a purse payout.
+  "purse_payout_approved",
 ]);
 export function isMilestone(eventType) {
   return MILESTONE_EVENTS.has(eventType);

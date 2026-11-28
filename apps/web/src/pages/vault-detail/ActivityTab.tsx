@@ -213,6 +213,10 @@ function describeEvent(e: VaultEvent, actor: string): { icon: string; title: str
       return { icon: "P", title: `${actor} changed the family purse's rules`, color: colors.orange };
     case "purse_rules_handed_to_family":
       return { icon: "P", title: `${actor} handed the family purse's rules to the family`, color: colors.orange };
+    case "purse_yes":
+      return { icon: "P", title: `${actor} said yes to a purse payout${meta.amount_sats ? ` of ${Number(meta.amount_sats).toLocaleString("en-US")} sats` : ""}`, color: colors.sub };
+    case "purse_payout_approved":
+      return { icon: "P", title: `Enough of the family said yes to a purse payout${meta.yeses ? ` (${String(meta.yeses)} yeses)` : ""}`, color: colors.green };
     case "broadcast":
       return {
         icon: "B",

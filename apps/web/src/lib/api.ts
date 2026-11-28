@@ -145,6 +145,12 @@ async function nameNewVault<R extends { vault?: Vault }>(name: string | undefine
 }
 
 /** Updates that carry a sealed field must say which vault seals it. */
+/** The purse's member labels are vault-key sealed like every member label. */
+async function openPurseView(vaultId: string, v: PurseView): Promise<PurseView> {
+  await keysForLists();
+  return { ...v, members: v.members.map(m => ({ ...m, label: m.label ? (openVaultText(vaultId, F.memberLabel, m.label) as string) : m.label })) };
+}
+
 function needVault(vaultId: string | undefined): string {
   if (!vaultId) throw new Error('Internal: this change needs its vault to be sealed.');
   return vaultId;
@@ -545,6 +551,25 @@ export interface VaultRequest {
   resolved_by: string | null;
   resolved_at: string | null;
   resolution_note: string | null;
+  /** Family purse (slice 2): null for a request from before the purse. */
+  road?: 'onchain' | 'lightning' | null;
+  /** The Lightning invoice, opened from its vault-key seal. */
+  invoice?: string | null;
+  /** sha256 of the invoice text, in the clear; every yes signs it. */
+  invoice_sha256?: string | null;
+  expires_at?: string | null;
+}
+
+/** One member's signed yes to one purse payout (/api/vault-purse-yes). */
+export interface PurseYes {
+  id: string;
+  request_id: string;
+  member_id: string;
+  user_id: string;
+  pubkey: string;
+  sig: string;
+  target_hash: string;
+  created_at: string;
 }
 
 export interface ProposalComment {
@@ -1533,11 +1558,16 @@ export const api = {
   },
 
   vaultPurse: {
-    get: (vault_id: string) => req<PurseView>(`/vault-purse?vault_id=${vault_id}`),
+    get: (vault_id: string) => req<PurseView>(`/vault-purse?vault_id=${vault_id}`).then(v => openPurseView(vault_id, v)),
     save: (vault_id: string, settings: PurseSettings) =>
-      req<PurseView>('/vault-purse', { method: 'PUT', body: JSON.stringify({ vault_id, settings }) }),
+      req<PurseView>('/vault-purse', { method: 'PUT', body: JSON.stringify({ vault_id, settings }) }).then(v => openPurseView(vault_id, v)),
     handOver: (vault_id: string) =>
-      req<PurseView>('/vault-purse', { method: 'POST', body: JSON.stringify({ vault_id, action: 'handover', confirm: true }) }),
+      req<PurseView>('/vault-purse', { method: 'POST', body: JSON.stringify({ vault_id, action: 'handover', confirm: true }) }).then(v => openPurseView(vault_id, v)),
+    yeses: (vault_id: string) =>
+      req<{ ok: true; yeses: PurseYes[] }>(`/vault-purse-yes?vault_id=${vault_id}`),
+    /** signature + pubkey come from lib/local-sign over lib/purse payoutTargetHash. */
+    sayYes: (body: { request_id: string; signature: string; pubkey: string }) =>
+      req<{ ok: true; yeses: number; needed: number; status: VaultRequestStatus }>('/vault-purse-yes', { method: 'POST', body: JSON.stringify(body) }),
   },
 
   vaultRequests: {
@@ -1552,6 +1582,10 @@ export const api = {
       amount_sats: number;
       recipient_name?: string;
       reason?: string;
+      road?: 'onchain' | 'lightning';
+      /** Plain invoice text; sealed here, and its sha256 sent in the clear. */
+      invoice?: string;
+      invoice_sha256?: string;
     }) =>
       (async () => {
         const v = body.vault_id;
@@ -1562,6 +1596,7 @@ export const api = {
             rule_name: await seal(v, F.requestRuleName, body.rule_name),
             recipient_name: await seal(v, F.requestRecipient, body.recipient_name),
             reason: await seal(v, F.requestReason, body.reason),
+            invoice: await seal(v, F.requestInvoice, body.invoice),
           }),
         });
         return { ...r, request: openRequest(r.request) };

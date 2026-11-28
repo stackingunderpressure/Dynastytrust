@@ -12,14 +12,23 @@
  *          Body: { status, resolution_note?, linked_proposal_id? }
  *          Trustees (role in ['owner', 'founder']) only.
  *          Approving or declining stamps resolved_by + _at.
+ *
+ * Family purse (slice 2): a POST may carry road ('onchain' | 'lightning').
+ * A Lightning request also carries the invoice, sealed with the vault key
+ * in the browser, and its sha256 fingerprint in the clear; it must fit
+ * the purse's per-payout limit and sit below the on-chain threshold, and
+ * it lapses after the purse's request_expiry_days. A Lightning request is
+ * approved ONLY by the family's signed yeses (/api/vault-purse-yes):
+ * a trustee cannot mark it approved here.
  */
 
 import { getSupabaseAdmin } from "./_supabase.js";
 import { requireUser, json } from "./_auth.js";
 import { recordEvent } from "./_ledger.js";
+import { PURSE_DEFAULTS } from "./_purse.js";
 
 const FIELDS =
-  "id, created_at, updated_at, vault_id, requested_by, rule_id, rule_name, amount_sats, recipient_name, reason, status, linked_proposal_id, resolved_by, resolved_at, resolution_note";
+  "id, created_at, updated_at, vault_id, requested_by, rule_id, rule_name, amount_sats, recipient_name, reason, status, linked_proposal_id, resolved_by, resolved_at, resolution_note, road, invoice, invoice_sha256, expires_at";
 
 async function membership(supabase, vaultId, userId) {
   const { data } = await supabase
@@ -69,7 +78,34 @@ export async function handler(event) {
     const me = await membership(supabase, vault_id, u.userId);
     if (!me) return json(403, { error: "Not a member of this vault" });
 
+    const road = body.road ?? null;
+    if (road !== null && road !== "onchain" && road !== "lightning") {
+      return json(400, { error: "road must be onchain or lightning" });
+    }
+    let purseFields = {};
+    if (road) {
+      const { data: purse } = await supabase.from("vault_purse").select("settings").eq("vault_id", vault_id).maybeSingle();
+      const settings = { ...PURSE_DEFAULTS, ...(purse?.settings ?? {}) };
+      const days = Number(settings.request_expiry_days) || PURSE_DEFAULTS.request_expiry_days;
+      purseFields = { road, expires_at: new Date(Date.now() + days * 86400000).toISOString() };
+      if (road === "lightning") {
+        if (amount_sats > settings.per_payout_limit_sats) {
+          return json(400, { error: `A Lightning payout can be at most ${settings.per_payout_limit_sats} sats.` });
+        }
+        if (amount_sats >= settings.onchain_threshold_sats) {
+          return json(400, { error: `From ${settings.onchain_threshold_sats} sats a payout goes on-chain from the vault.` });
+        }
+        const sha = typeof body.invoice_sha256 === "string" ? body.invoice_sha256.toLowerCase() : "";
+        if (!/^[0-9a-f]{64}$/.test(sha)) return json(400, { error: "A Lightning request needs its invoice fingerprint (invoice_sha256)." });
+        if (typeof body.invoice !== "string" || !body.invoice) return json(400, { error: "A Lightning request needs its invoice." });
+        if (body.invoice.length > 4000) return json(400, { error: "That invoice is too long." });
+        purseFields.invoice = body.invoice;
+        purseFields.invoice_sha256 = sha;
+      }
+    }
+
     const row = {
+      ...purseFields,
       vault_id,
       requested_by: u.userId,
       rule_id: rule_id || null,
@@ -96,6 +132,7 @@ export async function handler(event) {
         amount_sats,
         rule_name: rule_name || null,
         recipient_name: recipient_name || null,
+        road,
       },
     });
 
@@ -115,7 +152,7 @@ export async function handler(event) {
 
     const { data: existing } = await supabase
       .from("vault_requests")
-      .select("vault_id, requested_by, status")
+      .select("vault_id, requested_by, status, road")
       .eq("id", id)
       .maybeSingle();
     if (!existing) return json(404, { error: "Request not found" });
@@ -159,6 +196,9 @@ export async function handler(event) {
               : `This request is already ${existing.status} and cannot be changed further.`),
         });
       }
+    }
+    if (wantsStatus === "approved" && existing.road === "lightning") {
+      return json(403, { error: "A Lightning purse payout is approved only by the family's signed yeses, not by hand." });
     }
     if (
       wantsStatus === "cancelled" && !isRequester

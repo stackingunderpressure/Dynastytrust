@@ -22,7 +22,9 @@ export type AttestationType =
   | 'trust_doc'
   | 'proof_of_life'
   | 'death_declaration'
-  | 'descriptor';
+  | 'descriptor'
+  // The family purse: a member's yes to one exact payout (lib/purse.ts).
+  | 'purse_payout_yes';
 
 const TAG = 'DT-ATT-v1';
 

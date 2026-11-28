@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { PANEL_FIT } from "../../components/ui/panelFit";
-import { api, type Vault, type VaultMember, type VaultRequest, type VaultRequestStatus } from "../../lib/api";
+import { api, type PurseView, type PurseYes, type Vault, type VaultMember, type VaultRequest, type VaultRequestStatus } from "../../lib/api";
 import { supabase } from "../../lib/supabase";
 import { useToast } from "../../components/toast";
 import { usePrompt } from "../../components/dialog";
@@ -10,6 +10,8 @@ import { useRealtimeRefresh } from "../../lib/realtime";
 import { SendPrefill } from "./SendTab";
 import { isTrusteeRole, satsToBtc } from "./shared";
 import { PursePanel } from "./PursePanel";
+import { PurseRoadFields, PurseYesBlock, type PurseRoad } from "./PurseRequest";
+import { readInvoice } from "../../lib/purse";
 
 
 // // -- Requests tab
@@ -25,6 +27,8 @@ export function RequestsTab({ vault, onSendPrefill }: { vault: Vault; onSendPref
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [purse, setPurse] = useState<PurseView | null>(null);
+  const [yeses, setYeses] = useState<PurseYes[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -34,6 +38,13 @@ export function RequestsTab({ vault, onSendPrefill }: { vault: Vault; onSendPref
       ]);
       setRequests(r.requests);
       setMembers(m.members);
+      // The purse is additive: if it cannot load, requests still show.
+      const [pv, ys] = await Promise.all([
+        api.vaultPurse.get(vault.id).catch(() => null),
+        api.vaultPurse.yeses(vault.id).catch(() => ({ yeses: [] as PurseYes[] })),
+      ]);
+      setPurse(pv);
+      setYeses(ys.yeses);
     } catch {
       /* silent */
     } finally {
@@ -53,6 +64,10 @@ export function RequestsTab({ vault, onSendPrefill }: { vault: Vault; onSendPref
 
   useRealtimeRefresh(
     { table: "vault_requests", filter: `vault_id=eq.${vault.id}` },
+    () => void load(),
+  );
+  useRealtimeRefresh(
+    { table: "purse_yeses", filter: `vault_id=eq.${vault.id}` },
     () => void load(),
   );
 
@@ -142,6 +157,7 @@ export function RequestsTab({ vault, onSendPrefill }: { vault: Vault; onSendPref
               requesterLabel={members.find(m => m.user_id === r.requested_by)?.label ?? "Member"}
               iAmTrustee={iAmTrustee}
               iAmRequester={r.requested_by === currentUserId}
+              purse={<PurseYesBlock vault={vault} request={r} me={me} members={members} purse={purse} yeses={yeses} onChanged={() => void load()} />}
               onApprove={() => {
                 void resolve(r, "approved", "Create the proposal in Send.");
                 startProposalFromRequest(r);
@@ -194,6 +210,7 @@ export function RequestsTab({ vault, onSendPrefill }: { vault: Vault; onSendPref
               requesterLabel={members.find(m => m.user_id === r.requested_by)?.label ?? "Member"}
               iAmTrustee={false}
               iAmRequester={false}
+              purse={<PurseYesBlock vault={vault} request={r} me={me} members={members} purse={purse} yeses={yeses} onChanged={() => void load()} />}
             />
           ))}
         </div>
@@ -221,11 +238,13 @@ function RequestRow({
   onApprove,
   onDecline,
   onCancel,
+  purse,
 }: {
   request: VaultRequest;
   requesterLabel: string;
   iAmTrustee: boolean;
   iAmRequester: boolean;
+  purse?: React.ReactNode;
   onApprove?: () => void;
   onDecline?: () => void;
   onCancel?: () => void;
@@ -287,9 +306,10 @@ function RequestRow({
           Note: {r.resolution_note}
         </div>
       )}
+      {purse}
       {r.status === "pending" && (iAmTrustee || iAmRequester) && (
         <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
-          {iAmTrustee && onApprove && (
+          {iAmTrustee && onApprove && r.road !== "lightning" && (
             <Button size="sm" style={{ fontSize: 16 }} onClick={onApprove}>
               Approve + create proposal
             </Button>
@@ -325,6 +345,8 @@ function NewRequestModal({
   const [amountBtc, setAmountBtc] = useState("");
   const [recipient, setRecipient] = useState("");
   const [reason, setReason] = useState("");
+  const [road, setRoad] = useState<PurseRoad>("");
+  const [invoice, setInvoice] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -332,7 +354,12 @@ function NewRequestModal({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    const sats = Math.round(parseFloat(amountBtc || "0") * 1e8);
+    const inv = road === "lightning" ? readInvoice(invoice, vault.network) : null;
+    if (inv && !inv.ok) {
+      setErr(inv.error);
+      return;
+    }
+    const sats = inv && inv.ok ? inv.amount_sats : Math.round(parseFloat(amountBtc || "0") * 1e8);
     if (sats < 546) {
       setErr("Minimum 546 sats");
       return;
@@ -356,6 +383,9 @@ function NewRequestModal({
         amount_sats: sats,
         recipient_name: recipient.trim() || undefined,
         reason: reason.trim() || undefined,
+        road: road || undefined,
+        invoice: inv && inv.ok ? inv.invoice : undefined,
+        invoice_sha256: inv && inv.ok ? inv.sha256 : undefined,
       });
       toast.success("Request filed");
       onCreated();
@@ -434,18 +464,21 @@ function NewRequestModal({
               </select>
             </div>
           )}
-          <div>
-            <Label>Amount (BTC)</Label>
-            <Input
-              type="number"
-              step="0.00000001"
-              min="0.00000546"
-              value={amountBtc}
-              onChange={e => setAmountBtc(e.target.value)}
-              required
-              placeholder="0.01"
-            />
-          </div>
+          <PurseRoadFields vault={vault} road={road} setRoad={setRoad} invoice={invoice} setInvoice={setInvoice} />
+          {road !== "lightning" && (
+            <div>
+              <Label>Amount (BTC)</Label>
+              <Input
+                type="number"
+                step="0.00000001"
+                min="0.00000546"
+                value={amountBtc}
+                onChange={e => setAmountBtc(e.target.value)}
+                required
+                placeholder="0.01"
+              />
+            </div>
+          )}
           <div>
             <Label>Recipient (optional)</Label>
             <Input
